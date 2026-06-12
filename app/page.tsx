@@ -1210,7 +1210,7 @@ function moveRack(targetRack: string) {
         connection: receiveForm.connection || null,
         condition: receiveForm.condition || "New",
         status: receiveForm.status || "Received",
-        inspection_color: receiveForm.inspectionColor || "None",
+        inspection_color: "None",
         inspection_due_date: receiveForm.inspectionDueDate || null,
         bulk_joints: joints,
         bulk_footage: footage,
