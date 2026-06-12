@@ -64,6 +64,17 @@ function formatNumber(value: number) {
   return Number(value || 0).toLocaleString();
 }
 
+function getCompanyName(value: unknown) {
+  const readName = (item: unknown) => {
+    if (!item || typeof item !== "object" || !("name" in item)) return "";
+    const name = (item as { name?: unknown }).name;
+    return typeof name === "string" ? name : "";
+  };
+
+  if (Array.isArray(value)) return readName(value[0]);
+  return readName(value);
+}
+
 export default function TicketPrintPage() {
   const [ticket, setTicket] = useState<Ticket>(emptyTicket);
   const [lines, setLines] = useState<TicketLine[]>([]);
@@ -105,12 +116,14 @@ export default function TicketPrintPage() {
           return;
         }
 
+        const companyName = getCompanyName(data.companies);
+
         setTicket({
           id: data.id,
           type: "shipping",
           ticketNumber: data.ticket_number ?? "",
           bolNumber: data.bol_number ?? "",
-          company: data.companies?.name ?? "",
+          company: companyName,
           carrier: data.carrier ?? "",
           poNumber: data.po_number ?? "",
           truckNumber: data.truck_number ?? "",
@@ -161,17 +174,19 @@ export default function TicketPrintPage() {
         return;
       }
 
+      const companyName = getCompanyName(data.companies);
+
       setTicket({
         id: data.id,
         type: "receiving",
         ticketNumber: data.ticket_number ?? "",
         bolNumber: "",
-        company: data.companies?.name ?? "",
+        company: companyName,
         carrier: data.carrier ?? "",
         poNumber: data.po_number ?? "",
         truckNumber: data.truck_number ?? "",
         shipTo: "",
-        receivedFrom: data.companies?.name ?? "",
+        receivedFrom: companyName,
         destination: data.destination ?? "-",
         notes: data.notes ?? "",
         createdAt: data.created_at ?? "",
@@ -193,14 +208,22 @@ export default function TicketPrintPage() {
   }, []);
 
   if (error) {
-    return <main className="print-page"><section className="print-sheet">{error}</section></main>;
+    return (
+      <main className="print-page">
+        <section className="print-sheet">{error}</section>
+      </main>
+    );
   }
 
   return (
     <main className="print-page">
       <div className="print-actions">
-        <button className="button" onClick={() => history.back()}>Back</button>
-        <button className="button primary" onClick={() => window.print()}>Print / Save PDF</button>
+        <button className="button" onClick={() => history.back()}>
+          Back
+        </button>
+        <button className="button primary" onClick={() => window.print()}>
+          Print / Save PDF
+        </button>
       </div>
 
       <section className="print-sheet">
@@ -232,15 +255,30 @@ export default function TicketPrintPage() {
         </div>
 
         <section className="ticket-info-grid">
-          <div><span>Company</span><strong>{ticket.company}</strong></div>
-          <div><span>Carrier</span><strong>{ticket.carrier || "-"}</strong></div>
-          <div><span>PO Number</span><strong>{ticket.poNumber || "-"}</strong></div>
-          <div><span>Truck Number</span><strong>{ticket.truckNumber || "-"}</strong></div>
+          <div>
+            <span>Company</span>
+            <strong>{ticket.company}</strong>
+          </div>
+          <div>
+            <span>Carrier</span>
+            <strong>{ticket.carrier || "-"}</strong>
+          </div>
+          <div>
+            <span>PO Number</span>
+            <strong>{ticket.poNumber || "-"}</strong>
+          </div>
+          <div>
+            <span>Truck Number</span>
+            <strong>{ticket.truckNumber || "-"}</strong>
+          </div>
           <div>
             <span>{ticket.type === "shipping" ? "Ship To" : "Received From"}</span>
             <strong>{ticket.type === "shipping" ? ticket.shipTo || "-" : ticket.receivedFrom || "-"}</strong>
           </div>
-          <div><span>Destination</span><strong>{ticket.destination || "-"}</strong></div>
+          <div>
+            <span>Destination</span>
+            <strong>{ticket.destination || "-"}</strong>
+          </div>
         </section>
 
         <table className="ticket-table">
@@ -264,9 +302,15 @@ export default function TicketPrintPage() {
               </tr>
             ))}
             <tr>
-              <td colSpan={3}><strong>Totals</strong></td>
-              <td><strong>{formatNumber(totals.joints)}</strong></td>
-              <td><strong>{formatNumber(totals.footage)}</strong></td>
+              <td colSpan={3}>
+                <strong>Totals</strong>
+              </td>
+              <td>
+                <strong>{formatNumber(totals.joints)}</strong>
+              </td>
+              <td>
+                <strong>{formatNumber(totals.footage)}</strong>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -277,9 +321,18 @@ export default function TicketPrintPage() {
         </section>
 
         <section className="signature-grid">
-          <div><span></span><p>Pathfinder Representative</p></div>
-          <div><span></span><p>Carrier / Driver Signature</p></div>
-          <div><span></span><p>Customer Representative</p></div>
+          <div>
+            <span></span>
+            <p>Pathfinder Representative</p>
+          </div>
+          <div>
+            <span></span>
+            <p>Carrier / Driver Signature</p>
+          </div>
+          <div>
+            <span></span>
+            <p>Customer Representative</p>
+          </div>
         </section>
       </section>
     </main>
