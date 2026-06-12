@@ -1,0 +1,303 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../../lib/supabase";
+
+type TicketType = "receiving" | "shipping";
+
+type Ticket = {
+  id: string;
+  type: TicketType;
+  ticketNumber: string;
+  bolNumber: string;
+  company: string;
+  carrier: string;
+  poNumber: string;
+  truckNumber: string;
+  shipTo: string;
+  destination: string;
+  notes: string;
+  createdAt: string;
+};
+
+type TicketLine = {
+  id: string;
+  afe: string;
+  partNumber: string;
+  condition: string;
+  joints: number;
+  footage: number;
+};
+
+function formatDate(value: string) {
+  if (!value) return "";
+  return value.slice(0, 10);
+}
+
+export default function TicketPrintPage() {
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [lines, setLines] = useState<TicketLine[]>([]);
+  const [message, setMessage] = useState("Loading ticket...");
+
+  async function loadTicket() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    const type = params.get("type") as TicketType | null;
+
+    if (!id || !type) {
+      setMessage("Missing ticket id or ticket type.");
+      return;
+    }
+
+    if (type === "receiving") {
+      const { data, error } = await supabase
+        .from("receiving_tickets")
+        .select(`
+          id,
+          ticket_number,
+          carrier,
+          po_number,
+          truck_number,
+          Destination,
+          notes,
+          created_at,
+          companies(name)
+        `)
+        .eq("id", id)
+        .single();
+
+      if (error || !data) {
+        setMessage(error?.message ?? "Receiving ticket not found.");
+        return;
+      }
+
+      const company = Array.isArray(data.companies) ? data.companies[0] : data.companies;
+
+      setTicket({
+        id: data.id,
+        type,
+        ticketNumber: data.ticket_number ?? "",
+        bolNumber: "",
+        company: company?.name ?? "",
+        carrier: data.carrier ?? "",
+        poNumber: data.po_number ?? "",
+        truckNumber: data.truck_number ?? "",
+        shipTo: company?.name ?? "",
+        destination: data.destination ?? "-",
+        notes: data.notes ?? "",
+        createdAt: formatDate(data.created_at),
+      });
+
+      setLines([]);
+      setMessage("");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("shipping_tickets")
+      .select(`
+        id,
+        ticket_number,
+        bol_number,
+        carrier,
+        po_number,
+        truck_number,
+        ship_to,
+        destination,
+        notes,
+        created_at,
+        companies(name)
+      `)
+      .eq("id", id)
+      .single();
+
+    if (error || !data) {
+      setMessage(error?.message ?? "Shipping ticket not found.");
+      return;
+    }
+
+    const company = Array.isArray(data.companies) ? data.companies[0] : data.companies;
+
+    setTicket({
+      id: data.id,
+      type,
+      ticketNumber: data.ticket_number ?? "",
+      bolNumber: data.bol_number ?? "",
+      company: company?.name ?? "",
+      carrier: data.carrier ?? "",
+      poNumber: data.po_number ?? "",
+      truckNumber: data.truck_number ?? "",
+      shipTo: data.ship_to ?? company?.name ?? "",
+      destination: data.destination ?? "",
+      notes: data.notes ?? "",
+      createdAt: formatDate(data.created_at),
+    });
+
+    const { data: lineData } = await supabase
+      .from("ticket_line_items")
+      .select("id, afe, part_number, condition, joints, footage")
+      .eq("ticket_id", id)
+      .order("id", { ascending: true });
+
+    setLines(
+      (lineData ?? []).map((line: any) => ({
+        id: line.id,
+        afe: line.afe ?? "",
+        partNumber: line.part_number ?? "",
+        condition: line.condition ?? "",
+        joints: Number(line.joints ?? 0),
+        footage: Number(line.footage ?? 0),
+      }))
+    );
+
+    setMessage("");
+  }
+
+  useEffect(() => {
+    loadTicket();
+  }, []);
+
+  const totals = useMemo(() => {
+    return lines.reduce(
+      (sum, line) => ({
+        joints: sum.joints + line.joints,
+        footage: sum.footage + line.footage,
+      }),
+      { joints: 0, footage: 0 }
+    );
+  }, [lines]);
+
+  if (message) {
+    return (
+      <main className="print-page">
+        <section className="print-sheet">
+          <p>{message}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!ticket) return null;
+
+  return (
+    <main className="print-page">
+      <div className="print-actions">
+        <button className="button" onClick={() => window.history.back()}>
+          Back
+        </button>
+        <button className="button primary" onClick={() => window.print()}>
+          Print / Save PDF
+        </button>
+      </div>
+
+      <section className="print-sheet">
+        <header className="ticket-letterhead">
+          <img src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" />
+          <div>
+            <h1>Pathfinder Inspections & Field Services</h1>
+            <p>7501 Groening St.</p>
+            <p>Odessa, TX 79765</p>
+            <p>(432) 233-3600</p>
+          </div>
+        </header>
+
+        <div className="ticket-title-row">
+          <div>
+            <h2>{ticket.type === "shipping" ? "Shipping Ticket / Bill of Lading" : "Receiving Ticket"}</h2>
+            <p>{ticket.ticketNumber}</p>
+          </div>
+          <div className="ticket-number-box">
+            <span>Date</span>
+            <strong>{ticket.createdAt}</strong>
+            {ticket.bolNumber && (
+              <>
+                <span>BOL</span>
+                <strong>{ticket.bolNumber}</strong>
+              </>
+            )}
+          </div>
+        </div>
+
+        <section className="ticket-info-grid">
+          <div>
+            <span>Company</span>
+            <strong>{ticket.company}</strong>
+          </div>
+          <div>
+            <span>Carrier</span>
+            <strong>{ticket.carrier || "-"}</strong>
+          </div>
+          <div>
+            <span>PO Number</span>
+            <strong>{ticket.poNumber || "-"}</strong>
+          </div>
+          <div>
+            <span>Truck Number</span>
+            <strong>{ticket.truckNumber || "-"}</strong>
+          </div>
+          <div>
+            <span>Ship To</span>
+            <strong>{ticket.shipTo || "-"}</strong>
+          </div>
+          <div>
+            <span>Destination</span>
+            <strong>{ticket.destination || "-"}</strong>
+          </div>
+        </section>
+
+        <table className="print-ticket-table">
+          <thead>
+            <tr>
+              <th>TU#</th>
+              <th>Part Number</th>
+              <th>Condition</th>
+              <th>Joints</th>
+              <th>Footage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length > 0 ? (
+              lines.map((line) => (
+                <tr key={line.id}>
+                  <td>{line.afe}</td>
+                  <td>{line.partNumber}</td>
+                  <td>{line.condition}</td>
+                  <td>{line.joints}</td>
+                  <td>{line.footage.toLocaleString()}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5}>Line items will appear here when linked to this ticket.</td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={3}>Totals</td>
+              <td>{totals.joints}</td>
+              <td>{totals.footage.toLocaleString()}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <section className="ticket-notes">
+          <h3>Notes</h3>
+          <p>{ticket.notes || "No notes."}</p>
+        </section>
+
+        <section className="signature-grid">
+          <div>
+            <span>Pathfinder Representative</span>
+          </div>
+          <div>
+            <span>Carrier / Driver Signature</span>
+          </div>
+          <div>
+            <span>Customer Representative</span>
+          </div>
+        </section>
+      </section>
+    </main>
+  );
+}
