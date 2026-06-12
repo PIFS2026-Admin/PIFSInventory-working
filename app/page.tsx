@@ -12,6 +12,10 @@ type RackConfig = {
   label: string;
   capacity: number;
   sort_order: number;
+  layoutX: number;
+  layoutY: number;
+  layoutGroup: string;
+  rotation: number;
 };
 
 type ZoneConfig = {
@@ -79,6 +83,23 @@ type TransferForm = {
   backDate: string;
 };
 
+type EditForm = {
+  customer: string;
+  destination: string;
+  afe: string;
+  partNumber: string;
+  size: string;
+  grade: string;
+  connection: string;
+  condition: string;
+  status: string;
+  bulkJoints: string;
+  bulkFootage: string;
+  talliedJoints: string;
+  talliedFootage: string;
+  inspectionDue: string;
+  comment: string;
+};
 type ShipForm = {
   carrier: string;
   poNumber: string;
@@ -146,28 +167,80 @@ type ReportLine = {
 
 const today = new Date().toISOString().slice(0, 10);
 
-const makeDefaultRacks = (): RackConfig[] => {
-  const racks: RackConfig[] = [];
+const rackLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+const rackNumbers = Array.from({ length: 16 }, (_, index) => 16 - index);
+const rackNumbersByLetter: Record<string, number[]> = {
+  A: rackNumbers,
+  B: rackNumbers,
+  C: rackNumbers,
+  D: rackNumbers,
+  E: rackNumbers,
+  F: rackNumbers,
+  G: rackNumbers,
+  H: rackNumbers,
+  I: rackNumbers,
+  J: rackNumbers,
+  K: rackNumbers,
+};
+const yardRackCodes = rackLetters.flatMap((letter) =>
+  rackNumbersByLetter[letter].map((number) => `${letter}${number}`)
+);
 
-  for (let rack = 200; rack <= 300; rack += 1) {
-    racks.push({
-      id: `${rack}A`,
-      label: `${rack}A`,
-      capacity: 500,
-      sort_order: racks.length + 1,
-    });
+function parseRackCode(code: string) {
+  const clean = String(code ?? "").trim().toUpperCase();
+  const letterFirst = clean.match(/^([A-Z])(\d+)$/);
 
-    racks.push({
-      id: `${rack}B`,
-      label: `${rack}B`,
-      capacity: 500,
-      sort_order: racks.length + 1,
-    });
+  if (letterFirst) {
+    return { letter: letterFirst[1], number: Number(letterFirst[2]) };
   }
 
-  return racks;
-};
+  const oldNumberFirst = clean.match(/^(\d+)([A-Z])$/);
 
+  if (oldNumberFirst) {
+    return { letter: oldNumberFirst[2], number: Number(oldNumberFirst[1]) };
+  }
+
+  return null;
+}
+
+function defaultRackPosition(rackCode: string) {
+  const parsed = parseRackCode(rackCode);
+
+  if (!parsed) return { x: 26, y: 70 };
+
+  const numberIndex = 16 - parsed.number;
+  const letterIndex = rackLetters.indexOf(parsed.letter);
+  return {
+    x: 26 + Math.max(0, numberIndex) * 74,
+    y: 70 + Math.max(0, letterIndex) * 74,
+  };
+}
+
+function templateRackForIndex(index: number) {
+  return yardRackCodes[index] ?? yardRackCodes[yardRackCodes.length - 1] ?? "A1";
+}
+
+function normalizeRackLabel(label: string, index: number) {
+  const clean = String(label ?? "").trim().toUpperCase();
+  return yardRackCodes.includes(clean) ? clean : templateRackForIndex(index);
+}
+
+const makeDefaultRacks = (): RackConfig[] => {
+  return yardRackCodes.map((label, index) => {
+    const position = defaultRackPosition(label);
+    const parsed = parseRackCode(label);
+    return {
+      id: label,
+      label,
+      capacity: 500,
+      sort_order: index + 1,
+      layoutX: position.x,
+      layoutY: position.y,
+      layoutGroup: parsed?.letter ?? "A",
+      rotation: 0,
+    };
+  });
+};
 const defaultZones: ZoneConfig[] = [
   { id: "shipping", name: "Shipping", code: "shipping", sort_order: 10 },
   { id: "receiving", name: "Receiving", code: "receiving", sort_order: 20 },
@@ -204,6 +277,23 @@ const emptyTransferForm: TransferForm = {
   backDate: "",
 };
 
+const emptyEditForm: EditForm = {
+  customer: "",
+  destination: "zone:receiving",
+  afe: "",
+  partNumber: "",
+  size: "",
+  grade: "",
+  connection: "",
+  condition: "New",
+  status: "Available",
+  bulkJoints: "0",
+  bulkFootage: "0",
+  talliedJoints: "0",
+  talliedFootage: "0",
+  inspectionDue: "",
+  comment: "",
+};
 const emptyShipForm: ShipForm = {
   carrier: "",
   poNumber: "",
@@ -259,6 +349,9 @@ export default function Home() {
   const [selectedLocation, setSelectedLocation] = useState("200A");
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [conditionFilter, setConditionFilter] = useState("all");
   const [layoutMode, setLayoutMode] = useState(false);
   const [draggedRack, setDraggedRack] = useState<string | null>(null);
 
@@ -267,11 +360,16 @@ export default function Home() {
   const [shipOpen, setShipOpen] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [ticketFilter, setTicketFilter] = useState<"all" | "receiving" | "shipping">("all");
+  const [ticketDate, setTicketDate] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
 
   const [transferMode, setTransferMode] = useState<TransferMode>("all");
   const [receiveForm, setReceiveForm] = useState<ReceiveForm>(emptyReceiveForm);
   const [transferForm, setTransferForm] = useState<TransferForm>(emptyTransferForm);
   const [shipForm, setShipForm] = useState<ShipForm>(emptyShipForm);
+  const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
 
   const [receivingTickets, setReceivingTickets] = useState<ReceivingTicket[]>([]);
   const [shippingTickets, setShippingTickets] = useState<ShippingTicket[]>([]);
@@ -284,6 +382,7 @@ export default function Home() {
   const [savingReceive, setSavingReceive] = useState(false);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingShip, setSavingShip] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedTransferRow = useMemo(() => {
@@ -294,7 +393,67 @@ export default function Home() {
   const selectedShipRows = useMemo(() => {
     return inventory.filter((row) => selectedRows.includes(row.id));
   }, [inventory, selectedRows]);
+  const selectedEditRow = useMemo(() => {
+    if (selectedRows.length !== 1) return null;
+    return inventory.find((row) => row.id === selectedRows[0]) ?? null;
+  }, [inventory, selectedRows]);
 
+
+  const filteredReceivingTickets = useMemo(() => {
+    const searchText = ticketSearch.toLowerCase().trim();
+
+    return receivingTickets.filter((ticket) => {
+      if (ticketFilter === "shipping") return false;
+      if (ticketDate && ticket.createdAt !== ticketDate) return false;
+      if (!searchText) return true;
+
+      return [
+        ticket.ticketNumber,
+        ticket.company,
+        ticket.carrier,
+        ticket.poNumber,
+        ticket.truckNumber,
+        ticket.notes,
+        ticket.createdAt,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+    });
+  }, [receivingTickets, ticketDate, ticketFilter, ticketSearch]);
+
+  const filteredShippingTickets = useMemo(() => {
+    const searchText = ticketSearch.toLowerCase().trim();
+
+    return shippingTickets.filter((ticket) => {
+      if (ticketFilter === "receiving") return false;
+      if (ticketDate && ticket.createdAt !== ticketDate) return false;
+
+      const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
+      const lineText = lines
+        .map((line) => [line.company, line.afe, line.partNumber, line.condition].join(" "))
+        .join(" ");
+
+      if (!searchText) return true;
+
+      return [
+        ticket.ticketNumber,
+        ticket.bolNumber,
+        ticket.company,
+        ticket.carrier,
+        ticket.poNumber,
+        ticket.truckNumber,
+        ticket.shipTo,
+        ticket.destination,
+        ticket.notes,
+        ticket.createdAt,
+        lineText,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+    });
+  }, [shippingTickets, ticketDate, ticketFilter, ticketLines, ticketSearch]);
   const activeInventory = useMemo(() => {
     return inventory.filter((row) => {
       const totalJoints = row.bulkJoints + row.talliedJoints;
@@ -424,18 +583,28 @@ export default function Home() {
 
     const { data: dbRacks } = await supabase
       .from("racks")
-      .select("id, rack_code, capacity_joints, sort_order")
+      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
       .eq("yard_id", yard.id)
       .order("sort_order", { ascending: true });
 
     const mappedRacks =
       dbRacks && dbRacks.length > 0
-        ? dbRacks.map((rack: any) => ({
-            id: rack.id,
-            label: rack.rack_code,
-            capacity: Number(rack.capacity_joints ?? 500),
-            sort_order: Number(rack.sort_order ?? 0),
-          }))
+        ? dbRacks.map((rack: any, index: number) => {
+            const label = normalizeRackLabel(rack.rack_code, index);
+            const parsed = parseRackCode(label);
+            const fallback = defaultRackPosition(label);
+
+            return {
+              id: rack.id,
+              label,
+              capacity: Number(rack.capacity_joints ?? 500),
+              sort_order: Number(rack.sort_order ?? index + 1),
+              layoutX: fallback.x,
+              layoutY: fallback.y,
+              layoutGroup: rack.layout_group ?? parsed?.letter ?? "A",
+              rotation: 0,
+            };
+          })
         : makeDefaultRacks();
 
     setRackLayout(mappedRacks);
@@ -637,6 +806,9 @@ export default function Home() {
 
   function openTickets() {
     setTicketsOpen(true);
+    setTicketSearch("");
+    setTicketFilter("all");
+    setTicketDate("");
     loadTickets();
   }
 
@@ -663,12 +835,35 @@ export default function Home() {
     return [...rackOptions, ...zoneOptions];
   }, [rackLayout, zones]);
 
+
+  const normalizeFilter = (value: string | null | undefined) => String(value ?? "").trim().toLowerCase();
+
+  const customerOptions = useMemo(() => {
+    return Array.from(new Set(inventory.map((row) => row.company).filter(Boolean))).sort();
+  }, [inventory]);
+
+  const statusOptions = useMemo(() => {
+    return Array.from(new Set(inventory.map((row) => row.status).filter(Boolean))).sort();
+  }, [inventory]);
+
+  const conditionOptions = useMemo(() => {
+    return Array.from(new Set(inventory.map((row) => row.condition).filter(Boolean))).sort();
+  }, [inventory]);
+
+  function rowMatchesQuickFilters(row: InventoryRow) {
+    const matchesCustomer = customerFilter === "all" || normalizeFilter(row.company) === normalizeFilter(customerFilter);
+    const matchesStatus = statusFilter === "all" || normalizeFilter(row.status) === normalizeFilter(statusFilter);
+    const matchesCondition = conditionFilter === "all" || normalizeFilter(row.condition) === normalizeFilter(conditionFilter);
+
+    return matchesCustomer && matchesStatus && matchesCondition;
+  }
   const filteredInventory = useMemo(() => {
     const searchText = search.toLowerCase().trim();
 
     return inventory.filter((row) => {
       const rowLocation = row.locationType === "rack" ? row.rackId : row.zoneId;
       const matchesLocation = selectedLocation === "all" || rowLocation === selectedLocation;
+      const matchesQuickFilters = rowMatchesQuickFilters(row);
 
       const matchesSearch =
         !searchText ||
@@ -676,6 +871,9 @@ export default function Home() {
           row.company,
           row.afe,
           row.partNumber,
+          row.size,
+          row.grade,
+          row.connection,
           row.status,
           row.condition,
           row.rackId ?? "",
@@ -685,9 +883,9 @@ export default function Home() {
           .toLowerCase()
           .includes(searchText);
 
-      return matchesLocation && matchesSearch;
+      return matchesLocation && matchesQuickFilters && matchesSearch;
     });
-  }, [inventory, search, selectedLocation]);
+  }, [conditionFilter, customerFilter, inventory, search, selectedLocation, statusFilter]);
 
   const selectedTotals = useMemo(() => {
     return selectedShipRows.reduce(
@@ -742,7 +940,41 @@ export default function Home() {
     setShipOpen(true);
   }
 
-  function moveRack(targetRack: string) {
+  
+  function openEdit() {
+    setMessage("");
+
+    if (selectedRows.length !== 1 || !selectedEditRow) {
+      setMessage("Select one inventory line before editing.");
+      return;
+    }
+
+    const destination =
+      selectedEditRow.locationType === "rack" && selectedEditRow.rackId
+        ? `rack:${selectedEditRow.rackId}`
+        : `zone:${selectedEditRow.zoneId ?? "receiving"}`;
+
+    setEditForm({
+      customer: selectedEditRow.company,
+      destination,
+      afe: selectedEditRow.afe,
+      partNumber: selectedEditRow.partNumber,
+      size: selectedEditRow.size,
+      grade: selectedEditRow.grade,
+      connection: selectedEditRow.connection,
+      condition: selectedEditRow.condition || "New",
+      status: selectedEditRow.status || "Available",
+      bulkJoints: String(selectedEditRow.bulkJoints),
+      bulkFootage: String(selectedEditRow.bulkFootage),
+      talliedJoints: String(selectedEditRow.talliedJoints),
+      talliedFootage: String(selectedEditRow.talliedFootage),
+      inspectionDue: selectedEditRow.inspectionDue,
+      comment: "",
+    });
+
+    setEditOpen(true);
+  }
+function moveRack(targetRack: string) {
     if (!draggedRack || draggedRack === targetRack) return;
 
     const current = [...rackLayout];
@@ -754,30 +986,272 @@ export default function Home() {
     const [removed] = current.splice(fromIndex, 1);
     current.splice(toIndex, 0, removed);
 
-    setRackLayout(
-      current.map((rack, index) => ({
-        ...rack,
-        sort_order: index + 1,
-      }))
-    );
+    setRackLayout(current.map((rack, index) => ({ ...rack, sort_order: index + 1 })));
+    setDraggedRack(null);
+  }
+
+  async function saveRackLayout() {
+    setMessage("");
+
+    try {
+      for (const rack of rackLayout) {
+        const parsed = parseRackCode(rack.label);
+        const position = defaultRackPosition(rack.label);
+        const { error } = await supabase
+          .from("racks")
+          .update({
+            rack_code: rack.label,
+            capacity_joints: rack.capacity,
+            sort_order: rack.sort_order,
+            layout_x: position.x,
+            layout_y: position.y,
+            layout_group: parsed?.letter ?? rack.layoutGroup,
+            rotation: 0,
+          })
+          .eq("id", rack.id);
+
+        if (error) throw error;
+      }
+
+      setLayoutMode(false);
+      setMessage("Rack grid saved.");
+    } catch (error: any) {
+      setMessage(`Rack save failed: ${error.message}`);
+    }
+  }
+
+  async function applyRackTemplate() {
+    if (!selectedYard) return;
+
+    setMessage("");
+
+    try {
+      const template = makeDefaultRacks();
+      const existingSorted = [...rackLayout].sort((a, b) => a.sort_order - b.sort_order);
+
+      for (let index = 0; index < Math.min(existingSorted.length, template.length); index += 1) {
+        const existing = existingSorted[index];
+        const templateRack = template[index];
+        const { error } = await supabase
+          .from("racks")
+          .update({
+            rack_code: templateRack.label,
+            capacity_joints: existing.capacity || templateRack.capacity,
+            sort_order: templateRack.sort_order,
+            layout_x: templateRack.layoutX,
+            layout_y: templateRack.layoutY,
+            layout_group: templateRack.layoutGroup,
+            rotation: 0,
+          })
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      }
+
+      const racksToCreate = template.slice(existingSorted.length);
+      if (racksToCreate.length > 0) {
+        const payload = racksToCreate.map((rack) => ({
+          yard_id: selectedYard.id,
+          rack_code: rack.label,
+          capacity_joints: rack.capacity,
+          sort_order: rack.sort_order,
+          layout_x: rack.layoutX,
+          layout_y: rack.layoutY,
+          layout_group: rack.layoutGroup,
+          rotation: 0,
+        }));
+
+        const { error: insertError } = await supabase.from("racks").insert(payload);
+        if (insertError && insertError.code !== "23505") throw insertError;
+      }
+
+      await loadYardSetup();
+      setSelectedLocation("all");
+      setLayoutMode(true);
+      setMessage("Straight yard grid applied: A-K rows, 16 racks per row.");
+    } catch (error: any) {
+      setMessage(`Template failed: ${error.message}`);
+    }
+  }
+
+  async function createRackAt(label: string, capacity = 500) {
+    if (!selectedYard) return;
+
+    setMessage("");
+
+    const cleanLabel = label.trim().toUpperCase();
+    const parsed = parseRackCode(cleanLabel);
+
+    if (!parsed) {
+      setMessage("Use rack labels like A1, B1, K16, or A16.");
+      return;
+    }
+
+    if (!rackNumbersByLetter[parsed.letter]?.includes(parsed.number)) {
+      setMessage(`Rack ${cleanLabel} is outside the yard grid.`);
+      return;
+    }
+
+    const existingLocal = rackLayout.find((rack) => rack.label.toLowerCase() === cleanLabel.toLowerCase());
+    if (existingLocal) {
+      setSelectedLocation(existingLocal.label);
+      setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
+      return;
+    }
+
+    const { data: existingDb, error: lookupError } = await supabase
+      .from("racks")
+      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
+      .eq("yard_id", selectedYard.id)
+      .eq("rack_code", cleanLabel)
+      .maybeSingle();
+
+    if (lookupError) {
+      setMessage(`Rack lookup failed: ${lookupError.message}`);
+      return;
+    }
+
+    if (existingDb) {
+      const fallback = defaultRackPosition(cleanLabel);
+      const existingRack: RackConfig = {
+        id: existingDb.id,
+        label: existingDb.rack_code,
+        capacity: Number(existingDb.capacity_joints ?? capacity),
+        sort_order: Number(existingDb.sort_order ?? yardRackCodes.indexOf(cleanLabel) + 1),
+        layoutX: Number(existingDb.layout_x ?? fallback.x),
+        layoutY: Number(existingDb.layout_y ?? fallback.y),
+        layoutGroup: existingDb.layout_group ?? parsed.letter,
+        rotation: Number(existingDb.rotation ?? 0),
+      };
+
+      setRackLayout((current) => [...current, existingRack].sort((a, b) => a.sort_order - b.sort_order));
+      setSelectedLocation(existingRack.label);
+      setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
+      return;
+    }
+
+    const sortOrder = yardRackCodes.includes(cleanLabel) ? yardRackCodes.indexOf(cleanLabel) + 1 : rackLayout.length + 1;
+    const fallback = defaultRackPosition(cleanLabel);
+
+    const { data, error } = await supabase
+      .from("racks")
+      .insert({
+        yard_id: selectedYard.id,
+        rack_code: cleanLabel,
+        capacity_joints: capacity,
+        sort_order: sortOrder,
+        layout_x: fallback.x,
+        layout_y: fallback.y,
+        layout_group: parsed.letter,
+        rotation: 0,
+      })
+      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
+      .single();
+
+    if (error) {
+      if (error.code === "23505") {
+        await loadYardSetup();
+        setSelectedLocation(cleanLabel);
+        setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
+        return;
+      }
+      setMessage(`Add rack failed: ${error.message}`);
+      return;
+    }
+
+    const newRack: RackConfig = {
+      id: data.id,
+      label: data.rack_code,
+      capacity: Number(data.capacity_joints ?? capacity),
+      sort_order: Number(data.sort_order ?? sortOrder),
+      layoutX: Number(data.layout_x ?? fallback.x),
+      layoutY: Number(data.layout_y ?? fallback.y),
+      layoutGroup: data.layout_group ?? parsed.letter,
+      rotation: 0,
+    };
+
+    setRackLayout((current) => [...current, newRack].sort((a, b) => a.sort_order - b.sort_order));
+    setSelectedLocation(newRack.label);
+    setLayoutMode(true);
+    setMessage(`Rack ${newRack.label} added.`);
+  }
+
+  async function addRack() {
+    const rawLabel = window.prompt("New rack number", "A1");
+    const label = rawLabel?.trim().toUpperCase();
+    if (!label) return;
+
+    const capacityText = window.prompt("Rack capacity in joints", "500")?.trim() || "500";
+    const capacity = Number(capacityText) > 0 ? Number(capacityText) : 500;
+    await createRackAt(label, capacity);
+  }
+
+  async function deleteRack(label: string) {
+    if (!selectedYard) return;
+
+    setMessage("");
+    const rack = rackLayout.find((item) => item.label === label);
+    if (!rack) return;
+
+    const rackInventory = inventory.filter((row) => row.rackId === label);
+    const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
+    const footage = rackInventory.reduce((sum, row) => sum + row.bulkFootage + row.talliedFootage, 0);
+
+    if (rackInventory.length > 0 || joints > 0 || footage > 0) {
+      setMessage(`Cannot delete rack ${label}. Move or ship its inventory first.`);
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete rack ${label}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("racks").delete().eq("id", rack.id);
+    if (error) {
+      setMessage(`Delete rack failed: ${error.message}`);
+      return;
+    }
+
+    setRackLayout((current) => current.filter((item) => item.id !== rack.id));
+    if (selectedLocation === label) setSelectedLocation("all");
+    setMessage(`Rack ${label} deleted.`);
   }
 
   function renameRack(label: string) {
-    const nextLabel = window.prompt("New rack number", label);
-
+    const nextLabel = window.prompt("New rack number", label)?.trim().toUpperCase();
     if (!nextLabel || nextLabel === label) return;
 
-    setRackLayout((current) =>
-      current.map((rack) => (rack.label === label ? { ...rack, label: nextLabel } : rack))
-    );
-
-    setInventory((current) =>
-      current.map((row) => (row.rackId === label ? { ...row, rackId: nextLabel } : row))
-    );
-
-    if (selectedLocation === label) {
-      setSelectedLocation(nextLabel);
+    const parsed = parseRackCode(nextLabel);
+    if (!parsed) {
+      setMessage("Use rack labels like A1, B1, K16, or A16.");
+      return;
     }
+
+    if (!rackNumbersByLetter[parsed.letter]?.includes(parsed.number)) {
+      setMessage(`Rack ${nextLabel} is outside the yard grid.`);
+      return;
+    }
+
+    if (rackLayout.some((rack) => rack.label.toLowerCase() === nextLabel.toLowerCase())) {
+      setMessage(`Rack ${nextLabel} already exists.`);
+      return;
+    }
+
+    const fallback = defaultRackPosition(nextLabel);
+    const sortOrder = yardRackCodes.includes(nextLabel) ? yardRackCodes.indexOf(nextLabel) + 1 : rackLayout.length + 1;
+
+    setRackLayout((current) =>
+      current
+        .map((rack) =>
+          rack.label === label
+            ? { ...rack, label: nextLabel, sort_order: sortOrder, layoutX: fallback.x, layoutY: fallback.y, layoutGroup: parsed.letter, rotation: 0 }
+            : rack
+        )
+        .sort((a, b) => a.sort_order - b.sort_order)
+    );
+
+    setInventory((current) => current.map((row) => (row.rackId === label ? { ...row, rackId: nextLabel } : row)));
+    if (selectedLocation === label) setSelectedLocation(nextLabel);
+    setMessage(`Rack ${label} renamed to ${nextLabel}. Press Save Layout to keep the change.`);
   }
 
   async function findOrCreateCompany(name: string) {
@@ -821,6 +1295,90 @@ export default function Home() {
     };
   }
 
+  async function saveEdit() {
+    if (!selectedYard || !selectedEditRow) return;
+
+    setMessage("");
+
+    if (!editForm.customer.trim()) {
+      setMessage("Customer is required.");
+      return;
+    }
+
+    if (!editForm.partNumber.trim()) {
+      setMessage("Part number is required.");
+      return;
+    }
+
+    const bulkJoints = Number(editForm.bulkJoints || 0);
+    const bulkFootage = Number(editForm.bulkFootage || 0);
+    const talliedJoints = Number(editForm.talliedJoints || 0);
+    const talliedFootage = Number(editForm.talliedFootage || 0);
+
+    if (bulkJoints < 0 || bulkFootage < 0 || talliedJoints < 0 || talliedFootage < 0) {
+      setMessage("Inventory quantities cannot be negative.");
+      return;
+    }
+
+    setSavingEdit(true);
+
+    try {
+      const companyId = await findOrCreateCompany(editForm.customer);
+      const { rack, zone, locationName } = getDestination(editForm.destination);
+
+      const previousLocation =
+        selectedEditRow.locationType === "rack"
+          ? selectedEditRow.rackId
+          : selectedEditRow.zoneId;
+
+      const { error: updateError } = await supabase
+        .from("pipe_inventory")
+        .update({
+          company_id: companyId,
+          rack_id: rack?.id ?? null,
+          workflow_zone_id: zone?.id ?? null,
+          afe: editForm.afe || null,
+          part_number: editForm.partNumber,
+          size: editForm.size || null,
+          grade: editForm.grade || null,
+          connection: editForm.connection || null,
+          condition: editForm.condition || null,
+          status: editForm.status || null,
+          inspection_due_date: editForm.inspectionDue || null,
+          bulk_joints: bulkJoints,
+          bulk_footage: bulkFootage,
+          tallied_joints: talliedJoints,
+          tallied_footage: talliedFootage,
+        })
+        .eq("id", selectedEditRow.id);
+
+      if (updateError) throw updateError;
+
+      await supabase.from("pipe_transactions").insert({
+        pipe_inventory_id: selectedEditRow.id,
+        company_id: companyId,
+        yard_id: selectedYard.id,
+        transaction_type: "edit_inventory",
+        quantity_joints: bulkJoints + talliedJoints,
+        quantity_footage: bulkFootage + talliedFootage,
+        from_location: previousLocation,
+        to_location: locationName,
+        comment: editForm.comment || "Inventory line edited",
+      });
+
+      await loadInventory(selectedYard.id, rackLayout, zones);
+      await loadReports();
+
+      setEditOpen(false);
+      setSelectedRows([]);
+      setEditForm(emptyEditForm);
+      setMessage("Inventory line updated.");
+    } catch (error: any) {
+      setMessage(`Edit failed: ${error.message}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
   async function saveReceive() {
     if (!selectedYard) return;
   
@@ -1148,6 +1706,80 @@ export default function Home() {
     }
   }
 
+
+  function exportInventoryCsv() {
+    if (filteredInventory.length === 0) {
+      setMessage("No inventory rows to export.");
+      return;
+    }
+
+    const csvEscape = (value: string | number | null | undefined) => {
+      const text = String(value ?? "");
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const headers = [
+      "Date Created",
+      "Inspection Due",
+      "Company",
+      "TU#",
+      "Part Number",
+      "Size",
+      "Grade",
+      "Connection",
+      "Status",
+      "Condition",
+      "Rack/Location",
+      "Bulk Joints",
+      "Bulk Footage",
+      "Tallied Joint Count",
+      "Tallied Footage",
+      "Total Joint Count",
+      "Total Footage",
+    ];
+
+    const rows = filteredInventory.map((row) => {
+      const totalJoints = row.bulkJoints + row.talliedJoints;
+      const totalFootage = row.bulkFootage + row.talliedFootage;
+      const location = row.locationType === "rack" ? row.rackId : row.zoneId;
+
+      return [
+        row.createdAt,
+        row.inspectionDue,
+        row.company,
+        row.afe,
+        row.partNumber,
+        row.size,
+        row.grade,
+        row.connection,
+        row.status,
+        row.condition,
+        location ?? "",
+        row.bulkJoints,
+        row.bulkFootage,
+        row.talliedJoints,
+        row.talliedFootage,
+        totalJoints,
+        totalFootage,
+      ].map(csvEscape).join(",");
+    });
+
+    const csv = [headers.map(csvEscape).join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const locationName = selectedLocation === "all" ? "all-locations" : selectedLocation;
+
+    link.href = url;
+    link.download = `pifs-inventory-${locationName}-${today}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setMessage(`Exported ${filteredInventory.length} inventory rows.`);
+  }
+
   if (loadingSetup) {
     return (
       <main className="app-shell">
@@ -1178,8 +1810,41 @@ export default function Home() {
           className="field"
           placeholder="Search company, TU#, part number..."
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => { setSearch(event.target.value); if (event.target.value.trim()) setSelectedLocation("all"); }}
         />
+
+        <select className="field" value={customerFilter} onChange={(event) => { setCustomerFilter(event.target.value); setSelectedLocation("all"); }}>
+          <option value="all">All Customers</option>
+          {customerOptions.map((customer) => (
+            <option key={customer} value={customer}>{customer}</option>
+          ))}
+        </select>
+
+        <select className="field" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSelectedLocation("all"); }}>
+          <option value="all">All Statuses</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+
+        <select className="field" value={conditionFilter} onChange={(event) => { setConditionFilter(event.target.value); setSelectedLocation("all"); }}>
+          <option value="all">All Conditions</option>
+          {conditionOptions.map((condition) => (
+            <option key={condition} value={condition}>{condition}</option>
+          ))}
+        </select>
+
+        <button
+          className="button"
+          onClick={() => {
+            setSearch("");
+            setCustomerFilter("all");
+            setStatusFilter("all");
+            setConditionFilter("all");
+          }}
+        >
+          Clear Filters
+        </button>
 
         <select className="field" value={role} onChange={(event) => setRole(event.target.value as Role)}>
           <option value="admin">Admin</option>
@@ -1189,16 +1854,15 @@ export default function Home() {
         <div className="button-grid">
           <button className="button">New Master Part</button>
           <button className="button">Save</button>
-          <button className="button" onClick={() => window.print()}>
-  Print
-</button>
+          <button className="button" onClick={() => window.print()}>Print</button>
+          <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
           <button className="button" onClick={loadYardSetup}>Refresh</button>
           <button className="button">Highlight</button>
           <button className="button">Complete</button>
           <button className="button" disabled={role === "customer"} onClick={openTransfer}>Transfer</button>
           <button className="button primary" disabled={role === "customer"} onClick={() => setReceiveOpen(true)}>Receive</button>
           <button className="button" disabled={role === "customer"} onClick={openShip}>Ship</button>
-          <button className="button" disabled={role === "customer"}>Adjust</button>
+          <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
@@ -1230,56 +1894,87 @@ export default function Home() {
             <p>{selectedYard?.name} / {filteredInventory.length} visible line items</p>
           </div>
 
-          <div className="topbar-actions">
+                    <div className="topbar-actions">
             <button className="button" onClick={() => setSelectedLocation("all")}>Show All</button>
-            <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
+            <button className="button primary" disabled={role === "customer"} onClick={addRack}>
+              Add Rack
+            </button>
+            {layoutMode && (
+              <button className="button primary" disabled={role === "customer"} onClick={applyRackTemplate}>
+                Apply Yard Template
+              </button>
+            )}
+            {layoutMode && <button className="button primary" disabled={role === "customer"} onClick={saveRackLayout}>Save Layout</button>}
+            <button className={`button ${layoutMode ? "primary" : ""}`} disabled={role === "customer"} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
             </button>
-          </div>
-        </header>
+          </div>        </header>
 
         <section className="rack-section">
           <div className="section-heading">
-            <h2>Rack Grid</h2>
-            <p>{layoutMode ? "Drag racks to rearrange. Use Edit to rename rack numbers." : "Select a rack to view inventory."}</p>
+            <h2>Yard Map</h2>
+            <p>{layoutMode ? "Fixed grid: rows A-K, each with racks 16-1." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
-          <div className="rack-grid">
-            {rackLayout.map((rack) => {
-              const rackInventory = inventory.filter((row) => row.rackId === rack.label);
-              const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
-              const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
+          <div className="yard-map straight-yard-map" style={{ overflowX: "auto", border: "1px solid #303846", borderRadius: "10px", background: "rgba(16, 19, 24, 0.72)", padding: "12px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "34px repeat(16, 64px)", gap: "10px", alignItems: "center", minWidth: "1220px" }}>
+              <div />
+              {rackNumbers.map((number) => <div key={`head-${number}`} style={{ color: "#f4f6f8", fontSize: 12, fontWeight: 900, textAlign: "center" }}>{number}</div>)}
 
-              return (
-                <div
-                  key={rack.id}
-                  className={`rack-tile ${selectedLocation === rack.label ? "active" : ""} ${layoutMode ? "layout-mode" : ""}`}
-                  draggable={layoutMode}
-                  onDragStart={() => setDraggedRack(rack.label)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => moveRack(rack.label)}
-                >
-                  <button className="rack-tile-button" onClick={() => setSelectedLocation(rack.label)}>
-                    <span className="rack-code">{rack.label}</span>
-                    <span className="capacity">{joints}/{rack.capacity} joints</span>
-                    <span className="rack-meter"><span style={{ width: `${fill}%` }} /></span>
-                  </button>
+              {rackLetters.map((letter) => (
+                <div key={`row-${letter}`} style={{ display: "contents" }}>
+                  <div style={{ color: "#f4f6f8", fontSize: 13, fontWeight: 900, textAlign: "center" }}>{letter}</div>
+                  {rackNumbers.map((number) => {
+                    const rackCode = `${letter}${number}`;
+                    const rack = rackLayout.find((item) => item.label === rackCode);
 
-                  {layoutMode && (
-                    <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
-                      Edit
-                    </button>
-                  )}
+                    if (!rack) {
+                      return (
+                        <div key={rackCode} style={{ minHeight: "38px", width: "64px" }}>
+                          {layoutMode && (
+                            <button className="mini-button edit-rack" disabled={role === "customer"} onClick={() => createRackAt(rackCode)} style={{ width: "64px", height: "38px", borderStyle: "dashed" }}>
+                              + {rackCode}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const rackInventory = inventory.filter((row) => {
+                      const searchText = search.toLowerCase().trim();
+                      const matchesSearch = !searchText || [row.company, row.afe, row.partNumber, row.size, row.grade, row.connection, row.status, row.condition, row.rackId ?? "", row.zoneId ?? ""].join(" ").toLowerCase().includes(searchText);
+                      return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
+                    });
+                    const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
+                    const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
+
+                    return (
+                      <div key={rack.id} className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""}`} title={`${rack.label} / ${joints}/${rack.capacity} joints`} style={{ width: "64px", minHeight: "38px", height: "38px", borderColor: selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846", background: joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027", position: "relative" }}>
+                        <button className="rack-tile-button compact-rack-button" onClick={() => setSelectedLocation(rack.label)} style={{ minHeight: "36px", height: "36px", padding: "5px 7px", gap: "3px", alignItems: "center", justifyContent: "center" }}>
+                          <span className="rack-code" style={{ fontSize: "13px", lineHeight: "1", textAlign: "center" }}>{rack.label}</span>
+                          <span className="rack-meter" style={{ height: "3px", marginTop: "2px", width: "100%" }}>
+                            <span style={{ width: `${fill}%`, background: joints > 0 ? "#f97316" : "#303846" }} />
+                          </span>
+                        </button>
+
+                        {layoutMode && (
+                          <div style={{ position: "absolute", top: "-6px", right: "-6px", display: "flex", gap: "3px", zIndex: 4 }}>
+                            <button className="mini-button edit-rack" title="Edit rack" disabled={role === "customer"} onClick={() => renameRack(rack.label)} style={{ width: "20px", height: "20px", padding: 0, fontSize: 10 }}>E</button>
+                            <button className="mini-button danger-rack" title="Delete rack" style={{ width: "20px", height: "20px", padding: 0, fontSize: 10, borderColor: "#ef4444", color: "#fecaca" }} disabled={role === "customer" || joints > 0} onClick={() => deleteRack(rack.label)}>X</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
         </section>
-
         <section className="inventory-panel">
           <div className="section-heading">
             <h2>Inventory at {selectedLocation === "all" ? "All Locations" : selectedLocation}</h2>
-            <p>{selectedTotals.joints} selected joints / {selectedTotals.footage.toLocaleString()} selected footage</p>
+            <p>{filteredInventory.length} visible lines / {selectedTotals.joints} selected joints / {selectedTotals.footage.toLocaleString()} selected footage</p>
           </div>
 
           <div className="table-wrap">
@@ -1343,6 +2038,75 @@ export default function Home() {
         </section>
       </section>
 
+      {editOpen && selectedEditRow && (
+        <div className="modal-backdrop">
+          <section className="slide-over">
+            <div className="slide-header">
+              <div>
+                <h2>Edit Inventory Line</h2>
+                <p>{selectedEditRow.company} / {selectedEditRow.partNumber}</p>
+              </div>
+              <button className="icon-button" onClick={() => setEditOpen(false)}>X</button>
+            </div>
+
+            {message && <div className="modal-message">{message}</div>}
+
+            <div className="form-grid">
+              <label>Customer<input value={editForm.customer} onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })} /></label>
+
+              <label>
+                Location
+                <select value={editForm.destination} onChange={(event) => setEditForm({ ...editForm, destination: event.target.value })}>
+                  {locationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+
+              <label>TU#<input value={editForm.afe} onChange={(event) => setEditForm({ ...editForm, afe: event.target.value })} /></label>
+              <label>Part Number<input value={editForm.partNumber} onChange={(event) => setEditForm({ ...editForm, partNumber: event.target.value })} /></label>
+              <label>Size<input value={editForm.size} onChange={(event) => setEditForm({ ...editForm, size: event.target.value })} /></label>
+              <label>Grade<input value={editForm.grade} onChange={(event) => setEditForm({ ...editForm, grade: event.target.value })} /></label>
+              <label>Connection<input value={editForm.connection} onChange={(event) => setEditForm({ ...editForm, connection: event.target.value })} /></label>
+
+              <label>
+                Condition
+                <select value={editForm.condition} onChange={(event) => setEditForm({ ...editForm, condition: event.target.value })}>
+                  <option>New</option>
+                  <option>Premium</option>
+                  <option>Used</option>
+                  <option>Repair</option>
+                  <option>Rejected</option>
+                  <option>Scrap</option>
+                </select>
+              </label>
+
+              <label>
+                Status
+                <select value={editForm.status} onChange={(event) => setEditForm({ ...editForm, status: event.target.value })}>
+                  <option>Received</option>
+                  <option>Available</option>
+                  <option>Awaiting Inspection</option>
+                  <option>Awaiting Ship</option>
+                  <option>WIP</option>
+                  <option>On Hold</option>
+                  <option>Shipped</option>
+                </select>
+              </label>
+
+              <label>Inspection Due<input type="date" value={editForm.inspectionDue} onChange={(event) => setEditForm({ ...editForm, inspectionDue: event.target.value })} /></label>
+              <label>Bulk Joints<input type="number" value={editForm.bulkJoints} onChange={(event) => setEditForm({ ...editForm, bulkJoints: event.target.value })} /></label>
+              <label>Bulk Footage<input type="number" value={editForm.bulkFootage} onChange={(event) => setEditForm({ ...editForm, bulkFootage: event.target.value })} /></label>
+              <label>Tallied Joints<input type="number" value={editForm.talliedJoints} onChange={(event) => setEditForm({ ...editForm, talliedJoints: event.target.value })} /></label>
+              <label>Tallied Footage<input type="number" value={editForm.talliedFootage} onChange={(event) => setEditForm({ ...editForm, talliedFootage: event.target.value })} /></label>
+              <label className="full">Edit Comment<textarea value={editForm.comment} onChange={(event) => setEditForm({ ...editForm, comment: event.target.value })} placeholder="Reason for edit" /></label>
+            </div>
+
+            <div className="slide-actions">
+              <button className="button" onClick={() => setEditOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={saveEdit} disabled={savingEdit}>{savingEdit ? "Saving..." : "Save Inventory Edit"}</button>
+            </div>
+          </section>
+        </div>
+      )}
       {receiveOpen && (
         <div className="modal-backdrop">
           <section className="slide-over">
@@ -1560,12 +2324,45 @@ export default function Home() {
               </button>
             </div>
 
+
+            <div className="form-grid ticket-filter-grid">
+              <label className="full">
+                Search tickets
+                <input
+                  value={ticketSearch}
+                  onChange={(event) => setTicketSearch(event.target.value)}
+                  placeholder="Ticket, BOL, customer, carrier, PO, truck, part number, TU#"
+                />
+              </label>
+
+              <label>
+                Ticket Type
+                <select value={ticketFilter} onChange={(event) => setTicketFilter(event.target.value as "all" | "receiving" | "shipping")}>
+                  <option value="all">All Tickets</option>
+                  <option value="receiving">Receiving Only</option>
+                  <option value="shipping">Shipping / BOL Only</option>
+                </select>
+              </label>
+
+              <label>
+                Date
+                <input type="date" value={ticketDate} onChange={(event) => setTicketDate(event.target.value)} />
+              </label>
+
+              <button className="button" onClick={() => { setTicketSearch(""); setTicketFilter("all"); setTicketDate(""); }}>
+                Clear Filters
+              </button>
+            </div>
+
+            <div className="ticket-filter-summary">
+              Showing {filteredReceivingTickets.length} receiving tickets and {filteredShippingTickets.length} shipping/BOL tickets
+            </div>
             <div className="tickets-grid">
               <section className="ticket-card">
                 <h3>Receiving Tickets</h3>
-                {receivingTickets.length === 0 && <p className="muted-text">No receiving tickets found.</p>}
+                {filteredReceivingTickets.length === 0 && <p className="muted-text">No receiving tickets found.</p>}
 
-                {receivingTickets.map((ticket) => (
+                {filteredReceivingTickets.map((ticket) => (
   <article key={ticket.id} className="ticket-row stacked">
     <div>
       <strong>{ticket.ticketNumber}</strong>
@@ -1593,9 +2390,9 @@ export default function Home() {
 
               <section className="ticket-card">
                 <h3>Shipping Tickets / BOL</h3>
-                {shippingTickets.length === 0 && <p className="muted-text">No shipping tickets found.</p>}
+                {filteredShippingTickets.length === 0 && <p className="muted-text">No shipping tickets found.</p>}
 
-                {shippingTickets.map((ticket) => {
+                {filteredShippingTickets.map((ticket) => {
                   const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
                   const joints = lines.reduce((sum, line) => sum + line.joints, 0);
                   const footage = lines.reduce((sum, line) => sum + line.footage, 0);
