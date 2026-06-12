@@ -512,7 +512,7 @@ export default function Home() {
       return;
     }
 
-    const mapped: InventoryLine[] = data.map((row) => {
+    const mapped = data.map((row) => {
       const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
       const rack = Array.isArray(row.racks) ? row.racks[0] : row.racks;
       const zone = Array.isArray(row.workflow_zones) ? row.workflow_zones[0] : row.workflow_zones;
