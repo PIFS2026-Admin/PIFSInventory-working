@@ -167,68 +167,50 @@ type ReportLine = {
 
 const today = new Date().toISOString().slice(0, 10);
 
-const rackLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
+const rackLetters = ["A", "B", "C", "D", "E"];
 const rackNumbers = Array.from({ length: 16 }, (_, index) => 16 - index);
-const rackNumbersByLetter: Record<string, number[]> = {
-  A: rackNumbers,
-  B: rackNumbers,
-  C: rackNumbers,
-  D: rackNumbers,
-  E: rackNumbers,
-  F: rackNumbers,
-  G: rackNumbers,
-  H: rackNumbers,
-  I: rackNumbers,
-  J: rackNumbers,
-  K: rackNumbers,
-};
 const yardRackCodes = rackLetters.flatMap((letter) =>
-  rackNumbersByLetter[letter].map((number) => `${letter}${number}`)
+  rackNumbers.map((number) => `${number}${letter}`)
 );
 
 function parseRackCode(code: string) {
   const clean = String(code ?? "").trim().toUpperCase();
-  const letterFirst = clean.match(/^([A-Z])(\d+)$/);
+  const match = clean.match(/^(\d+)([A-Z])$/);
 
-  if (letterFirst) {
-    return { letter: letterFirst[1], number: Number(letterFirst[2]) };
+  if (!match) {
+    return null;
   }
 
-  const oldNumberFirst = clean.match(/^(\d+)([A-Z])$/);
-
-  if (oldNumberFirst) {
-    return { letter: oldNumberFirst[2], number: Number(oldNumberFirst[1]) };
-  }
-
-  return null;
-}
-
-function defaultRackPosition(rackCode: string) {
-  const parsed = parseRackCode(rackCode);
-
-  if (!parsed) return { x: 26, y: 70 };
-
-  const numberIndex = 16 - parsed.number;
-  const letterIndex = rackLetters.indexOf(parsed.letter);
   return {
-    x: 26 + Math.max(0, numberIndex) * 74,
-    y: 70 + Math.max(0, letterIndex) * 74,
+    number: Number(match[1]),
+    letter: match[2],
   };
 }
 
-function templateRackForIndex(index: number) {
-  return yardRackCodes[index] ?? yardRackCodes[yardRackCodes.length - 1] ?? "A1";
-}
+function defaultRackPosition(rackCodeOrNumber: string | number, side?: "A" | "B") {
+  const rawCode = typeof rackCodeOrNumber === "string" ? rackCodeOrNumber : `${rackCodeOrNumber}${side ?? "A"}`;
+  const parsed = parseRackCode(rawCode);
 
-function normalizeRackLabel(label: string, index: number) {
-  const clean = String(label ?? "").trim().toUpperCase();
-  return yardRackCodes.includes(clean) ? clean : templateRackForIndex(index);
+  if (!parsed) {
+    return { x: 24, y: 74 };
+  }
+
+  const numberIndex = 16 - parsed.number;
+  const letterIndex = rackLetters.indexOf(parsed.letter);
+  const safeColumn = numberIndex >= 0 ? numberIndex : 0;
+  const safeRow = letterIndex >= 0 ? letterIndex : 0;
+
+  return {
+    x: 26 + safeColumn * 74,
+    y: 70 + safeRow * 74,
+  };
 }
 
 const makeDefaultRacks = (): RackConfig[] => {
   return yardRackCodes.map((label, index) => {
     const position = defaultRackPosition(label);
     const parsed = parseRackCode(label);
+
     return {
       id: label,
       label,
@@ -512,7 +494,7 @@ export default function Home() {
       return;
     }
 
-    const mapped = data.map((row) => {
+    const mapped: InventoryRow[] = (data ?? []).map((row: any) => {
       const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
       const rack = Array.isArray(row.racks) ? row.racks[0] : row.racks;
       const zone = Array.isArray(row.workflow_zones) ? row.workflow_zones[0] : row.workflow_zones;
@@ -543,7 +525,7 @@ export default function Home() {
         connection: row.connection ?? "",
         condition: row.condition ?? "",
         status: row.status ?? "",
-        locationType: row.rackId ? ("rack" as const) : ("zone" as const),
+        locationType: rackCode ? ("rack" as const) : ("zone" as const),
         rackId: rackCode,
         zoneId: zoneCode,
         bulkJoints: Number(row.bulk_joints ?? 0),
@@ -590,19 +572,19 @@ export default function Home() {
     const mappedRacks =
       dbRacks && dbRacks.length > 0
         ? dbRacks.map((rack: any, index: number) => {
-            const label = normalizeRackLabel(rack.rack_code, index);
-            const parsed = parseRackCode(label);
-            const fallback = defaultRackPosition(label);
+            const rackNumber = Number(String(rack.rack_code ?? "200A").replace(/[^0-9]/g, "")) || 200;
+            const side = String(rack.rack_code ?? "A").endsWith("B") ? "B" : "A";
+            const fallback = defaultRackPosition(rackNumber, side as "A" | "B");
 
             return {
               id: rack.id,
-              label,
+              label: rack.rack_code,
               capacity: Number(rack.capacity_joints ?? 500),
               sort_order: Number(rack.sort_order ?? index + 1),
-              layoutX: fallback.x,
-              layoutY: fallback.y,
-              layoutGroup: rack.layout_group ?? parsed?.letter ?? "A",
-              rotation: 0,
+              layoutX: Number(rack.layout_x ?? fallback.x),
+              layoutY: Number(rack.layout_y ?? fallback.y),
+              layoutGroup: rack.layout_group ?? side,
+              rotation: Number(rack.rotation ?? 0),
             };
           })
         : makeDefaultRacks();
@@ -986,7 +968,31 @@ function moveRack(targetRack: string) {
     const [removed] = current.splice(fromIndex, 1);
     current.splice(toIndex, 0, removed);
 
-    setRackLayout(current.map((rack, index) => ({ ...rack, sort_order: index + 1 })));
+    setRackLayout(
+      current.map((rack, index) => ({
+        ...rack,
+        sort_order: index + 1,
+      }))
+    );
+  }
+
+  function moveRackOnMap(event: any) {
+    if (!layoutMode || !draggedRack) return;
+
+    event.preventDefault();
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(8, Math.round(event.clientX - bounds.left - 32));
+    const y = Math.max(8, Math.round(event.clientY - bounds.top - 21));
+
+    setRackLayout((current) =>
+      current.map((rack) =>
+        rack.label === draggedRack
+          ? { ...rack, layoutX: x, layoutY: y }
+          : rack
+      )
+    );
+
     setDraggedRack(null);
   }
 
@@ -995,18 +1001,16 @@ function moveRack(targetRack: string) {
 
     try {
       for (const rack of rackLayout) {
-        const parsed = parseRackCode(rack.label);
-        const position = defaultRackPosition(rack.label);
         const { error } = await supabase
           .from("racks")
           .update({
             rack_code: rack.label,
             capacity_joints: rack.capacity,
             sort_order: rack.sort_order,
-            layout_x: position.x,
-            layout_y: position.y,
-            layout_group: parsed?.letter ?? rack.layoutGroup,
-            rotation: 0,
+            layout_x: rack.layoutX,
+            layout_y: rack.layoutY,
+            layout_group: rack.layoutGroup,
+            rotation: rack.rotation,
           })
           .eq("id", rack.id);
 
@@ -1014,244 +1018,28 @@ function moveRack(targetRack: string) {
       }
 
       setLayoutMode(false);
-      setMessage("Rack grid saved.");
+      setMessage("Yard rack layout saved.");
     } catch (error: any) {
-      setMessage(`Rack save failed: ${error.message}`);
+      setMessage(`Layout save failed: ${error.message}`);
     }
-  }
-
-  async function applyRackTemplate() {
-    if (!selectedYard) return;
-
-    setMessage("");
-
-    try {
-      const template = makeDefaultRacks();
-      const existingSorted = [...rackLayout].sort((a, b) => a.sort_order - b.sort_order);
-
-      for (let index = 0; index < Math.min(existingSorted.length, template.length); index += 1) {
-        const existing = existingSorted[index];
-        const templateRack = template[index];
-        const { error } = await supabase
-          .from("racks")
-          .update({
-            rack_code: templateRack.label,
-            capacity_joints: existing.capacity || templateRack.capacity,
-            sort_order: templateRack.sort_order,
-            layout_x: templateRack.layoutX,
-            layout_y: templateRack.layoutY,
-            layout_group: templateRack.layoutGroup,
-            rotation: 0,
-          })
-          .eq("id", existing.id);
-
-        if (error) throw error;
-      }
-
-      const racksToCreate = template.slice(existingSorted.length);
-      if (racksToCreate.length > 0) {
-        const payload = racksToCreate.map((rack) => ({
-          yard_id: selectedYard.id,
-          rack_code: rack.label,
-          capacity_joints: rack.capacity,
-          sort_order: rack.sort_order,
-          layout_x: rack.layoutX,
-          layout_y: rack.layoutY,
-          layout_group: rack.layoutGroup,
-          rotation: 0,
-        }));
-
-        const { error: insertError } = await supabase.from("racks").insert(payload);
-        if (insertError && insertError.code !== "23505") throw insertError;
-      }
-
-      await loadYardSetup();
-      setSelectedLocation("all");
-      setLayoutMode(true);
-      setMessage("Straight yard grid applied: A-K rows, 16 racks per row.");
-    } catch (error: any) {
-      setMessage(`Template failed: ${error.message}`);
-    }
-  }
-
-  async function createRackAt(label: string, capacity = 500) {
-    if (!selectedYard) return;
-
-    setMessage("");
-
-    const cleanLabel = label.trim().toUpperCase();
-    const parsed = parseRackCode(cleanLabel);
-
-    if (!parsed) {
-      setMessage("Use rack labels like A1, B1, K16, or A16.");
-      return;
-    }
-
-    if (!rackNumbersByLetter[parsed.letter]?.includes(parsed.number)) {
-      setMessage(`Rack ${cleanLabel} is outside the yard grid.`);
-      return;
-    }
-
-    const existingLocal = rackLayout.find((rack) => rack.label.toLowerCase() === cleanLabel.toLowerCase());
-    if (existingLocal) {
-      setSelectedLocation(existingLocal.label);
-      setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
-      return;
-    }
-
-    const { data: existingDb, error: lookupError } = await supabase
-      .from("racks")
-      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
-      .eq("yard_id", selectedYard.id)
-      .eq("rack_code", cleanLabel)
-      .maybeSingle();
-
-    if (lookupError) {
-      setMessage(`Rack lookup failed: ${lookupError.message}`);
-      return;
-    }
-
-    if (existingDb) {
-      const fallback = defaultRackPosition(cleanLabel);
-      const existingRack: RackConfig = {
-        id: existingDb.id,
-        label: existingDb.rack_code,
-        capacity: Number(existingDb.capacity_joints ?? capacity),
-        sort_order: Number(existingDb.sort_order ?? yardRackCodes.indexOf(cleanLabel) + 1),
-        layoutX: Number(existingDb.layout_x ?? fallback.x),
-        layoutY: Number(existingDb.layout_y ?? fallback.y),
-        layoutGroup: existingDb.layout_group ?? parsed.letter,
-        rotation: Number(existingDb.rotation ?? 0),
-      };
-
-      setRackLayout((current) => [...current, existingRack].sort((a, b) => a.sort_order - b.sort_order));
-      setSelectedLocation(existingRack.label);
-      setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
-      return;
-    }
-
-    const sortOrder = yardRackCodes.includes(cleanLabel) ? yardRackCodes.indexOf(cleanLabel) + 1 : rackLayout.length + 1;
-    const fallback = defaultRackPosition(cleanLabel);
-
-    const { data, error } = await supabase
-      .from("racks")
-      .insert({
-        yard_id: selectedYard.id,
-        rack_code: cleanLabel,
-        capacity_joints: capacity,
-        sort_order: sortOrder,
-        layout_x: fallback.x,
-        layout_y: fallback.y,
-        layout_group: parsed.letter,
-        rotation: 0,
-      })
-      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
-      .single();
-
-    if (error) {
-      if (error.code === "23505") {
-        await loadYardSetup();
-        setSelectedLocation(cleanLabel);
-        setMessage(`Rack ${cleanLabel} already exists. I selected it for you.`);
-        return;
-      }
-      setMessage(`Add rack failed: ${error.message}`);
-      return;
-    }
-
-    const newRack: RackConfig = {
-      id: data.id,
-      label: data.rack_code,
-      capacity: Number(data.capacity_joints ?? capacity),
-      sort_order: Number(data.sort_order ?? sortOrder),
-      layoutX: Number(data.layout_x ?? fallback.x),
-      layoutY: Number(data.layout_y ?? fallback.y),
-      layoutGroup: data.layout_group ?? parsed.letter,
-      rotation: 0,
-    };
-
-    setRackLayout((current) => [...current, newRack].sort((a, b) => a.sort_order - b.sort_order));
-    setSelectedLocation(newRack.label);
-    setLayoutMode(true);
-    setMessage(`Rack ${newRack.label} added.`);
-  }
-
-  async function addRack() {
-    const rawLabel = window.prompt("New rack number", "A1");
-    const label = rawLabel?.trim().toUpperCase();
-    if (!label) return;
-
-    const capacityText = window.prompt("Rack capacity in joints", "500")?.trim() || "500";
-    const capacity = Number(capacityText) > 0 ? Number(capacityText) : 500;
-    await createRackAt(label, capacity);
-  }
-
-  async function deleteRack(label: string) {
-    if (!selectedYard) return;
-
-    setMessage("");
-    const rack = rackLayout.find((item) => item.label === label);
-    if (!rack) return;
-
-    const rackInventory = inventory.filter((row) => row.rackId === label);
-    const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
-    const footage = rackInventory.reduce((sum, row) => sum + row.bulkFootage + row.talliedFootage, 0);
-
-    if (rackInventory.length > 0 || joints > 0 || footage > 0) {
-      setMessage(`Cannot delete rack ${label}. Move or ship its inventory first.`);
-      return;
-    }
-
-    const confirmed = window.confirm(`Delete rack ${label}? This cannot be undone.`);
-    if (!confirmed) return;
-
-    const { error } = await supabase.from("racks").delete().eq("id", rack.id);
-    if (error) {
-      setMessage(`Delete rack failed: ${error.message}`);
-      return;
-    }
-
-    setRackLayout((current) => current.filter((item) => item.id !== rack.id));
-    if (selectedLocation === label) setSelectedLocation("all");
-    setMessage(`Rack ${label} deleted.`);
   }
 
   function renameRack(label: string) {
-    const nextLabel = window.prompt("New rack number", label)?.trim().toUpperCase();
+    const nextLabel = window.prompt("New rack number", label);
+
     if (!nextLabel || nextLabel === label) return;
 
-    const parsed = parseRackCode(nextLabel);
-    if (!parsed) {
-      setMessage("Use rack labels like A1, B1, K16, or A16.");
-      return;
-    }
-
-    if (!rackNumbersByLetter[parsed.letter]?.includes(parsed.number)) {
-      setMessage(`Rack ${nextLabel} is outside the yard grid.`);
-      return;
-    }
-
-    if (rackLayout.some((rack) => rack.label.toLowerCase() === nextLabel.toLowerCase())) {
-      setMessage(`Rack ${nextLabel} already exists.`);
-      return;
-    }
-
-    const fallback = defaultRackPosition(nextLabel);
-    const sortOrder = yardRackCodes.includes(nextLabel) ? yardRackCodes.indexOf(nextLabel) + 1 : rackLayout.length + 1;
-
     setRackLayout((current) =>
-      current
-        .map((rack) =>
-          rack.label === label
-            ? { ...rack, label: nextLabel, sort_order: sortOrder, layoutX: fallback.x, layoutY: fallback.y, layoutGroup: parsed.letter, rotation: 0 }
-            : rack
-        )
-        .sort((a, b) => a.sort_order - b.sort_order)
+      current.map((rack) => (rack.label === label ? { ...rack, label: nextLabel } : rack))
     );
 
-    setInventory((current) => current.map((row) => (row.rackId === label ? { ...row, rackId: nextLabel } : row)));
-    if (selectedLocation === label) setSelectedLocation(nextLabel);
-    setMessage(`Rack ${label} renamed to ${nextLabel}. Press Save Layout to keep the change.`);
+    setInventory((current) =>
+      current.map((row) => (row.rackId === label ? { ...row, rackId: nextLabel } : row))
+    );
+
+    if (selectedLocation === label) {
+      setSelectedLocation(nextLabel);
+    }
   }
 
   async function findOrCreateCompany(name: string) {
@@ -1894,83 +1682,142 @@ function moveRack(targetRack: string) {
             <p>{selectedYard?.name} / {filteredInventory.length} visible line items</p>
           </div>
 
-                    <div className="topbar-actions">
+          <div className="topbar-actions">
             <button className="button" onClick={() => setSelectedLocation("all")}>Show All</button>
-            <button className="button primary" disabled={role === "customer"} onClick={addRack}>
-              Add Rack
-            </button>
-            {layoutMode && (
-              <button className="button primary" disabled={role === "customer"} onClick={applyRackTemplate}>
-                Apply Yard Template
-              </button>
-            )}
-            {layoutMode && <button className="button primary" disabled={role === "customer"} onClick={saveRackLayout}>Save Layout</button>}
-            <button className={`button ${layoutMode ? "primary" : ""}`} disabled={role === "customer"} onClick={() => setLayoutMode((current) => !current)}>
+            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
+            <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
             </button>
-          </div>        </header>
+          </div>
+        </header>
 
         <section className="rack-section">
           <div className="section-heading">
             <h2>Yard Map</h2>
-            <p>{layoutMode ? "Fixed grid: rows A-K, each with racks 16-1." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+            <p>{layoutMode ? "Drag racks into their real yard position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
-          <div className="yard-map straight-yard-map" style={{ overflowX: "auto", border: "1px solid #303846", borderRadius: "10px", background: "rgba(16, 19, 24, 0.72)", padding: "12px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "34px repeat(16, 64px)", gap: "10px", alignItems: "center", minWidth: "1220px" }}>
-              <div />
-              {rackNumbers.map((number) => <div key={`head-${number}`} style={{ color: "#f4f6f8", fontSize: 12, fontWeight: 900, textAlign: "center" }}>{number}</div>)}
-
-              {rackLetters.map((letter) => (
-                <div key={`row-${letter}`} style={{ display: "contents" }}>
-                  <div style={{ color: "#f4f6f8", fontSize: 13, fontWeight: 900, textAlign: "center" }}>{letter}</div>
-                  {rackNumbers.map((number) => {
-                    const rackCode = `${letter}${number}`;
-                    const rack = rackLayout.find((item) => item.label === rackCode);
-
-                    if (!rack) {
-                      return (
-                        <div key={rackCode} style={{ minHeight: "38px", width: "64px" }}>
-                          {layoutMode && (
-                            <button className="mini-button edit-rack" disabled={role === "customer"} onClick={() => createRackAt(rackCode)} style={{ width: "64px", height: "38px", borderStyle: "dashed" }}>
-                              + {rackCode}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    }
-
-                    const rackInventory = inventory.filter((row) => {
-                      const searchText = search.toLowerCase().trim();
-                      const matchesSearch = !searchText || [row.company, row.afe, row.partNumber, row.size, row.grade, row.connection, row.status, row.condition, row.rackId ?? "", row.zoneId ?? ""].join(" ").toLowerCase().includes(searchText);
-                      return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
-                    });
-                    const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
-                    const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
-
-                    return (
-                      <div key={rack.id} className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""}`} title={`${rack.label} / ${joints}/${rack.capacity} joints`} style={{ width: "64px", minHeight: "38px", height: "38px", borderColor: selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846", background: joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027", position: "relative" }}>
-                        <button className="rack-tile-button compact-rack-button" onClick={() => setSelectedLocation(rack.label)} style={{ minHeight: "36px", height: "36px", padding: "5px 7px", gap: "3px", alignItems: "center", justifyContent: "center" }}>
-                          <span className="rack-code" style={{ fontSize: "13px", lineHeight: "1", textAlign: "center" }}>{rack.label}</span>
-                          <span className="rack-meter" style={{ height: "3px", marginTop: "2px", width: "100%" }}>
-                            <span style={{ width: `${fill}%`, background: joints > 0 ? "#f97316" : "#303846" }} />
-                          </span>
-                        </button>
-
-                        {layoutMode && (
-                          <div style={{ position: "absolute", top: "-6px", right: "-6px", display: "flex", gap: "3px", zIndex: 4 }}>
-                            <button className="mini-button edit-rack" title="Edit rack" disabled={role === "customer"} onClick={() => renameRack(rack.label)} style={{ width: "20px", height: "20px", padding: 0, fontSize: 10 }}>E</button>
-                            <button className="mini-button danger-rack" title="Delete rack" style={{ width: "20px", height: "20px", padding: 0, fontSize: 10, borderColor: "#ef4444", color: "#fecaca" }} disabled={role === "customer" || joints > 0} onClick={() => deleteRack(rack.label)}>X</button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+          <div
+            className="yard-map"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={moveRackOnMap}
+            style={{
+              position: "relative",
+              minHeight: "500px",
+              width: "100%",
+              overflow: "auto",
+              border: "1px solid #303846",
+              borderRadius: "10px",
+              background: "linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px)",
+              backgroundSize: "74px 74px",
+              padding: "12px",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                left: 26,
+                top: 18,
+                display: "grid",
+                gridTemplateColumns: "repeat(16, 64px)",
+                columnGap: "10px",
+                color: "#f4f6f8",
+                fontSize: 12,
+                fontWeight: 900,
+                textAlign: "center",
+                pointerEvents: "none",
+              }}
+            >
+              {rackNumbers.map((number) => (
+                <span key={number}>{number}</span>
               ))}
             </div>
+
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 70,
+                display: "grid",
+                gridTemplateRows: "repeat(5, 38px)",
+                rowGap: "36px",
+                color: "#8a8b8b",
+                fontSize: 12,
+                fontWeight: 900,
+                textAlign: "center",
+                pointerEvents: "none",
+              }}
+            >
+              {rackLetters.map((letter) => (
+                <span key={letter}>{letter}</span>
+              ))}
+            </div>
+
+            {rackLayout.map((rack) => {
+              const rackInventory = inventory.filter((row) => {
+                const searchText = search.toLowerCase().trim();
+                const matchesSearch =
+                  !searchText ||
+                  [row.company, row.afe, row.partNumber, row.size, row.grade, row.connection, row.status, row.condition, row.rackId ?? "", row.zoneId ?? ""]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(searchText);
+
+                return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
+              });
+              const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
+              const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
+
+              return (
+                <div
+                  key={rack.id}
+                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""}`}
+                  draggable={layoutMode}
+                  onDragStart={() => setDraggedRack(rack.label)}
+                  title={`${rack.label} / ${joints}/${rack.capacity} joints`}
+                  style={{
+                    position: "absolute",
+                    left: rack.layoutX,
+                    top: rack.layoutY,
+                    width: "64px",
+                    minHeight: "38px",
+                    height: "38px",
+                    cursor: layoutMode ? "grab" : "pointer",
+                    borderColor: selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
+                    background: joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
+                    transform: `rotate(${rack.rotation}deg)`,
+                    zIndex: selectedLocation === rack.label ? 3 : 2,
+                  }}
+                >
+                  <button
+                    className="rack-tile-button compact-rack-button"
+                    onClick={() => setSelectedLocation(rack.label)}
+                    style={{
+                      minHeight: "36px",
+                      height: "36px",
+                      padding: "5px 7px",
+                      gap: "3px",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <span className="rack-code" style={{ fontSize: "13px", lineHeight: "1", textAlign: "center" }}>{rack.label}</span>
+                    <span className="rack-meter" style={{ height: "3px", marginTop: "2px", width: "100%" }}>
+                      <span style={{ width: `${fill}%`, background: joints > 0 ? "#f97316" : "#303846" }} />
+                    </span>
+                  </button>
+
+                  {layoutMode && (
+                    <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
+                      Edit
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
+
         <section className="inventory-panel">
           <div className="section-heading">
             <h2>Inventory at {selectedLocation === "all" ? "All Locations" : selectedLocation}</h2>
