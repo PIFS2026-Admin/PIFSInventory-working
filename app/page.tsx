@@ -512,7 +512,7 @@ export default function Home() {
       return;
     }
 
-    const mapped = (data ?? []).map((row: any) => {
+    const mapped: InventoryLine[] = data.map((row) => {
       const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
       const rack = Array.isArray(row.racks) ? row.racks[0] : row.racks;
       const zone = Array.isArray(row.workflow_zones) ? row.workflow_zones[0] : row.workflow_zones;
@@ -543,7 +543,7 @@ export default function Home() {
         connection: row.connection ?? "",
         condition: row.condition ?? "",
         status: row.status ?? "",
-        locationType: rackCode ? "rack" : "zone",
+        locationType: row.rackId ? ("rack" as const) : ("zone" as const),
         rackId: rackCode,
         zoneId: zoneCode,
         bulkJoints: Number(row.bulk_joints ?? 0),
