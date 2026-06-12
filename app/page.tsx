@@ -1211,7 +1211,7 @@ function moveRack(targetRack: string) {
         condition: receiveForm.condition || "New",
         status: receiveForm.status || "Received",
         inspection_color: "None",
-        inspection_due_date: receiveForm.inspectionDueDate || null,
+        inspection_due_date: receiveForm.inspectionDue || null,
         bulk_joints: joints,
         bulk_footage: footage,
         tallied_joints: 0,
