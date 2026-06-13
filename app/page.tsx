@@ -1664,7 +1664,7 @@ function moveRack(targetRack: string) {
     return (
       <main className="app-shell">
         <section className="empty-state">
-          <h1>PIFS Tubular Management</h1>
+          <h1>TITAN</h1>
           <p>Loading yard setup...</p>
         </section>
       </main>
@@ -1675,10 +1675,10 @@ function moveRack(targetRack: string) {
     <main className="app-shell">
       <aside className="side-panel">
         <div className="brand">
-          <div className="brand-mark">PF</div>
+          <img className="brand-logo" src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" />
           <div>
-            <div className="brand-title">PIFS Tubular Management</div>
-            <div className="brand-subtitle">Modern pipe yard inventory</div>
+            <div className="brand-title">TITAN</div>
+            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Management</div>
           </div>
         </div>
 
@@ -1776,7 +1776,8 @@ function moveRack(targetRack: string) {
 
           <div className="topbar-actions">
             <button className="button" onClick={() => setSelectedLocation("all")}>Show All</button>
-            {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}`n            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
+            {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}
+            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
             </button>
@@ -1786,7 +1787,7 @@ function moveRack(targetRack: string) {
         <section className="rack-section">
           <div className="section-heading">
             <h2>Yard Map</h2>
-            <p>{layoutMode ? "Drag racks into their real yard position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+            <p>{layoutMode ? "Use Add Missing A-K Racks to restore the full yard, drag racks into position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
           <div
@@ -1900,9 +1901,14 @@ function moveRack(targetRack: string) {
                   </button>
 
                   {layoutMode && (
-                    <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
-                      Edit
-                    </button>
+                    <div className="layout-tools">
+                      <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
+                        Edit
+                      </button>
+                      <button className="mini-button delete-rack" onClick={() => deleteRack(rack.label)}>
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </div>
               );
