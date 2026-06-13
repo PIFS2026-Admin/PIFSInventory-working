@@ -1,0 +1,14 @@
+# Query: titan-logo.jpg
+# ContextLines: 1
+
+2 results - 2 files
+
+.next/static/css/app/layout.css:
+  1056:   background: #050505 url("/titan_logo.jpg") center / contain no-repeat !important;
+
+app/globals.css:
+  1038    color: transparent !important;
+  1039    color: transparent !important;
+  1040:   background: #050505 url("/titan_logo.jpg") center / contain no-repeat !important;
+  1040    border: 1px solid var(--line);
+  1041    border: 1px solid var(--line);
