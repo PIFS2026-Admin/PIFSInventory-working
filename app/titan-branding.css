@@ -1,0 +1,52 @@
+.brand-mark {
+  width: 96px !important;
+  height: 58px !important;
+  min-width: 96px !important;
+  color: transparent !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  background: #050505 url("/titan_logo.jpg") center / contain no-repeat !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 8px !important;
+}
+
+.brand-title {
+  font-size: 0 !important;
+  line-height: 1.1 !important;
+}
+
+.brand-title::after {
+  content: "TITAN";
+  display: block;
+  color: var(--text);
+  font-size: 20px;
+  line-height: 1.1;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.brand-subtitle {
+  font-size: 0 !important;
+  line-height: 1.25 !important;
+}
+
+.brand-subtitle::after {
+  content: "Tubular Inventory Tracking & Asset Management";
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.brand-logo {
+  width: 96px;
+  height: 58px;
+  display: block;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #050505;
+}
