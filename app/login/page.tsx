@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
@@ -58,8 +58,8 @@ export default function LoginPage() {
         <div className="brand compact">
           <div className="brand-mark">PF</div>
           <div>
-            <div className="brand-title">PIFS Tubular Management</div>
-            <div className="brand-subtitle">Secure yard inventory login</div>
+            <div className="brand-title">TITAN</div>
+            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Management</div>
           </div>
         </div>
 
@@ -91,3 +91,4 @@ export default function LoginPage() {
     </main>
   );
 }
+

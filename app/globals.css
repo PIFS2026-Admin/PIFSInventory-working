@@ -1037,7 +1037,7 @@ th {
   width: 96px !important;
   height: 58px !important;
   color: transparent !important;
-  background: #050505 url("/titan-logo.jpg") center / contain no-repeat !important;
+  background: #050505 url("/titan_logo.jpg") center / contain no-repeat !important;
   border: 1px solid var(--line);
   border-radius: 8px;
 }

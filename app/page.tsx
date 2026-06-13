@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
@@ -1664,7 +1664,7 @@ function moveRack(targetRack: string) {
     return (
       <main className="app-shell">
         <section className="empty-state">
-          <h1>PIFS Tubular Management</h1>
+          <h1>TITAN</h1>
           <p>Loading yard setup...</p>
         </section>
       </main>
@@ -1677,8 +1677,8 @@ function moveRack(targetRack: string) {
         <div className="brand">
           <div className="brand-mark">PF</div>
           <div>
-            <div className="brand-title">PIFS Tubular Management</div>
-            <div className="brand-subtitle">Modern pipe yard inventory</div>
+            <div className="brand-title">TITAN</div>
+            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Management</div>
           </div>
         </div>
 
@@ -2473,4 +2473,5 @@ function moveRack(targetRack: string) {
     </main>
   );
 }
+
 
