@@ -1033,4 +1033,25 @@ th {
     background: transparent;
     padding: 0;
   }
+}.brand-mark {
+  width: 96px !important;
+  height: 58px !important;
+  color: transparent !important;
+  background: #050505 url("/titan-logo.jpg") center / contain no-repeat !important;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.brand-logo {
+  width: 96px;
+  height: 58px;
+  display: block;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #050505;
+}
+
+.brand-title {
+  font-size: 20px;
 }
