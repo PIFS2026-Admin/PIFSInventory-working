@@ -16,6 +16,7 @@ type RackConfig = {
   layoutY: number;
   layoutGroup: string;
   rotation: number;
+  enabled: boolean;
 };
 
 type ZoneConfig = {
@@ -135,6 +136,22 @@ type ShippingTicket = {
   createdAt: string;
 };
 
+type TransferDocument = {
+  id: string;
+  documentNumber: string;
+  documentType: string;
+  company: string;
+  afe: string;
+  partNumber: string;
+  condition: string;
+  joints: number;
+  footage: number;
+  fromLocation: string;
+  toLocation: string;
+  comment: string;
+  createdAt: string;
+};
+
 type TicketLine = {
   id: string;
   ticketId: string;
@@ -234,6 +251,7 @@ const makeDefaultRacks = (): RackConfig[] => {
       layoutY: position.y,
       layoutGroup: parsed?.letter ?? "A",
       rotation: 0,
+      enabled: true,
     };
   });
 };
@@ -369,6 +387,7 @@ export default function Home() {
 
   const [receivingTickets, setReceivingTickets] = useState<ReceivingTicket[]>([]);
   const [shippingTickets, setShippingTickets] = useState<ShippingTicket[]>([]);
+  const [transferDocuments, setTransferDocuments] = useState<TransferDocument[]>([]);
   const [ticketLines, setTicketLines] = useState<TicketLine[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
 
@@ -450,6 +469,31 @@ export default function Home() {
         .includes(searchText);
     });
   }, [shippingTickets, ticketDate, ticketFilter, ticketLines, ticketSearch]);
+
+  const filteredTransferDocuments = useMemo(() => {
+    const searchText = ticketSearch.toLowerCase().trim();
+
+    return transferDocuments.filter((document) => {
+      if (ticketFilter !== "all") return false;
+      if (ticketDate && document.createdAt !== ticketDate) return false;
+      if (!searchText) return true;
+
+      return [
+        document.documentNumber,
+        document.company,
+        document.afe,
+        document.partNumber,
+        document.condition,
+        document.fromLocation,
+        document.toLocation,
+        document.comment,
+        document.createdAt,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+    });
+  }, [ticketDate, ticketFilter, ticketSearch, transferDocuments]);
   const activeInventory = useMemo(() => {
     return inventory.filter((row) => {
       const totalJoints = row.bulkJoints + row.talliedJoints;
@@ -591,6 +635,9 @@ export default function Home() {
 
       const fallback = defaultRackPosition(normalizedLabel);
       const parsed = parseRackCode(normalizedLabel);
+      const rawLayoutGroup = String(rack.layout_group ?? parsed?.letter ?? "A");
+      const enabled = !rawLayoutGroup.startsWith("disabled:");
+      const layoutGroup = rawLayoutGroup.replace(/^disabled:/, "") || parsed?.letter || "A";
 
       savedRackMap.set(normalizedLabel, {
         id: rack.id,
@@ -599,8 +646,9 @@ export default function Home() {
         sort_order: Number(rack.sort_order ?? yardRackCodes.indexOf(normalizedLabel) + 1),
         layoutX: Number(rack.layout_x ?? fallback.x),
         layoutY: Number(rack.layout_y ?? fallback.y),
-        layoutGroup: rack.layout_group ?? parsed?.letter ?? "A",
+        layoutGroup,
         rotation: Number(rack.rotation ?? 0),
+        enabled,
       });
     }
 
@@ -698,6 +746,25 @@ export default function Home() {
       return;
     }
 
+    const { data: documentData, error: documentError } = await supabase
+      .from("documents")
+      .select(`
+        id,
+        document_type,
+        file_url,
+        created_at,
+        companies(name)
+      `)
+      .in("document_type", ["transfer_to_machine_shop", "transfer_from_machine_shop"])
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (documentError) {
+      setMessage(`Transfer documents failed: ${documentError.message}`);
+      setLoadingTickets(false);
+      return;
+    }
+
     setReceivingTickets(
       (receiveData ?? []).map((row: any) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
@@ -748,6 +815,35 @@ export default function Home() {
           condition: row.condition ?? "",
           joints: Number(row.joints ?? 0),
           footage: Number(row.footage ?? 0),
+        };
+      })
+    );
+
+    setTransferDocuments(
+      (documentData ?? []).map((row: any) => {
+        const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+        let details: any = {};
+
+        try {
+          details = JSON.parse(row.file_url || "{}");
+        } catch {
+          details = {};
+        }
+
+        return {
+          id: row.id,
+          documentNumber: details.documentNumber ?? row.id,
+          documentType: row.document_type ?? "",
+          company: details.company ?? company?.name ?? "Unknown",
+          afe: details.afe ?? "",
+          partNumber: details.partNumber ?? "",
+          condition: details.condition ?? "",
+          joints: Number(details.joints ?? 0),
+          footage: Number(details.footage ?? 0),
+          fromLocation: details.fromLocation ?? "",
+          toLocation: details.toLocation ?? "",
+          comment: details.comment ?? "",
+          createdAt: formatDate(row.created_at),
         };
       })
     );
@@ -820,10 +916,12 @@ export default function Home() {
   }, []);
 
   const locationOptions = useMemo(() => {
-    const rackOptions = rackLayout.map((rack) => ({
-      value: `rack:${rack.label}`,
-      label: `Rack ${rack.label}`,
-    }));
+    const rackOptions = rackLayout
+      .filter((rack) => rack.enabled)
+      .map((rack) => ({
+        value: `rack:${rack.label}`,
+        label: `Rack ${rack.label}`,
+      }));
 
     const zoneOptions = zones.map((zone) => ({
       value: `zone:${zone.code}`,
@@ -1004,7 +1102,7 @@ function moveRack(targetRack: string) {
       sort_order: rack.sort_order,
       layout_x: rack.layoutX,
       layout_y: rack.layoutY,
-      layout_group: rack.layoutGroup,
+      layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
       rotation: rack.rotation,
     }));
 
@@ -1054,7 +1152,7 @@ function moveRack(targetRack: string) {
         sort_order: index + 1,
         layout_x: rack.layoutX,
         layout_y: rack.layoutY,
-        layout_group: rack.layoutGroup,
+        layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
         rotation: rack.rotation,
       }));
 
@@ -1103,6 +1201,32 @@ function moveRack(targetRack: string) {
     if (selectedLocation === label) {
       setSelectedLocation(nextLabel);
     }
+  }
+
+  function toggleRackEnabled(label: string) {
+    const rack = rackLayout.find((item) => item.label === label);
+    if (!rack) return;
+
+    const hasInventory = inventory.some((row) => row.rackId === label && row.status !== "Shipped");
+
+    if (rack.enabled && hasInventory) {
+      setMessage(`Rack ${label} has inventory. Move the pipe before disabling it.`);
+      return;
+    }
+
+    setRackLayout((current) =>
+      current.map((item) =>
+        item.label === label ? { ...item, enabled: !item.enabled } : item
+      )
+    );
+
+    if (selectedLocation === label && rack.enabled) {
+      setSelectedLocation("all");
+    }
+
+    setMessage(
+      `Rack ${label} ${rack.enabled ? "disabled" : "enabled"}. Click Save Layout when you are done.`
+    );
   }
 
   async function deleteRack(label: string) {
@@ -1173,6 +1297,51 @@ function moveRack(targetRack: string) {
       zone,
       locationName: rack?.label ?? zone?.name ?? destinationValue,
     };
+  }
+
+  async function createMachineShopTransferDocument({
+    row,
+    fromLocation,
+    toLocation,
+    joints,
+    footage,
+    comment,
+    direction,
+  }: {
+    row: InventoryRow;
+    fromLocation: string;
+    toLocation: string;
+    joints: number;
+    footage: number;
+    comment: string;
+    direction: "to" | "from";
+  }) {
+    if (!row.companyId) return null;
+
+    const documentNumber = makeTicketNumber(direction === "to" ? "MS-OUT" : "MS-IN");
+    const payload = {
+      documentNumber,
+      company: row.company,
+      afe: row.afe,
+      partNumber: row.partNumber,
+      condition: row.condition,
+      joints,
+      footage,
+      fromLocation,
+      toLocation,
+      comment,
+      createdAt: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("documents").insert({
+      company_id: row.companyId,
+      pipe_inventory_id: row.id,
+      document_type: direction === "to" ? "transfer_to_machine_shop" : "transfer_from_machine_shop",
+      file_url: JSON.stringify(payload),
+    });
+
+    if (error) throw error;
+    return documentNumber;
   }
 
   async function saveEdit() {
@@ -1373,6 +1542,10 @@ function moveRack(targetRack: string) {
       selectedTransferRow.locationType === "rack"
         ? selectedTransferRow.rackId
         : selectedTransferRow.zoneId;
+    const currentLocationName =
+      selectedTransferRow.locationType === "rack"
+        ? selectedTransferRow.rackId ?? "Unknown"
+        : zones.find((item) => item.code === selectedTransferRow.zoneId)?.name ?? selectedTransferRow.zoneId ?? "Unknown";
 
     if (currentLocation === rack?.label || currentLocation === zone?.code) {
       setMessage("Choose a different destination.");
@@ -1453,6 +1626,13 @@ function moveRack(targetRack: string) {
         if (destinationError) throw destinationError;
       }
 
+      const machineShopMove =
+        zone?.code === "machine_shop"
+          ? "to"
+          : selectedTransferRow.zoneId === "machine_shop"
+            ? "from"
+            : null;
+
       await supabase.from("pipe_transactions").insert({
         pipe_inventory_id: selectedTransferRow.id,
         company_id: selectedTransferRow.companyId,
@@ -1466,12 +1646,28 @@ function moveRack(targetRack: string) {
         transaction_date: transferForm.backDate || null,
       });
 
+      const transferDocumentNumber = machineShopMove
+        ? await createMachineShopTransferDocument({
+            row: selectedTransferRow,
+            fromLocation: currentLocationName,
+            toLocation: locationName,
+            joints: moveJoints,
+            footage: moveFootage,
+            comment: transferForm.comment,
+            direction: machineShopMove,
+          })
+        : null;
+
       await loadInventory(selectedYard.id, rackLayout, zones);
+      await loadTickets();
 
       setTransferOpen(false);
       setSelectedRows([]);
       setTransferForm(emptyTransferForm);
-      setMessage(`Transferred ${moveJoints} joints / ${moveFootage.toLocaleString()} ft to ${locationName}.`);
+      setMessage(
+        `Transferred ${moveJoints} joints / ${moveFootage.toLocaleString()} ft to ${locationName}.` +
+          (transferDocumentNumber ? ` Transfer document ${transferDocumentNumber} created.` : "")
+      );
     } catch (error: any) {
       setMessage(`Transfer failed: ${error.message}`);
     } finally {
@@ -1678,7 +1874,7 @@ function moveRack(targetRack: string) {
           <div className="brand-mark">PF</div>
           <div>
             <div className="brand-title">TITAN</div>
-            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Management</div>
+            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
           </div>
         </div>
 
@@ -1776,7 +1972,8 @@ function moveRack(targetRack: string) {
 
           <div className="topbar-actions">
             <button className="button" onClick={() => setSelectedLocation("all")}>Show All</button>
-            {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}`n            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
+            {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}
+            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
             </button>
@@ -1786,7 +1983,7 @@ function moveRack(targetRack: string) {
         <section className="rack-section">
           <div className="section-heading">
             <h2>Yard Map</h2>
-            <p>{layoutMode ? "Drag racks into their real yard position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+            <p>{layoutMode ? "Click a rack to enable or disable it. Drag racks into position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
           <div
@@ -1845,7 +2042,7 @@ function moveRack(targetRack: string) {
               ))}
             </div>
 
-            {rackLayout.map((rack) => {
+            {rackLayout.filter((rack) => layoutMode || rack.enabled).map((rack) => {
               const rackInventory = inventory.filter((row) => {
                 const searchText = search.toLowerCase().trim();
                 const matchesSearch =
@@ -1863,7 +2060,7 @@ function moveRack(targetRack: string) {
               return (
                 <div
                   key={rack.id}
-                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""}`}
+                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""}`}
                   draggable={layoutMode}
                   onDragStart={() => setDraggedRack(rack.label)}
                   title={`${rack.label} / ${joints}/${rack.capacity} joints`}
@@ -1875,15 +2072,16 @@ function moveRack(targetRack: string) {
                     minHeight: "38px",
                     height: "38px",
                     cursor: layoutMode ? "grab" : "pointer",
-                    borderColor: selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
-                    background: joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
+                    borderColor: !rack.enabled ? "#7f1d1d" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
+                    background: !rack.enabled ? "rgba(127, 29, 29, 0.25)" : joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
+                    opacity: !rack.enabled ? 0.45 : 1,
                     transform: `rotate(${rack.rotation}deg)`,
                     zIndex: selectedLocation === rack.label ? 3 : 2,
                   }}
                 >
                   <button
                     className="rack-tile-button compact-rack-button"
-                    onClick={() => setSelectedLocation(rack.label)}
+                    onClick={() => (layoutMode ? toggleRackEnabled(rack.label) : setSelectedLocation(rack.label))}
                     style={{
                       minHeight: "36px",
                       height: "36px",
@@ -2294,7 +2492,7 @@ function moveRack(targetRack: string) {
             </div>
 
             <div className="ticket-filter-summary">
-              Showing {filteredReceivingTickets.length} receiving tickets and {filteredShippingTickets.length} shipping/BOL tickets
+              Showing {filteredReceivingTickets.length} receiving tickets, {filteredShippingTickets.length} shipping/BOL tickets, and {filteredTransferDocuments.length} transfer documents
             </div>
             <div className="tickets-grid">
               <section className="ticket-card">
@@ -2374,6 +2572,40 @@ function moveRack(targetRack: string) {
                     </article>
                   );
                 })}
+              </section>
+
+              <section className="ticket-card">
+                <h3>Machine Shop Transfer Documents</h3>
+                {filteredTransferDocuments.length === 0 && <p className="muted-text">No transfer documents found.</p>}
+
+                {filteredTransferDocuments.map((document) => (
+                  <article key={document.id} className="ticket-row stacked">
+                    <div>
+                      <strong>{document.documentNumber}</strong>
+                      <span>{document.documentType === "transfer_to_machine_shop" ? "To Machine Shop" : "From Machine Shop"}</span>
+                    </div>
+                    <div>
+                      <span>{document.company}</span>
+                      <span>{document.createdAt}</span>
+                    </div>
+                    <div>
+                      <span>{document.fromLocation || "-"} to {document.toLocation || "-"}</span>
+                      <span>{document.partNumber || "No part number"}</span>
+                    </div>
+                    <div>
+                      <span>{document.joints} joints</span>
+                      <span>{document.footage.toLocaleString()} ft</span>
+                    </div>
+                    <button
+                      className="button"
+                      onClick={() =>
+                        (window.location.href = `/ticket-print?type=transfer&id=${document.id}`)
+                      }
+                    >
+                      Print / PDF
+                    </button>
+                  </article>
+                ))}
               </section>
             </div>
           </section>
@@ -2473,5 +2705,6 @@ function moveRack(targetRack: string) {
     </main>
   );
 }
+
 
 

@@ -1,4 +1,4 @@
-.brand-mark {
+﻿.brand-mark {
   width: 96px !important;
   height: 58px !important;
   min-width: 96px !important;
@@ -32,7 +32,7 @@
 }
 
 .brand-subtitle::after {
-  content: "Tubular Inventory Tracking & Asset Management";
+  content: "Tubular Inventory Tracking & Asset Navigation";
   display: block;
   color: var(--muted);
   font-size: 13px;
@@ -50,3 +50,4 @@
   border: 1px solid var(--line);
   background: #050505;
 }
+

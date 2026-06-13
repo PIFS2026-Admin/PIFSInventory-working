@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type TicketType = "receiving" | "shipping";
+type TicketType = "receiving" | "shipping" | "transfer";
 
 type Ticket = {
   id: string;
   type: TicketType;
   ticketNumber: string;
   bolNumber: string;
+  documentType: string;
   company: string;
   carrier: string;
   poNumber: string;
@@ -35,6 +36,7 @@ const emptyTicket: Ticket = {
   type: "receiving",
   ticketNumber: "",
   bolNumber: "",
+  documentType: "",
   company: "",
   carrier: "",
   poNumber: "",
@@ -100,6 +102,61 @@ export default function TicketPrintPage() {
         return;
       }
 
+      if (type === "transfer") {
+        let query = supabase
+          .from("documents")
+          .select("id, document_type, file_url, created_at, companies(name)");
+
+        query = isUuid(id) ? query.eq("id", id) : query.eq("id", id);
+
+        const { data, error } = await query.single();
+
+        if (error) {
+          setError(error.message);
+          return;
+        }
+
+        let details: any = {};
+
+        try {
+          details = JSON.parse(data.file_url || "{}");
+        } catch {
+          details = {};
+        }
+
+        const companyName = details.company || getCompanyName(data.companies);
+
+        setTicket({
+          id: data.id,
+          type: "transfer",
+          ticketNumber: details.documentNumber ?? data.id,
+          bolNumber: "",
+          documentType: data.document_type ?? "",
+          company: companyName,
+          carrier: "",
+          poNumber: "",
+          truckNumber: "",
+          shipTo: "",
+          receivedFrom: details.fromLocation ?? "",
+          destination: details.toLocation ?? "",
+          notes: details.comment ?? "",
+          createdAt: details.createdAt ?? data.created_at ?? "",
+        });
+
+        setLines([
+          {
+            id: data.id,
+            afe: details.afe ?? "",
+            partNumber: details.partNumber ?? "",
+            condition: details.condition ?? "",
+            joints: Number(details.joints ?? 0),
+            footage: Number(details.footage ?? 0),
+          },
+        ]);
+
+        return;
+      }
+
       if (type === "shipping") {
         let query = supabase
           .from("shipping_tickets")
@@ -123,6 +180,7 @@ export default function TicketPrintPage() {
           type: "shipping",
           ticketNumber: data.ticket_number ?? "",
           bolNumber: data.bol_number ?? "",
+          documentType: "",
           company: companyName,
           carrier: data.carrier ?? "",
           poNumber: data.po_number ?? "",
@@ -181,6 +239,7 @@ export default function TicketPrintPage() {
         type: "receiving",
         ticketNumber: data.ticket_number ?? "",
         bolNumber: "",
+        documentType: "",
         company: companyName,
         carrier: data.carrier ?? "",
         poNumber: data.po_number ?? "",
@@ -239,8 +298,17 @@ export default function TicketPrintPage() {
 
         <div className="ticket-title-row">
           <div>
-            <h2>{ticket.type === "shipping" ? "Shipping Ticket / Bill of Lading" : "Receiving Ticket"}</h2>
+            <h2>
+              {ticket.type === "shipping"
+                ? "Shipping Ticket / Bill of Lading"
+                : ticket.type === "transfer"
+                  ? "Machine Shop Transfer Document"
+                  : "Receiving Ticket"}
+            </h2>
             <p>{ticket.ticketNumber}</p>
+            {ticket.type === "transfer" && (
+              <p>{ticket.documentType === "transfer_to_machine_shop" ? "Transfer To Machine Shop" : "Transfer From Machine Shop"}</p>
+            )}
           </div>
           <div className="ticket-date-box">
             <span>Date</span>
@@ -272,11 +340,11 @@ export default function TicketPrintPage() {
             <strong>{ticket.truckNumber || "-"}</strong>
           </div>
           <div>
-            <span>{ticket.type === "shipping" ? "Ship To" : "Received From"}</span>
+            <span>{ticket.type === "shipping" ? "Ship To" : ticket.type === "transfer" ? "From" : "Received From"}</span>
             <strong>{ticket.type === "shipping" ? ticket.shipTo || "-" : ticket.receivedFrom || "-"}</strong>
           </div>
           <div>
-            <span>Destination</span>
+            <span>{ticket.type === "transfer" ? "To" : "Destination"}</span>
             <strong>{ticket.destination || "-"}</strong>
           </div>
         </section>

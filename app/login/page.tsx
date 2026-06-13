@@ -59,7 +59,7 @@ export default function LoginPage() {
           <div className="brand-mark">PF</div>
           <div>
             <div className="brand-title">TITAN</div>
-            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Management</div>
+            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
           </div>
         </div>
 
@@ -91,4 +91,5 @@ export default function LoginPage() {
     </main>
   );
 }
+
 

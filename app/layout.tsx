@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import "./globals.css";
 import "./titan-branding.css";
 
 export const metadata: Metadata = {
   title: "TITAN",
-  description: "Tubular Inventory Tracking & Asset Management.",
+  description: "Tubular Inventory Tracking & Asset Navigation.",
 };
 
 export default function RootLayout({
@@ -18,3 +18,4 @@ export default function RootLayout({
     </html>
   );
 }
+
