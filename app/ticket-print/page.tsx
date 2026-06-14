@@ -196,7 +196,7 @@ export default function TicketPrintPage() {
           .from("ticket_line_items")
           .select("id, afe, part_number, condition, joints, footage")
           .eq("ticket_id", data.id)
-          .order("created_at", { ascending: true });
+          .order("id", { ascending: true });
 
         if (lineError) {
           setError(lineError.message);
