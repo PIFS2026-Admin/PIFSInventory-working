@@ -1434,13 +1434,18 @@ th {
 }
 
 @media print {
+  html,
   body {
-    background: white;
+    background: white !important;
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-page {
     padding: 0;
-    background: white;
+    background: white !important;
+    color: #111827 !important;
   }
 
   .print-actions {
@@ -1449,6 +1454,8 @@ th {
 
   .print-sheet {
     width: 100%;
+    background: white !important;
+    color: #111827 !important;
     box-shadow: none;
     padding: 18px;
   }
@@ -1485,6 +1492,20 @@ th {
   .signature-grid {
     margin-top: 42px;
   }
+
+  .signature-grid div {
+    min-height: 92px;
+  }
+
+  .signature-grid span {
+    min-height: 58px;
+  }
+
+  .signature-grid img {
+    max-height: 72px;
+    margin-top: -68px;
+    filter: invert(1) grayscale(1) contrast(2.2);
+  }
 }
 @media print {
   .side-panel,
@@ -1495,18 +1516,22 @@ th {
 
   .app-shell {
     display: block;
-    background: white;
-    color: black;
+    background: white !important;
+    color: #111827 !important;
   }
 
   .main-panel {
     padding: 0;
+    background: white !important;
+    color: #111827 !important;
   }
 
   .topbar {
     border-bottom: 1px solid #111;
     padding-bottom: 10px;
     margin-bottom: 14px;
+    background: white !important;
+    color: #111827 !important;
   }
 
   .rack-section {
@@ -1515,18 +1540,31 @@ th {
 
   .inventory-panel {
     margin-top: 0;
+    background: white !important;
+    color: #111827 !important;
+    border: 0 !important;
   }
 
   .table-wrap {
     border: none;
     overflow: visible;
+    background: white !important;
   }
 
   table {
     min-width: 0;
     width: 100%;
-    color: black;
+    color: #111827 !important;
+    background: white !important;
     font-size: 10px;
+  }
+
+  thead,
+  tbody,
+  tfoot,
+  tr {
+    background: white !important;
+    color: #111827 !important;
   }
 
   th {
@@ -1537,15 +1575,38 @@ th {
   th,
   td {
     border: 1px solid #999;
+    background: white !important;
+    color: #111827 !important;
     padding: 5px;
   }
 
+  td *,
+  .inventory-panel *,
+  .table-wrap * {
+    color: #111827 !important;
+  }
+
+  th,
+  th * {
+    color: white !important;
+  }
+
+  .button,
+  button {
+    background: white !important;
+    color: #111827 !important;
+    border: 1px solid #6b7280 !important;
+    box-shadow: none !important;
+  }
+
   .badge {
-    color: black;
-    background: transparent;
+    color: #111827 !important;
+    background: transparent !important;
     padding: 0;
   }
-}.brand-mark {
+}
+
+.brand-mark {
   width: 96px !important;
   height: 58px !important;
   color: transparent !important;
