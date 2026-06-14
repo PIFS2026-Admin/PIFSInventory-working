@@ -1,12 +1,18 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Role = "admin" | "customer";
 type LocationType = "rack" | "zone";
 type TransferMode = "all" | "partial";
 type PipeRange = "Range 2" | "Range 3";
+
+type SignatureFields = {
+  pathfinderSignature: string;
+  carrierSignature: string;
+  customerSignature: string;
+};
 
 type RackConfig = {
   id: string;
@@ -58,7 +64,7 @@ type InventoryRow = {
   footage: number;
 };
 
-type ReceiveForm = {
+type ReceiveForm = SignatureFields & {
   carrier: string;
   poNumber: string;
   truckNumber: string;
@@ -79,7 +85,7 @@ type ReceiveForm = {
   notes: string;
 };
 
-type TransferForm = {
+type TransferForm = SignatureFields & {
   destination: string;
   joints: string;
   comment: string;
@@ -101,7 +107,7 @@ type EditForm = {
   inspectionDue: string;
   comment: string;
 };
-type ShipForm = {
+type ShipForm = SignatureFields & {
   carrier: string;
   poNumber: string;
   truckNumber: string;
@@ -324,6 +330,9 @@ const emptyReceiveForm: ReceiveForm = {
   missingBoxProtectors: "0",
   missingPinProtectors: "0",
   inspectionDue: "",
+  pathfinderSignature: "",
+  carrierSignature: "",
+  customerSignature: "",
   notes: "",
 };
 
@@ -332,6 +341,9 @@ const emptyTransferForm: TransferForm = {
   joints: "",
   comment: "",
   backDate: "",
+  pathfinderSignature: "",
+  carrierSignature: "",
+  customerSignature: "",
 };
 
 const emptyEditForm: EditForm = {
@@ -356,6 +368,9 @@ const emptyShipForm: ShipForm = {
   bolNumber: "",
   shipTo: "",
   destination: "",
+  pathfinderSignature: "",
+  carrierSignature: "",
+  customerSignature: "",
   notes: "",
 };
 
@@ -424,6 +439,107 @@ function safeFileName(fileName: string) {
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 120) || "attachment";
+}
+
+function SignaturePad({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingRef = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext("2d");
+    if (!context) return;
+
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.lineWidth = 2.5;
+    context.strokeStyle = "#f4f6f8";
+
+    if (!value) {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [value]);
+
+  function getPoint(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const bounds = canvas.getBoundingClientRect();
+
+    return {
+      x: ((event.clientX - bounds.left) / bounds.width) * canvas.width,
+      y: ((event.clientY - bounds.top) / bounds.height) * canvas.height,
+    };
+  }
+
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    drawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+
+    const point = getPoint(event);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
+
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    const point = getPoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+
+  function stopDrawing() {
+    if (!drawingRef.current) return;
+
+    drawingRef.current = false;
+    const canvas = canvasRef.current;
+    if (canvas) onChange(canvas.toDataURL("image/png"));
+  }
+
+  function clearSignature() {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (canvas && context) context.clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  }
+
+  return (
+    <div className="signature-pad">
+      <div className="signature-pad-header">
+        <strong>{label}</strong>
+        <button type="button" onClick={clearSignature}>Clear</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        width={520}
+        height={150}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        onPointerLeave={stopDrawing}
+      />
+    </div>
+  );
 }
 
 export default function Home() {
@@ -1764,6 +1880,7 @@ export default function Home() {
     footage,
     comment,
     direction,
+    signatures,
   }: {
     row: InventoryRow;
     fromLocation: string;
@@ -1772,6 +1889,7 @@ export default function Home() {
     footage: number;
     comment: string;
     direction: "to" | "from";
+    signatures: SignatureFields;
   }) {
     if (!row.companyId) return null;
 
@@ -1788,6 +1906,9 @@ export default function Home() {
       fromLocation,
       toLocation,
       comment,
+      pathfinderSignature: signatures.pathfinderSignature,
+      carrierSignature: signatures.carrierSignature,
+      customerSignature: signatures.customerSignature,
       createdAt: new Date().toISOString(),
     };
 
@@ -1963,6 +2084,9 @@ export default function Home() {
           destination: destinationName,
           missing_box_protectors: missingBoxProtectors,
           missing_pin_protectors: missingPinProtectors,
+          pathfinder_signature: receiveForm.pathfinderSignature || null,
+          carrier_signature: receiveForm.carrierSignature || null,
+          customer_signature: receiveForm.customerSignature || null,
           notes: receiveForm.notes || null,
           afe: receiveForm.afe || null,
           part_number: receiveForm.partNumber,
@@ -2139,6 +2263,7 @@ export default function Home() {
             footage: moveFootage,
             comment: transferForm.comment,
             direction: machineShopMove,
+            signatures: transferForm,
           })
         : null;
 
@@ -2197,6 +2322,9 @@ export default function Home() {
           truck_number: shipForm.truckNumber,
           ship_to: shipForm.shipTo,
           destination: shipForm.destination || null,
+          pathfinder_signature: shipForm.pathfinderSignature || null,
+          carrier_signature: shipForm.carrierSignature || null,
+          customer_signature: shipForm.customerSignature || null,
           notes: shipForm.notes || null,
         })
         .select("id")
@@ -3123,6 +3251,23 @@ export default function Home() {
                   ))}
                 </div>
               )}
+              <div className="full signature-pad-grid">
+                <SignaturePad
+                  label="Pathfinder Representative"
+                  value={receiveForm.pathfinderSignature}
+                  onChange={(value) => setReceiveForm({ ...receiveForm, pathfinderSignature: value })}
+                />
+                <SignaturePad
+                  label="Carrier / Driver Signature"
+                  value={receiveForm.carrierSignature}
+                  onChange={(value) => setReceiveForm({ ...receiveForm, carrierSignature: value })}
+                />
+                <SignaturePad
+                  label="Customer Representative"
+                  value={receiveForm.customerSignature}
+                  onChange={(value) => setReceiveForm({ ...receiveForm, customerSignature: value })}
+                />
+              </div>
               <label className="full">Notes<textarea value={receiveForm.notes} onChange={(event) => setReceiveForm({ ...receiveForm, notes: event.target.value })} /></label>
             </div>
 
@@ -3184,6 +3329,24 @@ export default function Home() {
                 Comment
                 <textarea value={transferForm.comment} onChange={(event) => setTransferForm({ ...transferForm, comment: event.target.value })} placeholder="Required for transfer history" />
               </label>
+
+              <div className="full signature-pad-grid">
+                <SignaturePad
+                  label="Pathfinder Representative"
+                  value={transferForm.pathfinderSignature}
+                  onChange={(value) => setTransferForm({ ...transferForm, pathfinderSignature: value })}
+                />
+                <SignaturePad
+                  label="Carrier / Driver Signature"
+                  value={transferForm.carrierSignature}
+                  onChange={(value) => setTransferForm({ ...transferForm, carrierSignature: value })}
+                />
+                <SignaturePad
+                  label="Customer Representative"
+                  value={transferForm.customerSignature}
+                  onChange={(value) => setTransferForm({ ...transferForm, customerSignature: value })}
+                />
+              </div>
             </div>
 
             <div className="slide-actions">
@@ -3256,6 +3419,23 @@ export default function Home() {
                   ))}
                 </div>
               )}
+              <div className="full signature-pad-grid">
+                <SignaturePad
+                  label="Pathfinder Representative"
+                  value={shipForm.pathfinderSignature}
+                  onChange={(value) => setShipForm({ ...shipForm, pathfinderSignature: value })}
+                />
+                <SignaturePad
+                  label="Carrier / Driver Signature"
+                  value={shipForm.carrierSignature}
+                  onChange={(value) => setShipForm({ ...shipForm, carrierSignature: value })}
+                />
+                <SignaturePad
+                  label="Customer Representative"
+                  value={shipForm.customerSignature}
+                  onChange={(value) => setShipForm({ ...shipForm, customerSignature: value })}
+                />
+              </div>
               <label className="full">Notes<textarea value={shipForm.notes} onChange={(event) => setShipForm({ ...shipForm, notes: event.target.value })} /></label>
             </div>
 

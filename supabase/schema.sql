@@ -152,6 +152,9 @@ create table if not exists public.receiving_tickets (
   destination text,
   missing_box_protectors integer not null default 0 check (missing_box_protectors >= 0),
   missing_pin_protectors integer not null default 0 check (missing_pin_protectors >= 0),
+  pathfinder_signature text,
+  carrier_signature text,
+  customer_signature text,
   notes text,
   afe text,
   part_number text,
@@ -175,6 +178,9 @@ create table if not exists public.shipping_tickets (
   shipped_by uuid references auth.users(id),
   bill_of_lading_url text,
   pdf_url text,
+  pathfinder_signature text,
+  carrier_signature text,
+  customer_signature text,
   created_at timestamptz not null default now()
 );
 

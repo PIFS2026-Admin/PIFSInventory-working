@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   async function signIn(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -59,6 +60,30 @@ export default function LoginPage() {
     window.location.href = "/";
   }
 
+  async function sendPasswordReset() {
+    setMessage("");
+
+    if (!email.trim()) {
+      setMessage("Enter your email address first, then use Forgot Password.");
+      return;
+    }
+
+    setResetLoading(true);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/login`,
+    });
+
+    setResetLoading(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Password reset email sent. Check your inbox.");
+  }
+
   return (
     <main className="login-page">
       <section className="login-card">
@@ -98,6 +123,15 @@ export default function LoginPage() {
 
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "Signing in..." : "Sign In"}
+          </button>
+
+          <button
+            className="forgot-password-link"
+            type="button"
+            onClick={sendPasswordReset}
+            disabled={resetLoading}
+          >
+            {resetLoading ? "Sending reset..." : "Forgot password?"}
           </button>
         </form>
       </section>

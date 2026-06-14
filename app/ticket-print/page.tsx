@@ -20,6 +20,9 @@ type Ticket = {
   destination: string;
   missingBoxProtectors: number;
   missingPinProtectors: number;
+  pathfinderSignature: string;
+  carrierSignature: string;
+  customerSignature: string;
   notes: string;
   createdAt: string;
 };
@@ -49,6 +52,9 @@ const emptyTicket: Ticket = {
   destination: "",
   missingBoxProtectors: 0,
   missingPinProtectors: 0,
+  pathfinderSignature: "",
+  carrierSignature: "",
+  customerSignature: "",
   notes: "",
   createdAt: "",
 };
@@ -154,6 +160,9 @@ export default function TicketPrintPage() {
           destination: details.toLocation ?? "",
           missingBoxProtectors: 0,
           missingPinProtectors: 0,
+          pathfinderSignature: details.pathfinderSignature ?? "",
+          carrierSignature: details.carrierSignature ?? "",
+          customerSignature: details.customerSignature ?? "",
           notes: details.comment ?? "",
           createdAt: details.createdAt ?? data.created_at ?? "",
         });
@@ -177,7 +186,7 @@ export default function TicketPrintPage() {
         let query = supabase
           .from("shipping_tickets")
           .select(
-            "id, ticket_number, bol_number, carrier, po_number, truck_number, ship_to, destination, notes, created_at, companies(name)"
+            "id, ticket_number, bol_number, carrier, po_number, truck_number, ship_to, destination, pathfinder_signature, carrier_signature, customer_signature, notes, created_at, companies(name)"
           );
 
         query = isUuid(id) ? query.eq("id", id) : query.eq("ticket_number", id);
@@ -206,6 +215,9 @@ export default function TicketPrintPage() {
           destination: data.destination ?? "",
           missingBoxProtectors: 0,
           missingPinProtectors: 0,
+          pathfinderSignature: data.pathfinder_signature ?? "",
+          carrierSignature: data.carrier_signature ?? "",
+          customerSignature: data.customer_signature ?? "",
           notes: data.notes ?? "",
           createdAt: data.created_at ?? "",
         });
@@ -244,7 +256,7 @@ export default function TicketPrintPage() {
       let query = supabase
         .from("receiving_tickets")
         .select(
-          "id, ticket_number, carrier, po_number, truck_number, destination, missing_box_protectors, missing_pin_protectors, notes, created_at, afe, part_number, pipe_range, condition, joints, footage, companies(name)"
+          "id, ticket_number, carrier, po_number, truck_number, destination, missing_box_protectors, missing_pin_protectors, pathfinder_signature, carrier_signature, customer_signature, notes, created_at, afe, part_number, pipe_range, condition, joints, footage, companies(name)"
         );
 
       query = isUuid(id) ? query.eq("id", id) : query.eq("ticket_number", id);
@@ -273,6 +285,9 @@ export default function TicketPrintPage() {
         destination: data.destination ?? "-",
         missingBoxProtectors: Number(data.missing_box_protectors ?? 0),
         missingPinProtectors: Number(data.missing_pin_protectors ?? 0),
+        pathfinderSignature: data.pathfinder_signature ?? "",
+        carrierSignature: data.carrier_signature ?? "",
+        customerSignature: data.customer_signature ?? "",
         notes: data.notes ?? "",
         createdAt: data.created_at ?? "",
       });
@@ -432,15 +447,15 @@ export default function TicketPrintPage() {
 
         <section className="signature-grid">
           <div>
-            <span></span>
+            <span>{ticket.pathfinderSignature && <img src={ticket.pathfinderSignature} alt="Pathfinder Representative Signature" />}</span>
             <p>Pathfinder Representative</p>
           </div>
           <div>
-            <span></span>
+            <span>{ticket.carrierSignature && <img src={ticket.carrierSignature} alt="Carrier / Driver Signature" />}</span>
             <p>Carrier / Driver Signature</p>
           </div>
           <div>
-            <span></span>
+            <span>{ticket.customerSignature && <img src={ticket.customerSignature} alt="Customer Representative Signature" />}</span>
             <p>Customer Representative</p>
           </div>
         </section>
