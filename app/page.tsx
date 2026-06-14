@@ -420,6 +420,7 @@ export default function Home() {
   const [activitySearch, setActivitySearch] = useState("");
   const [activityType, setActivityType] = useState("all");
   const [activityDate, setActivityDate] = useState("");
+  const [rackDetailOpen, setRackDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
   const [transferMode, setTransferMode] = useState<TransferMode>("all");
@@ -608,6 +609,37 @@ export default function Home() {
       (row) => row.status
     );
   }, [activeInventory]);
+
+  const selectedRackDetail = useMemo(() => {
+    if (selectedLocation === "all") return null;
+    return rackLayout.find((rack) => rack.label === selectedLocation) ?? null;
+  }, [rackLayout, selectedLocation]);
+
+  const selectedRackInventory = useMemo(() => {
+    if (!selectedRackDetail) return [];
+    return inventory.filter((row) => row.locationType === "rack" && row.rackId === selectedRackDetail.label);
+  }, [inventory, selectedRackDetail]);
+
+  const selectedRackTotals = useMemo(() => {
+    return selectedRackInventory.reduce(
+      (totals, row) => ({
+        lines: totals.lines + 1,
+        joints: totals.joints + row.bulkJoints + row.talliedJoints,
+        footage: totals.footage + row.bulkFootage + row.talliedFootage,
+        bulkJoints: totals.bulkJoints + row.bulkJoints,
+        talliedJoints: totals.talliedJoints + row.talliedJoints,
+      }),
+      { lines: 0, joints: 0, footage: 0, bulkJoints: 0, talliedJoints: 0 }
+    );
+  }, [selectedRackInventory]);
+
+  const selectedRackCustomerSummary = useMemo(() => {
+    return buildReport(selectedRackInventory, (row) => row.company);
+  }, [selectedRackInventory]);
+
+  const selectedRackStatusSummary = useMemo(() => {
+    return buildReport(selectedRackInventory, (row) => row.status);
+  }, [selectedRackInventory]);
 
   async function loadInventory(yardId: string, racks: RackConfig[], zoneList: ZoneConfig[]) {
     const { data, error } = await supabase
@@ -1507,6 +1539,16 @@ export default function Home() {
     );
   }
 
+  function openRackDetail(label: string) {
+    setSelectedLocation(label);
+    setSelectedRows([]);
+    setRackDetailOpen(true);
+  }
+
+  function closeRackDetail() {
+    setRackDetailOpen(false);
+  }
+
   async function deleteRack(label: string) {
     const rack = rackLayout.find((item) => item.label === label);
     if (!rack) return;
@@ -2335,7 +2377,10 @@ export default function Home() {
               <button
                 key={zone.id}
                 className={`zone-card ${selectedLocation === zone.code ? "active" : ""}`}
-                onClick={() => setSelectedLocation(zone.code)}
+              onClick={() => {
+                setSelectedLocation(zone.code);
+                setRackDetailOpen(false);
+              }}
               >
                 <span>{zone.name}</span>
                 <small>{zone.code}</small>
@@ -2353,7 +2398,7 @@ export default function Home() {
           </div>
 
           <div className="topbar-actions">
-            <button className="button" onClick={() => setSelectedLocation("all")}>Show All</button>
+            <button className="button" onClick={() => { setSelectedLocation("all"); setRackDetailOpen(false); }}>Show All</button>
             {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}
             {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
@@ -2463,7 +2508,7 @@ export default function Home() {
                 >
                   <button
                     className="rack-tile-button compact-rack-button"
-                    onClick={() => (layoutMode ? toggleRackEnabled(rack.label) : setSelectedLocation(rack.label))}
+                    onClick={() => (layoutMode ? toggleRackEnabled(rack.label) : openRackDetail(rack.label))}
                     style={{
                       minHeight: "36px",
                       height: "36px",
@@ -2566,6 +2611,149 @@ export default function Home() {
           </div>
         </section>
       </section>
+
+      {rackDetailOpen && selectedRackDetail && (
+        <div className="modal-backdrop rack-detail-backdrop">
+          <section className="rack-detail-screen">
+            <div className="slide-header">
+              <div>
+                <h2>Rack {selectedRackDetail.label}</h2>
+                <p>
+                  {selectedRackTotals.lines} line items / {selectedRackTotals.joints} joints / {selectedRackTotals.footage.toLocaleString()} ft
+                </p>
+              </div>
+              <button className="icon-button" onClick={closeRackDetail}>X</button>
+            </div>
+
+            <div className="rack-detail-actions">
+              <button className="button" onClick={closeRackDetail}>Back to Yard</button>
+              <button className="button" onClick={exportInventoryCsv}>Export Rack CSV</button>
+              <button
+                className="button primary"
+                disabled={role === "customer"}
+                onClick={() => {
+                  setReceiveForm({ ...emptyReceiveForm, destination: `rack:${selectedRackDetail.label}` });
+                  setReceiveOpen(true);
+                }}
+              >
+                Receive Into Rack
+              </button>
+            </div>
+
+            <div className="rack-detail-metrics">
+              <div>
+                <span>Capacity</span>
+                <strong>{selectedRackDetail.capacity}</strong>
+                <small>joints</small>
+              </div>
+              <div>
+                <span>Current Load</span>
+                <strong>{selectedRackTotals.joints}</strong>
+                <small>{Math.round((selectedRackTotals.joints / selectedRackDetail.capacity) * 100) || 0}% full</small>
+              </div>
+              <div>
+                <span>Footage</span>
+                <strong>{selectedRackTotals.footage.toLocaleString()}</strong>
+                <small>total ft</small>
+              </div>
+              <div>
+                <span>Bulk / Tallied</span>
+                <strong>{selectedRackTotals.bulkJoints} / {selectedRackTotals.talliedJoints}</strong>
+                <small>joints</small>
+              </div>
+            </div>
+
+            <div className="rack-detail-grid">
+              <section className="ticket-card">
+                <h3>Inventory By Customer</h3>
+                {selectedRackCustomerSummary.length === 0 && <p className="muted-text">No customer inventory in this rack.</p>}
+                {selectedRackCustomerSummary.map((line) => (
+                  <div key={line.label} className="report-row">
+                    <span>{line.label}</span>
+                    <strong>{line.joints} joints</strong>
+                    <small>{line.footage.toLocaleString()} ft / {line.lines} lines</small>
+                  </div>
+                ))}
+              </section>
+
+              <section className="ticket-card">
+                <h3>Inventory By Status</h3>
+                {selectedRackStatusSummary.length === 0 && <p className="muted-text">No status totals in this rack.</p>}
+                {selectedRackStatusSummary.map((line) => (
+                  <div key={line.label} className="report-row">
+                    <span>{line.label}</span>
+                    <strong>{line.joints} joints</strong>
+                    <small>{line.footage.toLocaleString()} ft / {line.lines} lines</small>
+                  </div>
+                ))}
+              </section>
+            </div>
+
+            <section className="ticket-card rack-detail-lines">
+              <h3>Rack Line Items</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Select</th>
+                      <th>Actions</th>
+                      <th>Company</th>
+                      <th>TU#</th>
+                      <th>Part Number</th>
+                      <th>Size</th>
+                      <th>Grade</th>
+                      <th>Connection</th>
+                      <th>Status</th>
+                      <th>Condition</th>
+                      <th>Inspection Due</th>
+                      <th>Joints</th>
+                      <th>Footage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedRackInventory.map((row) => {
+                      const totalJoints = row.bulkJoints + row.talliedJoints;
+                      const totalFootage = row.bulkFootage + row.talliedFootage;
+
+                      return (
+                        <tr key={row.id}>
+                          <td>
+                            <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
+                          </td>
+                          <td>
+                            <div className="quick-actions">
+                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickTransfer(row)}>Transfer</button>
+                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickShip(row)}>Ship</button>
+                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickAdjust(row)}>Adjust</button>
+                            </div>
+                          </td>
+                          <td>{row.company}</td>
+                          <td>{row.afe}</td>
+                          <td>{row.partNumber}</td>
+                          <td>{row.size}</td>
+                          <td>{row.grade}</td>
+                          <td>{row.connection}</td>
+                          <td><span className="badge">{row.status}</span></td>
+                          <td>{row.condition}</td>
+                          <td>{row.inspectionDue || "-"}</td>
+                          <td>{totalJoints}</td>
+                          <td>{totalFootage.toLocaleString()}</td>
+                        </tr>
+                      );
+                    })}
+
+                    {selectedRackInventory.length === 0 && (
+                      <tr>
+                        <td colSpan={13} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      )}
 
       {editOpen && selectedEditRow && (
         <div className="modal-backdrop">

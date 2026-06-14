@@ -386,6 +386,78 @@ th {
   padding: 22px;
 }
 
+.rack-detail-backdrop {
+  justify-content: center;
+  align-items: stretch;
+  padding: 18px;
+}
+
+.rack-detail-screen {
+  width: min(1280px, 100%);
+  height: calc(100vh - 36px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+}
+
+.rack-detail-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.rack-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rack-detail-metrics div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101318;
+  padding: 14px;
+}
+
+.rack-detail-metrics span,
+.rack-detail-metrics strong,
+.rack-detail-metrics small {
+  display: block;
+}
+
+.rack-detail-metrics span,
+.rack-detail-metrics small {
+  color: var(--muted);
+}
+
+.rack-detail-metrics strong {
+  margin: 4px 0;
+  font-size: 24px;
+}
+
+.rack-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.rack-detail-grid .ticket-card,
+.rack-detail-lines {
+  padding: 14px;
+}
+
+.rack-detail-grid h3,
+.rack-detail-lines h3 {
+  margin-top: 0;
+}
+
 .slide-header {
   display: flex;
   justify-content: space-between;
@@ -468,6 +540,28 @@ th {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rack-detail-backdrop {
+    padding: 0;
+  }
+
+  .rack-detail-screen {
+    height: 100vh;
+    border-radius: 0;
+  }
+
+  .rack-detail-metrics,
+  .rack-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rack-detail-actions {
+    justify-content: stretch;
+  }
+
+  .rack-detail-actions .button {
+    flex: 1 1 180px;
   }
 }
 .modal-message {
