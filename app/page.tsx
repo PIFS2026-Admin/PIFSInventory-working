@@ -24,6 +24,7 @@ type ZoneConfig = {
   name: string;
   code: string;
   sort_order: number;
+  isActive?: boolean;
 };
 
 type YardRecord = {
@@ -623,7 +624,7 @@ export default function Home() {
 
     const { data: dbRacks } = await supabase
       .from("racks")
-      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation")
+      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation, is_active")
       .eq("yard_id", yard.id)
       .order("sort_order", { ascending: true });
 
@@ -636,7 +637,7 @@ export default function Home() {
       const fallback = defaultRackPosition(normalizedLabel);
       const parsed = parseRackCode(normalizedLabel);
       const rawLayoutGroup = String(rack.layout_group ?? parsed?.letter ?? "A");
-      const enabled = !rawLayoutGroup.startsWith("disabled:");
+      const enabled = rack.is_active !== false && !rawLayoutGroup.startsWith("disabled:");
       const layoutGroup = rawLayoutGroup.replace(/^disabled:/, "") || parsed?.letter || "A";
 
       savedRackMap.set(normalizedLabel, {
@@ -657,18 +658,19 @@ export default function Home() {
 
     const { data: dbZones } = await supabase
       .from("workflow_zones")
-      .select("id, name, code, sort_order")
+      .select("id, name, code, sort_order, is_active")
       .eq("yard_id", yard.id)
       .neq("code", "warehouse")
       .order("sort_order", { ascending: true });
 
     const mappedZones =
       dbZones && dbZones.length > 0
-        ? dbZones.map((zone: any) => ({
+        ? dbZones.filter((zone: any) => zone.is_active !== false).map((zone: any) => ({
             id: zone.id,
             name: zone.name,
             code: zone.code,
             sort_order: Number(zone.sort_order ?? 0),
+            isActive: zone.is_active !== false,
           }))
         : defaultZones;
 
@@ -1160,6 +1162,7 @@ function moveRack(targetRack: string) {
       layout_y: rack.layoutY,
       layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
       rotation: rack.rotation,
+      is_active: rack.enabled !== false,
     }));
 
     const { error } = await supabase
@@ -1210,6 +1213,7 @@ function moveRack(targetRack: string) {
         layout_y: rack.layoutY,
         layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
         rotation: rack.rotation,
+        is_active: rack.enabled !== false,
       }));
 
       const { error } = await supabase
