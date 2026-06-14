@@ -911,6 +911,62 @@ export default function Home() {
     loadReports();
   }
 
+  async function refreshYardView() {
+    await loadYardSetup();
+    await loadTickets();
+    await loadReports();
+    setMessage("Yard view refreshed.");
+  }
+
+  async function completeSelectedRows() {
+    if (!selectedYard) return;
+
+    setMessage("");
+
+    if (selectedRows.length === 0) {
+      setMessage("Select one or more inventory lines before completing.");
+      return;
+    }
+
+    const selectedInventoryRows = inventory.filter((row) => selectedRows.includes(row.id));
+
+    if (selectedInventoryRows.length === 0) {
+      setMessage("No selected inventory lines were found.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("pipe_inventory")
+      .update({ status: "Available" })
+      .in("id", selectedRows);
+
+    if (error) {
+      setMessage(`Complete failed: ${error.message}`);
+      return;
+    }
+
+    await Promise.all(
+      selectedInventoryRows.map((row) =>
+        supabase.from("pipe_transactions").insert({
+          pipe_inventory_id: row.id,
+          company_id: row.companyId,
+          yard_id: selectedYard.id,
+          transaction_type: "complete",
+          quantity_joints: row.bulkJoints + row.talliedJoints,
+          quantity_footage: row.bulkFootage + row.talliedFootage,
+          from_location: row.rackId ?? row.zoneId,
+          to_location: row.rackId ?? row.zoneId,
+          comment: "Marked complete and available",
+        })
+      )
+    );
+
+    await loadInventory(selectedYard.id, rackLayout, zones);
+    await loadReports();
+    setSelectedRows([]);
+    setMessage(`${selectedInventoryRows.length} inventory line${selectedInventoryRows.length === 1 ? "" : "s"} marked Available.`);
+  }
+
   useEffect(() => {
     loadYardSetup();
   }, []);
@@ -1928,13 +1984,10 @@ function moveRack(targetRack: string) {
         </select>
 
         <div className="button-grid">
-          <button className="button">New Master Part</button>
-          <button className="button">Save</button>
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
-          <button className="button" onClick={loadYardSetup}>Refresh</button>
-          <button className="button">Highlight</button>
-          <button className="button">Complete</button>
+          <button className="button" onClick={refreshYardView}>Refresh</button>
+          <button className="button" disabled={role === "customer" || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
           <button className="button" disabled={role === "customer"} onClick={openTransfer}>Transfer</button>
           <button className="button primary" disabled={role === "customer"} onClick={() => setReceiveOpen(true)}>Receive</button>
           <button className="button" disabled={role === "customer"} onClick={openShip}>Ship</button>
