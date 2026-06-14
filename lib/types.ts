@@ -1,4 +1,5 @@
 export type UserRole = "admin" | "employee" | "customer";
+export type PipeRange = "Range 2" | "Range 3";
 
 export type InventoryStatus =
   | "Received"
@@ -37,6 +38,7 @@ export type PipeInventory = {
   size: string;
   grade: string;
   connection: string;
+  pipe_range: PipeRange;
   condition: string;
   status: InventoryStatus;
   inspection_color: string;

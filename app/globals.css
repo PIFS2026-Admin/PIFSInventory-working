@@ -510,8 +510,45 @@ th {
   resize: vertical;
 }
 
+.form-grid input[type="file"] {
+  padding: 9px;
+  background: rgba(16, 19, 24, 0.78);
+}
+
 .full {
   grid-column: 1 / -1;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  background: rgba(16, 19, 24, 0.72);
+}
+
+.attachment-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+  text-transform: none;
+}
+
+.attachment-list button {
+  border: 0;
+  color: var(--orange-2);
+  background: transparent;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .slide-actions {
@@ -648,6 +685,19 @@ th {
   grid-column: 1 / -1;
   border-top: 1px solid var(--line);
   padding-top: 8px;
+}
+
+.ticket-line-list a {
+  display: block;
+  color: var(--orange-2);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+  margin-top: 5px;
+}
+
+.ticket-line-list a:hover {
+  text-decoration: underline;
 }
 
 .muted-text {
@@ -842,16 +892,35 @@ th {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: radial-gradient(circle at top, #242a33, #0b0d10 55%);
+  background:
+    linear-gradient(90deg, rgba(7, 8, 10, 0.82), rgba(7, 8, 10, 0.34) 48%, rgba(7, 8, 10, 0.74)),
+    linear-gradient(180deg, rgba(7, 8, 10, 0.28), rgba(7, 8, 10, 0.82)),
+    url("/titan-login-background.jpg") center / cover no-repeat;
+  position: relative;
+  overflow: hidden;
+}
+
+.login-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at center, rgba(249, 113, 22, 0.14), transparent 34%),
+    rgba(0, 0, 0, 0.12);
+  pointer-events: none;
 }
 
 .login-card {
+  position: relative;
+  z-index: 1;
   width: min(460px, 100%);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 10px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  background: rgba(13, 17, 23, 0.72);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.58);
   padding: 24px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .brand.compact {
@@ -871,8 +940,8 @@ th {
   width: 100%;
   margin-top: 6px;
   border-radius: 7px;
-  border: 1px solid var(--line);
-  background: #101318;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(16, 19, 24, 0.78);
   color: var(--text);
   padding: 13px 12px;
 }

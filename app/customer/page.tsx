@@ -20,6 +20,7 @@ type CustomerInventory = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: "Range 2" | "Range 3";
   status: string;
   condition: string;
   rack: string;
@@ -50,6 +51,14 @@ type LocationSummary = {
 function formatDate(value: string) {
   if (!value) return "";
   return value.slice(0, 10);
+}
+
+function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
+  return value === "Range 3" ? "Range 3" : "Range 2";
+}
+
+function calculateRangeFootage(joints: number, pipeRange: string) {
+  return Math.round(Number(joints || 0) * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
 }
 
 export default function CustomerPage() {
@@ -115,12 +124,10 @@ export default function CustomerPage() {
         size,
         grade,
         connection,
+        pipe_range,
         status,
         condition,
         bulk_joints,
-        bulk_footage,
-        tallied_joints,
-        tallied_footage,
         racks(rack_code),
         workflow_zones(name, code)
       `)
@@ -140,8 +147,9 @@ export default function CustomerPage() {
             ? row.workflow_zones[0]
             : row.workflow_zones;
 
-          const joints = Number(row.bulk_joints ?? 0) + Number(row.tallied_joints ?? 0);
-          const footage = Number(row.bulk_footage ?? 0) + Number(row.tallied_footage ?? 0);
+          const pipeRange = normalizePipeRange(row.pipe_range);
+          const joints = Number(row.bulk_joints ?? 0);
+          const footage = calculateRangeFootage(joints, pipeRange);
           const rackName = rack?.rack_code ?? "";
           const zoneName = zone?.name ?? zone?.code ?? "";
 
@@ -154,6 +162,7 @@ export default function CustomerPage() {
             size: row.size ?? "",
             grade: row.grade ?? "",
             connection: row.connection ?? "",
+            pipeRange,
             status: row.status ?? "",
             condition: row.condition ?? "",
             rack: rackName,
@@ -240,7 +249,7 @@ export default function CustomerPage() {
 
       const matchesSearch =
         !searchText ||
-        [row.afe, row.partNumber, row.size, row.grade, row.connection, row.status, row.condition, row.location]
+        [row.afe, row.partNumber, row.size, row.grade, row.connection, row.pipeRange, row.status, row.condition, row.location]
           .join(" ")
           .toLowerCase()
           .includes(searchText);
@@ -346,6 +355,7 @@ export default function CustomerPage() {
                 <th>Size</th>
                 <th>Grade</th>
                 <th>Connection</th>
+                <th>Range</th>
                 <th>Status</th>
                 <th>Condition</th>
                 <th>Rack/Location</th>
@@ -363,6 +373,7 @@ export default function CustomerPage() {
                   <td>{row.size}</td>
                   <td>{row.grade}</td>
                   <td>{row.connection}</td>
+                  <td>{row.pipeRange}</td>
                   <td><span className="badge">{row.status}</span></td>
                   <td>{row.condition}</td>
                   <td>{row.location}</td>
@@ -373,7 +384,7 @@ export default function CustomerPage() {
 
               {filteredInventory.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="empty-cell">
+                  <td colSpan={13} className="empty-cell">
                     No customer inventory found.
                   </td>
                 </tr>

@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 type Role = "admin" | "customer";
 type LocationType = "rack" | "zone";
 type TransferMode = "all" | "partial";
+type PipeRange = "Range 2" | "Range 3";
 
 type RackConfig = {
   id: string;
@@ -47,15 +48,14 @@ type InventoryRow = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: PipeRange;
   status: string;
   condition: string;
   locationType: LocationType;
   rackId: string | null;
   zoneId: string | null;
-  bulkJoints: number;
-  bulkFootage: number;
-  talliedJoints: number;
-  talliedFootage: number;
+  joints: number;
+  footage: number;
 };
 
 type ReceiveForm = {
@@ -69,10 +69,12 @@ type ReceiveForm = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: PipeRange;
   condition: string;
   status: string;
-  bulkJoints: string;
-  bulkFootage: string;
+  joints: string;
+  missingBoxProtectors: string;
+  missingPinProtectors: string;
   inspectionDue: string;
   notes: string;
 };
@@ -80,7 +82,6 @@ type ReceiveForm = {
 type TransferForm = {
   destination: string;
   joints: string;
-  footage: string;
   comment: string;
   backDate: string;
 };
@@ -93,12 +94,10 @@ type EditForm = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: PipeRange;
   condition: string;
   status: string;
-  bulkJoints: string;
-  bulkFootage: string;
-  talliedJoints: string;
-  talliedFootage: string;
+  joints: string;
   inspectionDue: string;
   comment: string;
 };
@@ -119,6 +118,8 @@ type ReceivingTicket = {
   carrier: string;
   poNumber: string;
   truckNumber: string;
+  missingBoxProtectors: number;
+  missingPinProtectors: number;
   notes: string;
   createdAt: string;
 };
@@ -159,9 +160,20 @@ type TicketLine = {
   company: string;
   afe: string;
   partNumber: string;
+  pipeRange: PipeRange;
   condition: string;
   joints: number;
   footage: number;
+};
+
+type TicketAttachment = {
+  id: string;
+  receivingTicketId: string;
+  shippingTicketId: string;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  createdAt: string;
 };
 
 type TransactionRow = {
@@ -188,6 +200,7 @@ type PartNumberRecord = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: PipeRange;
 };
 
 type ReportLine = {
@@ -198,6 +211,20 @@ type ReportLine = {
 };
 
 const today = new Date().toISOString().slice(0, 10);
+const ticketAttachmentBucket = "ticket-attachments";
+const pipeRangeOptions: PipeRange[] = ["Range 2", "Range 3"];
+
+function getRangeAverageFootage(pipeRange: string) {
+  return pipeRange === "Range 3" ? 43.5 : 31.5;
+}
+
+function calculateRangeFootage(joints: number, pipeRange: string) {
+  return Math.round(Number(joints || 0) * getRangeAverageFootage(pipeRange) * 100) / 100;
+}
+
+function normalizePipeRange(value: unknown): PipeRange {
+  return value === "Range 3" ? "Range 3" : "Range 2";
+}
 
 const rackLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"];
 const rackNumbers = Array.from({ length: 16 }, (_, index) => 16 - index);
@@ -290,10 +317,12 @@ const emptyReceiveForm: ReceiveForm = {
   size: "2 3/8",
   grade: "J55",
   connection: "8rd EUE",
+  pipeRange: "Range 2",
   condition: "New",
   status: "Received",
-  bulkJoints: "",
-  bulkFootage: "",
+  joints: "",
+  missingBoxProtectors: "0",
+  missingPinProtectors: "0",
   inspectionDue: "",
   notes: "",
 };
@@ -301,7 +330,6 @@ const emptyReceiveForm: ReceiveForm = {
 const emptyTransferForm: TransferForm = {
   destination: "zone:inspection",
   joints: "",
-  footage: "",
   comment: "",
   backDate: "",
 };
@@ -314,12 +342,10 @@ const emptyEditForm: EditForm = {
   size: "",
   grade: "",
   connection: "",
+  pipeRange: "Range 2",
   condition: "New",
   status: "Available",
-  bulkJoints: "0",
-  bulkFootage: "0",
-  talliedJoints: "0",
-  talliedFootage: "0",
+  joints: "0",
   inspectionDue: "",
   comment: "",
 };
@@ -360,8 +386,8 @@ function buildReport(rows: InventoryRow[], getter: (row: InventoryRow) => string
     };
 
     current.lines += 1;
-    current.joints += row.bulkJoints + row.talliedJoints;
-    current.footage += row.bulkFootage + row.talliedFootage;
+    current.joints += row.joints;
+    current.footage += row.footage;
 
     report.set(label, current);
   }
@@ -390,6 +416,14 @@ function downloadCsv(filename: string, headers: string[], rows: (string | number
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function safeFileName(fileName: string) {
+  return fileName
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 120) || "attachment";
 }
 
 export default function Home() {
@@ -428,11 +462,14 @@ export default function Home() {
   const [transferForm, setTransferForm] = useState<TransferForm>(emptyTransferForm);
   const [shipForm, setShipForm] = useState<ShipForm>(emptyShipForm);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
+  const [receiveFiles, setReceiveFiles] = useState<File[]>([]);
+  const [shipFiles, setShipFiles] = useState<File[]>([]);
 
   const [receivingTickets, setReceivingTickets] = useState<ReceivingTicket[]>([]);
   const [shippingTickets, setShippingTickets] = useState<ShippingTicket[]>([]);
   const [transferDocuments, setTransferDocuments] = useState<TransferDocument[]>([]);
   const [ticketLines, setTicketLines] = useState<TicketLine[]>([]);
+  const [ticketAttachments, setTicketAttachments] = useState<TicketAttachment[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
 
   const [loadingSetup, setLoadingSetup] = useState(true);
@@ -461,17 +498,19 @@ export default function Home() {
     if (!selectedEditRow) return { joints: 0, footage: 0 };
 
     return {
-      joints: selectedEditRow.bulkJoints + selectedEditRow.talliedJoints,
-      footage: selectedEditRow.bulkFootage + selectedEditRow.talliedFootage,
+      joints: selectedEditRow.joints,
+      footage: selectedEditRow.footage,
     };
   }, [selectedEditRow]);
 
   const editAfterTotals = useMemo(() => {
+    const joints = Number(editForm.joints || 0);
+
     return {
-      joints: Number(editForm.bulkJoints || 0) + Number(editForm.talliedJoints || 0),
-      footage: Number(editForm.bulkFootage || 0) + Number(editForm.talliedFootage || 0),
+      joints,
+      footage: calculateRangeFootage(joints, editForm.pipeRange),
     };
-  }, [editForm.bulkFootage, editForm.bulkJoints, editForm.talliedFootage, editForm.talliedJoints]);
+  }, [editForm.joints, editForm.pipeRange]);
 
 
   const filteredReceivingTickets = useMemo(() => {
@@ -506,7 +545,7 @@ export default function Home() {
 
       const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
       const lineText = lines
-        .map((line) => [line.company, line.afe, line.partNumber, line.condition].join(" "))
+        .map((line) => [line.company, line.afe, line.partNumber, line.pipeRange, line.condition].join(" "))
         .join(" ");
 
       if (!searchText) return true;
@@ -588,9 +627,7 @@ export default function Home() {
 
   const activeInventory = useMemo(() => {
     return inventory.filter((row) => {
-      const totalJoints = row.bulkJoints + row.talliedJoints;
-      const totalFootage = row.bulkFootage + row.talliedFootage;
-      return row.status !== "Shipped" && (totalJoints > 0 || totalFootage > 0);
+      return row.status !== "Shipped" && (row.joints > 0 || row.footage > 0);
     });
   }, [inventory]);
 
@@ -624,12 +661,10 @@ export default function Home() {
     return selectedRackInventory.reduce(
       (totals, row) => ({
         lines: totals.lines + 1,
-        joints: totals.joints + row.bulkJoints + row.talliedJoints,
-        footage: totals.footage + row.bulkFootage + row.talliedFootage,
-        bulkJoints: totals.bulkJoints + row.bulkJoints,
-        talliedJoints: totals.talliedJoints + row.talliedJoints,
+        joints: totals.joints + row.joints,
+        footage: totals.footage + row.footage,
       }),
-      { lines: 0, joints: 0, footage: 0, bulkJoints: 0, talliedJoints: 0 }
+      { lines: 0, joints: 0, footage: 0 }
     );
   }, [selectedRackInventory]);
 
@@ -653,13 +688,11 @@ export default function Home() {
         size,
         grade,
         connection,
+        pipe_range,
         condition,
         status,
         inspection_due_date,
         bulk_joints,
-        bulk_footage,
-        tallied_joints,
-        tallied_footage,
         created_at,
         rack_id,
         workflow_zone_id,
@@ -689,6 +722,8 @@ export default function Home() {
         zone?.code ??
         zoneList.find((item) => item.id === row.workflow_zone_id)?.code ??
         null;
+      const pipeRange = normalizePipeRange(row.pipe_range);
+      const joints = Number(row.bulk_joints ?? 0);
 
       return {
         id: row.id,
@@ -704,15 +739,14 @@ export default function Home() {
         size: row.size ?? "",
         grade: row.grade ?? "",
         connection: row.connection ?? "",
+        pipeRange,
         condition: row.condition ?? "",
         status: row.status ?? "",
         locationType: rackCode ? ("rack" as const) : ("zone" as const),
         rackId: rackCode,
         zoneId: zoneCode,
-        bulkJoints: Number(row.bulk_joints ?? 0),
-        bulkFootage: Number(row.bulk_footage ?? 0),
-        talliedJoints: Number(row.tallied_joints ?? 0),
-        talliedFootage: Number(row.tallied_footage ?? 0),
+        joints,
+        footage: calculateRangeFootage(joints, pipeRange),
       };
     });
 
@@ -805,7 +839,7 @@ export default function Home() {
   async function loadPartNumbers() {
     const { data, error } = await supabase
       .from("part_numbers")
-      .select("id, company_id, part_number, description, size, grade, connection, companies(name)")
+      .select("id, company_id, part_number, description, size, grade, connection, pipe_range, companies(name)")
       .order("part_number", { ascending: true });
 
     if (error) {
@@ -826,6 +860,7 @@ export default function Home() {
           size: row.size ?? "",
           grade: row.grade ?? "",
           connection: row.connection ?? "",
+          pipeRange: normalizePipeRange(row.pipe_range),
         };
       })
     );
@@ -837,6 +872,7 @@ export default function Home() {
       part.size,
       part.grade,
       part.connection,
+      part.pipeRange,
       part.company !== "Global" ? part.company : "",
     ].filter(Boolean).join(" / ");
   }
@@ -852,6 +888,7 @@ export default function Home() {
       size: part.size || form.size,
       grade: part.grade || form.grade,
       connection: part.connection || form.connection,
+      pipeRange: part.pipeRange,
     }));
   }
 
@@ -866,8 +903,69 @@ export default function Home() {
       size: part.size || form.size,
       grade: part.grade || form.grade,
       connection: part.connection || form.connection,
+      pipeRange: part.pipeRange,
     }));
   }
+
+  async function saveTicketAttachments({
+    files,
+    companyId,
+    inventoryId,
+    receivingTicketId,
+    shippingTicketId,
+    ticketNumber,
+    folder,
+  }: {
+    files: File[];
+    companyId: string | null;
+    inventoryId?: string | null;
+    receivingTicketId?: string | null;
+    shippingTicketId?: string | null;
+    ticketNumber: string;
+    folder: "receiving" | "shipping";
+  }) {
+    if (files.length === 0) return;
+    if (!companyId) throw new Error("A company is required before attachments can be saved.");
+
+    const { data: userData } = await supabase.auth.getUser();
+    const createdBy = userData.user?.id ?? null;
+
+    for (const file of files) {
+      const fileName = safeFileName(file.name);
+      const filePath = `${folder}/${ticketNumber}/${Date.now()}-${Math.random().toString(36).slice(2)}-${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(ticketAttachmentBucket)
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          contentType: file.type || "application/octet-stream",
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from(ticketAttachmentBucket)
+        .getPublicUrl(filePath);
+
+      const { error: documentError } = await supabase.from("documents").insert({
+        company_id: companyId,
+        pipe_inventory_id: inventoryId ?? null,
+        receiving_ticket_id: receivingTicketId ?? null,
+        shipping_ticket_id: shippingTicketId ?? null,
+        document_type: `${folder}_attachment`,
+        file_url: publicUrlData.publicUrl,
+        file_name: file.name,
+        file_path: filePath,
+        mime_type: file.type || null,
+        file_size: file.size,
+        created_by: createdBy,
+      });
+
+      if (documentError) throw documentError;
+    }
+  }
+
   async function loadTickets() {
     setLoadingTickets(true);
     setMessage("");
@@ -880,6 +978,8 @@ export default function Home() {
         carrier,
         po_number,
         truck_number,
+        missing_box_protectors,
+        missing_pin_protectors,
         notes,
         created_at,
         companies(name)
@@ -925,6 +1025,7 @@ export default function Home() {
         company_id,
         afe,
         part_number,
+        pipe_range,
         condition,
         joints,
         footage,
@@ -957,6 +1058,27 @@ export default function Home() {
       return;
     }
 
+    const { data: attachmentData, error: attachmentError } = await supabase
+      .from("documents")
+      .select(`
+        id,
+        receiving_ticket_id,
+        shipping_ticket_id,
+        document_type,
+        file_url,
+        file_name,
+        created_at
+      `)
+      .in("document_type", ["receiving_attachment", "shipping_attachment"])
+      .order("created_at", { ascending: false })
+      .limit(250);
+
+    if (attachmentError) {
+      setMessage(`Ticket attachments failed: ${attachmentError.message}`);
+      setLoadingTickets(false);
+      return;
+    }
+
     setReceivingTickets(
       (receiveData ?? []).map((row: any) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
@@ -968,6 +1090,8 @@ export default function Home() {
           carrier: row.carrier ?? "",
           poNumber: row.po_number ?? "",
           truckNumber: row.truck_number ?? "",
+          missingBoxProtectors: Number(row.missing_box_protectors ?? 0),
+          missingPinProtectors: Number(row.missing_pin_protectors ?? 0),
           notes: row.notes ?? "",
           createdAt: formatDate(row.created_at),
         };
@@ -997,6 +1121,8 @@ export default function Home() {
     setTicketLines(
       (lineData ?? []).map((row: any) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+        const pipeRange = normalizePipeRange(row.pipe_range);
+        const joints = Number(row.joints ?? 0);
 
         return {
           id: row.id,
@@ -1004,9 +1130,10 @@ export default function Home() {
           company: company?.name ?? "Unknown",
           afe: row.afe ?? "",
           partNumber: row.part_number ?? "",
+          pipeRange,
           condition: row.condition ?? "",
-          joints: Number(row.joints ?? 0),
-          footage: Number(row.footage ?? 0),
+          joints,
+          footage: calculateRangeFootage(joints, pipeRange),
         };
       })
     );
@@ -1038,6 +1165,18 @@ export default function Home() {
           createdAt: formatDate(row.created_at),
         };
       })
+    );
+
+    setTicketAttachments(
+      (attachmentData ?? []).map((row: any) => ({
+        id: row.id,
+        receivingTicketId: row.receiving_ticket_id ?? "",
+        shippingTicketId: row.shipping_ticket_id ?? "",
+        documentType: row.document_type ?? "",
+        fileName: row.file_name ?? "Attachment",
+        fileUrl: row.file_url ?? "",
+        createdAt: formatDate(row.created_at),
+      }))
     );
 
     setLoadingTickets(false);
@@ -1157,8 +1296,8 @@ export default function Home() {
           company_id: row.companyId,
           yard_id: selectedYard.id,
           transaction_type: "complete",
-          quantity_joints: row.bulkJoints + row.talliedJoints,
-          quantity_footage: row.bulkFootage + row.talliedFootage,
+          quantity_joints: row.joints,
+          quantity_footage: row.footage,
           from_location: row.rackId ?? row.zoneId,
           to_location: row.rackId ?? row.zoneId,
           comment: "Marked complete and available",
@@ -1247,8 +1386,8 @@ export default function Home() {
   const selectedTotals = useMemo(() => {
     return selectedShipRows.reduce(
       (totals, row) => ({
-        joints: totals.joints + row.bulkJoints + row.talliedJoints,
-        footage: totals.footage + row.bulkFootage + row.talliedFootage,
+        joints: totals.joints + row.joints,
+        footage: totals.footage + row.footage,
       }),
       { joints: 0, footage: 0 }
     );
@@ -1319,12 +1458,10 @@ export default function Home() {
       size: row.size,
       grade: row.grade,
       connection: row.connection,
+      pipeRange: row.pipeRange,
       condition: row.condition || "New",
       status: row.status || "Available",
-      bulkJoints: String(row.bulkJoints),
-      bulkFootage: String(row.bulkFootage),
-      talliedJoints: String(row.talliedJoints),
-      talliedFootage: String(row.talliedFootage),
+      joints: String(row.joints),
       inspectionDue: row.inspectionDue,
       comment: "",
     };
@@ -1644,6 +1781,7 @@ export default function Home() {
       company: row.company,
       afe: row.afe,
       partNumber: row.partNumber,
+      pipeRange: row.pipeRange,
       condition: row.condition,
       joints,
       footage,
@@ -1684,14 +1822,10 @@ export default function Home() {
       return;
     }
 
-    const bulkJoints = Number(editForm.bulkJoints || 0);
-    const bulkFootage = Number(editForm.bulkFootage || 0);
-    const talliedJoints = Number(editForm.talliedJoints || 0);
-    const talliedFootage = Number(editForm.talliedFootage || 0);
-    const newTotalJoints = bulkJoints + talliedJoints;
-    const newTotalFootage = bulkFootage + talliedFootage;
+    const newTotalJoints = Number(editForm.joints || 0);
+    const newTotalFootage = calculateRangeFootage(newTotalJoints, editForm.pipeRange);
 
-    if (bulkJoints < 0 || bulkFootage < 0 || talliedJoints < 0 || talliedFootage < 0) {
+    if (newTotalJoints < 0) {
       setMessage("Inventory quantities cannot be negative.");
       return;
     }
@@ -1718,13 +1852,14 @@ export default function Home() {
           size: editForm.size || null,
           grade: editForm.grade || null,
           connection: editForm.connection || null,
+          pipe_range: editForm.pipeRange,
           condition: editForm.condition || null,
           status: editForm.status || null,
           inspection_due_date: editForm.inspectionDue || null,
-          bulk_joints: bulkJoints,
-          bulk_footage: bulkFootage,
-          tallied_joints: talliedJoints,
-          tallied_footage: talliedFootage,
+          bulk_joints: newTotalJoints,
+          bulk_footage: newTotalFootage,
+          tallied_joints: 0,
+          tallied_footage: 0,
         })
         .eq("id", selectedEditRow.id);
 
@@ -1770,11 +1905,13 @@ export default function Home() {
       return;
     }
   
-    const joints = Number(receiveForm.bulkJoints || 0);
-    const footage = Number(receiveForm.bulkFootage || 0);
+    const joints = Number(receiveForm.joints || 0);
+    const footage = calculateRangeFootage(joints, receiveForm.pipeRange);
+    const missingBoxProtectors = Math.max(0, Number(receiveForm.missingBoxProtectors || 0));
+    const missingPinProtectors = Math.max(0, Number(receiveForm.missingPinProtectors || 0));
   
-    if (joints <= 0 && footage <= 0) {
-      setMessage("Enter joints or footage before saving.");
+    if (joints <= 0) {
+      setMessage("Enter joints before saving.");
       return;
     }
   
@@ -1786,53 +1923,77 @@ export default function Home() {
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
       const ticketNumber = makeTicketNumber("REC");
   
-      const { error: inventoryError } = await supabase.from("pipe_inventory").insert({
-        company_id: companyId,
-        yard_id: selectedYard.id,
-        rack_id: rack?.id ?? null,
-        workflow_zone_id: zone?.id ?? null,
-        afe: receiveForm.afe || null,
-        part_number: receiveForm.partNumber,
-        size: receiveForm.size || null,
-        grade: receiveForm.grade || null,
-        connection: receiveForm.connection || null,
-        condition: receiveForm.condition || "New",
-        status: receiveForm.status || "Received",
-        inspection_color: "None",
-        inspection_due_date: receiveForm.inspectionDue || null,
-        bulk_joints: joints,
-        bulk_footage: footage,
-        tallied_joints: 0,
-        tallied_footage: 0,
-      });
+      const { data: inventoryLine, error: inventoryError } = await supabase
+        .from("pipe_inventory")
+        .insert({
+          company_id: companyId,
+          yard_id: selectedYard.id,
+          rack_id: rack?.id ?? null,
+          workflow_zone_id: zone?.id ?? null,
+          afe: receiveForm.afe || null,
+          part_number: receiveForm.partNumber,
+          size: receiveForm.size || null,
+          grade: receiveForm.grade || null,
+          connection: receiveForm.connection || null,
+          pipe_range: receiveForm.pipeRange,
+          condition: receiveForm.condition || "New",
+          status: receiveForm.status || "Received",
+          inspection_color: "None",
+          inspection_due_date: receiveForm.inspectionDue || null,
+          bulk_joints: joints,
+          bulk_footage: footage,
+          tallied_joints: 0,
+          tallied_footage: 0,
+        })
+        .select("id")
+        .single();
   
       if (inventoryError) throw inventoryError;
+      if (!inventoryLine?.id) throw new Error("Receiving saved inventory but did not return an inventory id.");
   
-      const { error: ticketError } = await supabase.from("receiving_tickets").insert({
-        company_id: companyId,
-        yard_id: selectedYard.id,
-        ticket_number: ticketNumber,
-        carrier: receiveForm.carrier || null,
-        po_number: receiveForm.poNumber || null,
-        truck_number: receiveForm.truckNumber || null,
-        destination: destinationName,
-        notes: receiveForm.notes || null,
-        afe: receiveForm.afe || null,
-        part_number: receiveForm.partNumber,
-        size: receiveForm.size || null,
-        grade: receiveForm.grade || null,
-        connection: receiveForm.connection || null,
-        condition: receiveForm.condition || "New",
-        joints,
-        footage,
-      });
+      const { data: receivingTicket, error: ticketError } = await supabase
+        .from("receiving_tickets")
+        .insert({
+          company_id: companyId,
+          yard_id: selectedYard.id,
+          ticket_number: ticketNumber,
+          carrier: receiveForm.carrier || null,
+          po_number: receiveForm.poNumber || null,
+          truck_number: receiveForm.truckNumber || null,
+          destination: destinationName,
+          missing_box_protectors: missingBoxProtectors,
+          missing_pin_protectors: missingPinProtectors,
+          notes: receiveForm.notes || null,
+          afe: receiveForm.afe || null,
+          part_number: receiveForm.partNumber,
+          size: receiveForm.size || null,
+          grade: receiveForm.grade || null,
+          connection: receiveForm.connection || null,
+          pipe_range: receiveForm.pipeRange,
+          condition: receiveForm.condition || "New",
+          joints,
+          footage,
+        })
+        .select("id")
+        .single();
   
       if (ticketError) throw ticketError;
+      if (!receivingTicket?.id) throw new Error("Receiving ticket was saved but did not return a ticket id.");
+
+      await saveTicketAttachments({
+        files: receiveFiles,
+        companyId,
+        inventoryId: inventoryLine.id,
+        receivingTicketId: receivingTicket.id,
+        ticketNumber,
+        folder: "receiving",
+      });
   
       await supabase.from("pipe_transactions").insert({
+        pipe_inventory_id: inventoryLine.id,
         company_id: companyId,
         yard_id: selectedYard.id,
-        type: "receive",
+        transaction_type: "receive",
         from_location: null,
         to_location: destinationName,
         quantity_joints: joints,
@@ -1845,7 +2006,8 @@ export default function Home() {
   
       setReceiveOpen(false);
       setReceiveForm(emptyReceiveForm);
-      setMessage(`Receiving saved. Ticket ${ticketNumber}`);
+      setReceiveFiles([]);
+      setMessage(`Receiving saved. Ticket ${ticketNumber}${receiveFiles.length ? ` with ${receiveFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
       setMessage(`Receive failed: ${error.message}`);
     } finally {
@@ -1880,21 +2042,16 @@ export default function Home() {
     }
 
     const movingAll = transferMode === "all";
-    const moveJoints = movingAll ? selectedTransferRow.bulkJoints : Number(transferForm.joints || 0);
-    const moveFootage = movingAll ? selectedTransferRow.bulkFootage : Number(transferForm.footage || 0);
+    const moveJoints = movingAll ? selectedTransferRow.joints : Number(transferForm.joints || 0);
+    const moveFootage = calculateRangeFootage(moveJoints, selectedTransferRow.pipeRange);
 
-    if (!movingAll && moveJoints <= 0 && moveFootage <= 0) {
-      setMessage("Enter joints or footage to transfer.");
+    if (!movingAll && moveJoints <= 0) {
+      setMessage("Enter joints to transfer.");
       return;
     }
 
-    if (moveJoints > selectedTransferRow.bulkJoints) {
-      setMessage("You cannot transfer more bulk joints than this line has.");
-      return;
-    }
-
-    if (moveFootage > selectedTransferRow.bulkFootage) {
-      setMessage("You cannot transfer more bulk footage than this line has.");
+    if (moveJoints > selectedTransferRow.joints) {
+      setMessage("You cannot transfer more joints than this line has.");
       return;
     }
 
@@ -1913,8 +2070,8 @@ export default function Home() {
 
         if (moveError) throw moveError;
       } else {
-        const remainingJoints = selectedTransferRow.bulkJoints - moveJoints;
-        const remainingFootage = selectedTransferRow.bulkFootage - moveFootage;
+        const remainingJoints = selectedTransferRow.joints - moveJoints;
+        const remainingFootage = calculateRangeFootage(remainingJoints, selectedTransferRow.pipeRange);
 
         const { error: sourceError } = await supabase
           .from("pipe_inventory")
@@ -1936,6 +2093,7 @@ export default function Home() {
           size: selectedTransferRow.size || null,
           grade: selectedTransferRow.grade || null,
           connection: selectedTransferRow.connection || null,
+          pipe_range: selectedTransferRow.pipeRange,
           condition: selectedTransferRow.condition || null,
           status:
             zone?.code === "inspection"
@@ -1970,7 +2128,6 @@ export default function Home() {
         from_location: currentLocation,
         to_location: locationName,
         comment: transferForm.comment,
-        transaction_date: transferForm.backDate || null,
       });
 
       const transferDocumentNumber = machineShopMove
@@ -2056,9 +2213,10 @@ export default function Home() {
         size: row.size || null,
         grade: row.grade || null,
         connection: row.connection || null,
+        pipe_range: row.pipeRange,
         condition: row.condition || null,
-        joints: row.bulkJoints + row.talliedJoints,
-        footage: row.bulkFootage + row.talliedFootage,
+        joints: row.joints,
+        footage: row.footage,
       }));
 
       const { error: lineError } = await supabase
@@ -2066,6 +2224,15 @@ export default function Home() {
         .insert(lineItems);
 
       if (lineError) throw lineError;
+
+      await saveTicketAttachments({
+        files: shipFiles,
+        companyId: firstRow.companyId,
+        inventoryId: firstRow.id,
+        shippingTicketId: ticket.id,
+        ticketNumber,
+        folder: "shipping",
+      });
 
       for (const row of selectedShipRows) {
         const { error: inventoryError } = await supabase
@@ -2086,8 +2253,8 @@ export default function Home() {
           company_id: row.companyId,
           yard_id: selectedYard.id,
           transaction_type: "ship",
-          quantity_joints: row.bulkJoints + row.talliedJoints,
-          quantity_footage: row.bulkFootage + row.talliedFootage,
+          quantity_joints: row.joints,
+          quantity_footage: row.footage,
           from_location: row.rackId ?? row.zoneId,
           to_location: shipForm.destination || shipForm.shipTo,
           comment: shipForm.notes || `Shipped on ${ticketNumber}`,
@@ -2101,7 +2268,8 @@ export default function Home() {
       setShipOpen(false);
       setSelectedRows([]);
       setShipForm(emptyShipForm);
-      setMessage(`Shipping ticket ${ticketNumber} saved. BOL ${shipForm.bolNumber}`);
+      setShipFiles([]);
+      setMessage(`Shipping ticket ${ticketNumber} saved. BOL ${shipForm.bolNumber}${shipFiles.length ? ` with ${shipFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
       setMessage(`Ship failed: ${error.message}`);
     } finally {
@@ -2125,20 +2293,15 @@ export default function Home() {
       "Size",
       "Grade",
       "Connection",
+      "Range",
       "Status",
       "Condition",
       "Rack/Location",
-      "Bulk Joints",
-      "Bulk Footage",
-      "Tallied Joint Count",
-      "Tallied Footage",
-      "Total Joint Count",
-      "Total Footage",
+      "Joints",
+      "Calculated Footage",
     ];
 
     const rows = filteredInventory.map((row) => {
-      const totalJoints = row.bulkJoints + row.talliedJoints;
-      const totalFootage = row.bulkFootage + row.talliedFootage;
       const location = row.locationType === "rack" ? row.rackId : row.zoneId;
 
       return [
@@ -2150,15 +2313,12 @@ export default function Home() {
         row.size,
         row.grade,
         row.connection,
+        row.pipeRange,
         row.status,
         row.condition,
         location ?? "",
-        row.bulkJoints,
-        row.bulkFootage,
-        row.talliedJoints,
-        row.talliedFootage,
-        totalJoints,
-        totalFootage,
+        row.joints,
+        row.footage,
       ];
     });
 
@@ -2481,7 +2641,7 @@ export default function Home() {
 
                 return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
               });
-              const joints = rackInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0);
+              const joints = rackInventory.reduce((sum, row) => sum + row.joints, 0);
               const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
 
               return (
@@ -2552,21 +2712,16 @@ export default function Home() {
                   <th>Company</th>
                   <th>TU#</th>
                   <th>Part Number</th>
+                  <th>Range</th>
                   <th>Status</th>
                   <th>Condition</th>
                   <th>Rack/Location</th>
-                  <th>Bulk Joints</th>
-                  <th>Bulk Footage</th>
-                  <th>Tallied Joint Count</th>
-                  <th>Tallied Footage</th>
-                  <th>Total Joint Count</th>
-                  <th>Total Footage</th>
+                  <th>Joints</th>
+                  <th>Calculated Footage</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredInventory.map((row) => {
-                  const totalJoints = row.bulkJoints + row.talliedJoints;
-                  const totalFootage = row.bulkFootage + row.talliedFootage;
                   const location = row.locationType === "rack" ? row.rackId : row.zoneId;
 
                   return (
@@ -2588,22 +2743,19 @@ export default function Home() {
                       <td>{row.company}</td>
                       <td>{row.afe}</td>
                       <td>{row.partNumber}</td>
+                      <td>{row.pipeRange}</td>
                       <td><span className="badge">{row.status}</span></td>
                       <td>{row.condition}</td>
                       <td>{location}</td>
-                      <td>{row.bulkJoints}</td>
-                      <td>{row.bulkFootage.toLocaleString()}</td>
-                      <td>{row.talliedJoints}</td>
-                      <td>{row.talliedFootage.toLocaleString()}</td>
-                      <td>{totalJoints}</td>
-                      <td>{totalFootage.toLocaleString()}</td>
+                      <td>{row.joints}</td>
+                      <td>{row.footage.toLocaleString()}</td>
                     </tr>
                   );
                 })}
 
                 {filteredInventory.length === 0 && (
                   <tr>
-                    <td colSpan={16} className="empty-cell">No inventory found for this location.</td>
+                    <td colSpan={13} className="empty-cell">No inventory found for this location.</td>
                   </tr>
                 )}
               </tbody>
@@ -2657,9 +2809,13 @@ export default function Home() {
                 <small>total ft</small>
               </div>
               <div>
-                <span>Bulk / Tallied</span>
-                <strong>{selectedRackTotals.bulkJoints} / {selectedRackTotals.talliedJoints}</strong>
-                <small>joints</small>
+                <span>Range Mix</span>
+                <strong>
+                  {selectedRackInventory.filter((row) => row.pipeRange === "Range 2").reduce((sum, row) => sum + row.joints, 0)}
+                  {" / "}
+                  {selectedRackInventory.filter((row) => row.pipeRange === "Range 3").reduce((sum, row) => sum + row.joints, 0)}
+                </strong>
+                <small>R2 / R3 joints</small>
               </div>
             </div>
 
@@ -2703,6 +2859,7 @@ export default function Home() {
                       <th>Size</th>
                       <th>Grade</th>
                       <th>Connection</th>
+                      <th>Range</th>
                       <th>Status</th>
                       <th>Condition</th>
                       <th>Inspection Due</th>
@@ -2712,9 +2869,6 @@ export default function Home() {
                   </thead>
                   <tbody>
                     {selectedRackInventory.map((row) => {
-                      const totalJoints = row.bulkJoints + row.talliedJoints;
-                      const totalFootage = row.bulkFootage + row.talliedFootage;
-
                       return (
                         <tr key={row.id}>
                           <td>
@@ -2733,18 +2887,19 @@ export default function Home() {
                           <td>{row.size}</td>
                           <td>{row.grade}</td>
                           <td>{row.connection}</td>
+                          <td>{row.pipeRange}</td>
                           <td><span className="badge">{row.status}</span></td>
                           <td>{row.condition}</td>
                           <td>{row.inspectionDue || "-"}</td>
-                          <td>{totalJoints}</td>
-                          <td>{totalFootage.toLocaleString()}</td>
+                          <td>{row.joints}</td>
+                          <td>{row.footage.toLocaleString()}</td>
                         </tr>
                       );
                     })}
 
                     {selectedRackInventory.length === 0 && (
                       <tr>
-                        <td colSpan={13} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                        <td colSpan={14} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
                       </tr>
                     )}
                   </tbody>
@@ -2794,6 +2949,12 @@ export default function Home() {
               <label>Size<input value={editForm.size} onChange={(event) => setEditForm({ ...editForm, size: event.target.value })} /></label>
               <label>Grade<input value={editForm.grade} onChange={(event) => setEditForm({ ...editForm, grade: event.target.value })} /></label>
               <label>Connection<input value={editForm.connection} onChange={(event) => setEditForm({ ...editForm, connection: event.target.value })} /></label>
+              <label>
+                Range
+                <select value={editForm.pipeRange} onChange={(event) => setEditForm({ ...editForm, pipeRange: normalizePipeRange(event.target.value) })}>
+                  {pipeRangeOptions.map((option) => <option key={option}>{option}</option>)}
+                </select>
+              </label>
 
               <label>
                 Condition
@@ -2821,10 +2982,8 @@ export default function Home() {
               </label>
 
               <label>Inspection Due<input type="date" value={editForm.inspectionDue} onChange={(event) => setEditForm({ ...editForm, inspectionDue: event.target.value })} /></label>
-              <label>Bulk Joints<input type="number" value={editForm.bulkJoints} onChange={(event) => setEditForm({ ...editForm, bulkJoints: event.target.value })} /></label>
-              <label>Bulk Footage<input type="number" value={editForm.bulkFootage} onChange={(event) => setEditForm({ ...editForm, bulkFootage: event.target.value })} /></label>
-              <label>Tallied Joints<input type="number" value={editForm.talliedJoints} onChange={(event) => setEditForm({ ...editForm, talliedJoints: event.target.value })} /></label>
-              <label>Tallied Footage<input type="number" value={editForm.talliedFootage} onChange={(event) => setEditForm({ ...editForm, talliedFootage: event.target.value })} /></label>
+              <label>Joints<input type="number" value={editForm.joints} onChange={(event) => setEditForm({ ...editForm, joints: event.target.value })} /></label>
+              <label>Calculated Footage<input readOnly value={editAfterTotals.footage.toLocaleString()} /></label>
               <label className="full">Edit Comment<textarea value={editForm.comment} onChange={(event) => setEditForm({ ...editForm, comment: event.target.value })} placeholder="Reason for edit" /></label>
             </div>
 
@@ -2861,7 +3020,7 @@ export default function Home() {
                 <h2>Receive Pipe</h2>
                 <p>Create inventory and receiving record</p>
               </div>
-              <button className="icon-button" onClick={() => setReceiveOpen(false)}>X</button>
+              <button className="icon-button" onClick={() => { setReceiveOpen(false); setReceiveFiles([]); }}>X</button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
@@ -2895,6 +3054,12 @@ export default function Home() {
               <label>Size<input value={receiveForm.size} onChange={(event) => setReceiveForm({ ...receiveForm, size: event.target.value })} /></label>
               <label>Grade<input value={receiveForm.grade} onChange={(event) => setReceiveForm({ ...receiveForm, grade: event.target.value })} /></label>
               <label>Connection<input value={receiveForm.connection} onChange={(event) => setReceiveForm({ ...receiveForm, connection: event.target.value })} placeholder="PH6, NC50, 8rd EUE" /></label>
+              <label>
+                Range
+                <select value={receiveForm.pipeRange} onChange={(event) => setReceiveForm({ ...receiveForm, pipeRange: normalizePipeRange(event.target.value) })}>
+                  {pipeRangeOptions.map((option) => <option key={option}>{option}</option>)}
+                </select>
+              </label>
 
               <label>
                 Condition
@@ -2919,14 +3084,50 @@ export default function Home() {
                 </select>
               </label>
 
-              <label>Bulk Joints<input type="number" value={receiveForm.bulkJoints} onChange={(event) => setReceiveForm({ ...receiveForm, bulkJoints: event.target.value })} /></label>
-              <label>Bulk Footage<input type="number" value={receiveForm.bulkFootage} onChange={(event) => setReceiveForm({ ...receiveForm, bulkFootage: event.target.value })} /></label>
+              <label>Joints<input type="number" value={receiveForm.joints} onChange={(event) => setReceiveForm({ ...receiveForm, joints: event.target.value })} /></label>
+              <label>Calculated Footage<input readOnly value={calculateRangeFootage(Number(receiveForm.joints || 0), receiveForm.pipeRange).toLocaleString()} /></label>
+              <label>Missing Box Protectors<input type="number" min="0" value={receiveForm.missingBoxProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingBoxProtectors: event.target.value })} /></label>
+              <label>Missing Pin Protectors<input type="number" min="0" value={receiveForm.missingPinProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingPinProtectors: event.target.value })} /></label>
               <label>Inspection Due<input type="date" value={receiveForm.inspectionDue} onChange={(event) => setReceiveForm({ ...receiveForm, inspectionDue: event.target.value })} min={today} /></label>
+              <label>
+                Snap Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => {
+                    setReceiveFiles((files) => [...files, ...Array.from(event.target.files ?? [])]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              <label>
+                Upload Photos / Paperwork
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                  onChange={(event) => {
+                    setReceiveFiles((files) => [...files, ...Array.from(event.target.files ?? [])]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              {receiveFiles.length > 0 && (
+                <div className="full attachment-list">
+                  {receiveFiles.map((file, index) => (
+                    <span key={`${file.name}-${index}`}>
+                      {file.name}
+                      <button type="button" onClick={() => setReceiveFiles((files) => files.filter((_, fileIndex) => fileIndex !== index))}>Remove</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <label className="full">Notes<textarea value={receiveForm.notes} onChange={(event) => setReceiveForm({ ...receiveForm, notes: event.target.value })} /></label>
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => setReceiveOpen(false)}>Cancel</button>
+              <button className="button" onClick={() => { setReceiveOpen(false); setReceiveFiles([]); }}>Cancel</button>
               <button className="button primary" onClick={saveReceive} disabled={savingReceive}>
                 {savingReceive ? "Saving..." : "Save Receiving"}
               </button>
@@ -2950,8 +3151,8 @@ export default function Home() {
 
             <div className="transfer-summary">
               <div><strong>Current Location</strong><span>{selectedTransferRow.rackId ?? selectedTransferRow.zoneId}</span></div>
-              <div><strong>Available Joints</strong><span>{selectedTransferRow.bulkJoints}</span></div>
-              <div><strong>Available Footage</strong><span>{selectedTransferRow.bulkFootage.toLocaleString()}</span></div>
+              <div><strong>Available Joints</strong><span>{selectedTransferRow.joints}</span></div>
+              <div><strong>Available Footage</strong><span>{selectedTransferRow.footage.toLocaleString()}</span></div>
             </div>
 
             <div className="mode-toggle">
@@ -2970,7 +3171,7 @@ export default function Home() {
               {transferMode === "partial" && (
                 <>
                   <label>Joints to Transfer<input type="number" value={transferForm.joints} onChange={(event) => setTransferForm({ ...transferForm, joints: event.target.value })} /></label>
-                  <label>Feet to Transfer<input type="number" value={transferForm.footage} onChange={(event) => setTransferForm({ ...transferForm, footage: event.target.value })} /></label>
+                  <label>Calculated Footage<input readOnly value={calculateRangeFootage(Number(transferForm.joints || 0), selectedTransferRow.pipeRange).toLocaleString()} /></label>
                 </>
               )}
 
@@ -3003,7 +3204,7 @@ export default function Home() {
                 <h2>Shipping Ticket / BOL</h2>
                 <p>{selectedShipRows.length} selected line items</p>
               </div>
-              <button className="icon-button" onClick={() => setShipOpen(false)}>X</button>
+              <button className="icon-button" onClick={() => { setShipOpen(false); setShipFiles([]); }}>X</button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
@@ -3021,6 +3222,40 @@ export default function Home() {
               <label>BOL Number<input value={shipForm.bolNumber} onChange={(event) => setShipForm({ ...shipForm, bolNumber: event.target.value })} /></label>
               <label className="full">Ship To<input value={shipForm.shipTo} onChange={(event) => setShipForm({ ...shipForm, shipTo: event.target.value })} /></label>
               <label className="full">Destination<input value={shipForm.destination} onChange={(event) => setShipForm({ ...shipForm, destination: event.target.value })} placeholder="Rig, yard, or delivery address" /></label>
+              <label>
+                Snap Photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => {
+                    setShipFiles((files) => [...files, ...Array.from(event.target.files ?? [])]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              <label>
+                Upload Photos / Paperwork
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                  onChange={(event) => {
+                    setShipFiles((files) => [...files, ...Array.from(event.target.files ?? [])]);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+              {shipFiles.length > 0 && (
+                <div className="full attachment-list">
+                  {shipFiles.map((file, index) => (
+                    <span key={`${file.name}-${index}`}>
+                      {file.name}
+                      <button type="button" onClick={() => setShipFiles((files) => files.filter((_, fileIndex) => fileIndex !== index))}>Remove</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <label className="full">Notes<textarea value={shipForm.notes} onChange={(event) => setShipForm({ ...shipForm, notes: event.target.value })} /></label>
             </div>
 
@@ -3032,6 +3267,7 @@ export default function Home() {
                     <th>Company</th>
                     <th>TU#</th>
                     <th>Part Number</th>
+                    <th>Range</th>
                     <th>Condition</th>
                     <th>Joints</th>
                     <th>Footage</th>
@@ -3043,9 +3279,10 @@ export default function Home() {
                       <td>{row.company}</td>
                       <td>{row.afe}</td>
                       <td>{row.partNumber}</td>
+                      <td>{row.pipeRange}</td>
                       <td>{row.condition}</td>
-                      <td>{row.bulkJoints + row.talliedJoints}</td>
-                      <td>{(row.bulkFootage + row.talliedFootage).toLocaleString()}</td>
+                      <td>{row.joints}</td>
+                      <td>{row.footage.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3053,7 +3290,7 @@ export default function Home() {
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => setShipOpen(false)}>Cancel</button>
+              <button className="button" onClick={() => { setShipOpen(false); setShipFiles([]); }}>Cancel</button>
               <button className="button primary" onClick={saveShip} disabled={savingShip}>
                 {savingShip ? "Saving..." : "Save Shipping Ticket / BOL"}
               </button>
@@ -3119,30 +3356,47 @@ export default function Home() {
                 <h3>Receiving Tickets</h3>
                 {filteredReceivingTickets.length === 0 && <p className="muted-text">No receiving tickets found.</p>}
 
-                {filteredReceivingTickets.map((ticket) => (
-  <article key={ticket.id} className="ticket-row stacked">
-    <div>
-      <strong>{ticket.ticketNumber}</strong>
-      <span>{ticket.company}</span>
-    </div>
-    <div>
-      <span>{ticket.createdAt}</span>
-      <span>{ticket.carrier || "No carrier"}</span>
-    </div>
-    <div>
-      <span>PO {ticket.poNumber || "-"}</span>
-      <span>Truck {ticket.truckNumber || "-"}</span>
-    </div>
-    <button
-      className="button"
-      onClick={() =>
-        (window.location.href = `/ticket-print?type=receiving&id=${ticket.id}`)
-      }
-    >
-      Print / PDF
-    </button>
-  </article>
-))}
+                {filteredReceivingTickets.map((ticket) => {
+                  const attachments = ticketAttachments.filter((attachment) => attachment.receivingTicketId === ticket.id);
+
+                  return (
+                    <article key={ticket.id} className="ticket-row stacked">
+                      <div>
+                        <strong>{ticket.ticketNumber}</strong>
+                        <span>{ticket.company}</span>
+                      </div>
+                      <div>
+                        <span>{ticket.createdAt}</span>
+                        <span>{ticket.carrier || "No carrier"}</span>
+                      </div>
+                      <div>
+                        <span>PO {ticket.poNumber || "-"}</span>
+                        <span>Truck {ticket.truckNumber || "-"}</span>
+                      </div>
+                      <div>
+                        <span>Missing box protectors: {ticket.missingBoxProtectors}</span>
+                        <span>Missing pin protectors: {ticket.missingPinProtectors}</span>
+                      </div>
+                      <button
+                        className="button"
+                        onClick={() =>
+                          (window.location.href = `/ticket-print?type=receiving&id=${ticket.id}`)
+                        }
+                      >
+                        Print / PDF
+                      </button>
+                      {attachments.length > 0 && (
+                        <div className="ticket-line-list">
+                          {attachments.map((attachment) => (
+                            <a key={attachment.id} href={attachment.fileUrl} target="_blank" rel="noreferrer">
+                              {attachment.fileName}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
               </section>
 
               <section className="ticket-card">
@@ -3151,6 +3405,7 @@ export default function Home() {
 
                 {filteredShippingTickets.map((ticket) => {
                   const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
+                  const attachments = ticketAttachments.filter((attachment) => attachment.shippingTicketId === ticket.id);
                   const joints = lines.reduce((sum, line) => sum + line.joints, 0);
                   const footage = lines.reduce((sum, line) => sum + line.footage, 0);
 
@@ -3184,8 +3439,17 @@ export default function Home() {
                         <div className="ticket-line-list">
                           {lines.map((line) => (
                             <span key={line.id}>
-                              {line.partNumber} / {line.joints} joints / {line.footage.toLocaleString()} ft
+                              {line.partNumber} / {line.pipeRange} / {line.joints} joints / {line.footage.toLocaleString()} ft
                             </span>
+                          ))}
+                        </div>
+                      )}
+                      {attachments.length > 0 && (
+                        <div className="ticket-line-list">
+                          {attachments.map((attachment) => (
+                            <a key={attachment.id} href={attachment.fileUrl} target="_blank" rel="noreferrer">
+                              {attachment.fileName}
+                            </a>
                           ))}
                         </div>
                       )}
@@ -3340,11 +3604,11 @@ export default function Home() {
                 <span>Active Lines</span>
               </div>
               <div>
-                <strong>{activeInventory.reduce((sum, row) => sum + row.bulkJoints + row.talliedJoints, 0)}</strong>
+                <strong>{activeInventory.reduce((sum, row) => sum + row.joints, 0)}</strong>
                 <span>Total Joints</span>
               </div>
               <div>
-                <strong>{activeInventory.reduce((sum, row) => sum + row.bulkFootage + row.talliedFootage, 0).toLocaleString()}</strong>
+                <strong>{activeInventory.reduce((sum, row) => sum + row.footage, 0).toLocaleString()}</strong>
                 <span>Total Footage</span>
               </div>
             </div>

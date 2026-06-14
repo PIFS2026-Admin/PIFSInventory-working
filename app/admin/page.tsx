@@ -49,6 +49,7 @@ type PartNumber = {
   size: string;
   grade: string;
   connection: string;
+  pipeRange: "Range 2" | "Range 3";
 };
 
 type AdminUserForm = {
@@ -92,7 +93,12 @@ const emptyPartForm = {
   size: "",
   grade: "",
   connection: "",
+  pipeRange: "Range 2" as "Range 2" | "Range 3",
 };
+
+function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
+  return value === "Range 3" ? "Range 3" : "Range 2";
+}
 
 function makeCode(value: string) {
   return value
@@ -295,7 +301,7 @@ export default function AdminPage() {
   async function loadPartNumbers() {
     const { data, error } = await supabase
       .from("part_numbers")
-      .select("id, company_id, part_number, description, size, grade, connection, companies(name)")
+      .select("id, company_id, part_number, description, size, grade, connection, pipe_range, companies(name)")
       .order("part_number", { ascending: true });
 
     if (error) {
@@ -316,6 +322,7 @@ export default function AdminPage() {
           size: part.size ?? "",
           grade: part.grade ?? "",
           connection: part.connection ?? "",
+          pipeRange: normalizePipeRange(part.pipe_range),
         };
       })
     );
@@ -338,6 +345,7 @@ export default function AdminPage() {
       size: partForm.size.trim() || null,
       grade: partForm.grade.trim() || null,
       connection: partForm.connection.trim() || null,
+      pipe_range: partForm.pipeRange,
     };
 
     let error;
@@ -395,6 +403,7 @@ export default function AdminPage() {
       size: part.size,
       grade: part.grade,
       connection: part.connection,
+      pipeRange: part.pipeRange,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -849,6 +858,17 @@ export default function AdminPage() {
           </label>
 
           <label>
+            Range
+            <select
+              value={partForm.pipeRange}
+              onChange={(event) => setPartForm({ ...partForm, pipeRange: normalizePipeRange(event.target.value) })}
+            >
+              <option>Range 2</option>
+              <option>Range 3</option>
+            </select>
+          </label>
+
+          <label>
             Description
             <input
               value={partForm.description}
@@ -868,7 +888,7 @@ export default function AdminPage() {
             <article key={part.id} className="part-number-row">
               <div>
                 <strong>{part.partNumber}</strong>
-                <span>{[part.size, part.grade, part.connection].filter(Boolean).join(" / ") || "No pipe details saved"}</span>
+                <span>{[part.size, part.grade, part.connection, part.pipeRange].filter(Boolean).join(" / ") || "No pipe details saved"}</span>
                 <small>{part.companyName}{part.description ? ` / ${part.description}` : ""}</small>
               </div>
               <div className="part-number-actions">

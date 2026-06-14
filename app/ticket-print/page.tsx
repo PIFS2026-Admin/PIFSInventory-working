@@ -18,6 +18,8 @@ type Ticket = {
   shipTo: string;
   receivedFrom: string;
   destination: string;
+  missingBoxProtectors: number;
+  missingPinProtectors: number;
   notes: string;
   createdAt: string;
 };
@@ -26,6 +28,7 @@ type TicketLine = {
   id: string;
   afe: string;
   partNumber: string;
+  pipeRange: "Range 2" | "Range 3";
   condition: string;
   joints: number;
   footage: number;
@@ -44,6 +47,8 @@ const emptyTicket: Ticket = {
   shipTo: "",
   receivedFrom: "",
   destination: "",
+  missingBoxProtectors: 0,
+  missingPinProtectors: 0,
   notes: "",
   createdAt: "",
 };
@@ -64,6 +69,14 @@ function formatDate(value: string) {
 
 function formatNumber(value: number) {
   return Number(value || 0).toLocaleString();
+}
+
+function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
+  return value === "Range 3" ? "Range 3" : "Range 2";
+}
+
+function calculateRangeFootage(joints: number, pipeRange: string) {
+  return Math.round(Number(joints || 0) * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
 }
 
 function getCompanyName(value: unknown) {
@@ -139,6 +152,8 @@ export default function TicketPrintPage() {
           shipTo: "",
           receivedFrom: details.fromLocation ?? "",
           destination: details.toLocation ?? "",
+          missingBoxProtectors: 0,
+          missingPinProtectors: 0,
           notes: details.comment ?? "",
           createdAt: details.createdAt ?? data.created_at ?? "",
         });
@@ -148,9 +163,10 @@ export default function TicketPrintPage() {
             id: data.id,
             afe: details.afe ?? "",
             partNumber: details.partNumber ?? "",
+            pipeRange: normalizePipeRange(details.pipeRange),
             condition: details.condition ?? "",
             joints: Number(details.joints ?? 0),
-            footage: Number(details.footage ?? 0),
+            footage: calculateRangeFootage(Number(details.joints ?? 0), normalizePipeRange(details.pipeRange)),
           },
         ]);
 
@@ -188,13 +204,15 @@ export default function TicketPrintPage() {
           shipTo: data.ship_to ?? "",
           receivedFrom: "",
           destination: data.destination ?? "",
+          missingBoxProtectors: 0,
+          missingPinProtectors: 0,
           notes: data.notes ?? "",
           createdAt: data.created_at ?? "",
         });
 
         const { data: lineData, error: lineError } = await supabase
           .from("ticket_line_items")
-          .select("id, afe, part_number, condition, joints, footage")
+          .select("id, afe, part_number, pipe_range, condition, joints, footage")
           .eq("ticket_id", data.id)
           .order("id", { ascending: true });
 
@@ -204,14 +222,20 @@ export default function TicketPrintPage() {
         }
 
         setLines(
-          (lineData ?? []).map((line) => ({
-            id: line.id,
-            afe: line.afe ?? "",
-            partNumber: line.part_number ?? "",
-            condition: line.condition ?? "",
-            joints: Number(line.joints ?? 0),
-            footage: Number(line.footage ?? 0),
-          }))
+          (lineData ?? []).map((line) => {
+            const pipeRange = normalizePipeRange(line.pipe_range);
+            const joints = Number(line.joints ?? 0);
+
+            return {
+              id: line.id,
+              afe: line.afe ?? "",
+              partNumber: line.part_number ?? "",
+              pipeRange,
+              condition: line.condition ?? "",
+              joints,
+              footage: calculateRangeFootage(joints, pipeRange),
+            };
+          })
         );
 
         return;
@@ -220,7 +244,7 @@ export default function TicketPrintPage() {
       let query = supabase
         .from("receiving_tickets")
         .select(
-          "id, ticket_number, carrier, po_number, truck_number, destination, notes, created_at, afe, part_number, condition, joints, footage, companies(name)"
+          "id, ticket_number, carrier, po_number, truck_number, destination, missing_box_protectors, missing_pin_protectors, notes, created_at, afe, part_number, pipe_range, condition, joints, footage, companies(name)"
         );
 
       query = isUuid(id) ? query.eq("id", id) : query.eq("ticket_number", id);
@@ -247,6 +271,8 @@ export default function TicketPrintPage() {
         shipTo: "",
         receivedFrom: companyName,
         destination: data.destination ?? "-",
+        missingBoxProtectors: Number(data.missing_box_protectors ?? 0),
+        missingPinProtectors: Number(data.missing_pin_protectors ?? 0),
         notes: data.notes ?? "",
         createdAt: data.created_at ?? "",
       });
@@ -256,9 +282,10 @@ export default function TicketPrintPage() {
           id: data.id,
           afe: data.afe ?? "",
           partNumber: data.part_number ?? "",
+          pipeRange: normalizePipeRange(data.pipe_range),
           condition: data.condition ?? "",
           joints: Number(data.joints ?? 0),
-          footage: Number(data.footage ?? 0),
+          footage: calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range)),
         },
       ]);
     }
@@ -349,11 +376,25 @@ export default function TicketPrintPage() {
           </div>
         </section>
 
+        {ticket.type === "receiving" && (
+          <section className="ticket-info-grid protector-grid">
+            <div>
+              <span>Missing Box Protectors</span>
+              <strong>{formatNumber(ticket.missingBoxProtectors)}</strong>
+            </div>
+            <div>
+              <span>Missing Pin Protectors</span>
+              <strong>{formatNumber(ticket.missingPinProtectors)}</strong>
+            </div>
+          </section>
+        )}
+
         <table className="ticket-table">
           <thead>
             <tr>
               <th>TU#</th>
               <th>Part Number</th>
+              <th>Range</th>
               <th>Condition</th>
               <th>Joints</th>
               <th>Footage</th>
@@ -364,13 +405,14 @@ export default function TicketPrintPage() {
               <tr key={line.id}>
                 <td>{line.afe}</td>
                 <td>{line.partNumber}</td>
+                <td>{line.pipeRange}</td>
                 <td>{line.condition}</td>
                 <td>{formatNumber(line.joints)}</td>
                 <td>{formatNumber(line.footage)}</td>
               </tr>
             ))}
             <tr>
-              <td colSpan={3}>
+              <td colSpan={4}>
                 <strong>Totals</strong>
               </td>
               <td>
