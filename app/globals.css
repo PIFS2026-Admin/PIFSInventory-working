@@ -327,6 +327,33 @@ th {
   font-size: 12px;
 }
 
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 330px;
+}
+
+.mini-action {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #1b2027;
+  color: var(--text);
+  font-weight: 900;
+  min-height: 32px;
+  padding: 7px 10px;
+}
+
+.mini-action:hover:not(:disabled) {
+  border-color: var(--orange);
+  color: var(--orange-2);
+}
+
+.mini-action:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .empty-cell {
   color: var(--muted);
   text-align: center;

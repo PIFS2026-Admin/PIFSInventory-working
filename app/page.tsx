@@ -166,8 +166,11 @@ type TicketLine = {
 
 type TransactionRow = {
   id: string;
+  inventoryId: string;
   type: string;
   company: string;
+  afe: string;
+  partNumber: string;
   joints: number;
   footage: number;
   fromLocation: string;
@@ -554,6 +557,9 @@ export default function Home() {
       return [
         transaction.type,
         transaction.company,
+        transaction.inventoryId,
+        transaction.afe,
+        transaction.partNumber,
         transaction.fromLocation,
         transaction.toLocation,
         transaction.comment,
@@ -940,7 +946,8 @@ export default function Home() {
         to_location,
         comment,
         created_at,
-        companies(name)
+        companies(name),
+        pipe_inventory_id
       `)
       .order("created_at", { ascending: false })
       .limit(250);
@@ -954,11 +961,15 @@ export default function Home() {
     setTransactions(
       (data ?? []).map((row: any) => {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+        const inventoryLine = inventory.find((line) => line.id === row.pipe_inventory_id);
 
         return {
           id: row.id,
+          inventoryId: row.pipe_inventory_id ?? "",
           type: row.transaction_type ?? "",
           company: company?.name ?? "Unknown",
+          afe: inventoryLine?.afe ?? "",
+          partNumber: inventoryLine?.partNumber ?? "",
           joints: Number(row.quantity_joints ?? 0),
           footage: Number(row.quantity_footage ?? 0),
           fromLocation: row.from_location ?? "",
@@ -1150,6 +1161,14 @@ export default function Home() {
     setTransferOpen(true);
   }
 
+  function quickTransfer(row: InventoryRow) {
+    setMessage("");
+    setSelectedRows([row.id]);
+    setTransferMode("all");
+    setTransferForm(emptyTransferForm);
+    setTransferOpen(true);
+  }
+
   function openShip() {
     setMessage("");
 
@@ -1174,7 +1193,31 @@ export default function Home() {
     setShipOpen(true);
   }
 
-  
+  function buildEditForm(row: InventoryRow): EditForm {
+    const destination =
+      row.locationType === "rack" && row.rackId
+        ? `rack:${row.rackId}`
+        : `zone:${row.zoneId ?? "receiving"}`;
+
+    return {
+      customer: row.company,
+      destination,
+      afe: row.afe,
+      partNumber: row.partNumber,
+      size: row.size,
+      grade: row.grade,
+      connection: row.connection,
+      condition: row.condition || "New",
+      status: row.status || "Available",
+      bulkJoints: String(row.bulkJoints),
+      bulkFootage: String(row.bulkFootage),
+      talliedJoints: String(row.talliedJoints),
+      talliedFootage: String(row.talliedFootage),
+      inspectionDue: row.inspectionDue,
+      comment: "",
+    };
+  }
+
   function openEdit() {
     setMessage("");
 
@@ -1183,32 +1226,47 @@ export default function Home() {
       return;
     }
 
-    const destination =
-      selectedEditRow.locationType === "rack" && selectedEditRow.rackId
-        ? `rack:${selectedEditRow.rackId}`
-        : `zone:${selectedEditRow.zoneId ?? "receiving"}`;
-
-    setEditForm({
-      customer: selectedEditRow.company,
-      destination,
-      afe: selectedEditRow.afe,
-      partNumber: selectedEditRow.partNumber,
-      size: selectedEditRow.size,
-      grade: selectedEditRow.grade,
-      connection: selectedEditRow.connection,
-      condition: selectedEditRow.condition || "New",
-      status: selectedEditRow.status || "Available",
-      bulkJoints: String(selectedEditRow.bulkJoints),
-      bulkFootage: String(selectedEditRow.bulkFootage),
-      talliedJoints: String(selectedEditRow.talliedJoints),
-      talliedFootage: String(selectedEditRow.talliedFootage),
-      inspectionDue: selectedEditRow.inspectionDue,
-      comment: "",
-    });
-
+    setEditForm(buildEditForm(selectedEditRow));
     setEditOpen(true);
   }
-function moveRack(targetRack: string) {
+
+  function quickShip(row: InventoryRow) {
+    setMessage("");
+    setSelectedRows([row.id]);
+    setShipForm({
+      ...emptyShipForm,
+      shipTo: row.company,
+      bolNumber: makeTicketNumber("BOL"),
+    });
+    setShipOpen(true);
+  }
+
+  function quickAdjust(row: InventoryRow) {
+    setMessage("");
+    setSelectedRows([row.id]);
+    setEditForm(buildEditForm(row));
+    setEditOpen(true);
+  }
+
+  function quickActivity(row: InventoryRow) {
+    setMessage("");
+    setActivityOpen(true);
+    setActivityType("all");
+    setActivityDate("");
+    setActivitySearch([row.id, row.company, row.afe, row.partNumber].filter(Boolean).join(" "));
+    loadReports();
+  }
+
+  function quickTickets(row: InventoryRow) {
+    setMessage("");
+    setTicketsOpen(true);
+    setTicketFilter("all");
+    setTicketDate("");
+    setTicketSearch([row.company, row.afe, row.partNumber].filter(Boolean).join(" "));
+    loadTickets();
+  }
+
+  function moveRack(targetRack: string) {
     if (!draggedRack || draggedRack === targetRack) return;
 
     const current = [...rackLayout];
@@ -1994,6 +2052,8 @@ function moveRack(targetRack: string) {
       "Report",
       "Label / Type",
       "Company",
+      "TU#",
+      "Part Number",
       "Lines",
       "Joints",
       "Footage",
@@ -2008,6 +2068,8 @@ function moveRack(targetRack: string) {
         "Inventory by Customer",
         line.label,
         line.label,
+        "",
+        "",
         line.lines,
         line.joints,
         line.footage,
@@ -2020,6 +2082,8 @@ function moveRack(targetRack: string) {
         "Inventory by Rack / Zone",
         line.label,
         "",
+        "",
+        "",
         line.lines,
         line.joints,
         line.footage,
@@ -2031,6 +2095,8 @@ function moveRack(targetRack: string) {
       ...wipReport.map((line) => [
         "WIP Report",
         line.label,
+        "",
+        "",
         "",
         line.lines,
         line.joints,
@@ -2046,6 +2112,8 @@ function moveRack(targetRack: string) {
       "Transaction History",
       transaction.type,
       transaction.company,
+      transaction.afe,
+      transaction.partNumber,
       "",
       transaction.joints,
       transaction.footage,
@@ -2074,11 +2142,13 @@ function moveRack(targetRack: string) {
 
     downloadCsv(
       `titan-activity-log-${today}.csv`,
-      ["Date", "Type", "Company", "Joints", "Footage", "From", "To", "Comment"],
+      ["Date", "Type", "Company", "TU#", "Part Number", "Joints", "Footage", "From", "To", "Comment"],
       filteredActivity.map((transaction) => [
         transaction.createdAt,
         transaction.type,
         transaction.company,
+        transaction.afe,
+        transaction.partNumber,
         transaction.joints,
         transaction.footage,
         transaction.fromLocation,
@@ -2351,6 +2421,7 @@ function moveRack(targetRack: string) {
               <thead>
                 <tr>
                   <th>Select</th>
+                  <th>Actions</th>
                   <th>Date Created</th>
                   <th>Inspection Due</th>
                   <th>Company</th>
@@ -2378,6 +2449,15 @@ function moveRack(targetRack: string) {
                       <td>
                         <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
                       </td>
+                      <td>
+                        <div className="quick-actions">
+                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickTransfer(row)}>Transfer</button>
+                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickShip(row)}>Ship</button>
+                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickAdjust(row)}>Adjust</button>
+                          <button className="mini-action" onClick={() => quickTickets(row)}>Tickets</button>
+                          <button className="mini-action" onClick={() => quickActivity(row)}>History</button>
+                        </div>
+                      </td>
                       <td>{row.createdAt}</td>
                       <td>{row.inspectionDue}</td>
                       <td>{row.company}</td>
@@ -2398,7 +2478,7 @@ function moveRack(targetRack: string) {
 
                 {filteredInventory.length === 0 && (
                   <tr>
-                    <td colSpan={15} className="empty-cell">No inventory found for this location.</td>
+                    <td colSpan={16} className="empty-cell">No inventory found for this location.</td>
                   </tr>
                 )}
               </tbody>
@@ -2890,7 +2970,7 @@ function moveRack(targetRack: string) {
                 <input
                   value={activitySearch}
                   onChange={(event) => setActivitySearch(event.target.value)}
-                  placeholder="Customer, type, rack, zone, comment..."
+                  placeholder="Customer, TU#, part, type, rack, zone, comment..."
                 />
               </label>
 
@@ -2926,6 +3006,9 @@ function moveRack(targetRack: string) {
                   <div className="activity-main">
                     <strong>{transaction.type || "transaction"}</strong>
                     <span>{transaction.company}</span>
+                    {(transaction.afe || transaction.partNumber) && (
+                      <small>{transaction.afe || "No TU#"} / {transaction.partNumber || "No part number"}</small>
+                    )}
                     <small>{transaction.createdAt}</small>
                   </div>
 
