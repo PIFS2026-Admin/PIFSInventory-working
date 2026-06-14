@@ -9,6 +9,7 @@ type CustomerProfile = {
   role: string;
   companyId: string;
   companyName: string;
+  companyLogoUrl: string;
 };
 
 type CustomerInventory = {
@@ -87,7 +88,7 @@ export default function CustomerPage() {
 
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
-      .select("id, full_name, role, company_id, companies(name)")
+      .select("id, full_name, role, company_id, companies(name, logo_url)")
       .eq("id", user.id)
       .single();
 
@@ -111,6 +112,7 @@ export default function CustomerPage() {
       role: profileData.role,
       companyId: profileData.company_id,
       companyName: company?.name ?? "Customer",
+      companyLogoUrl: company?.logo_url ?? "",
     });
 
     const { data: inventoryData, error: inventoryError } = await supabase
@@ -271,12 +273,20 @@ export default function CustomerPage() {
   return (
     <main className="customer-shell">
       <header className="customer-topbar">
-        <div className="brand">
-          <div className="brand-mark">PF</div>
+        <div className="brand customer-brand">
+          {profile?.companyLogoUrl ? (
+            <img
+              className="customer-company-logo"
+              src={profile.companyLogoUrl}
+              alt={`${profile.companyName} logo`}
+            />
+          ) : (
+            <div className="brand-mark">PF</div>
+          )}
           <div>
-            <div className="brand-title">PIFS Customer Portal</div>
+            <div className="brand-title">{profile?.companyName ?? "Customer Portal"}</div>
             <div className="brand-subtitle">
-              {profile?.companyName ?? "Customer inventory"}
+              {profile?.fullName ? `Welcome, ${profile.fullName}` : "Customer inventory"}
             </div>
           </div>
         </div>

@@ -7,6 +7,7 @@ type Company = {
   id: string;
   name: string;
   accountNumber: string;
+  logoUrl: string;
   isActive: boolean;
 };
 
@@ -72,6 +73,8 @@ const emptyCompanyForm = {
   name: "",
   accountNumber: "",
 };
+
+const companyLogoBucket = "company-logos";
 
 const emptyRackForm = {
   rackCode: "",
@@ -176,7 +179,7 @@ export default function AdminPage() {
   async function loadCompanies() {
     const { data, error } = await supabase
       .from("companies")
-      .select("id, name, account_number, is_active")
+      .select("id, name, account_number, logo_url, is_active")
       .order("name", { ascending: true });
 
     if (error) {
@@ -189,6 +192,7 @@ export default function AdminPage() {
         id: company.id,
         name: company.name ?? "",
         accountNumber: company.account_number ?? "",
+        logoUrl: company.logo_url ?? "",
         isActive: company.is_active !== false,
       }))
     );
@@ -466,6 +470,7 @@ export default function AdminPage() {
       .update({
         name: changes.name ?? company.name,
         account_number: changes.accountNumber ?? company.accountNumber,
+        logo_url: changes.logoUrl ?? company.logoUrl,
         is_active: changes.isActive ?? company.isActive,
       })
       .eq("id", company.id);
@@ -480,6 +485,57 @@ export default function AdminPage() {
     await loadProfiles();
     setMessage("Company updated.");
     setLoading(false);
+  }
+
+  async function uploadCompanyLogo(company: Company, file: File | null) {
+    setMessage("");
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setMessage("Company logo must be an image file.");
+      return;
+    }
+
+    setLoading(true);
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "png";
+    const cleanCompanyName = makeCode(company.name) || company.id;
+    const filePath = `${company.id}/${cleanCompanyName}-${Date.now()}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(companyLogoBucket)
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      setMessage(`Logo upload failed: ${uploadError.message}`);
+      setLoading(false);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(companyLogoBucket)
+      .getPublicUrl(filePath);
+
+    const logoUrl = publicUrlData.publicUrl;
+
+    if (!logoUrl) {
+      setMessage("Logo uploaded, but no public URL was returned.");
+      setLoading(false);
+      return;
+    }
+
+    await updateCompany(company, { logoUrl });
+    setMessage(`Logo saved for ${company.name}.`);
+    setLoading(false);
+  }
+
+  async function removeCompanyLogo(company: Company) {
+    await updateCompany(company, { logoUrl: "" });
+    setMessage(`Logo removed for ${company.name}.`);
   }
 
   async function createUser() {
@@ -910,6 +966,7 @@ export default function AdminPage() {
           <table>
             <thead>
               <tr>
+                <th>Logo</th>
                 <th>Company</th>
                 <th>Account</th>
                 <th>Status</th>
@@ -919,10 +976,38 @@ export default function AdminPage() {
             <tbody>
               {companies.map((company) => (
                 <tr key={company.id}>
+                  <td>
+                    <div className="company-logo-cell">
+                      {company.logoUrl ? (
+                        <img src={company.logoUrl} alt={`${company.name} logo`} />
+                      ) : (
+                        <span>No logo</span>
+                      )}
+                    </div>
+                  </td>
                   <td>{company.name}</td>
                   <td>{company.accountNumber || "-"}</td>
                   <td>{company.isActive ? "Active" : "Disabled"}</td>
                   <td>
+                    <label className="button file-button">
+                      Upload Logo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          uploadCompanyLogo(company, event.target.files?.[0] ?? null);
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {company.logoUrl && (
+                      <button
+                        className="button"
+                        onClick={() => removeCompanyLogo(company)}
+                      >
+                        Remove Logo
+                      </button>
+                    )}
                     <button
                       className="button"
                       onClick={() => {

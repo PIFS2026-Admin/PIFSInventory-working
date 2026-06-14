@@ -1131,6 +1131,21 @@ th {
   gap: 10px;
 }
 
+.customer-brand {
+  align-items: center;
+}
+
+.customer-company-logo {
+  width: 92px;
+  height: 58px;
+  display: block;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #050505;
+  padding: 6px;
+}
+
 .customer-section {
   margin-top: 24px;
 }
@@ -1195,6 +1210,45 @@ th {
 
 .admin-card .button {
   margin: 14px;
+}
+
+.company-logo-cell {
+  width: 120px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+}
+
+.company-logo-cell img {
+  width: 96px;
+  height: 52px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #050505;
+  padding: 5px;
+}
+
+.company-logo-cell span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .admin-section-title {
@@ -1613,6 +1667,13 @@ th {
     background: white !important;
     color: #111827 !important;
     padding: 5px;
+  }
+
+  .inventory-panel table th:nth-child(1),
+  .inventory-panel table th:nth-child(2),
+  .inventory-panel table td:nth-child(1),
+  .inventory-panel table td:nth-child(2) {
+    display: none !important;
   }
 
   td *,
