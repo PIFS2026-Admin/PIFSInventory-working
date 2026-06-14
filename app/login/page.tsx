@@ -1,20 +1,27 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("wade@pathfinderinspections.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function signIn() {
+  async function signIn(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     setMessage("");
+
+    if (!email.trim() || !password) {
+      setMessage("Email and password are required.");
+      return;
+    }
+
     setLoading(true);
 
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim(),
       password,
     });
 
@@ -63,30 +70,36 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <label>
-          Email
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="name@company.com"
-          />
-        </label>
+        <form onSubmit={signIn} autoComplete="off">
+          <label>
+            Email
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@company.com"
+              autoComplete="off"
+              autoFocus
+            />
+          </label>
 
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-          />
-        </label>
+          <label>
+            Password
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Password"
+              autoComplete="current-password"
+            />
+          </label>
 
-        {message && <div className="modal-message">{message}</div>}
+          {message && <div className="modal-message">{message}</div>}
 
-        <button className="button primary" onClick={signIn} disabled={loading}>
-          {loading ? "Signing in..." : "Sign In"}
-        </button>
+          <button className="button primary" type="submit" disabled={loading}>
+            {loading ? "Signing in..." : "Sign In"}
+          </button>
+        </form>
       </section>
     </main>
   );
