@@ -355,6 +355,29 @@ function buildReport(rows: InventoryRow[], getter: (row: InventoryRow) => string
   return Array.from(report.values()).sort((a, b) => b.joints - a.joints);
 }
 
+function csvEscape(value: string | number | null | undefined) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, headers: string[], rows: (string | number | null | undefined)[][]) {
+  const csv = [
+    headers.map(csvEscape).join(","),
+    ...rows.map((row) => row.map(csvEscape).join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export default function Home() {
   const [role, setRole] = useState<Role>("admin");
   const [selectedYard, setSelectedYard] = useState<YardRecord | null>(null);
@@ -1849,11 +1872,6 @@ function moveRack(targetRack: string) {
       return;
     }
 
-    const csvEscape = (value: string | number | null | undefined) => {
-      const text = String(value ?? "");
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-
     const headers = [
       "Date Created",
       "Inspection Due",
@@ -1897,23 +1915,91 @@ function moveRack(targetRack: string) {
         row.talliedFootage,
         totalJoints,
         totalFootage,
-      ].map(csvEscape).join(",");
+      ];
     });
 
-    const csv = [headers.map(csvEscape).join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
     const locationName = selectedLocation === "all" ? "all-locations" : selectedLocation;
 
-    link.href = url;
-    link.download = `pifs-inventory-${locationName}-${today}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadCsv(`titan-inventory-${locationName}-${today}.csv`, headers, rows);
 
     setMessage(`Exported ${filteredInventory.length} inventory rows.`);
+  }
+
+  function exportReportsCsv() {
+    const headers = [
+      "Report",
+      "Label / Type",
+      "Company",
+      "Lines",
+      "Joints",
+      "Footage",
+      "From",
+      "To",
+      "Date",
+      "Comment",
+    ];
+
+    const summaryRows = [
+      ...inventoryByCustomer.map((line) => [
+        "Inventory by Customer",
+        line.label,
+        line.label,
+        line.lines,
+        line.joints,
+        line.footage,
+        "",
+        "",
+        today,
+        "",
+      ]),
+      ...inventoryByRack.map((line) => [
+        "Inventory by Rack / Zone",
+        line.label,
+        "",
+        line.lines,
+        line.joints,
+        line.footage,
+        "",
+        "",
+        today,
+        "",
+      ]),
+      ...wipReport.map((line) => [
+        "WIP Report",
+        line.label,
+        "",
+        line.lines,
+        line.joints,
+        line.footage,
+        "",
+        "",
+        today,
+        "",
+      ]),
+    ];
+
+    const transactionRows = transactions.map((transaction) => [
+      "Transaction History",
+      transaction.type,
+      transaction.company,
+      "",
+      transaction.joints,
+      transaction.footage,
+      transaction.fromLocation,
+      transaction.toLocation,
+      transaction.createdAt,
+      transaction.comment,
+    ]);
+
+    const rows = [...summaryRows, ...transactionRows];
+
+    if (rows.length === 0) {
+      setMessage("No report data to export.");
+      return;
+    }
+
+    downloadCsv(`titan-reports-${today}.csv`, headers, rows);
+    setMessage(`Exported ${rows.length} report rows.`);
   }
 
   if (loadingSetup) {
@@ -2700,6 +2786,9 @@ function moveRack(targetRack: string) {
             <div className="slide-actions top-actions">
               <button className="button" onClick={loadReports}>
                 {loadingReports ? "Loading..." : "Refresh Reports"}
+              </button>
+              <button className="button" onClick={exportReportsCsv}>
+                Export Reports CSV
               </button>
             </div>
 
