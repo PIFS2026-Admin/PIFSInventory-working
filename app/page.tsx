@@ -441,6 +441,22 @@ export default function Home() {
     return inventory.find((row) => row.id === selectedRows[0]) ?? null;
   }, [inventory, selectedRows]);
 
+  const editBeforeTotals = useMemo(() => {
+    if (!selectedEditRow) return { joints: 0, footage: 0 };
+
+    return {
+      joints: selectedEditRow.bulkJoints + selectedEditRow.talliedJoints,
+      footage: selectedEditRow.bulkFootage + selectedEditRow.talliedFootage,
+    };
+  }, [selectedEditRow]);
+
+  const editAfterTotals = useMemo(() => {
+    return {
+      joints: Number(editForm.bulkJoints || 0) + Number(editForm.talliedJoints || 0),
+      footage: Number(editForm.bulkFootage || 0) + Number(editForm.talliedFootage || 0),
+    };
+  }, [editForm.bulkFootage, editForm.bulkJoints, editForm.talliedFootage, editForm.talliedJoints]);
+
 
   const filteredReceivingTickets = useMemo(() => {
     const searchText = ticketSearch.toLowerCase().trim();
@@ -1483,10 +1499,17 @@ function moveRack(targetRack: string) {
       return;
     }
 
+    if (!editForm.comment.trim()) {
+      setMessage("Edit comment is required. Add the reason for this adjustment.");
+      return;
+    }
+
     const bulkJoints = Number(editForm.bulkJoints || 0);
     const bulkFootage = Number(editForm.bulkFootage || 0);
     const talliedJoints = Number(editForm.talliedJoints || 0);
     const talliedFootage = Number(editForm.talliedFootage || 0);
+    const newTotalJoints = bulkJoints + talliedJoints;
+    const newTotalFootage = bulkFootage + talliedFootage;
 
     if (bulkJoints < 0 || bulkFootage < 0 || talliedJoints < 0 || talliedFootage < 0) {
       setMessage("Inventory quantities cannot be negative.");
@@ -1532,11 +1555,11 @@ function moveRack(targetRack: string) {
         company_id: companyId,
         yard_id: selectedYard.id,
         transaction_type: "edit_inventory",
-        quantity_joints: bulkJoints + talliedJoints,
-        quantity_footage: bulkFootage + talliedFootage,
+        quantity_joints: newTotalJoints,
+        quantity_footage: newTotalFootage,
         from_location: previousLocation,
         to_location: locationName,
-        comment: editForm.comment || "Inventory line edited",
+        comment: `${editForm.comment.trim()} | Before: ${editBeforeTotals.joints} joints / ${editBeforeTotals.footage.toLocaleString()} ft. After: ${newTotalJoints} joints / ${newTotalFootage.toLocaleString()} ft.`,
       });
 
       await loadInventory(selectedYard.id, rackLayout, zones);
@@ -2444,6 +2467,24 @@ function moveRack(targetRack: string) {
               <label>Tallied Joints<input type="number" value={editForm.talliedJoints} onChange={(event) => setEditForm({ ...editForm, talliedJoints: event.target.value })} /></label>
               <label>Tallied Footage<input type="number" value={editForm.talliedFootage} onChange={(event) => setEditForm({ ...editForm, talliedFootage: event.target.value })} /></label>
               <label className="full">Edit Comment<textarea value={editForm.comment} onChange={(event) => setEditForm({ ...editForm, comment: event.target.value })} placeholder="Reason for edit" /></label>
+            </div>
+
+            <div className="adjust-summary">
+              <div>
+                <span>Before</span>
+                <strong>{editBeforeTotals.joints} joints</strong>
+                <small>{editBeforeTotals.footage.toLocaleString()} ft</small>
+              </div>
+              <div>
+                <span>After</span>
+                <strong>{editAfterTotals.joints} joints</strong>
+                <small>{editAfterTotals.footage.toLocaleString()} ft</small>
+              </div>
+              <div>
+                <span>Change</span>
+                <strong>{editAfterTotals.joints - editBeforeTotals.joints} joints</strong>
+                <small>{(editAfterTotals.footage - editBeforeTotals.footage).toLocaleString()} ft</small>
+              </div>
             </div>
 
             <div className="slide-actions">
