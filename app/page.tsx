@@ -179,6 +179,17 @@ type TransactionRow = {
   createdAt: string;
 };
 
+type PartNumberRecord = {
+  id: string;
+  companyId: string | null;
+  company: string;
+  partNumber: string;
+  description: string;
+  size: string;
+  grade: string;
+  connection: string;
+};
+
 type ReportLine = {
   label: string;
   lines: number;
@@ -387,6 +398,7 @@ export default function Home() {
   const [rackLayout, setRackLayout] = useState<RackConfig[]>(makeDefaultRacks());
   const [zones, setZones] = useState<ZoneConfig[]>(defaultZones);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
+  const [partNumbers, setPartNumbers] = useState<PartNumberRecord[]>([]);
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -753,8 +765,76 @@ export default function Home() {
         : defaultZones;
 
     setZones(mappedZones);
+    await loadPartNumbers();
     await loadInventory(yard.id, mappedRacks, mappedZones);
     setLoadingSetup(false);
+  }
+
+  async function loadPartNumbers() {
+    const { data, error } = await supabase
+      .from("part_numbers")
+      .select("id, company_id, part_number, description, size, grade, connection, companies(name)")
+      .order("part_number", { ascending: true });
+
+    if (error) {
+      setPartNumbers([]);
+      return;
+    }
+
+    setPartNumbers(
+      (data ?? []).map((row: any) => {
+        const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+
+        return {
+          id: row.id,
+          companyId: row.company_id ?? null,
+          company: company?.name ?? "Global",
+          partNumber: row.part_number ?? "",
+          description: row.description ?? "",
+          size: row.size ?? "",
+          grade: row.grade ?? "",
+          connection: row.connection ?? "",
+        };
+      })
+    );
+  }
+
+  function partOptionLabel(part: PartNumberRecord) {
+    return [
+      part.partNumber,
+      part.size,
+      part.grade,
+      part.connection,
+      part.company !== "Global" ? part.company : "",
+    ].filter(Boolean).join(" / ");
+  }
+
+  function applyPartToReceive(partId: string) {
+    const part = partNumbers.find((item) => item.id === partId);
+    if (!part) return;
+
+    setReceiveForm((form) => ({
+      ...form,
+      customer: part.company !== "Global" ? part.company : form.customer,
+      partNumber: part.partNumber,
+      size: part.size || form.size,
+      grade: part.grade || form.grade,
+      connection: part.connection || form.connection,
+    }));
+  }
+
+  function applyPartToEdit(partId: string) {
+    const part = partNumbers.find((item) => item.id === partId);
+    if (!part) return;
+
+    setEditForm((form) => ({
+      ...form,
+      customer: part.company !== "Global" ? part.company : form.customer,
+      partNumber: part.partNumber,
+      size: part.size || form.size,
+      grade: part.grade || form.grade,
+      connection: part.connection || form.connection,
+    }));
   }
   async function loadTickets() {
     setLoadingTickets(true);
@@ -2511,6 +2591,17 @@ export default function Home() {
               </label>
 
               <label>TU#<input value={editForm.afe} onChange={(event) => setEditForm({ ...editForm, afe: event.target.value })} /></label>
+              <label>
+                Saved Part
+                <select value="" onChange={(event) => applyPartToEdit(event.target.value)}>
+                  <option value="">Choose saved part...</option>
+                  {partNumbers.map((part) => (
+                    <option key={part.id} value={part.id}>
+                      {partOptionLabel(part)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>Part Number<input value={editForm.partNumber} onChange={(event) => setEditForm({ ...editForm, partNumber: event.target.value })} /></label>
               <label>Size<input value={editForm.size} onChange={(event) => setEditForm({ ...editForm, size: event.target.value })} /></label>
               <label>Grade<input value={editForm.grade} onChange={(event) => setEditForm({ ...editForm, grade: event.target.value })} /></label>
@@ -2601,6 +2692,17 @@ export default function Home() {
               </label>
 
               <label>TU#<input value={receiveForm.afe} onChange={(event) => setReceiveForm({ ...receiveForm, afe: event.target.value })} /></label>
+              <label>
+                Saved Part
+                <select value="" onChange={(event) => applyPartToReceive(event.target.value)}>
+                  <option value="">Choose saved part...</option>
+                  {partNumbers.map((part) => (
+                    <option key={part.id} value={part.id}>
+                      {partOptionLabel(part)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="full">Part Number<input value={receiveForm.partNumber} onChange={(event) => setReceiveForm({ ...receiveForm, partNumber: event.target.value })} placeholder="2 3/8 J55 8rd EUE" /></label>
               <label>Size<input value={receiveForm.size} onChange={(event) => setReceiveForm({ ...receiveForm, size: event.target.value })} /></label>
               <label>Grade<input value={receiveForm.grade} onChange={(event) => setReceiveForm({ ...receiveForm, grade: event.target.value })} /></label>

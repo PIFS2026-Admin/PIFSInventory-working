@@ -40,6 +40,17 @@ type Zone = {
   isActive: boolean;
 };
 
+type PartNumber = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  partNumber: string;
+  description: string;
+  size: string;
+  grade: string;
+  connection: string;
+};
+
 type AdminUserForm = {
   email: string;
   password: string;
@@ -73,6 +84,16 @@ const emptyZoneForm = {
   sortOrder: "0",
 };
 
+const emptyPartForm = {
+  id: "",
+  companyId: "",
+  partNumber: "",
+  description: "",
+  size: "",
+  grade: "",
+  connection: "",
+};
+
 function makeCode(value: string) {
   return value
     .trim()
@@ -99,11 +120,13 @@ export default function AdminPage() {
   const [selectedYardId, setSelectedYardId] = useState("");
   const [racks, setRacks] = useState<Rack[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
+  const [partNumbers, setPartNumbers] = useState<PartNumber[]>([]);
 
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [userForm, setUserForm] = useState<AdminUserForm>(emptyUserForm);
   const [rackForm, setRackForm] = useState(emptyRackForm);
   const [zoneForm, setZoneForm] = useState(emptyZoneForm);
+  const [partForm, setPartForm] = useState(emptyPartForm);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -140,7 +163,7 @@ export default function AdminPage() {
       return;
     }
 
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers()]);
     setMessage("");
   }
 
@@ -265,8 +288,136 @@ export default function AdminPage() {
   }
 
   async function refreshAdmin() {
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers()]);
     setMessage("Admin tools refreshed.");
+  }
+
+  async function loadPartNumbers() {
+    const { data, error } = await supabase
+      .from("part_numbers")
+      .select("id, company_id, part_number, description, size, grade, connection, companies(name)")
+      .order("part_number", { ascending: true });
+
+    if (error) {
+      setMessage(`Part numbers failed: ${error.message}`);
+      return;
+    }
+
+    setPartNumbers(
+      (data ?? []).map((part: any) => {
+        const company = Array.isArray(part.companies) ? part.companies[0] : part.companies;
+
+        return {
+          id: part.id,
+          companyId: part.company_id ?? "",
+          companyName: company?.name ?? "Global",
+          partNumber: part.part_number ?? "",
+          description: part.description ?? "",
+          size: part.size ?? "",
+          grade: part.grade ?? "",
+          connection: part.connection ?? "",
+        };
+      })
+    );
+  }
+
+  async function savePartNumber() {
+    setMessage("");
+
+    if (!partForm.partNumber.trim()) {
+      setMessage("Part number is required.");
+      return;
+    }
+
+    setLoading(true);
+
+    const payload = {
+      company_id: partForm.companyId || null,
+      part_number: partForm.partNumber.trim(),
+      description: partForm.description.trim() || null,
+      size: partForm.size.trim() || null,
+      grade: partForm.grade.trim() || null,
+      connection: partForm.connection.trim() || null,
+    };
+
+    let error;
+
+    if (partForm.id) {
+      ({ error } = await supabase.from("part_numbers").update(payload).eq("id", partForm.id));
+    } else {
+      const duplicateQuery = supabase
+        .from("part_numbers")
+        .select("id")
+        .eq("part_number", payload.part_number)
+        .limit(1);
+
+      if (payload.company_id) {
+        duplicateQuery.eq("company_id", payload.company_id);
+      } else {
+        duplicateQuery.is("company_id", null);
+      }
+
+      const { data: duplicate, error: duplicateError } = await duplicateQuery;
+
+      if (duplicateError) {
+        setMessage(duplicateError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (duplicate && duplicate.length > 0) {
+        setMessage("That part number already exists for this company.");
+        setLoading(false);
+        return;
+      }
+
+      ({ error } = await supabase.from("part_numbers").insert(payload));
+    }
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setPartForm(emptyPartForm);
+    await loadPartNumbers();
+    setMessage(partForm.id ? "Part number updated." : "Part number created.");
+    setLoading(false);
+  }
+
+  function editPartNumber(part: PartNumber) {
+    setPartForm({
+      id: part.id,
+      companyId: part.companyId,
+      partNumber: part.partNumber,
+      description: part.description,
+      size: part.size,
+      grade: part.grade,
+      connection: part.connection,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function deletePartNumber(part: PartNumber) {
+    const confirmed = window.confirm(`Delete saved part number ${part.partNumber}?`);
+    if (!confirmed) return;
+
+    setMessage("");
+    setLoading(true);
+
+    const { error } = await supabase.from("part_numbers").delete().eq("id", part.id);
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (partForm.id === part.id) setPartForm(emptyPartForm);
+    await loadPartNumbers();
+    setMessage("Part number deleted.");
+    setLoading(false);
   }
 
   async function createCompany() {
@@ -629,6 +780,107 @@ export default function AdminPage() {
           <button className="button primary" onClick={createUser} disabled={loading}>
             Create User
           </button>
+        </div>
+      </section>
+
+      <section className="ticket-card admin-card">
+        <div className="admin-section-title">
+          <div>
+            <h3>Part Number Manager</h3>
+            <p>Save common tubular descriptions so receiving and inventory edits can auto-fill pipe details.</p>
+          </div>
+          {partForm.id && (
+            <button className="button" onClick={() => setPartForm(emptyPartForm)}>
+              New Part
+            </button>
+          )}
+        </div>
+
+        <div className="form-grid admin-form-grid">
+          <label>
+            Company
+            <select
+              value={partForm.companyId}
+              onChange={(event) => setPartForm({ ...partForm, companyId: event.target.value })}
+            >
+              <option value="">Global part</option>
+              {activeCompanies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Part Number
+            <input
+              value={partForm.partNumber}
+              onChange={(event) => setPartForm({ ...partForm, partNumber: event.target.value })}
+              placeholder="2 3/8 J55 PH6"
+            />
+          </label>
+
+          <label>
+            Size
+            <input
+              value={partForm.size}
+              onChange={(event) => setPartForm({ ...partForm, size: event.target.value })}
+              placeholder="2 3/8"
+            />
+          </label>
+
+          <label>
+            Grade
+            <input
+              value={partForm.grade}
+              onChange={(event) => setPartForm({ ...partForm, grade: event.target.value })}
+              placeholder="J55"
+            />
+          </label>
+
+          <label>
+            Connection
+            <input
+              value={partForm.connection}
+              onChange={(event) => setPartForm({ ...partForm, connection: event.target.value })}
+              placeholder="PH6, NC50, 8rd EUE"
+            />
+          </label>
+
+          <label>
+            Description
+            <input
+              value={partForm.description}
+              onChange={(event) => setPartForm({ ...partForm, description: event.target.value })}
+              placeholder="Optional internal description"
+            />
+          </label>
+        </div>
+
+        <button className="button primary" onClick={savePartNumber} disabled={loading}>
+          {partForm.id ? "Save Part Number" : "Add Part Number"}
+        </button>
+
+        <div className="part-number-list">
+          {partNumbers.length === 0 && <p className="muted-text">No saved part numbers yet.</p>}
+          {partNumbers.map((part) => (
+            <article key={part.id} className="part-number-row">
+              <div>
+                <strong>{part.partNumber}</strong>
+                <span>{[part.size, part.grade, part.connection].filter(Boolean).join(" / ") || "No pipe details saved"}</span>
+                <small>{part.companyName}{part.description ? ` / ${part.description}` : ""}</small>
+              </div>
+              <div className="part-number-actions">
+                <button className="button" onClick={() => editPartNumber(part)}>
+                  Edit
+                </button>
+                <button className="button danger" onClick={() => deletePartNumber(part)}>
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 

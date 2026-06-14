@@ -308,6 +308,23 @@ for all
 using (public.is_internal_user())
 with check (public.is_internal_user());
 
+create policy "part numbers internal full"
+on public.part_numbers
+for all
+to authenticated
+using (public.is_internal_user())
+with check (public.is_internal_user());
+
+create policy "part numbers customer read own"
+on public.part_numbers
+for select
+to authenticated
+using (
+  company_id is null
+  or company_id = public.current_user_company_id()
+  or public.is_internal_user()
+);
+
 create policy "inventory internal full"
 on public.pipe_inventory
 for all
