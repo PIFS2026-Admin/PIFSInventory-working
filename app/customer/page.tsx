@@ -286,7 +286,7 @@ export default function CustomerPage() {
           <div>
             <div className="brand-title">{profile?.companyName ?? "Customer Portal"}</div>
             <div className="brand-subtitle">
-              {profile?.fullName ? `Welcome, ${profile.fullName}` : "Customer inventory"}
+              Customer inventory portal
             </div>
           </div>
         </div>
@@ -298,6 +298,12 @@ export default function CustomerPage() {
       </header>
 
       {message && <div className="modal-message">{message}</div>}
+
+      <section className="customer-welcome">
+        <span>Welcome</span>
+        <h1>{profile?.fullName || "Customer"}</h1>
+        <p>{profile?.companyName ?? "Your inventory"} inventory, tickets, and rack locations.</p>
+      </section>
 
       <section className="report-metrics customer-metrics">
         <div>
