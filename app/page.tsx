@@ -398,9 +398,13 @@ export default function Home() {
   const [shipOpen, setShipOpen] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketFilter, setTicketFilter] = useState<"all" | "receiving" | "shipping">("all");
   const [ticketDate, setTicketDate] = useState("");
+  const [activitySearch, setActivitySearch] = useState("");
+  const [activityType, setActivityType] = useState("all");
+  const [activityDate, setActivityDate] = useState("");
   const [editOpen, setEditOpen] = useState(false);
 
   const [transferMode, setTransferMode] = useState<TransferMode>("all");
@@ -518,6 +522,35 @@ export default function Home() {
         .includes(searchText);
     });
   }, [ticketDate, ticketFilter, ticketSearch, transferDocuments]);
+
+  const activityTypes = useMemo(() => {
+    return Array.from(new Set(transactions.map((transaction) => transaction.type).filter(Boolean))).sort();
+  }, [transactions]);
+
+  const filteredActivity = useMemo(() => {
+    const searchText = activitySearch.toLowerCase().trim();
+
+    return transactions.filter((transaction) => {
+      if (activityType !== "all" && transaction.type !== activityType) return false;
+      if (activityDate && transaction.createdAt !== activityDate) return false;
+      if (!searchText) return true;
+
+      return [
+        transaction.type,
+        transaction.company,
+        transaction.fromLocation,
+        transaction.toLocation,
+        transaction.comment,
+        transaction.createdAt,
+        transaction.joints,
+        transaction.footage,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+    });
+  }, [activityDate, activitySearch, activityType, transactions]);
+
   const activeInventory = useMemo(() => {
     return inventory.filter((row) => {
       const totalJoints = row.bulkJoints + row.talliedJoints;
@@ -894,7 +927,7 @@ export default function Home() {
         companies(name)
       `)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(250);
 
     if (error) {
       setMessage(`Transaction history failed: ${error.message}`);
@@ -933,6 +966,14 @@ export default function Home() {
 
   function openReports() {
     setReportsOpen(true);
+    loadReports();
+  }
+
+  function openActivity() {
+    setActivityOpen(true);
+    setActivitySearch("");
+    setActivityType("all");
+    setActivityDate("");
     loadReports();
   }
 
@@ -2002,6 +2043,30 @@ function moveRack(targetRack: string) {
     setMessage(`Exported ${rows.length} report rows.`);
   }
 
+  function exportActivityCsv() {
+    if (filteredActivity.length === 0) {
+      setMessage("No activity rows to export.");
+      return;
+    }
+
+    downloadCsv(
+      `titan-activity-log-${today}.csv`,
+      ["Date", "Type", "Company", "Joints", "Footage", "From", "To", "Comment"],
+      filteredActivity.map((transaction) => [
+        transaction.createdAt,
+        transaction.type,
+        transaction.company,
+        transaction.joints,
+        transaction.footage,
+        transaction.fromLocation,
+        transaction.toLocation,
+        transaction.comment,
+      ])
+    );
+
+    setMessage(`Exported ${filteredActivity.length} activity rows.`);
+  }
+
   if (loadingSetup) {
     return (
       <main className="app-shell">
@@ -2084,6 +2149,7 @@ function moveRack(targetRack: string) {
           <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
           <button className="button" onClick={openReports}>Reports</button>
+          <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
           <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
         </div>
 
@@ -2751,6 +2817,92 @@ function moveRack(targetRack: string) {
                 ))}
               </section>
             </div>
+          </section>
+        </div>
+      )}
+
+      {activityOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over wide-slide">
+            <div className="slide-header">
+              <div>
+                <h2>Activity Log</h2>
+                <p>Recent receiving, shipping, transfer, completion, and adjustment history</p>
+              </div>
+              <button className="icon-button" onClick={() => setActivityOpen(false)}>X</button>
+            </div>
+
+            {message && <div className="modal-message">{message}</div>}
+
+            <div className="slide-actions top-actions">
+              <button className="button" onClick={loadReports}>
+                {loadingReports ? "Loading..." : "Refresh Activity"}
+              </button>
+              <button className="button" onClick={exportActivityCsv}>
+                Export Activity CSV
+              </button>
+            </div>
+
+            <div className="form-grid ticket-filter-grid">
+              <label className="full">
+                Search activity
+                <input
+                  value={activitySearch}
+                  onChange={(event) => setActivitySearch(event.target.value)}
+                  placeholder="Customer, type, rack, zone, comment..."
+                />
+              </label>
+
+              <label>
+                Activity Type
+                <select value={activityType} onChange={(event) => setActivityType(event.target.value)}>
+                  <option value="all">All Activity</option>
+                  {activityTypes.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Date
+                <input type="date" value={activityDate} onChange={(event) => setActivityDate(event.target.value)} />
+              </label>
+
+              <button className="button" onClick={() => { setActivitySearch(""); setActivityType("all"); setActivityDate(""); }}>
+                Clear Filters
+              </button>
+            </div>
+
+            <div className="ticket-filter-summary">
+              Showing {filteredActivity.length} of {transactions.length} activity records
+            </div>
+
+            <section className="ticket-card">
+              {filteredActivity.length === 0 && <p className="muted-text">No activity found.</p>}
+
+              {filteredActivity.map((transaction) => (
+                <article key={transaction.id} className="activity-row">
+                  <div className="activity-main">
+                    <strong>{transaction.type || "transaction"}</strong>
+                    <span>{transaction.company}</span>
+                    <small>{transaction.createdAt}</small>
+                  </div>
+
+                  <div className="activity-move">
+                    <span>{transaction.fromLocation || "-"}</span>
+                    <span>to</span>
+                    <span>{transaction.toLocation || "-"}</span>
+                  </div>
+
+                  <div className="activity-qty">
+                    <strong>{transaction.joints} joints</strong>
+                    <span>{transaction.footage.toLocaleString()} ft</span>
+                  </div>
+
+                  <p>{transaction.comment || "No comment"}</p>
+                </article>
+              ))}
+            </section>
           </section>
         </div>
       )}
