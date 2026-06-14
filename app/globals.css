@@ -1411,26 +1411,33 @@ th {
 }
 
 .signature-grid div {
-  border-top: 1px solid #111827;
-  padding-top: 8px;
-  min-height: 66px;
+  min-height: 92px;
   position: relative;
 }
 
 .signature-grid span {
-  display: block;
-  min-height: 36px;
+  display: flex;
+  align-items: flex-end;
+  min-height: 62px;
   color: #374151;
   font-size: 12px;
+  border-bottom: 1px solid #111827;
+  padding: 0 4px 4px;
 }
 
 .signature-grid img {
   display: block;
   max-width: 100%;
-  max-height: 48px;
+  max-height: 58px;
   object-fit: contain;
-  margin-top: -48px;
-  margin-bottom: 6px;
+  margin: 0;
+  opacity: 1 !important;
+  filter: brightness(0) saturate(0) contrast(999) !important;
+  mix-blend-mode: multiply;
+}
+
+.signature-grid p {
+  margin: 8px 0 0;
 }
 
 @media print {
@@ -1494,17 +1501,17 @@ th {
   }
 
   .signature-grid div {
-    min-height: 92px;
+    min-height: 96px;
   }
 
   .signature-grid span {
-    min-height: 58px;
+    min-height: 66px;
   }
 
   .signature-grid img {
-    max-height: 72px;
-    margin-top: -68px;
-    filter: invert(1) grayscale(1) contrast(2.2);
+    max-height: 64px;
+    filter: brightness(0) saturate(0) contrast(999) !important;
+    opacity: 1 !important;
   }
 }
 @media print {
