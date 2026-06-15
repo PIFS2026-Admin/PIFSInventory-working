@@ -57,6 +57,11 @@ export default function LoginPage() {
       return;
     }
 
+    if (profile.role === "operator") {
+      window.location.href = "/hardband";
+      return;
+    }
+
     window.location.href = "/";
   }
 

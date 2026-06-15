@@ -15,7 +15,7 @@ type Company = {
 type Profile = {
   id: string;
   fullName: string;
-  role: "admin" | "employee" | "customer";
+  role: "admin" | "employee" | "customer" | "operator";
   companyId: string;
   companyName: string;
 };
@@ -58,7 +58,7 @@ type AdminUserForm = {
   email: string;
   password: string;
   fullName: string;
-  role: "admin" | "employee" | "customer";
+  role: "admin" | "employee" | "customer" | "operator";
   companyId: string;
 };
 
@@ -833,6 +833,7 @@ export default function AdminPage() {
               }
             >
               <option value="customer">Customer</option>
+              <option value="operator">Hardband Operator</option>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
             </select>
@@ -1079,6 +1080,7 @@ export default function AdminPage() {
                       }
                     >
                       <option value="customer">Customer</option>
+                      <option value="operator">Hardband Operator</option>
                       <option value="employee">Employee</option>
                       <option value="admin">Admin</option>
                     </select>

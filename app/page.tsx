@@ -1078,6 +1078,10 @@ export default function Home() {
 
     setCurrentUserName(profile?.full_name || sessionData.session.user.email || "User");
     if (profile?.role === "customer") setRole("customer");
+    if (profile?.role === "operator") {
+      window.location.href = "/hardband";
+      return;
+    }
 
     const { data: yard, error: yardError } = await supabase
       .from("yards")
@@ -1433,8 +1437,7 @@ export default function Home() {
   }
 
   async function openHardbandJobs() {
-    setHardbandOpen(true);
-    await loadHardbandJobs();
+    window.location.href = "/hardband";
   }
 
   async function createHardbandJobFromTransfer({
