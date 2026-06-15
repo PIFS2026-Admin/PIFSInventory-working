@@ -751,8 +751,17 @@ export default function HardbandPage() {
     const link = document.createElement("a");
     link.href = url;
     link.download = `${selectedJob.jobNumber}-hardband-report.csv`;
+    link.style.display = "none";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 250);
+    setMessage(`${selectedJob.jobNumber} CSV export downloaded.`);
+  }
+
+  function openSelectedJobReport() {
+    if (!selectedJob) return;
+    window.location.href = `/hardband/print?id=${encodeURIComponent(selectedJob.id)}`;
   }
 
   async function signOut() {
@@ -963,7 +972,7 @@ export default function HardbandPage() {
               </select>
               <button className="button" onClick={() => updateJobStatus(statusDraft)}>Save Status</button>
               <button className="button" onClick={() => updateJobStatus("Closed")}>Close Job</button>
-              <button className="button" onClick={() => window.open(`/hardband/print?id=${selectedJob.id}`, "_blank")}>Print / PDF</button>
+              <button className="button" onClick={openSelectedJobReport}>Print / PDF</button>
               <button className="button" onClick={exportSelectedJob}>Export CSV</button>
             </div>
           </div>
