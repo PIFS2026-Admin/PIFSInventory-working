@@ -1147,13 +1147,10 @@ th {
 }
 
 .customer-welcome {
-  margin-top: 22px;
-  padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(20, 23, 28, 0.92)),
-    var(--panel);
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .customer-welcome span {
@@ -1165,7 +1162,7 @@ th {
 }
 
 .customer-welcome h1 {
-  margin: 4px 0 6px;
+  margin: 3px 0 4px;
   font-size: 32px;
   line-height: 1.05;
 }
