@@ -2100,3 +2100,109 @@ th {
     grid-template-columns: 1fr;
   }
 }
+
+@media print {
+  .customer-shell {
+    background: #ffffff !important;
+    color: #111827 !important;
+    padding: 0 !important;
+  }
+
+  .customer-shell .customer-actions,
+  .customer-shell .customer-report-actions,
+  .customer-shell .customer-ticket-actions,
+  .customer-shell .customer-location-section,
+  .customer-shell .customer-ticket-section,
+  .customer-shell .customer-titan-logo-wrap {
+    display: none !important;
+  }
+
+  .customer-shell .customer-topbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 14px !important;
+    padding: 0 0 14px !important;
+    margin: 0 0 14px !important;
+    border-bottom: 1px solid #111827 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  .customer-shell .customer-brand,
+  .customer-shell .customer-welcome,
+  .customer-shell .customer-inventory-section,
+  .customer-shell .customer-metrics,
+  .customer-shell .table-wrap {
+    display: block !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    border-color: #d1d5db !important;
+    box-shadow: none !important;
+  }
+
+  .customer-shell .customer-metrics {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 10px !important;
+    margin: 12px 0 18px !important;
+  }
+
+  .customer-shell .customer-metrics > div {
+    display: block !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #9ca3af !important;
+    border-radius: 4px !important;
+    padding: 10px !important;
+    min-height: 0 !important;
+  }
+
+  .customer-shell .customer-metrics strong,
+  .customer-shell .customer-metrics span,
+  .customer-shell .customer-welcome span,
+  .customer-shell .customer-welcome h1,
+  .customer-shell .customer-welcome p,
+  .customer-shell .customer-inventory-section h2,
+  .customer-shell .customer-inventory-section p {
+    color: #111827 !important;
+    opacity: 1 !important;
+  }
+
+  .customer-shell .table-wrap {
+    overflow: visible !important;
+    border: 0 !important;
+  }
+
+  .customer-shell table {
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: collapse !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 10px !important;
+  }
+
+  .customer-shell th {
+    background: #111827 !important;
+    color: #ffffff !important;
+    border: 1px solid #9ca3af !important;
+    padding: 5px !important;
+  }
+
+  .customer-shell td {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #9ca3af !important;
+    padding: 5px !important;
+  }
+
+  .customer-shell td *,
+  .customer-shell .badge {
+    background: transparent !important;
+    color: #111827 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+}

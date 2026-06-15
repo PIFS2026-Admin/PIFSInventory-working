@@ -384,7 +384,7 @@ export default function CustomerPage() {
         </div>
       </section>
 
-      <section className="customer-section">
+      <section className="customer-section customer-location-section">
         <div className="section-heading">
           <h2>Your Racks / Locations</h2>
           <p>Only locations with your company inventory are shown.</p>
@@ -413,7 +413,7 @@ export default function CustomerPage() {
         </div>
       </section>
 
-      <section className="customer-section customer-location-section">
+      <section className="customer-section customer-inventory-section">
         <div className="section-heading">
           <div>
             <h2>Inventory</h2>
