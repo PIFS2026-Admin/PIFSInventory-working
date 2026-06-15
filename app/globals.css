@@ -1498,18 +1498,22 @@ th {
   margin: 0 0 6px;
 }
 
-.ticket-number-box {
+.ticket-number-box,
+.ticket-date-box {
   border: 1px solid #d1d5db;
   padding: 12px;
   min-width: 180px;
 }
 
 .ticket-number-box span,
-.ticket-number-box strong {
+.ticket-number-box strong,
+.ticket-date-box span,
+.ticket-date-box strong {
   display: block;
 }
 
-.ticket-number-box span {
+.ticket-number-box span,
+.ticket-date-box span {
   color: #6b7280;
   font-size: 12px;
   text-transform: uppercase;
@@ -1540,24 +1544,29 @@ th {
   text-transform: uppercase;
 }
 
-.print-ticket-table {
+.print-ticket-table,
+.ticket-table {
   width: 100%;
   border-collapse: collapse;
 }
 
 .print-ticket-table th,
-.print-ticket-table td {
+.print-ticket-table td,
+.ticket-table th,
+.ticket-table td {
   border: 1px solid #d1d5db;
   padding: 10px;
   text-align: left;
 }
 
-.print-ticket-table th {
+.print-ticket-table th,
+.ticket-table th {
   background: #111827;
   color: white;
 }
 
-.print-ticket-table tfoot td {
+.print-ticket-table tfoot td,
+.ticket-table tfoot td {
   font-weight: 900;
 }
 
@@ -1736,6 +1745,31 @@ th {
     color: #111827 !important;
     border: 0 !important;
     box-shadow: none !important;
+  }
+
+  .customer-metrics {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 10px !important;
+    margin: 12px 0 18px !important;
+  }
+
+  .customer-metrics div,
+  .report-metrics div {
+    background: white !important;
+    color: #111827 !important;
+    border: 1px solid #9ca3af !important;
+    box-shadow: none !important;
+    padding: 10px !important;
+    page-break-inside: avoid;
+  }
+
+  .customer-metrics strong,
+  .customer-metrics span,
+  .report-metrics strong,
+  .report-metrics span {
+    color: #111827 !important;
+    opacity: 1 !important;
   }
 
   .customer-location-grid,
