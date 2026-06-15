@@ -211,6 +211,11 @@ type PartNumberRecord = {
   pipeRange: PipeRange;
 };
 
+type CompanyOption = {
+  id: string;
+  name: string;
+};
+
 type ReportLine = {
   label: string;
   lines: number;
@@ -630,6 +635,7 @@ export default function Home() {
   const [zones, setZones] = useState<ZoneConfig[]>(defaultZones);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [partNumbers, setPartNumbers] = useState<PartNumberRecord[]>([]);
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -1040,9 +1046,31 @@ export default function Home() {
         : defaultZones;
 
     setZones(mappedZones);
+    await loadCompanies();
     await loadPartNumbers();
     await loadInventory(yard.id, mappedRacks, mappedZones);
     setLoadingSetup(false);
+  }
+
+  async function loadCompanies() {
+    const { data, error } = await supabase
+      .from("companies")
+      .select("id, name")
+      .order("name", { ascending: true });
+
+    if (error) {
+      setCompanies([]);
+      return;
+    }
+
+    setCompanies(
+      (data ?? [])
+        .map((row: any) => ({
+          id: row.id,
+          name: row.name ?? "",
+        }))
+        .filter((company) => company.name.trim())
+    );
   }
 
   async function loadPartNumbers() {
@@ -1546,6 +1574,18 @@ export default function Home() {
   const customerOptions = useMemo(() => {
     return Array.from(new Set(inventory.map((row) => row.company).filter(Boolean))).sort();
   }, [inventory]);
+
+  const customerNameOptions = useMemo(() => {
+    return Array.from(
+      new Set([
+        ...companies.map((company) => company.name),
+        ...inventory.map((row) => row.company),
+        ...partNumbers
+          .filter((part) => part.company !== "Global")
+          .map((part) => part.company),
+      ].filter(Boolean))
+    ).sort((a, b) => a.localeCompare(b));
+  }, [companies, inventory, partNumbers]);
 
   const statusOptions = useMemo(() => {
     return Array.from(new Set(inventory.map((row) => row.status).filter(Boolean))).sort();
@@ -2751,6 +2791,12 @@ export default function Home() {
 
   return (
     <main className="app-shell">
+      <datalist id="customer-name-options">
+        {customerNameOptions.map((customer) => (
+          <option key={customer} value={customer} />
+        ))}
+      </datalist>
+
       <aside className="side-panel">
         <div className="brand">
           <div className="brand-mark">PF</div>
@@ -3256,7 +3302,15 @@ export default function Home() {
             {message && <div className="modal-message">{message}</div>}
 
             <div className="form-grid">
-              <label>Customer<input value={editForm.customer} onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })} /></label>
+              <label>
+                Customer
+                <input
+                  list="customer-name-options"
+                  value={editForm.customer}
+                  onChange={(event) => setEditForm({ ...editForm, customer: event.target.value })}
+                  placeholder="Choose or type customer"
+                />
+              </label>
 
               <label>
                 Location
@@ -3357,7 +3411,15 @@ export default function Home() {
             {message && <div className="modal-message">{message}</div>}
 
             <div className="form-grid">
-              <label>Customer<input value={receiveForm.customer} onChange={(event) => setReceiveForm({ ...receiveForm, customer: event.target.value })} /></label>
+              <label>
+                Customer
+                <input
+                  list="customer-name-options"
+                  value={receiveForm.customer}
+                  onChange={(event) => setReceiveForm({ ...receiveForm, customer: event.target.value })}
+                  placeholder="Choose or type customer"
+                />
+              </label>
               <label>
                 Location
                 <select value={receiveForm.destination} onChange={(event) => setReceiveForm({ ...receiveForm, destination: event.target.value })}>
@@ -3445,7 +3507,15 @@ export default function Home() {
               <label>Carrier<input value={receiveForm.carrier} onChange={(event) => setReceiveForm({ ...receiveForm, carrier: event.target.value })} /></label>
               <label>PO Number<input value={receiveForm.poNumber} onChange={(event) => setReceiveForm({ ...receiveForm, poNumber: event.target.value })} /></label>
               <label>Truck Number<input value={receiveForm.truckNumber} onChange={(event) => setReceiveForm({ ...receiveForm, truckNumber: event.target.value })} /></label>
-              <label>Customer<input value={receiveForm.customer} onChange={(event) => setReceiveForm({ ...receiveForm, customer: event.target.value })} /></label>
+              <label>
+                Customer
+                <input
+                  list="customer-name-options"
+                  value={receiveForm.customer}
+                  onChange={(event) => setReceiveForm({ ...receiveForm, customer: event.target.value })}
+                  placeholder="Choose or type customer"
+                />
+              </label>
 
               <label>
                 Receive Into
