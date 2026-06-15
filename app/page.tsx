@@ -640,6 +640,7 @@ export default function Home() {
   const [draggedRack, setDraggedRack] = useState<string | null>(null);
 
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [initialInventoryOpen, setInitialInventoryOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [shipOpen, setShipOpen] = useState(false);
   const [ticketsOpen, setTicketsOpen] = useState(false);
@@ -674,6 +675,7 @@ export default function Home() {
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [loadingReports, setLoadingReports] = useState(false);
   const [savingReceive, setSavingReceive] = useState(false);
+  const [savingInitialInventory, setSavingInitialInventory] = useState(false);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingShip, setSavingShip] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -2229,6 +2231,91 @@ export default function Home() {
       setSavingReceive(false);
     }
   }
+
+  async function saveInitialInventory() {
+    if (!selectedYard) return;
+
+    setMessage("");
+
+    if (!receiveForm.customer.trim()) {
+      setMessage("Customer is required.");
+      return;
+    }
+
+    if (!receiveForm.partNumber.trim()) {
+      setMessage("Part number is required.");
+      return;
+    }
+
+    const joints = Number(receiveForm.joints || 0);
+    const footage = calculateRangeFootage(joints, receiveForm.pipeRange);
+
+    if (joints <= 0) {
+      setMessage("Enter joints before saving.");
+      return;
+    }
+
+    setSavingInitialInventory(true);
+
+    try {
+      const companyId = await findOrCreateCompany(receiveForm.customer);
+      const { rack, zone } = getDestination(receiveForm.destination);
+      const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
+
+      const { data: inventoryLine, error: inventoryError } = await supabase
+        .from("pipe_inventory")
+        .insert({
+          company_id: companyId,
+          yard_id: selectedYard.id,
+          rack_id: rack?.id ?? null,
+          workflow_zone_id: zone?.id ?? null,
+          afe: receiveForm.afe || null,
+          part_number: receiveForm.partNumber,
+          size: receiveForm.size || null,
+          grade: receiveForm.grade || null,
+          connection: receiveForm.connection || null,
+          pipe_range: receiveForm.pipeRange,
+          condition: receiveForm.condition || "Used",
+          status: receiveForm.status || "Available",
+          inspection_color: "None",
+          inspection_due_date: null,
+          bulk_joints: joints,
+          bulk_footage: footage,
+          tallied_joints: 0,
+          tallied_footage: 0,
+        })
+        .select("id")
+        .single();
+
+      if (inventoryError) throw inventoryError;
+      if (!inventoryLine?.id) throw new Error("Inventory was saved but did not return an inventory id.");
+
+      const { error: transactionError } = await supabase.from("pipe_transactions").insert({
+        pipe_inventory_id: inventoryLine.id,
+        company_id: companyId,
+        yard_id: selectedYard.id,
+        transaction_type: "initial_inventory",
+        from_location: null,
+        to_location: destinationName,
+        quantity_joints: joints,
+        quantity_footage: footage,
+        comment: receiveForm.notes || "Initial inventory entry",
+      });
+
+      if (transactionError) throw transactionError;
+
+      await loadInventory(selectedYard.id, rackLayout, zones);
+      await loadReports();
+
+      setInitialInventoryOpen(false);
+      setReceiveForm(emptyReceiveForm);
+      setMessage(`Initial inventory added to ${destinationName}. No receiving ticket was created.`);
+    } catch (error: any) {
+      setMessage(`Initial inventory failed: ${error.message}`);
+    } finally {
+      setSavingInitialInventory(false);
+    }
+  }
   
   async function saveTransfer() {
     if (!selectedYard || !selectedTransferRow) return;
@@ -2729,6 +2816,22 @@ export default function Home() {
           <button className="button" disabled={role === "customer" || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
           <button className="button" disabled={role === "customer"} onClick={openTransfer}>Transfer</button>
           <button className="button primary" disabled={role === "customer"} onClick={() => setReceiveOpen(true)}>Receive</button>
+          <button
+            className="button"
+            disabled={role === "customer"}
+            onClick={() => {
+              setReceiveForm({
+                ...emptyReceiveForm,
+                status: "Available",
+                condition: "Used",
+                destination: selectedRackDetail ? `rack:${selectedRackDetail.label}` : emptyReceiveForm.destination,
+                notes: "Initial inventory entry",
+              });
+              setInitialInventoryOpen(true);
+            }}
+          >
+            Initial Inventory
+          </button>
           <button className="button" disabled={role === "customer"} onClick={openShip}>Ship</button>
           <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
@@ -3005,6 +3108,22 @@ export default function Home() {
               >
                 Receive Into Rack
               </button>
+              <button
+                className="button"
+                disabled={role === "customer"}
+                onClick={() => {
+                  setReceiveForm({
+                    ...emptyReceiveForm,
+                    destination: `rack:${selectedRackDetail.label}`,
+                    status: "Available",
+                    condition: "Used",
+                    notes: "Initial inventory entry",
+                  });
+                  setInitialInventoryOpen(true);
+                }}
+              >
+                Add Initial Inventory
+              </button>
             </div>
 
             <div className="rack-detail-metrics">
@@ -3224,6 +3343,91 @@ export default function Home() {
           </section>
         </div>
       )}
+      {initialInventoryOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over">
+            <div className="slide-header">
+              <div>
+                <h2>Initial Inventory</h2>
+                <p>Add existing yard inventory directly to a rack or location. No receiving ticket will be created.</p>
+              </div>
+              <button className="icon-button" onClick={() => { setInitialInventoryOpen(false); setReceiveForm(emptyReceiveForm); }}>X</button>
+            </div>
+
+            {message && <div className="modal-message">{message}</div>}
+
+            <div className="form-grid">
+              <label>Customer<input value={receiveForm.customer} onChange={(event) => setReceiveForm({ ...receiveForm, customer: event.target.value })} /></label>
+              <label>
+                Location
+                <select value={receiveForm.destination} onChange={(event) => setReceiveForm({ ...receiveForm, destination: event.target.value })}>
+                  {locationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+
+              <label>TU#<input value={receiveForm.afe} onChange={(event) => setReceiveForm({ ...receiveForm, afe: event.target.value })} /></label>
+              <label>
+                Saved Part
+                <select value="" onChange={(event) => applyPartToReceive(event.target.value)}>
+                  <option value="">Choose saved part...</option>
+                  {partNumbers.map((part) => (
+                    <option key={part.id} value={part.id}>
+                      {partOptionLabel(part)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="full">Part Number<input value={receiveForm.partNumber} onChange={(event) => setReceiveForm({ ...receiveForm, partNumber: event.target.value })} placeholder="5.000 DRILL PIPE NC50 19.50 LB" /></label>
+              <label>Size<input value={receiveForm.size} onChange={(event) => setReceiveForm({ ...receiveForm, size: event.target.value })} /></label>
+              <label>Grade<input value={receiveForm.grade} onChange={(event) => setReceiveForm({ ...receiveForm, grade: event.target.value })} /></label>
+              <label>Connection<input value={receiveForm.connection} onChange={(event) => setReceiveForm({ ...receiveForm, connection: event.target.value })} placeholder="PH6, NC50, 8rd EUE" /></label>
+
+              <label>
+                Range
+                <select value={receiveForm.pipeRange} onChange={(event) => setReceiveForm({ ...receiveForm, pipeRange: normalizePipeRange(event.target.value) })}>
+                  {pipeRangeOptions.map((option) => <option key={option}>{option}</option>)}
+                </select>
+              </label>
+
+              <label>
+                Condition
+                <select value={receiveForm.condition} onChange={(event) => setReceiveForm({ ...receiveForm, condition: event.target.value })}>
+                  <option>New</option>
+                  <option>Premium</option>
+                  <option>Used</option>
+                  <option>Repair</option>
+                  <option>Rejected</option>
+                  <option>Scrap</option>
+                </select>
+              </label>
+
+              <label>
+                Status
+                <select value={receiveForm.status} onChange={(event) => setReceiveForm({ ...receiveForm, status: event.target.value })}>
+                  <option>Available</option>
+                  <option>Received</option>
+                  <option>Awaiting Inspection</option>
+                  <option>WIP</option>
+                  <option>On Hold</option>
+                </select>
+              </label>
+
+              <label>Joints<input type="number" min="0" value={receiveForm.joints} onChange={(event) => setReceiveForm({ ...receiveForm, joints: event.target.value })} /></label>
+              <label>Calculated Footage<input readOnly value={calculateRangeFootage(Number(receiveForm.joints || 0), receiveForm.pipeRange).toLocaleString()} /></label>
+              <label className="full">Notes<textarea value={receiveForm.notes} onChange={(event) => setReceiveForm({ ...receiveForm, notes: event.target.value })} /></label>
+            </div>
+
+            <div className="slide-actions">
+              <button className="button" onClick={() => { setInitialInventoryOpen(false); setReceiveForm(emptyReceiveForm); }}>Cancel</button>
+              <button className="button primary" onClick={saveInitialInventory} disabled={savingInitialInventory}>
+                {savingInitialInventory ? "Saving..." : "Add Inventory"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {receiveOpen && (
         <div className="modal-backdrop">
           <section className="slide-over">
