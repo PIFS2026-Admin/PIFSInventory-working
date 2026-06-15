@@ -1814,6 +1814,17 @@ th {
   opacity: 1 !important;
 }
 
+.printed-job-signature {
+  display: block;
+  width: 320px;
+  max-width: 100%;
+  max-height: 92px;
+  margin-top: 10px;
+  object-fit: contain;
+  filter: brightness(0) saturate(0) contrast(999) !important;
+  opacity: 1 !important;
+}
+
 @media (max-width: 900px) {
   .hardband-layout,
   .hardband-work-order-grid,

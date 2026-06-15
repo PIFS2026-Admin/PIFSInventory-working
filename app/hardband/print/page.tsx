@@ -21,6 +21,8 @@ type Job = {
   totalJoints: number;
   totalFootage: number;
   wireType: string;
+  operatorName: string;
+  operatorSignature: string;
   status: string;
   notes: string;
   createdAt: string;
@@ -39,7 +41,6 @@ type Line = {
   hardbandPin: boolean;
   wireType: string;
   operatorName: string;
-  operatorSignature: string;
   notes: string;
 };
 
@@ -101,6 +102,8 @@ export default function HardbandPrintPage() {
         total_joints,
         total_footage,
         wire_type,
+        operator_name,
+        operator_signature,
         status,
         notes,
         created_at,
@@ -129,7 +132,6 @@ export default function HardbandPrintPage() {
         hardband_pin,
         wire_type,
         operator_name,
-        operator_signature,
         notes
       `)
       .eq("hardband_job_id", id)
@@ -162,6 +164,8 @@ export default function HardbandPrintPage() {
       totalJoints: Number(jobData.total_joints ?? 0),
       totalFootage: Number(jobData.total_footage ?? 0),
       wireType: jobData.wire_type ?? "",
+      operatorName: jobData.operator_name ?? "",
+      operatorSignature: jobData.operator_signature ?? "",
       status: jobData.status ?? "Open",
       notes: jobData.notes ?? "",
       createdAt: formatDate(jobData.created_at),
@@ -181,7 +185,6 @@ export default function HardbandPrintPage() {
         hardbandPin: Boolean(line.hardband_pin),
         wireType: line.wire_type ?? "",
         operatorName: line.operator_name ?? "",
-        operatorSignature: line.operator_signature ?? "",
         notes: line.notes ?? "",
       }))
     );
@@ -232,7 +235,7 @@ export default function HardbandPrintPage() {
           <div><span>Machine Shop W/O #</span><strong>{job.machineShopWorkOrder || "-"}</strong></div>
           <div><span>Field Ticket #</span><strong>{job.fieldTicketNumber || "-"}</strong></div>
           <div><span>Rig #</span><strong>{job.rigNumber || "-"}</strong></div>
-          <div><span>Source</span><strong>{job.jobSource === "inventory" ? "TITAN Inventory" : "Outside / Machine Shop"}</strong></div>
+          <div><span>Source</span><strong>{job.jobSource === "inventory" ? "TITAN Inventory" : "Field/Machine Shop"}</strong></div>
           <div><span>Closed</span><strong>{job.closedAt || "-"}</strong></div>
         </section>
 
@@ -262,7 +265,6 @@ export default function HardbandPrintPage() {
               <th>HB Pin</th>
               <th>Wire</th>
               <th>Operator</th>
-              <th>Signature</th>
               <th>Notes</th>
             </tr>
           </thead>
@@ -279,13 +281,12 @@ export default function HardbandPrintPage() {
                 <td>{yes(line.hardbandPin)}</td>
                 <td>{line.wireType || "-"}</td>
                 <td>{line.operatorName || "-"}</td>
-                <td>{line.operatorSignature ? <img className="printed-signature-img" src={line.operatorSignature} alt="Operator signature" /> : "-"}</td>
                 <td>{line.notes || "-"}</td>
               </tr>
             ))}
             {lines.length === 0 && (
               <tr>
-                <td colSpan={12}>No serial-number line items were entered for this job.</td>
+                <td colSpan={11}>No serial-number line items were entered for this job.</td>
               </tr>
             )}
           </tbody>
@@ -304,6 +305,16 @@ export default function HardbandPrintPage() {
         <section className="ticket-notes">
           <h3>Notes</h3>
           <p>{job.notes || "No notes."}</p>
+        </section>
+
+        <section className="ticket-notes hardband-closeout">
+          <h3>Job Closeout</h3>
+          <p><strong>Completed By:</strong> {job.operatorName || "-"}</p>
+          {job.operatorSignature ? (
+            <img className="printed-job-signature" src={job.operatorSignature} alt="Job closeout signature" />
+          ) : (
+            <p>No closeout signature captured.</p>
+          )}
         </section>
       </section>
     </main>

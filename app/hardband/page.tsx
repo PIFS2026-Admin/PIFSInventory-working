@@ -57,7 +57,6 @@ type HardbandLine = {
   hardbandPin: boolean;
   wireType: string;
   operatorName: string;
-  operatorSignature: string;
   notes: string;
   createdAt: string;
 };
@@ -90,13 +89,11 @@ type LineForm = {
   hardbandBox: boolean;
   hardbandPin: boolean;
   wireType: string;
-  operatorName: string;
-  operatorSignature: string;
   notes: string;
 };
 
 const emptyJobForm: JobForm = {
-  jobSource: "outside_machine_shop",
+  jobSource: "field_machine_shop",
   machineShopWorkOrder: "",
   fieldTicketNumber: "",
   customer: "",
@@ -123,8 +120,6 @@ const emptyLineForm: LineForm = {
   hardbandBox: false,
   hardbandPin: false,
   wireType: "",
-  operatorName: "",
-  operatorSignature: "",
   notes: "",
 };
 
@@ -282,6 +277,8 @@ export default function HardbandPage() {
   const [loading, setLoading] = useState(true);
   const [savingJob, setSavingJob] = useState(false);
   const [savingLine, setSavingLine] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closeForm, setCloseForm] = useState({ printedName: "", signature: "" });
 
   const selectedJob = useMemo(() => {
     return jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null;
@@ -323,6 +320,16 @@ export default function HardbandPage() {
   useEffect(() => {
     if (selectedJob) setStatusDraft(selectedJob.status);
   }, [selectedJob]);
+
+  function openCloseJob() {
+    if (!selectedJob) return;
+    setMessage("");
+    setCloseForm({
+      printedName: selectedJob.operatorName || profile?.fullName || "",
+      signature: selectedJob.operatorSignature || "",
+    });
+    setCloseOpen(true);
+  }
 
   async function loadPage() {
     setLoading(true);
@@ -437,7 +444,6 @@ export default function HardbandPage() {
             hardband_pin,
             wire_type,
             operator_name,
-            operator_signature,
             notes,
             created_at
           `)
@@ -500,7 +506,6 @@ export default function HardbandPage() {
         hardbandPin: Boolean(row.hardband_pin),
         wireType: row.wire_type ?? "",
         operatorName: row.operator_name ?? "",
-        operatorSignature: row.operator_signature ?? "",
         notes: row.notes ?? "",
         createdAt: formatDate(row.created_at),
       }))
@@ -594,7 +599,7 @@ export default function HardbandPage() {
           condition: jobForm.condition || null,
           total_joints: joints,
           total_footage: footage,
-          from_location: jobForm.jobSource === "inventory" ? "TITAN Inventory" : "Machine Shop",
+          from_location: jobForm.jobSource === "inventory" ? "TITAN Inventory" : "Field/Machine Shop",
           to_location: "Hardband",
           wire_type: jobForm.wireType || null,
           status: jobForm.status,
@@ -620,15 +625,15 @@ export default function HardbandPage() {
     if (!selectedJob) return;
     setMessage("");
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const closed = nextStatus === "Closed";
+    if (nextStatus === "Closed") {
+      openCloseJob();
+      return;
+    }
 
     const { error } = await supabase
       .from("hardband_jobs")
       .update({
         status: nextStatus,
-        closed_at: closed ? new Date().toISOString() : null,
-        closed_by: closed ? sessionData.session?.user.id ?? null : null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", selectedJob.id);
@@ -640,6 +645,44 @@ export default function HardbandPage() {
 
     await loadHardbandJobs();
     setMessage(`${selectedJob.jobNumber} status changed to ${nextStatus}.`);
+  }
+
+  async function closeSelectedJob() {
+    if (!selectedJob) return;
+    setMessage("");
+
+    const printedName = closeForm.printedName.trim();
+    if (!printedName) {
+      setMessage("Printed operator name is required to close the job.");
+      return;
+    }
+
+    if (!closeForm.signature) {
+      setMessage("Operator signature is required to close the job.");
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const { error } = await supabase
+      .from("hardband_jobs")
+      .update({
+        status: "Closed",
+        operator_name: printedName,
+        operator_signature: closeForm.signature,
+        closed_at: new Date().toISOString(),
+        closed_by: sessionData.session?.user.id ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", selectedJob.id);
+
+    if (error) {
+      setMessage(`Close job failed: ${error.message}`);
+      return;
+    }
+
+    setCloseOpen(false);
+    await loadHardbandJobs();
+    setMessage(`${selectedJob.jobNumber} closed by ${printedName}.`);
   }
 
   async function addLineItem() {
@@ -668,14 +711,13 @@ export default function HardbandPage() {
         hardband_box: lineForm.hardbandBox,
         hardband_pin: lineForm.hardbandPin,
         wire_type: lineForm.wireType || selectedJob.wireType || null,
-        operator_name: lineForm.operatorName || profile?.fullName || null,
-        operator_signature: lineForm.operatorSignature || null,
+        operator_name: profile?.fullName || null,
         notes: lineForm.notes || null,
       });
 
       if (error) throw error;
 
-      setLineForm({ ...emptyLineForm, operatorName: profile?.fullName ?? "" });
+      setLineForm(emptyLineForm);
       await loadHardbandJobs();
       setMessage(`Serial number added to ${selectedJob.jobNumber}.`);
     } catch (error: any) {
@@ -813,7 +855,7 @@ export default function HardbandPage() {
             <label>
               Job Source
               <select value={jobForm.jobSource} onChange={(event) => setJobForm({ ...jobForm, jobSource: event.target.value })}>
-                <option value="outside_machine_shop">Outside / Machine Shop</option>
+                <option value="field_machine_shop">Field/Machine Shop</option>
                 <option value="inventory">TITAN Inventory</option>
               </select>
             </label>
@@ -971,14 +1013,14 @@ export default function HardbandPage() {
                 ))}
               </select>
               <button className="button" onClick={() => updateJobStatus(statusDraft)}>Save Status</button>
-              <button className="button" onClick={() => updateJobStatus("Closed")}>Close Job</button>
+              <button className="button" onClick={openCloseJob}>Close Job</button>
               <button className="button" onClick={openSelectedJobReport}>Print / PDF</button>
               <button className="button" onClick={exportSelectedJob}>Export CSV</button>
             </div>
           </div>
 
           <div className="detail-grid">
-            <div><strong>Source</strong><span>{selectedJob.jobSource === "inventory" ? "TITAN Inventory" : "Outside / Machine Shop"}</span></div>
+            <div><strong>Source</strong><span>{selectedJob.jobSource === "inventory" ? "TITAN Inventory" : "Field/Machine Shop"}</span></div>
             <div><strong>Machine Shop W/O #</strong><span>{selectedJob.machineShopWorkOrder || "-"}</span></div>
             <div><strong>Field Ticket #</strong><span>{selectedJob.fieldTicketNumber || "-"}</span></div>
             <div><strong>Rig #</strong><span>{selectedJob.rigNumber || "-"}</span></div>
@@ -1054,8 +1096,8 @@ export default function HardbandPage() {
               </label>
 
               <label>
-                Operator Name
-                <input value={lineForm.operatorName} onChange={(event) => setLineForm({ ...lineForm, operatorName: event.target.value })} placeholder={profile?.fullName} />
+                Operator
+                <input value={profile?.fullName || "Logged-in operator"} readOnly />
               </label>
 
               <div className="checkbox-grid full">
@@ -1065,10 +1107,6 @@ export default function HardbandPage() {
                 <label><input type="checkbox" checked={lineForm.grindOutPin} onChange={(event) => setLineForm({ ...lineForm, grindOutPin: event.target.checked })} /> Grind Out Pin</label>
                 <label><input type="checkbox" checked={lineForm.hardbandBox} onChange={(event) => setLineForm({ ...lineForm, hardbandBox: event.target.checked })} /> Hardband Box</label>
                 <label><input type="checkbox" checked={lineForm.hardbandPin} onChange={(event) => setLineForm({ ...lineForm, hardbandPin: event.target.checked })} /> Hardband Pin</label>
-              </div>
-
-              <div className="full">
-                <SignaturePad value={lineForm.operatorSignature} onChange={(value) => setLineForm({ ...lineForm, operatorSignature: value })} />
               </div>
 
               <label className="full">
@@ -1085,6 +1123,45 @@ export default function HardbandPage() {
             </div>
           </section>
         </section>
+      )}
+
+      {closeOpen && selectedJob && (
+        <div className="modal-backdrop">
+          <section className="slide-over">
+            <div className="slide-header">
+              <div>
+                <h2>Close Hardband Job</h2>
+                <p>{selectedJob.jobNumber} / {selectedJob.company}</p>
+              </div>
+              <button className="icon-button" onClick={() => setCloseOpen(false)}>X</button>
+            </div>
+
+            {message && <div className="modal-message">{message}</div>}
+
+            <div className="form-grid">
+              <label className="full">
+                Printed Operator Name
+                <input
+                  value={closeForm.printedName}
+                  onChange={(event) => setCloseForm({ ...closeForm, printedName: event.target.value })}
+                  placeholder={profile?.fullName || "Operator name"}
+                />
+              </label>
+
+              <div className="full">
+                <SignaturePad
+                  value={closeForm.signature}
+                  onChange={(value) => setCloseForm({ ...closeForm, signature: value })}
+                />
+              </div>
+            </div>
+
+            <div className="slide-actions">
+              <button className="button" onClick={() => setCloseOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={closeSelectedJob}>Close Job</button>
+            </div>
+          </section>
+        </div>
       )}
     </main>
   );
