@@ -350,6 +350,10 @@ export default function CustomerPage() {
           </div>
         </div>
 
+        <div className="customer-titan-logo-wrap" aria-label="TITAN">
+          <img className="customer-titan-logo" src="/titan_logo.jpg" alt="TITAN" />
+        </div>
+
         <div className="customer-actions">
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>

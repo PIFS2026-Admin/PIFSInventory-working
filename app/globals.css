@@ -1118,8 +1118,8 @@ th {
 }
 
 .customer-topbar {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto minmax(260px, 1fr);
   gap: 16px;
   align-items: center;
   padding-bottom: 18px;
@@ -1129,10 +1129,29 @@ th {
 .customer-actions {
   display: flex;
   gap: 10px;
+  justify-content: flex-end;
 }
 
 .customer-brand {
   align-items: center;
+}
+
+.customer-titan-logo-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.customer-titan-logo {
+  width: 190px;
+  max-width: 24vw;
+  height: 70px;
+  display: block;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #050505;
+  padding: 7px 12px;
 }
 
 .customer-company-logo {
@@ -1213,10 +1232,21 @@ th {
 }
 
 @media (max-width: 800px) {
-  .customer-topbar,
+  .customer-topbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
   .customer-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .customer-titan-logo {
+    width: 100%;
+    max-width: 260px;
+    margin: 0 auto;
   }
 
   .customer-welcome h1 {
@@ -1709,6 +1739,8 @@ th {
   }
 
   .customer-location-grid,
+  .customer-location-section,
+  .customer-ticket-section,
   .tickets-grid {
     display: none !important;
   }
