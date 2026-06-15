@@ -162,6 +162,63 @@ type TransferDocument = {
   createdAt: string;
 };
 
+type HardbandJob = {
+  id: string;
+  jobNumber: string;
+  company: string;
+  companyId: string | null;
+  inventoryId: string | null;
+  afe: string;
+  partNumber: string;
+  size: string;
+  grade: string;
+  connection: string;
+  pipeRange: PipeRange;
+  condition: string;
+  totalJoints: number;
+  totalFootage: number;
+  fromLocation: string;
+  toLocation: string;
+  wireType: string;
+  operatorName: string;
+  operatorSignature: string;
+  status: string;
+  notes: string;
+  createdAt: string;
+};
+
+type HardbandLineItem = {
+  id: string;
+  hardbandJobId: string;
+  lineNumber: number;
+  serialNumber: string;
+  flushGrindBox: boolean;
+  flushGrindPin: boolean;
+  grindOutBox: boolean;
+  grindOutPin: boolean;
+  hardbandBox: boolean;
+  hardbandPin: boolean;
+  wireType: string;
+  operatorName: string;
+  operatorSignature: string;
+  notes: string;
+  createdAt: string;
+};
+
+type HardbandLineForm = {
+  serialNumber: string;
+  flushGrindBox: boolean;
+  flushGrindPin: boolean;
+  grindOutBox: boolean;
+  grindOutPin: boolean;
+  hardbandBox: boolean;
+  hardbandPin: boolean;
+  wireType: string;
+  operatorName: string;
+  operatorSignature: string;
+  notes: string;
+};
+
 type TicketLine = {
   id: string;
   ticketId: string;
@@ -355,6 +412,20 @@ const emptyTransferForm: TransferForm = {
   carrierSignature: "",
 };
 
+const emptyHardbandLineForm: HardbandLineForm = {
+  serialNumber: "",
+  flushGrindBox: false,
+  flushGrindPin: false,
+  grindOutBox: false,
+  grindOutPin: false,
+  hardbandBox: false,
+  hardbandPin: false,
+  wireType: "",
+  operatorName: "",
+  operatorSignature: "",
+  notes: "",
+};
+
 const emptyEditForm: EditForm = {
   customer: "",
   destination: "zone:receiving",
@@ -471,6 +542,17 @@ async function makeTicketNumber(prefix: string, source: "receiving" | "shipping"
       }
     })
   );
+}
+
+async function makeHardbandJobNumber() {
+  const prefix = "HB";
+  const base = `${prefix}-${ticketDateStamp()}`;
+  const { data } = await supabase
+    .from("hardband_jobs")
+    .select("job_number")
+    .ilike("job_number", `${base}%`);
+
+  return nextTicketNumberFromExisting(prefix, (data ?? []).map((row: any) => row.job_number ?? ""));
 }
 
 function buildReport(rows: InventoryRow[], getter: (row: InventoryRow) => string): ReportLine[] {
@@ -652,6 +734,7 @@ export default function Home() {
   const [ticketsOpen, setTicketsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [hardbandOpen, setHardbandOpen] = useState(false);
   const [ticketSearch, setTicketSearch] = useState("");
   const [ticketFilter, setTicketFilter] = useState<"all" | "receiving" | "shipping">("all");
   const [ticketDate, setTicketDate] = useState("");
@@ -676,15 +759,21 @@ export default function Home() {
   const [ticketLines, setTicketLines] = useState<TicketLine[]>([]);
   const [ticketAttachments, setTicketAttachments] = useState<TicketAttachment[]>([]);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [hardbandJobs, setHardbandJobs] = useState<HardbandJob[]>([]);
+  const [hardbandLines, setHardbandLines] = useState<HardbandLineItem[]>([]);
+  const [selectedHardbandJobId, setSelectedHardbandJobId] = useState("");
+  const [hardbandLineForm, setHardbandLineForm] = useState<HardbandLineForm>(emptyHardbandLineForm);
 
   const [loadingSetup, setLoadingSetup] = useState(true);
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [loadingReports, setLoadingReports] = useState(false);
+  const [loadingHardbandJobs, setLoadingHardbandJobs] = useState(false);
   const [savingReceive, setSavingReceive] = useState(false);
   const [savingInitialInventory, setSavingInitialInventory] = useState(false);
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingShip, setSavingShip] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [savingHardbandLine, setSavingHardbandLine] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedTransferRow = useMemo(() => {
@@ -717,6 +806,17 @@ export default function Home() {
       footage: calculateRangeFootage(joints, editForm.pipeRange),
     };
   }, [editForm.joints, editForm.pipeRange]);
+
+  const selectedHardbandJob = useMemo(() => {
+    return hardbandJobs.find((job) => job.id === selectedHardbandJobId) ?? hardbandJobs[0] ?? null;
+  }, [hardbandJobs, selectedHardbandJobId]);
+
+  const selectedHardbandLines = useMemo(() => {
+    if (!selectedHardbandJob) return [];
+    return hardbandLines
+      .filter((line) => line.hardbandJobId === selectedHardbandJob.id)
+      .sort((a, b) => a.lineNumber - b.lineNumber);
+  }, [hardbandLines, selectedHardbandJob]);
 
 
   const filteredReceivingTickets = useMemo(() => {
@@ -1200,6 +1300,231 @@ export default function Home() {
       });
 
       if (documentError) throw documentError;
+    }
+  }
+
+  async function loadHardbandJobs() {
+    setLoadingHardbandJobs(true);
+    setMessage("");
+
+    const { data: jobData, error: jobError } = await supabase
+      .from("hardband_jobs")
+      .select(`
+        id,
+        job_number,
+        company_id,
+        pipe_inventory_id,
+        afe,
+        part_number,
+        size,
+        grade,
+        connection,
+        pipe_range,
+        condition,
+        total_joints,
+        total_footage,
+        from_location,
+        to_location,
+        wire_type,
+        operator_name,
+        operator_signature,
+        status,
+        notes,
+        created_at,
+        companies(name)
+      `)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (jobError) {
+      setMessage(`Hardband jobs failed: ${jobError.message}`);
+      setLoadingHardbandJobs(false);
+      return;
+    }
+
+    const jobIds = (jobData ?? []).map((row: any) => row.id);
+    const { data: lineData, error: lineError } = jobIds.length
+      ? await supabase
+          .from("hardband_job_line_items")
+          .select(`
+            id,
+            hardband_job_id,
+            line_number,
+            serial_number,
+            flush_grind_box,
+            flush_grind_pin,
+            grind_out_box,
+            grind_out_pin,
+            hardband_box,
+            hardband_pin,
+            wire_type,
+            operator_name,
+            operator_signature,
+            notes,
+            created_at
+          `)
+          .in("hardband_job_id", jobIds)
+          .order("line_number", { ascending: true })
+      : { data: [], error: null };
+
+    if (lineError) {
+      setMessage(`Hardband line items failed: ${lineError.message}`);
+      setLoadingHardbandJobs(false);
+      return;
+    }
+
+    const mappedJobs = (jobData ?? []).map((row: any) => {
+      const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+      const pipeRange = normalizePipeRange(row.pipe_range);
+      const totalJoints = Number(row.total_joints ?? 0);
+
+      return {
+        id: row.id,
+        jobNumber: row.job_number ?? "",
+        company: company?.name ?? "Unknown",
+        companyId: row.company_id ?? null,
+        inventoryId: row.pipe_inventory_id ?? null,
+        afe: row.afe ?? "",
+        partNumber: row.part_number ?? "",
+        size: row.size ?? "",
+        grade: row.grade ?? "",
+        connection: row.connection ?? "",
+        pipeRange,
+        condition: row.condition ?? "",
+        totalJoints,
+        totalFootage: Number(row.total_footage ?? calculateRangeFootage(totalJoints, pipeRange)),
+        fromLocation: row.from_location ?? "",
+        toLocation: row.to_location ?? "",
+        wireType: row.wire_type ?? "",
+        operatorName: row.operator_name ?? "",
+        operatorSignature: row.operator_signature ?? "",
+        status: row.status ?? "Open",
+        notes: row.notes ?? "",
+        createdAt: formatDate(row.created_at),
+      };
+    });
+
+    setHardbandJobs(mappedJobs);
+    setHardbandLines(
+      (lineData ?? []).map((row: any) => ({
+        id: row.id,
+        hardbandJobId: row.hardband_job_id ?? "",
+        lineNumber: Number(row.line_number ?? 0),
+        serialNumber: row.serial_number ?? "",
+        flushGrindBox: Boolean(row.flush_grind_box),
+        flushGrindPin: Boolean(row.flush_grind_pin),
+        grindOutBox: Boolean(row.grind_out_box),
+        grindOutPin: Boolean(row.grind_out_pin),
+        hardbandBox: Boolean(row.hardband_box),
+        hardbandPin: Boolean(row.hardband_pin),
+        wireType: row.wire_type ?? "",
+        operatorName: row.operator_name ?? "",
+        operatorSignature: row.operator_signature ?? "",
+        notes: row.notes ?? "",
+        createdAt: formatDate(row.created_at),
+      }))
+    );
+
+    if (!selectedHardbandJobId && mappedJobs[0]) {
+      setSelectedHardbandJobId(mappedJobs[0].id);
+    }
+
+    setLoadingHardbandJobs(false);
+  }
+
+  async function openHardbandJobs() {
+    setHardbandOpen(true);
+    await loadHardbandJobs();
+  }
+
+  async function createHardbandJobFromTransfer({
+    row,
+    fromLocation,
+    toLocation,
+    joints,
+    footage,
+    comment,
+  }: {
+    row: InventoryRow;
+    fromLocation: string;
+    toLocation: string;
+    joints: number;
+    footage: number;
+    comment: string;
+  }) {
+    if (!selectedYard || !row.companyId) return null;
+
+    const jobNumber = await makeHardbandJobNumber();
+    const { data, error } = await supabase
+      .from("hardband_jobs")
+      .insert({
+        job_number: jobNumber,
+        company_id: row.companyId,
+        yard_id: selectedYard.id,
+        pipe_inventory_id: row.id,
+        afe: row.afe || null,
+        part_number: row.partNumber,
+        size: row.size || null,
+        grade: row.grade || null,
+        connection: row.connection || null,
+        pipe_range: row.pipeRange,
+        condition: row.condition || null,
+        total_joints: joints,
+        total_footage: footage,
+        from_location: fromLocation,
+        to_location: toLocation,
+        status: "Open",
+        notes: comment || null,
+      })
+      .select("id, job_number")
+      .single();
+
+    if (error) throw error;
+    return data?.job_number ?? jobNumber;
+  }
+
+  async function saveHardbandLineItem() {
+    if (!selectedHardbandJob) return;
+
+    if (!hardbandLineForm.serialNumber.trim()) {
+      setMessage("Serial number is required.");
+      return;
+    }
+
+    setSavingHardbandLine(true);
+    setMessage("");
+
+    try {
+      const nextLineNumber =
+        selectedHardbandLines.length > 0
+          ? Math.max(...selectedHardbandLines.map((line) => line.lineNumber)) + 1
+          : 1;
+
+      const { error } = await supabase.from("hardband_job_line_items").insert({
+        hardband_job_id: selectedHardbandJob.id,
+        line_number: nextLineNumber,
+        serial_number: hardbandLineForm.serialNumber.trim(),
+        flush_grind_box: hardbandLineForm.flushGrindBox,
+        flush_grind_pin: hardbandLineForm.flushGrindPin,
+        grind_out_box: hardbandLineForm.grindOutBox,
+        grind_out_pin: hardbandLineForm.grindOutPin,
+        hardband_box: hardbandLineForm.hardbandBox,
+        hardband_pin: hardbandLineForm.hardbandPin,
+        wire_type: hardbandLineForm.wireType || selectedHardbandJob.wireType || null,
+        operator_name: hardbandLineForm.operatorName || null,
+        operator_signature: hardbandLineForm.operatorSignature || null,
+        notes: hardbandLineForm.notes || null,
+      });
+
+      if (error) throw error;
+
+      setHardbandLineForm(emptyHardbandLineForm);
+      await loadHardbandJobs();
+      setMessage(`Hardband line item added to ${selectedHardbandJob.jobNumber}.`);
+    } catch (error: any) {
+      setMessage(`Hardband line failed: ${error.message}`);
+    } finally {
+      setSavingHardbandLine(false);
     }
   }
 
@@ -2406,7 +2731,12 @@ export default function Home() {
           .update({
             rack_id: rack?.id ?? null,
             workflow_zone_id: zone?.id ?? null,
-            status: zone?.code === "inspection" ? "Awaiting Inspection" : selectedTransferRow.status,
+            status:
+              zone?.code === "inspection"
+                ? "Awaiting Inspection"
+                : zone?.code === "hardband"
+                  ? "WIP"
+                  : selectedTransferRow.status,
           })
           .eq("id", selectedTransferRow.id);
 
@@ -2440,6 +2770,8 @@ export default function Home() {
           status:
             zone?.code === "inspection"
               ? "Awaiting Inspection"
+              : zone?.code === "hardband"
+                ? "WIP"
               : zone?.code === "shipping"
                 ? "Awaiting Ship"
                 : selectedTransferRow.status,
@@ -2475,15 +2807,29 @@ export default function Home() {
         signatures: transferForm,
       });
 
+      const hardbandJobNumber =
+        zone?.code === "hardband"
+          ? await createHardbandJobFromTransfer({
+              row: selectedTransferRow,
+              fromLocation: currentLocationName,
+              toLocation: locationName,
+              joints: moveJoints,
+              footage: moveFootage,
+              comment: transferForm.comment,
+            })
+          : null;
+
       await loadInventory(selectedYard.id, rackLayout, zones);
       await loadTickets();
+      if (hardbandJobNumber) await loadHardbandJobs();
 
       setTransferOpen(false);
       setSelectedRows([]);
       setTransferForm(emptyTransferForm);
       setMessage(
         `Transferred ${moveJoints} joints / ${moveFootage.toLocaleString()} ft to ${locationName}.` +
-          (transferDocumentNumber ? ` Transfer document ${transferDocumentNumber} created.` : "")
+          (transferDocumentNumber ? ` Transfer document ${transferDocumentNumber} created.` : "") +
+          (hardbandJobNumber ? ` Hardband job ${hardbandJobNumber} created.` : "")
       );
     } catch (error: any) {
       setMessage(`Transfer failed: ${error.message}`);
@@ -2881,6 +3227,7 @@ export default function Home() {
           <button className="button" disabled={role === "customer"} onClick={openShip}>Ship</button>
           <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
+          <button className="button" disabled={role === "customer"} onClick={openHardbandJobs}>Hardband Jobs</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
@@ -3865,6 +4212,189 @@ export default function Home() {
                 {savingShip ? "Saving..." : "Save Shipping Ticket / BOL"}
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {hardbandOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over wide-slide">
+            <div className="slide-header">
+              <div>
+                <h2>Hardband Jobs</h2>
+                <p>Track pipe sent to Hardband by job number and serial-number line item.</p>
+              </div>
+              <button className="icon-button" onClick={() => setHardbandOpen(false)}>X</button>
+            </div>
+
+            {message && <div className="modal-message">{message}</div>}
+
+            <div className="slide-actions top-actions">
+              <button className="button" onClick={loadHardbandJobs}>
+                {loadingHardbandJobs ? "Loading..." : "Refresh Jobs"}
+              </button>
+            </div>
+
+            {hardbandJobs.length === 0 ? (
+              <section className="ticket-card">
+                <h3>No Hardband jobs yet</h3>
+                <p className="muted-text">Transfer pipe to the Hardband work zone and TITAN will create the job number automatically.</p>
+              </section>
+            ) : (
+              <div className="hardband-layout">
+                <section className="ticket-card">
+                  <h3>Open Jobs</h3>
+                  <div className="hardband-job-list">
+                    {hardbandJobs.map((job) => {
+                      const lineCount = hardbandLines.filter((line) => line.hardbandJobId === job.id).length;
+
+                      return (
+                        <button
+                          key={job.id}
+                          className={`hardband-job-button ${selectedHardbandJob?.id === job.id ? "active" : ""}`}
+                          onClick={() => setSelectedHardbandJobId(job.id)}
+                        >
+                          <strong>{job.jobNumber}</strong>
+                          <span>{job.company}</span>
+                          <small>{job.partNumber}</small>
+                          <small>{lineCount} line items / {job.totalJoints} joints</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className="ticket-card hardband-detail-card">
+                  {selectedHardbandJob && (
+                    <>
+                      <div className="section-heading">
+                        <div>
+                          <h3>{selectedHardbandJob.jobNumber}</h3>
+                          <p>{selectedHardbandJob.company} / {selectedHardbandJob.createdAt}</p>
+                        </div>
+                      </div>
+
+                      <div className="transfer-summary">
+                        <div><strong>TU#</strong><span>{selectedHardbandJob.afe || "-"}</span></div>
+                        <div><strong>Part Number</strong><span>{selectedHardbandJob.partNumber || "-"}</span></div>
+                        <div><strong>Size</strong><span>{selectedHardbandJob.size || "-"}</span></div>
+                        <div><strong>Grade</strong><span>{selectedHardbandJob.grade || "-"}</span></div>
+                        <div><strong>Connection</strong><span>{selectedHardbandJob.connection || "-"}</span></div>
+                        <div><strong>Range</strong><span>{selectedHardbandJob.pipeRange}</span></div>
+                        <div><strong>Condition</strong><span>{selectedHardbandJob.condition || "-"}</span></div>
+                        <div><strong>Moved From</strong><span>{selectedHardbandJob.fromLocation || "-"}</span></div>
+                        <div><strong>Moved To</strong><span>{selectedHardbandJob.toLocation || "Hardband"}</span></div>
+                        <div><strong>Total Joints</strong><span>{selectedHardbandJob.totalJoints}</span></div>
+                        <div><strong>Total Footage</strong><span>{selectedHardbandJob.totalFootage.toLocaleString()}</span></div>
+                        <div><strong>Status</strong><span>{selectedHardbandJob.status}</span></div>
+                      </div>
+
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Serial Number</th>
+                              <th>Flush Box</th>
+                              <th>Flush Pin</th>
+                              <th>Grind Box</th>
+                              <th>Grind Pin</th>
+                              <th>Hardband Box</th>
+                              <th>Hardband Pin</th>
+                              <th>Wire</th>
+                              <th>Operator</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedHardbandLines.map((line) => (
+                              <tr key={line.id}>
+                                <td>{line.lineNumber}</td>
+                                <td>{line.serialNumber}</td>
+                                <td>{line.flushGrindBox ? "Yes" : "-"}</td>
+                                <td>{line.flushGrindPin ? "Yes" : "-"}</td>
+                                <td>{line.grindOutBox ? "Yes" : "-"}</td>
+                                <td>{line.grindOutPin ? "Yes" : "-"}</td>
+                                <td>{line.hardbandBox ? "Yes" : "-"}</td>
+                                <td>{line.hardbandPin ? "Yes" : "-"}</td>
+                                <td>{line.wireType || "-"}</td>
+                                <td>{line.operatorName || "-"}</td>
+                              </tr>
+                            ))}
+
+                            {selectedHardbandLines.length === 0 && (
+                              <tr>
+                                <td colSpan={10} className="empty-cell">No serial-number line items have been added to this job yet.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <section className="ticket-card nested-card">
+                        <h3>Add Joint Line Item</h3>
+                        <div className="form-grid">
+                          <label>
+                            Serial Number
+                            <input
+                              value={hardbandLineForm.serialNumber}
+                              onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, serialNumber: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Type of Wire Used
+                            <input
+                              value={hardbandLineForm.wireType}
+                              onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, wireType: event.target.value })}
+                              placeholder="Example: Arnco 350XT"
+                            />
+                          </label>
+                          <label>
+                            Operator Name
+                            <input
+                              value={hardbandLineForm.operatorName}
+                              onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, operatorName: event.target.value })}
+                              placeholder="Printed name"
+                            />
+                          </label>
+
+                          <div className="full checkbox-grid">
+                            <label><input type="checkbox" checked={hardbandLineForm.flushGrindBox} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, flushGrindBox: event.target.checked })} /> Flush Grind Box</label>
+                            <label><input type="checkbox" checked={hardbandLineForm.flushGrindPin} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, flushGrindPin: event.target.checked })} /> Flush Grind Pin</label>
+                            <label><input type="checkbox" checked={hardbandLineForm.grindOutBox} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, grindOutBox: event.target.checked })} /> Grind Out Box</label>
+                            <label><input type="checkbox" checked={hardbandLineForm.grindOutPin} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, grindOutPin: event.target.checked })} /> Grind Out Pin</label>
+                            <label><input type="checkbox" checked={hardbandLineForm.hardbandBox} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, hardbandBox: event.target.checked })} /> Hardband Box</label>
+                            <label><input type="checkbox" checked={hardbandLineForm.hardbandPin} onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, hardbandPin: event.target.checked })} /> Hardband Pin</label>
+                          </div>
+
+                          <div className="full">
+                            <SignaturePad
+                              label="Operator Signature"
+                              value={hardbandLineForm.operatorSignature}
+                              onChange={(value) => setHardbandLineForm({ ...hardbandLineForm, operatorSignature: value })}
+                            />
+                          </div>
+
+                          <label className="full">
+                            Notes
+                            <textarea
+                              value={hardbandLineForm.notes}
+                              onChange={(event) => setHardbandLineForm({ ...hardbandLineForm, notes: event.target.value })}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="slide-actions">
+                          <button className="button" onClick={() => setHardbandLineForm(emptyHardbandLineForm)}>Clear</button>
+                          <button className="button primary" onClick={saveHardbandLineItem} disabled={savingHardbandLine}>
+                            {savingHardbandLine ? "Saving..." : "Add Line Item"}
+                          </button>
+                        </div>
+                      </section>
+                    </>
+                  )}
+                </section>
+              </div>
+            )}
           </section>
         </div>
       )}
