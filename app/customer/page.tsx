@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import ChangePasswordModal from "../../components/ChangePasswordModal";
 
 type CustomerProfile = {
   id: string;
@@ -69,6 +70,7 @@ export default function CustomerPage() {
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading customer portal...");
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -293,6 +295,7 @@ export default function CustomerPage() {
 
         <div className="customer-actions">
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
+          <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>
           <button className="button" onClick={signOut}>Sign Out</button>
         </div>
       </header>
@@ -443,6 +446,8 @@ export default function CustomerPage() {
           )}
         </div>
       </section>
+
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </main>
   );
 }

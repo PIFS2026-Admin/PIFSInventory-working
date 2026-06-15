@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import ChangePasswordModal from "../../components/ChangePasswordModal";
 
 type Company = {
   id: string;
@@ -139,6 +140,7 @@ export default function AdminPage() {
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const activeCompanies = useMemo(
     () => companies.filter((company) => company.isActive),
@@ -741,6 +743,9 @@ export default function AdminPage() {
           <button className="button" onClick={() => (window.location.href = "/")}>
             Yard View
           </button>
+          <button className="button" onClick={() => setPasswordOpen(true)}>
+            Change Password
+          </button>
           <button className="button" onClick={signOut}>
             Sign Out
           </button>
@@ -1262,6 +1267,8 @@ export default function AdminPage() {
           </div>
         </div>
       </section>
+
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </main>
   );
 }

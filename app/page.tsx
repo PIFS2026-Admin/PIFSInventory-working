@@ -2,6 +2,7 @@
 
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import ChangePasswordModal from "../components/ChangePasswordModal";
 
 type Role = "admin" | "customer";
 type LocationType = "rack" | "zone";
@@ -572,6 +573,7 @@ export default function Home() {
   const [activityDate, setActivityDate] = useState("");
   const [rackDetailOpen, setRackDetailOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const [transferMode, setTransferMode] = useState<TransferMode>("all");
   const [receiveForm, setReceiveForm] = useState<ReceiveForm>(emptyReceiveForm);
@@ -2653,6 +2655,7 @@ export default function Home() {
           <button className="button" onClick={openTickets}>Tickets</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
+          <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
           <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
         </div>
 
@@ -3858,6 +3861,8 @@ export default function Home() {
           </section>
         </div>
       )}
+
+      <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </main>
   );
 }
