@@ -349,12 +349,12 @@ export default function TicketPrintPage() {
               {ticket.type === "shipping"
                 ? "Shipping Ticket / Bill of Lading"
                 : ticket.type === "transfer"
-                  ? "Machine Shop Transfer Document"
+                  ? "Transfer Document"
                   : "Receiving Ticket"}
             </h2>
             <p>{ticket.ticketNumber}</p>
             {ticket.type === "transfer" && (
-              <p>{ticket.documentType === "transfer_to_machine_shop" ? "Transfer To Machine Shop" : "Transfer From Machine Shop"}</p>
+              <p>{ticket.receivedFrom || "-"} to {ticket.destination || "-"}</p>
             )}
           </div>
           <div className="ticket-date-box">

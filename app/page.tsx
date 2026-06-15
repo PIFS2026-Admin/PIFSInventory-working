@@ -384,13 +384,88 @@ function formatDate(value: string) {
   return value.slice(0, 10);
 }
 
-function makeTicketNumber(prefix: string) {
+function ticketDateStamp() {
   const stamp = new Date();
-  const y = stamp.getFullYear();
   const m = String(stamp.getMonth() + 1).padStart(2, "0");
   const d = String(stamp.getDate()).padStart(2, "0");
-  const time = String(stamp.getTime()).slice(-5);
-  return `${prefix}-${y}${m}${d}-${time}`;
+  const y = String(stamp.getFullYear()).slice(-2);
+  return `${m}-${d}-${y}`;
+}
+
+function sequenceToLetters(sequence: number) {
+  let value = Math.max(1, sequence);
+  let letters = "";
+
+  while (value > 0) {
+    value -= 1;
+    letters = String.fromCharCode(65 + (value % 26)) + letters;
+    value = Math.floor(value / 26);
+  }
+
+  return letters;
+}
+
+function lettersToSequence(letters: string) {
+  return letters.split("").reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0);
+}
+
+function nextTicketNumberFromExisting(prefix: string, existingNumbers: string[]) {
+  const base = `${prefix}-${ticketDateStamp()}`;
+  const matcher = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([A-Z]+)$`);
+  const usedSequences = existingNumbers
+    .map((number) => number.match(matcher)?.[1] ?? "")
+    .filter(Boolean)
+    .map(lettersToSequence);
+
+  const nextSequence = usedSequences.length ? Math.max(...usedSequences) + 1 : 1;
+  return `${base}${sequenceToLetters(nextSequence)}`;
+}
+
+async function makeTicketNumber(prefix: string, source: "receiving" | "shipping" | "bol" | "documents") {
+  const base = `${prefix}-${ticketDateStamp()}`;
+
+  if (source === "receiving") {
+    const { data } = await supabase
+      .from("receiving_tickets")
+      .select("ticket_number")
+      .ilike("ticket_number", `${base}%`);
+
+    return nextTicketNumberFromExisting(prefix, (data ?? []).map((row: any) => row.ticket_number ?? ""));
+  }
+
+  if (source === "shipping") {
+    const { data } = await supabase
+      .from("shipping_tickets")
+      .select("ticket_number")
+      .ilike("ticket_number", `${base}%`);
+
+    return nextTicketNumberFromExisting(prefix, (data ?? []).map((row: any) => row.ticket_number ?? ""));
+  }
+
+  if (source === "bol") {
+    const { data } = await supabase
+      .from("shipping_tickets")
+      .select("bol_number")
+      .ilike("bol_number", `${base}%`);
+
+    return nextTicketNumberFromExisting(prefix, (data ?? []).map((row: any) => row.bol_number ?? ""));
+  }
+
+  const { data } = await supabase
+    .from("documents")
+    .select("file_url")
+    .ilike("file_url", `%${base}%`);
+
+  return nextTicketNumberFromExisting(
+    prefix,
+    (data ?? []).map((row: any) => {
+      try {
+        return JSON.parse(row.file_url || "{}").documentNumber ?? "";
+      } catch {
+        return "";
+      }
+    })
+  );
 }
 
 function buildReport(rows: InventoryRow[], getter: (row: InventoryRow) => string): ReportLine[] {
@@ -1180,7 +1255,7 @@ export default function Home() {
         created_at,
         companies(name)
       `)
-      .in("document_type", ["transfer_to_machine_shop", "transfer_from_machine_shop"])
+      .in("document_type", ["transfer", "transfer_to_machine_shop", "transfer_from_machine_shop"])
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -1552,7 +1627,7 @@ export default function Home() {
     setTransferOpen(true);
   }
 
-  function openShip() {
+  async function openShip() {
     setMessage("");
 
     if (selectedRows.length < 1) {
@@ -1571,7 +1646,7 @@ export default function Home() {
     setShipForm({
       ...emptyShipForm,
       shipTo: firstCompany ?? "",
-      bolNumber: makeTicketNumber("BOL"),
+      bolNumber: await makeTicketNumber("BOL", "bol"),
     });
     setShipOpen(true);
   }
@@ -1611,13 +1686,13 @@ export default function Home() {
     setEditOpen(true);
   }
 
-  function quickShip(row: InventoryRow) {
+  async function quickShip(row: InventoryRow) {
     setMessage("");
     setSelectedRows([row.id]);
     setShipForm({
       ...emptyShipForm,
       shipTo: row.company,
-      bolNumber: makeTicketNumber("BOL"),
+      bolNumber: await makeTicketNumber("BOL", "bol"),
     });
     setShipOpen(true);
   }
@@ -1888,14 +1963,13 @@ export default function Home() {
     };
   }
 
-  async function createMachineShopTransferDocument({
+  async function createTransferDocument({
     row,
     fromLocation,
     toLocation,
     joints,
     footage,
     comment,
-    direction,
     signatures,
   }: {
     row: InventoryRow;
@@ -1904,12 +1978,11 @@ export default function Home() {
     joints: number;
     footage: number;
     comment: string;
-    direction: "to" | "from";
     signatures: SignatureFields;
   }) {
     if (!row.companyId) return null;
 
-    const documentNumber = makeTicketNumber(direction === "to" ? "MS-OUT" : "MS-IN");
+    const documentNumber = await makeTicketNumber("TRF", "documents");
     const payload = {
       documentNumber,
       company: row.company,
@@ -1932,7 +2005,7 @@ export default function Home() {
     const { error } = await supabase.from("documents").insert({
       company_id: row.companyId,
       pipe_inventory_id: row.id,
-      document_type: direction === "to" ? "transfer_to_machine_shop" : "transfer_from_machine_shop",
+      document_type: "transfer",
       file_url: JSON.stringify(payload),
     });
 
@@ -2059,7 +2132,7 @@ export default function Home() {
       const companyId = await findOrCreateCompany(receiveForm.customer);
       const { rack, zone } = getDestination(receiveForm.destination);
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
-      const ticketNumber = makeTicketNumber("REC");
+      const ticketNumber = await makeTicketNumber("REC", "receiving");
   
       const { data: inventoryLine, error: inventoryError } = await supabase
         .from("pipe_inventory")
@@ -2253,13 +2326,6 @@ export default function Home() {
         if (destinationError) throw destinationError;
       }
 
-      const machineShopMove =
-        zone?.code === "machine_shop"
-          ? "to"
-          : selectedTransferRow.zoneId === "machine_shop"
-            ? "from"
-            : null;
-
       await supabase.from("pipe_transactions").insert({
         pipe_inventory_id: selectedTransferRow.id,
         company_id: selectedTransferRow.companyId,
@@ -2272,18 +2338,15 @@ export default function Home() {
         comment: transferForm.comment,
       });
 
-      const transferDocumentNumber = machineShopMove
-        ? await createMachineShopTransferDocument({
-            row: selectedTransferRow,
-            fromLocation: currentLocationName,
-            toLocation: locationName,
-            joints: moveJoints,
-            footage: moveFootage,
-            comment: transferForm.comment,
-            direction: machineShopMove,
-            signatures: transferForm,
-          })
-        : null;
+      const transferDocumentNumber = await createTransferDocument({
+        row: selectedTransferRow,
+        fromLocation: currentLocationName,
+        toLocation: locationName,
+        joints: moveJoints,
+        footage: moveFootage,
+        comment: transferForm.comment,
+        signatures: transferForm,
+      });
 
       await loadInventory(selectedYard.id, rackLayout, zones);
       await loadTickets();
@@ -2325,7 +2388,8 @@ export default function Home() {
     setSavingShip(true);
 
     try {
-      const ticketNumber = makeTicketNumber("SHIP");
+      const ticketNumber = await makeTicketNumber("SHP", "shipping");
+      const bolNumber = shipForm.bolNumber || (await makeTicketNumber("BOL", "bol"));
       const firstRow = selectedShipRows[0];
 
       const { data: ticket, error: ticketError } = await supabase
@@ -2334,7 +2398,7 @@ export default function Home() {
           company_id: firstRow.companyId,
           yard_id: selectedYard.id,
           ticket_number: ticketNumber,
-          bol_number: shipForm.bolNumber || makeTicketNumber("BOL"),
+          bol_number: bolNumber,
           carrier: shipForm.carrier,
           po_number: shipForm.poNumber || null,
           truck_number: shipForm.truckNumber,
@@ -2416,7 +2480,7 @@ export default function Home() {
       setSelectedRows([]);
       setShipForm(emptyShipForm);
       setShipFiles([]);
-      setMessage(`Shipping ticket ${ticketNumber} saved. BOL ${shipForm.bolNumber}${shipFiles.length ? ` with ${shipFiles.length} attachment(s)` : ""}`);
+      setMessage(`Shipping ticket ${ticketNumber} saved. BOL ${bolNumber}${shipFiles.length ? ` with ${shipFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
       setMessage(`Ship failed: ${error.message}`);
     } finally {
@@ -2433,7 +2497,6 @@ export default function Home() {
 
     const headers = [
       "Date Created",
-      "Inspection Due",
       "Company",
       "TU#",
       "Part Number",
@@ -2453,7 +2516,6 @@ export default function Home() {
 
       return [
         row.createdAt,
-        row.inspectionDue,
         row.company,
         row.afe,
         row.partNumber,
@@ -2671,6 +2733,7 @@ export default function Home() {
           <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
           <button className="button" onClick={openReports}>Reports</button>
+          <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
           <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
@@ -2862,7 +2925,6 @@ export default function Home() {
                   <th>Select</th>
                   <th>Actions</th>
                   <th>Date Created</th>
-                  <th>Inspection Due</th>
                   <th>Company</th>
                   <th>TU#</th>
                   <th>Part Number</th>
@@ -2893,7 +2955,6 @@ export default function Home() {
                         </div>
                       </td>
                       <td>{row.createdAt}</td>
-                      <td>{row.inspectionDue}</td>
                       <td>{row.company}</td>
                       <td>{row.afe}</td>
                       <td>{row.partNumber}</td>
@@ -2909,7 +2970,7 @@ export default function Home() {
 
                 {filteredInventory.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="empty-cell">No inventory found for this location.</td>
+                    <td colSpan={12} className="empty-cell">No inventory found for this location.</td>
                   </tr>
                 )}
               </tbody>
@@ -3016,7 +3077,6 @@ export default function Home() {
                       <th>Range</th>
                       <th>Status</th>
                       <th>Condition</th>
-                      <th>Inspection Due</th>
                       <th>Joints</th>
                       <th>Footage</th>
                     </tr>
@@ -3044,7 +3104,6 @@ export default function Home() {
                           <td>{row.pipeRange}</td>
                           <td><span className="badge">{row.status}</span></td>
                           <td>{row.condition}</td>
-                          <td>{row.inspectionDue || "-"}</td>
                           <td>{row.joints}</td>
                           <td>{row.footage.toLocaleString()}</td>
                         </tr>
@@ -3053,7 +3112,7 @@ export default function Home() {
 
                     {selectedRackInventory.length === 0 && (
                       <tr>
-                        <td colSpan={14} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                        <td colSpan={13} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
                       </tr>
                     )}
                   </tbody>
@@ -3135,7 +3194,6 @@ export default function Home() {
                 </select>
               </label>
 
-              <label>Inspection Due<input type="date" value={editForm.inspectionDue} onChange={(event) => setEditForm({ ...editForm, inspectionDue: event.target.value })} /></label>
               <label>Joints<input type="number" value={editForm.joints} onChange={(event) => setEditForm({ ...editForm, joints: event.target.value })} /></label>
               <label>Calculated Footage<input readOnly value={editAfterTotals.footage.toLocaleString()} /></label>
               <label className="full">Edit Comment<textarea value={editForm.comment} onChange={(event) => setEditForm({ ...editForm, comment: event.target.value })} placeholder="Reason for edit" /></label>
@@ -3242,7 +3300,6 @@ export default function Home() {
               <label>Calculated Footage<input readOnly value={calculateRangeFootage(Number(receiveForm.joints || 0), receiveForm.pipeRange).toLocaleString()} /></label>
               <label>Missing Box Protectors<input type="number" min="0" value={receiveForm.missingBoxProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingBoxProtectors: event.target.value })} /></label>
               <label>Missing Pin Protectors<input type="number" min="0" value={receiveForm.missingPinProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingPinProtectors: event.target.value })} /></label>
-              <label>Inspection Due<input type="date" value={receiveForm.inspectionDue} onChange={(event) => setReceiveForm({ ...receiveForm, inspectionDue: event.target.value })} min={today} /></label>
               <label>
                 Snap Photo
                 <input
@@ -3698,14 +3755,14 @@ export default function Home() {
               </section>
 
               <section className="ticket-card">
-                <h3>Machine Shop Transfer Documents</h3>
+                <h3>Transfer Documents</h3>
                 {filteredTransferDocuments.length === 0 && <p className="muted-text">No transfer documents found.</p>}
 
                 {filteredTransferDocuments.map((document) => (
                   <article key={document.id} className="ticket-row stacked">
                     <div>
                       <strong>{document.documentNumber}</strong>
-                      <span>{document.documentType === "transfer_to_machine_shop" ? "To Machine Shop" : "From Machine Shop"}</span>
+                      <span>Workstation Transfer</span>
                     </div>
                     <div>
                       <span>{document.company}</span>

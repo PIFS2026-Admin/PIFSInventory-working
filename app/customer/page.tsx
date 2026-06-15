@@ -16,7 +16,6 @@ type CustomerProfile = {
 type CustomerInventory = {
   id: string;
   createdAt: string;
-  inspectionDue: string;
   afe: string;
   partNumber: string;
   size: string;
@@ -122,7 +121,6 @@ export default function CustomerPage() {
       .select(`
         id,
         created_at,
-        inspection_due_date,
         afe,
         part_number,
         size,
@@ -160,7 +158,6 @@ export default function CustomerPage() {
           return {
             id: row.id,
             createdAt: formatDate(row.created_at),
-            inspectionDue: formatDate(row.inspection_due_date),
             afe: row.afe ?? "",
             partNumber: row.part_number ?? "",
             size: row.size ?? "",
@@ -368,7 +365,6 @@ export default function CustomerPage() {
             <thead>
               <tr>
                 <th>Date Created</th>
-                <th>Inspection Due</th>
                 <th>TU#</th>
                 <th>Part Number</th>
                 <th>Size</th>
@@ -386,7 +382,6 @@ export default function CustomerPage() {
               {filteredInventory.map((row) => (
                 <tr key={row.id}>
                   <td>{row.createdAt}</td>
-                  <td>{row.inspectionDue}</td>
                   <td>{row.afe}</td>
                   <td>{row.partNumber}</td>
                   <td>{row.size}</td>
@@ -403,7 +398,7 @@ export default function CustomerPage() {
 
               {filteredInventory.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="empty-cell">
+                  <td colSpan={12} className="empty-cell">
                     No customer inventory found.
                   </td>
                 </tr>
