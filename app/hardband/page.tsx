@@ -272,7 +272,7 @@ export default function HardbandPage() {
   const [lineForm, setLineForm] = useState<LineForm>(emptyLineForm);
   const [statusDraft, setStatusDraft] = useState("Open");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingJob, setSavingJob] = useState(false);
@@ -280,21 +280,13 @@ export default function HardbandPage() {
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeForm, setCloseForm] = useState({ printedName: "", signature: "" });
 
-  const selectedJob = useMemo(() => {
-    return jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null;
-  }, [jobs, selectedJobId]);
-
-  const selectedLines = useMemo(() => {
-    if (!selectedJob) return [];
-    return lines
-      .filter((line) => line.hardbandJobId === selectedJob.id)
-      .sort((a, b) => a.lineNumber - b.lineNumber);
-  }, [lines, selectedJob]);
-
   const filteredJobs = useMemo(() => {
     const term = search.trim().toLowerCase();
     return jobs.filter((job) => {
-      const statusMatch = statusFilter === "all" || job.status === statusFilter;
+      const statusMatch =
+        statusFilter === "all" ||
+        (statusFilter === "active" && job.status !== "Closed") ||
+        job.status === statusFilter;
       const searchMatch =
         !term ||
         [
@@ -312,6 +304,19 @@ export default function HardbandPage() {
       return statusMatch && searchMatch;
     });
   }, [jobs, search, statusFilter]);
+
+  const selectedJob = useMemo(() => {
+    return filteredJobs.find((job) => job.id === selectedJobId) ?? filteredJobs[0] ?? null;
+  }, [filteredJobs, selectedJobId]);
+
+  const selectedJobClosed = selectedJob?.status === "Closed";
+
+  const selectedLines = useMemo(() => {
+    if (!selectedJob) return [];
+    return lines
+      .filter((line) => line.hardbandJobId === selectedJob.id)
+      .sort((a, b) => a.lineNumber - b.lineNumber);
+  }, [lines, selectedJob]);
 
   useEffect(() => {
     loadPage();
@@ -511,7 +516,9 @@ export default function HardbandPage() {
       }))
     );
 
-    if (!selectedJobId && mappedJobs[0]) setSelectedJobId(mappedJobs[0].id);
+    if (!selectedJobId && mappedJobs[0]) {
+      setSelectedJobId((mappedJobs.find((job) => job.status !== "Closed") ?? mappedJobs[0]).id);
+    }
   }
 
   async function makeHardbandJobNumber() {
@@ -682,6 +689,8 @@ export default function HardbandPage() {
 
     setCloseOpen(false);
     await loadHardbandJobs();
+    setSelectedJobId("");
+    setStatusFilter("active");
     setMessage(`${selectedJob.jobNumber} closed by ${printedName}.`);
   }
 
@@ -975,6 +984,7 @@ export default function HardbandPage() {
           <div className="hardband-filter-row">
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search customer, job, W/O, rig, part..." />
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="active">Active Jobs</option>
               <option value="all">All Statuses</option>
               {statusOptions.map((status) => (
                 <option key={status} value={status}>{status}</option>
@@ -1007,13 +1017,17 @@ export default function HardbandPage() {
               <p>{selectedJob.company} / {selectedJob.status} / {selectedLines.length} serial lines</p>
             </div>
             <div className="hardband-detail-actions">
-              <select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
-                {statusOptions.map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-              <button className="button" onClick={() => updateJobStatus(statusDraft)}>Save Status</button>
-              <button className="button" onClick={openCloseJob}>Close Job</button>
+              {!selectedJobClosed && (
+                <>
+                  <select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
+                    {statusOptions.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                  <button className="button" onClick={() => updateJobStatus(statusDraft)}>Save Status</button>
+                  <button className="button" onClick={openCloseJob}>Close Job</button>
+                </>
+              )}
               <button className="button" onClick={openSelectedJobReport}>Print / PDF</button>
               <button className="button" onClick={exportSelectedJob}>Export CSV</button>
             </div>
@@ -1082,46 +1096,55 @@ export default function HardbandPage() {
             </div>
           </section>
 
-          <section className="nested-card">
-            <h3>Add Serial Number</h3>
-            <div className="form-grid">
-              <label>
-                Serial Number
-                <input value={lineForm.serialNumber} onChange={(event) => setLineForm({ ...lineForm, serialNumber: event.target.value })} />
-              </label>
+          {selectedJobClosed ? (
+            <section className="nested-card">
+              <h3>Closed Job</h3>
+              <p className="muted-text">
+                This job is closed and locked from additional serial entry. Use Print / PDF or Export CSV to view the completed record.
+              </p>
+            </section>
+          ) : (
+            <section className="nested-card">
+              <h3>Add Serial Number</h3>
+              <div className="form-grid">
+                <label>
+                  Serial Number
+                  <input value={lineForm.serialNumber} onChange={(event) => setLineForm({ ...lineForm, serialNumber: event.target.value })} />
+                </label>
 
-              <label>
-                Wire Type
-                <input value={lineForm.wireType} onChange={(event) => setLineForm({ ...lineForm, wireType: event.target.value })} placeholder={selectedJob.wireType || "Wire used"} />
-              </label>
+                <label>
+                  Wire Type
+                  <input value={lineForm.wireType} onChange={(event) => setLineForm({ ...lineForm, wireType: event.target.value })} placeholder={selectedJob.wireType || "Wire used"} />
+                </label>
 
-              <label>
-                Operator
-                <input value={profile?.fullName || "Logged-in operator"} readOnly />
-              </label>
+                <label>
+                  Operator
+                  <input value={profile?.fullName || "Logged-in operator"} readOnly />
+                </label>
 
-              <div className="checkbox-grid full">
-                <label><input type="checkbox" checked={lineForm.flushGrindBox} onChange={(event) => setLineForm({ ...lineForm, flushGrindBox: event.target.checked })} /> Flush Grind Box</label>
-                <label><input type="checkbox" checked={lineForm.flushGrindPin} onChange={(event) => setLineForm({ ...lineForm, flushGrindPin: event.target.checked })} /> Flush Grind Pin</label>
-                <label><input type="checkbox" checked={lineForm.grindOutBox} onChange={(event) => setLineForm({ ...lineForm, grindOutBox: event.target.checked })} /> Grind Out Box</label>
-                <label><input type="checkbox" checked={lineForm.grindOutPin} onChange={(event) => setLineForm({ ...lineForm, grindOutPin: event.target.checked })} /> Grind Out Pin</label>
-                <label><input type="checkbox" checked={lineForm.hardbandBox} onChange={(event) => setLineForm({ ...lineForm, hardbandBox: event.target.checked })} /> Hardband Box</label>
-                <label><input type="checkbox" checked={lineForm.hardbandPin} onChange={(event) => setLineForm({ ...lineForm, hardbandPin: event.target.checked })} /> Hardband Pin</label>
+                <div className="checkbox-grid full">
+                  <label><input type="checkbox" checked={lineForm.flushGrindBox} onChange={(event) => setLineForm({ ...lineForm, flushGrindBox: event.target.checked })} /> Flush Grind Box</label>
+                  <label><input type="checkbox" checked={lineForm.flushGrindPin} onChange={(event) => setLineForm({ ...lineForm, flushGrindPin: event.target.checked })} /> Flush Grind Pin</label>
+                  <label><input type="checkbox" checked={lineForm.grindOutBox} onChange={(event) => setLineForm({ ...lineForm, grindOutBox: event.target.checked })} /> Grind Out Box</label>
+                  <label><input type="checkbox" checked={lineForm.grindOutPin} onChange={(event) => setLineForm({ ...lineForm, grindOutPin: event.target.checked })} /> Grind Out Pin</label>
+                  <label><input type="checkbox" checked={lineForm.hardbandBox} onChange={(event) => setLineForm({ ...lineForm, hardbandBox: event.target.checked })} /> Hardband Box</label>
+                  <label><input type="checkbox" checked={lineForm.hardbandPin} onChange={(event) => setLineForm({ ...lineForm, hardbandPin: event.target.checked })} /> Hardband Pin</label>
+                </div>
+
+                <label className="full">
+                  Notes
+                  <textarea value={lineForm.notes} onChange={(event) => setLineForm({ ...lineForm, notes: event.target.value })} />
+                </label>
               </div>
 
-              <label className="full">
-                Notes
-                <textarea value={lineForm.notes} onChange={(event) => setLineForm({ ...lineForm, notes: event.target.value })} />
-              </label>
-            </div>
-
-            <div className="slide-actions">
-              <button className="button" onClick={() => setLineForm(emptyLineForm)}>Clear</button>
-              <button className="button primary" onClick={addLineItem} disabled={savingLine}>
-                {savingLine ? "Saving..." : "Add Serial Line"}
-              </button>
-            </div>
-          </section>
+              <div className="slide-actions">
+                <button className="button" onClick={() => setLineForm(emptyLineForm)}>Clear</button>
+                <button className="button primary" onClick={addLineItem} disabled={savingLine}>
+                  {savingLine ? "Saving..." : "Add Serial Line"}
+                </button>
+              </div>
+            </section>
+          )}
         </section>
       )}
 
