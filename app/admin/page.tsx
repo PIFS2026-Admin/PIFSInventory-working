@@ -141,6 +141,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [currentUserName, setCurrentUserName] = useState("User");
 
   const activeCompanies = useMemo(
     () => companies.filter((company) => company.isActive),
@@ -165,7 +166,7 @@ export default function AdminPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role")
+      .select("full_name, role")
       .eq("id", user.id)
       .single();
 
@@ -174,6 +175,7 @@ export default function AdminPage() {
       return;
     }
 
+    setCurrentUserName(profile.full_name || user.email || "User");
     await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers()]);
     setMessage("");
   }
@@ -753,6 +755,12 @@ export default function AdminPage() {
       </header>
 
       {message && <div className="modal-message">{message}</div>}
+
+      <section className="customer-welcome">
+        <span>Welcome</span>
+        <h1>{currentUserName}</h1>
+        <p>Admin tools for companies, users, racks, work zones, and part numbers.</p>
+      </section>
 
       <section className="admin-grid">
         <div className="ticket-card admin-card">

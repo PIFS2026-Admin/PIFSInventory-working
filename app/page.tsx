@@ -545,6 +545,7 @@ function SignaturePad({
 
 export default function Home() {
   const [role, setRole] = useState<Role>("admin");
+  const [currentUserName, setCurrentUserName] = useState("User");
   const [selectedYard, setSelectedYard] = useState<YardRecord | null>(null);
   const [rackLayout, setRackLayout] = useState<RackConfig[]>(makeDefaultRacks());
   const [zones, setZones] = useState<ZoneConfig[]>(defaultZones);
@@ -881,6 +882,15 @@ export default function Home() {
       window.location.href = "/login";
       return;
     }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, role")
+      .eq("id", sessionData.session.user.id)
+      .single();
+
+    setCurrentUserName(profile?.full_name || sessionData.session.user.email || "User");
+    if (profile?.role === "customer") setRole("customer");
 
     const { data: yard, error: yardError } = await supabase
       .from("yards")
@@ -2682,6 +2692,12 @@ export default function Home() {
       </aside>
 
       <section className="main-panel">
+        <section className="customer-welcome">
+          <span>Welcome</span>
+          <h1>{currentUserName}</h1>
+          <p>{selectedYard?.name ?? "Pathfinder Yard"} inventory, rack map, tickets, and activity.</p>
+        </section>
+
         <header className="topbar">
           <div>
             <h1>Yard View</h1>
