@@ -1192,6 +1192,22 @@ th {
   margin: 0;
 }
 
+.customer-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.customer-ticket-actions {
+  margin-top: 14px;
+}
+
+.customer-ticket-actions .button {
+  width: 100%;
+}
+
 .customer-ticket {
   overflow: hidden;
 }
@@ -1205,6 +1221,17 @@ th {
 
   .customer-welcome h1 {
     font-size: 26px;
+  }
+
+  .customer-report-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .customer-report-actions .button,
+  .customer-report-actions .field {
+    width: 100%;
+    max-width: none;
   }
 }
 .admin-grid {
@@ -1639,6 +1666,9 @@ th {
 @media print {
   .side-panel,
   .topbar-actions,
+  .customer-actions,
+  .customer-report-actions,
+  .customer-ticket-actions,
   .modal-backdrop {
     display: none !important;
   }
@@ -1652,6 +1682,47 @@ th {
   .main-panel {
     padding: 0;
     background: white !important;
+    color: #111827 !important;
+  }
+
+  .customer-shell {
+    padding: 0 !important;
+    background: white !important;
+    color: #111827 !important;
+  }
+
+  .customer-topbar {
+    padding-bottom: 10px !important;
+    margin-bottom: 14px !important;
+    border-bottom: 1px solid #111 !important;
+    background: white !important;
+    color: #111827 !important;
+  }
+
+  .customer-welcome,
+  .customer-section,
+  .customer-metrics {
+    background: white !important;
+    color: #111827 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .customer-location-grid,
+  .tickets-grid {
+    display: none !important;
+  }
+
+  .customer-brand .brand-mark,
+  .customer-company-logo {
+    background-color: white !important;
+    border-color: #ddd !important;
+  }
+
+  .customer-shell *,
+  .customer-section *,
+  .customer-welcome *,
+  .customer-metrics * {
     color: #111827 !important;
   }
 

@@ -62,6 +62,11 @@ function calculateRangeFootage(joints: number, pipeRange: string) {
   return Math.round(Number(joints || 0) * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
 }
 
+function csvValue(value: string | number) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
 export default function CustomerPage() {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [inventory, setInventory] = useState<CustomerInventory[]>([]);
@@ -269,6 +274,61 @@ export default function CustomerPage() {
     );
   }, [filteredInventory]);
 
+  function printInventoryReport() {
+    window.print();
+  }
+
+  function exportInventoryCsv() {
+    const headers = [
+      "Date Created",
+      "TU#",
+      "Part Number",
+      "Size",
+      "Grade",
+      "Connection",
+      "Range",
+      "Status",
+      "Condition",
+      "Rack/Location",
+      "Joints",
+      "Footage",
+    ];
+
+    const rows = filteredInventory.map((row) => [
+      row.createdAt,
+      row.afe,
+      row.partNumber,
+      row.size,
+      row.grade,
+      row.connection,
+      row.pipeRange,
+      row.status,
+      row.condition,
+      row.location,
+      row.joints,
+      row.footage,
+    ]);
+
+    const csv = [headers, ...rows]
+      .map((row) => row.map(csvValue).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const company = profile?.companyName.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "customer";
+
+    link.href = url;
+    link.download = `${company}-inventory-report.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openTicketPrint(ticket: CustomerTicket) {
+    const type = ticket.type === "Receiving" ? "receiving" : "shipping";
+    window.location.href = `/ticket-print?type=${type}&id=${ticket.id}`;
+  }
+
   return (
     <main className="customer-shell">
       <header className="customer-topbar">
@@ -349,15 +409,22 @@ export default function CustomerPage() {
         </div>
       </section>
 
-      <section className="customer-section">
+      <section className="customer-section customer-location-section">
         <div className="section-heading">
-          <h2>Inventory</h2>
-          <input
-            className="field customer-search"
-            placeholder="Search part number, TU#, status..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <div>
+            <h2>Inventory</h2>
+            <p>{filteredInventory.length} lines / {totals.joints} joints / {totals.footage.toLocaleString()} ft</p>
+          </div>
+          <div className="customer-report-actions">
+            <input
+              className="field customer-search"
+              placeholder="Search part number, TU#, status..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <button className="button" onClick={printInventoryReport}>Print Report</button>
+            <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
+          </div>
         </div>
 
         <div className="table-wrap">
@@ -408,7 +475,7 @@ export default function CustomerPage() {
         </div>
       </section>
 
-      <section className="customer-section">
+      <section className="customer-section customer-ticket-section">
         <div className="section-heading">
           <h2>Tickets / BOL</h2>
           <p>Recent receiving and shipping records.</p>
@@ -430,6 +497,11 @@ export default function CustomerPage() {
                 <div>
                   <span>{ticket.destination || "No destination"}</span>
                 </div>
+              </div>
+              <div className="customer-ticket-actions">
+                <button className="button" onClick={() => openTicketPrint(ticket)}>
+                  Print / PDF
+                </button>
               </div>
             </article>
           ))}
