@@ -10,9 +10,10 @@ type TransferMode = "all" | "partial";
 type PipeRange = "Range 2" | "Range 3";
 
 type SignatureFields = {
+  pathfinderName: string;
   pathfinderSignature: string;
+  carrierName: string;
   carrierSignature: string;
-  customerSignature: string;
 };
 
 type RackConfig = {
@@ -331,9 +332,10 @@ const emptyReceiveForm: ReceiveForm = {
   missingBoxProtectors: "0",
   missingPinProtectors: "0",
   inspectionDue: "",
+  pathfinderName: "",
   pathfinderSignature: "",
+  carrierName: "",
   carrierSignature: "",
-  customerSignature: "",
   notes: "",
 };
 
@@ -342,9 +344,10 @@ const emptyTransferForm: TransferForm = {
   joints: "",
   comment: "",
   backDate: "",
+  pathfinderName: "",
   pathfinderSignature: "",
+  carrierName: "",
   carrierSignature: "",
-  customerSignature: "",
 };
 
 const emptyEditForm: EditForm = {
@@ -369,9 +372,10 @@ const emptyShipForm: ShipForm = {
   bolNumber: "",
   shipTo: "",
   destination: "",
+  pathfinderName: "",
   pathfinderSignature: "",
+  carrierName: "",
   carrierSignature: "",
-  customerSignature: "",
   notes: "",
 };
 
@@ -1918,9 +1922,10 @@ export default function Home() {
       fromLocation,
       toLocation,
       comment,
+      pathfinderName: signatures.pathfinderName,
       pathfinderSignature: signatures.pathfinderSignature,
+      carrierName: signatures.carrierName,
       carrierSignature: signatures.carrierSignature,
-      customerSignature: signatures.customerSignature,
       createdAt: new Date().toISOString(),
     };
 
@@ -2096,9 +2101,10 @@ export default function Home() {
           destination: destinationName,
           missing_box_protectors: missingBoxProtectors,
           missing_pin_protectors: missingPinProtectors,
+          pathfinder_name: receiveForm.pathfinderName || null,
           pathfinder_signature: receiveForm.pathfinderSignature || null,
+          carrier_name: receiveForm.carrierName || null,
           carrier_signature: receiveForm.carrierSignature || null,
-          customer_signature: receiveForm.customerSignature || null,
           notes: receiveForm.notes || null,
           afe: receiveForm.afe || null,
           part_number: receiveForm.partNumber,
@@ -2334,9 +2340,10 @@ export default function Home() {
           truck_number: shipForm.truckNumber,
           ship_to: shipForm.shipTo,
           destination: shipForm.destination || null,
+          pathfinder_name: shipForm.pathfinderName || null,
           pathfinder_signature: shipForm.pathfinderSignature || null,
+          carrier_name: shipForm.carrierName || null,
           carrier_signature: shipForm.carrierSignature || null,
-          customer_signature: shipForm.customerSignature || null,
           notes: shipForm.notes || null,
         })
         .select("id")
@@ -3271,20 +3278,31 @@ export default function Home() {
                 </div>
               )}
               <div className="full signature-pad-grid">
+                <label>
+                  Pathfinder Representative Name
+                  <input
+                    value={receiveForm.pathfinderName}
+                    onChange={(event) => setReceiveForm({ ...receiveForm, pathfinderName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Pathfinder Representative"
                   value={receiveForm.pathfinderSignature}
                   onChange={(value) => setReceiveForm({ ...receiveForm, pathfinderSignature: value })}
                 />
+                <label>
+                  Carrier / Driver Name
+                  <input
+                    value={receiveForm.carrierName}
+                    onChange={(event) => setReceiveForm({ ...receiveForm, carrierName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Carrier / Driver Signature"
                   value={receiveForm.carrierSignature}
                   onChange={(value) => setReceiveForm({ ...receiveForm, carrierSignature: value })}
-                />
-                <SignaturePad
-                  label="Customer Representative"
-                  value={receiveForm.customerSignature}
-                  onChange={(value) => setReceiveForm({ ...receiveForm, customerSignature: value })}
                 />
               </div>
               <label className="full">Notes<textarea value={receiveForm.notes} onChange={(event) => setReceiveForm({ ...receiveForm, notes: event.target.value })} /></label>
@@ -3350,20 +3368,31 @@ export default function Home() {
               </label>
 
               <div className="full signature-pad-grid">
+                <label>
+                  Pathfinder Representative Name
+                  <input
+                    value={transferForm.pathfinderName}
+                    onChange={(event) => setTransferForm({ ...transferForm, pathfinderName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Pathfinder Representative"
                   value={transferForm.pathfinderSignature}
                   onChange={(value) => setTransferForm({ ...transferForm, pathfinderSignature: value })}
                 />
+                <label>
+                  Carrier / Driver Name
+                  <input
+                    value={transferForm.carrierName}
+                    onChange={(event) => setTransferForm({ ...transferForm, carrierName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Carrier / Driver Signature"
                   value={transferForm.carrierSignature}
                   onChange={(value) => setTransferForm({ ...transferForm, carrierSignature: value })}
-                />
-                <SignaturePad
-                  label="Customer Representative"
-                  value={transferForm.customerSignature}
-                  onChange={(value) => setTransferForm({ ...transferForm, customerSignature: value })}
                 />
               </div>
             </div>
@@ -3439,20 +3468,31 @@ export default function Home() {
                 </div>
               )}
               <div className="full signature-pad-grid">
+                <label>
+                  Pathfinder Representative Name
+                  <input
+                    value={shipForm.pathfinderName}
+                    onChange={(event) => setShipForm({ ...shipForm, pathfinderName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Pathfinder Representative"
                   value={shipForm.pathfinderSignature}
                   onChange={(value) => setShipForm({ ...shipForm, pathfinderSignature: value })}
                 />
+                <label>
+                  Carrier / Driver Name
+                  <input
+                    value={shipForm.carrierName}
+                    onChange={(event) => setShipForm({ ...shipForm, carrierName: event.target.value })}
+                    placeholder="Printed name"
+                  />
+                </label>
                 <SignaturePad
                   label="Carrier / Driver Signature"
                   value={shipForm.carrierSignature}
                   onChange={(value) => setShipForm({ ...shipForm, carrierSignature: value })}
-                />
-                <SignaturePad
-                  label="Customer Representative"
-                  value={shipForm.customerSignature}
-                  onChange={(value) => setShipForm({ ...shipForm, customerSignature: value })}
                 />
               </div>
               <label className="full">Notes<textarea value={shipForm.notes} onChange={(event) => setShipForm({ ...shipForm, notes: event.target.value })} /></label>

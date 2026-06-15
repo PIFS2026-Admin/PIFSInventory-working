@@ -1517,7 +1517,7 @@ th {
 
 .signature-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
   margin-top: 60px;
 }
@@ -1529,12 +1529,22 @@ th {
 
 .signature-grid span {
   display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   align-items: flex-end;
   min-height: 62px;
   color: #374151;
   font-size: 12px;
   border-bottom: 1px solid #111827;
   padding: 0 4px 4px;
+}
+
+.printed-signer-name {
+  align-self: flex-start;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 4px;
 }
 
 .signature-grid img {
