@@ -15,9 +15,9 @@ export async function POST(request: Request) {
     const role = String(body.role ?? "customer").trim();
     const companyId = body.companyId ? String(body.companyId) : null;
 
-    if (!email || !password || !fullName || !role) {
+    if (!email || !fullName || !role) {
       return Response.json(
-        { error: "Email, password, full name, and role are required." },
+        { error: "Email, full name, and role are required." },
         { status: 400 }
       );
     }
@@ -36,24 +36,41 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: createdUser, error: createError } =
-      await adminSupabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
+    const siteUrl =
+      request.headers.get("origin") ??
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      "https://pifstitan.com";
+
+    const { data: invitedUser, error: inviteError } =
+      await adminSupabase.auth.admin.inviteUserByEmail(email, {
+        redirectTo: `${siteUrl}/login`,
+        data: {
+          full_name: fullName,
+          role,
+        },
       });
 
-    if (createError) {
-      return Response.json({ error: createError.message }, { status: 400 });
+    if (inviteError) {
+      return Response.json({ error: inviteError.message }, { status: 400 });
     }
 
-    const userId = createdUser.user?.id;
+    const userId = invitedUser.user?.id;
 
     if (!userId) {
       return Response.json(
-        { error: "User was created, but no user id was returned." },
+        { error: "User invite was sent, but no user id was returned." },
         { status: 400 }
       );
+    }
+
+    if (password) {
+      const { error: passwordError } = await adminSupabase.auth.admin.updateUserById(userId, {
+        password,
+      });
+
+      if (passwordError) {
+        return Response.json({ error: passwordError.message }, { status: 400 });
+      }
     }
 
     const { error: profileError } = await adminSupabase
@@ -74,6 +91,7 @@ export async function POST(request: Request) {
       userId,
       email,
       role,
+      invited: true,
     });
   } catch (error: any) {
     return Response.json(

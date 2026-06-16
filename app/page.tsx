@@ -160,6 +160,7 @@ type TransferDocument = {
   toLocation: string;
   comment: string;
   createdAt: string;
+  workOrderFiles: TicketAttachment[];
 };
 
 type HardbandJob = {
@@ -238,6 +239,7 @@ type TicketAttachment = {
   documentType: string;
   fileName: string;
   fileUrl: string;
+  filePath: string;
   createdAt: string;
 };
 
@@ -753,6 +755,7 @@ export default function Home() {
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
   const [receiveFiles, setReceiveFiles] = useState<File[]>([]);
   const [shipFiles, setShipFiles] = useState<File[]>([]);
+  const [transferFiles, setTransferFiles] = useState<File[]>([]);
 
   const [receivingTickets, setReceivingTickets] = useState<ReceivingTicket[]>([]);
   const [shippingTickets, setShippingTickets] = useState<ShippingTicket[]>([]);
@@ -895,6 +898,7 @@ export default function Home() {
         document.fromLocation,
         document.toLocation,
         document.comment,
+        ...document.workOrderFiles.map((file) => file.fileName),
         document.createdAt,
       ]
         .join(" ")
@@ -1261,6 +1265,7 @@ export default function Home() {
     shippingTicketId,
     ticketNumber,
     folder,
+    documentType,
   }: {
     files: File[];
     companyId: string | null;
@@ -1268,7 +1273,8 @@ export default function Home() {
     receivingTicketId?: string | null;
     shippingTicketId?: string | null;
     ticketNumber: string;
-    folder: "receiving" | "shipping";
+    folder: "receiving" | "shipping" | "transfer";
+    documentType?: string;
   }) {
     if (files.length === 0) return;
     if (!companyId) throw new Error("A company is required before attachments can be saved.");
@@ -1299,7 +1305,7 @@ export default function Home() {
         pipe_inventory_id: inventoryId ?? null,
         receiving_ticket_id: receivingTicketId ?? null,
         shipping_ticket_id: shippingTicketId ?? null,
-        document_type: `${folder}_attachment`,
+        document_type: documentType ?? `${folder}_attachment`,
         file_url: publicUrlData.publicUrl,
         file_name: file.name,
         file_path: filePath,
@@ -1452,6 +1458,7 @@ export default function Home() {
     joints,
     footage,
     comment,
+    machineShopWorkOrder,
   }: {
     row: InventoryRow;
     fromLocation: string;
@@ -1459,6 +1466,7 @@ export default function Home() {
     joints: number;
     footage: number;
     comment: string;
+    machineShopWorkOrder: string;
   }) {
     if (!selectedYard || !row.companyId) return null;
 
@@ -1481,6 +1489,7 @@ export default function Home() {
         total_footage: footage,
         from_location: fromLocation,
         to_location: toLocation,
+        machine_shop_work_order: machineShopWorkOrder || null,
         status: "Open",
         notes: comment || null,
       })
@@ -1634,12 +1643,14 @@ export default function Home() {
         id,
         receiving_ticket_id,
         shipping_ticket_id,
+        pipe_inventory_id,
         document_type,
         file_url,
         file_name,
+        file_path,
         created_at
       `)
-      .in("document_type", ["receiving_attachment", "shipping_attachment"])
+      .in("document_type", ["receiving_attachment", "shipping_attachment", "machine_shop_work_order", "transfer_attachment"])
       .order("created_at", { ascending: false })
       .limit(250);
 
@@ -1719,9 +1730,29 @@ export default function Home() {
           details = {};
         }
 
+        const documentNumber = details.documentNumber ?? row.id;
+        const workOrderFiles = (attachmentData ?? [])
+          .filter((attachment: any) => {
+            const filePath = String(attachment.file_path ?? "");
+            return (
+              ["machine_shop_work_order", "transfer_attachment"].includes(attachment.document_type ?? "") &&
+              filePath.includes(`/${documentNumber}/`)
+            );
+          })
+          .map((attachment: any) => ({
+            id: attachment.id,
+            receivingTicketId: attachment.receiving_ticket_id ?? "",
+            shippingTicketId: attachment.shipping_ticket_id ?? "",
+            documentType: attachment.document_type ?? "",
+            fileName: attachment.file_name ?? "Machine shop work order",
+            fileUrl: attachment.file_url ?? "",
+            filePath: attachment.file_path ?? "",
+            createdAt: formatDate(attachment.created_at),
+          }));
+
         return {
           id: row.id,
-          documentNumber: details.documentNumber ?? row.id,
+          documentNumber,
           documentType: row.document_type ?? "",
           company: details.company ?? company?.name ?? "Unknown",
           afe: details.afe ?? "",
@@ -1733,6 +1764,7 @@ export default function Home() {
           toLocation: details.toLocation ?? "",
           comment: details.comment ?? "",
           createdAt: formatDate(row.created_at),
+          workOrderFiles,
         };
       })
     );
@@ -1745,6 +1777,7 @@ export default function Home() {
         documentType: row.document_type ?? "",
         fileName: row.file_name ?? "Attachment",
         fileUrl: row.file_url ?? "",
+        filePath: row.file_path ?? "",
         createdAt: formatDate(row.created_at),
       }))
     );
@@ -2000,6 +2033,7 @@ export default function Home() {
 
     setTransferMode("all");
     setTransferForm(emptyTransferForm);
+    setTransferFiles([]);
     setTransferOpen(true);
   }
 
@@ -2009,6 +2043,7 @@ export default function Home() {
     setSelectedRows([row.id]);
     setTransferMode("all");
     setTransferForm(emptyTransferForm);
+    setTransferFiles([]);
     setTransferOpen(true);
   }
 
@@ -2853,6 +2888,17 @@ export default function Home() {
         signatures: transferForm,
       });
 
+      if (zone?.code === "hardband" && transferDocumentNumber && transferFiles.length > 0) {
+        await saveTicketAttachments({
+          files: transferFiles,
+          companyId: selectedTransferRow.companyId,
+          inventoryId: selectedTransferRow.id,
+          ticketNumber: transferDocumentNumber,
+          folder: "transfer",
+          documentType: "machine_shop_work_order",
+        });
+      }
+
       const hardbandJobNumber =
         zone?.code === "hardband"
           ? await createHardbandJobFromTransfer({
@@ -2862,6 +2908,7 @@ export default function Home() {
               joints: moveJoints,
               footage: moveFootage,
               comment: transferForm.comment,
+              machineShopWorkOrder: transferFiles.map((file) => file.name).join(", "),
             })
           : null;
 
@@ -2872,6 +2919,7 @@ export default function Home() {
       setTransferOpen(false);
       setSelectedRows([]);
       setTransferForm(emptyTransferForm);
+      setTransferFiles([]);
       setMessage(
         `Transferred ${moveJoints} joints / ${moveFootage.toLocaleString()} ft to ${locationName}.` +
           (transferDocumentNumber ? ` Transfer document ${transferDocumentNumber} created.` : "") +
@@ -4060,7 +4108,15 @@ export default function Home() {
                 <h2>Transfer Pipe</h2>
                 <p>{selectedTransferRow.company} / {selectedTransferRow.partNumber}</p>
               </div>
-              <button className="icon-button" onClick={() => setTransferOpen(false)}>X</button>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  setTransferOpen(false);
+                  setTransferFiles([]);
+                }}
+              >
+                X
+              </button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
@@ -4101,6 +4157,25 @@ export default function Home() {
                 <textarea value={transferForm.comment} onChange={(event) => setTransferForm({ ...transferForm, comment: event.target.value })} placeholder="Required for transfer history" />
               </label>
 
+              {transferForm.destination === "zone:hardband" && (
+                <label className="full">
+                  Machine Shop Work Order
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={(event) => setTransferFiles(Array.from(event.target.files ?? []))}
+                  />
+                  {transferFiles.length > 0 && (
+                    <div className="attachment-list">
+                      {transferFiles.map((file) => (
+                        <span key={`${file.name}-${file.size}`}>{file.name}</span>
+                      ))}
+                    </div>
+                  )}
+                </label>
+              )}
+
               <div className="full signature-pad-grid">
                 <label>
                   Pathfinder Representative Name
@@ -4132,7 +4207,15 @@ export default function Home() {
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => setTransferOpen(false)}>Cancel</button>
+              <button
+                className="button"
+                onClick={() => {
+                  setTransferOpen(false);
+                  setTransferFiles([]);
+                }}
+              >
+                Cancel
+              </button>
               <button className="button primary" onClick={saveTransfer} disabled={savingTransfer || isReadOnlyRole}>
                 {savingTransfer ? "Transferring..." : "Finish Transfer"}
               </button>
@@ -4636,6 +4719,16 @@ export default function Home() {
                       <span>{document.joints} joints</span>
                       <span>{document.footage.toLocaleString()} ft</span>
                     </div>
+                    {document.workOrderFiles.length > 0 && (
+                      <div className="ticket-attachments">
+                        <strong>Machine Shop W/O</strong>
+                        {document.workOrderFiles.map((file) => (
+                          <a key={file.id} href={file.fileUrl} target="_blank" rel="noreferrer">
+                            {file.fileName}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     <button
                       className="button"
                       onClick={() =>

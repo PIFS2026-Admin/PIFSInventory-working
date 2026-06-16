@@ -545,8 +545,8 @@ export default function AdminPage() {
   async function createUser() {
     setMessage("");
 
-    if (!userForm.email || !userForm.password || !userForm.fullName) {
-      setMessage("Email, password, and full name are required.");
+    if (!userForm.email || !userForm.fullName) {
+      setMessage("Email and full name are required.");
       return;
     }
 
@@ -575,7 +575,7 @@ export default function AdminPage() {
 
     setUserForm(emptyUserForm);
     await loadProfiles();
-    setMessage(`User created: ${result.email}`);
+    setMessage(`User invite sent: ${result.email}`);
     setLoading(false);
   }
 
@@ -811,12 +811,12 @@ export default function AdminPage() {
           </label>
 
           <label>
-            Temporary Password
+            Temporary Password (optional)
             <input
               type="password"
               value={userForm.password}
               onChange={(event) => setUserForm({ ...userForm, password: event.target.value })}
-              placeholder="Temporary password"
+              placeholder="Leave blank to let user set password"
             />
           </label>
 

@@ -813,6 +813,31 @@ th {
   text-decoration: underline;
 }
 
+.ticket-attachments {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.ticket-attachments strong {
+  margin-right: 4px;
+}
+
+.ticket-attachments a {
+  color: var(--orange-2);
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.ticket-attachments a:hover {
+  text-decoration: underline;
+}
+
 .muted-text {
   color: var(--muted);
   margin: 0;
