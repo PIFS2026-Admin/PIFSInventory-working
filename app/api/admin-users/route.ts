@@ -89,13 +89,20 @@ async function sendMicrosoftLoginEmail(options: {
 
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-      <h2 style="margin:0 0 12px">Welcome to TITAN</h2>
+      <h2 style="margin:0 0 6px">Welcome to TITAN</h2>
+      <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
       <p>${options.fullName}, your TITAN account has been created.</p>
       <p><strong>Login:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
       <p><strong>Email:</strong> ${options.email}</p>
       <p><strong>Temporary password:</strong> ${options.temporaryPassword}</p>
       <p>Please sign in and change your password.</p>
-      <p style="color:#6b7280;font-size:12px">TITAN - Tubular Inventory Tracking & Asset Navigation</p>
+      <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
+        <strong>Pathfinder Inspections &amp; Field Services</strong><br />
+        7501 Groening St.<br />
+        Odessa, TX 79765<br />
+        (432) 233-3600<br />
+        <a href="https://pifstitan.com">pifstitan.com</a>
+      </div>
     </div>
   `;
 
