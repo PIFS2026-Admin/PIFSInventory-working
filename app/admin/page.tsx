@@ -566,16 +566,22 @@ export default function AdminPage() {
     });
 
     const result = await response.json();
+    const resultError =
+      typeof result.error === "string"
+        ? result.error
+        : result.error
+          ? JSON.stringify(result.error)
+          : "";
 
     if (!response.ok) {
-      setMessage(result.error ?? "Could not create user.");
+      setMessage(resultError || "Could not create user.");
       setLoading(false);
       return;
     }
 
     setUserForm(emptyUserForm);
     await loadProfiles();
-    setMessage(`User invite sent: ${result.email}`);
+    setMessage(result.warning ?? `User invite sent: ${result.email}`);
     setLoading(false);
   }
 

@@ -5,6 +5,22 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
 
+function getErrorMessage(error: any) {
+  if (!error) return "Unknown error.";
+  if (typeof error === "string") return error;
+  if (typeof error.message === "string" && error.message.trim()) return error.message;
+  if (typeof error.error_description === "string" && error.error_description.trim()) {
+    return error.error_description;
+  }
+  if (typeof error.error === "string" && error.error.trim()) return error.error;
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Unknown error.";
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -42,6 +58,15 @@ export async function POST(request: Request) {
       "https://pifstitan.com"
     ).replace(/\/$/, "");
 
+    const saveProfile = async (userId: string) => {
+      return adminSupabase.from("profiles").upsert({
+        id: userId,
+        full_name: fullName,
+        role,
+        company_id: role === "customer" ? companyId : null,
+      });
+    };
+
     const { data: invitedUser, error: inviteError } =
       await adminSupabase.auth.admin.inviteUserByEmail(email, {
         redirectTo: `${siteUrl}/login`,
@@ -52,7 +77,62 @@ export async function POST(request: Request) {
       });
 
     if (inviteError) {
-      return Response.json({ error: inviteError.message }, { status: 400 });
+      const inviteMessage = getErrorMessage(inviteError);
+
+      if (!password) {
+        return Response.json(
+          {
+            error:
+              `Invite email failed: ${inviteMessage}. ` +
+              "Enter a temporary password to create the user without an email, or fix the SMTP email settings and try again.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const { data: createdUser, error: createError } =
+        await adminSupabase.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+        });
+
+      if (createError) {
+        return Response.json(
+          {
+            error:
+              `Invite email failed: ${inviteMessage}. ` +
+              `Temporary-password creation also failed: ${getErrorMessage(createError)}`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const fallbackUserId = createdUser.user?.id;
+
+      if (!fallbackUserId) {
+        return Response.json(
+          { error: "User was created without an email invite, but no user id was returned." },
+          { status: 400 }
+        );
+      }
+
+      const { error: fallbackProfileError } = await saveProfile(fallbackUserId);
+
+      if (fallbackProfileError) {
+        return Response.json({ error: getErrorMessage(fallbackProfileError) }, { status: 400 });
+      }
+
+      return Response.json({
+        ok: true,
+        userId: fallbackUserId,
+        email,
+        role,
+        invited: false,
+        warning:
+          `User created with temporary password, but invite email failed: ${inviteMessage}. ` +
+          "Give the user the temporary password manually.",
+      });
     }
 
     const userId = invitedUser.user?.id;
@@ -74,17 +154,10 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: profileError } = await adminSupabase
-      .from("profiles")
-      .upsert({
-        id: userId,
-        full_name: fullName,
-        role,
-        company_id: role === "customer" ? companyId : null,
-      });
+    const { error: profileError } = await saveProfile(userId);
 
     if (profileError) {
-      return Response.json({ error: profileError.message }, { status: 400 });
+      return Response.json({ error: getErrorMessage(profileError) }, { status: 400 });
     }
 
     return Response.json({
@@ -96,7 +169,7 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     return Response.json(
-      { error: error.message ?? "Unexpected server error." },
+      { error: getErrorMessage(error) },
       { status: 500 }
     );
   }
