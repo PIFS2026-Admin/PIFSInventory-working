@@ -280,7 +280,9 @@ export default function DashboardPage() {
         </div>
         <div className="dashboard-actions">
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
-          <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
+          {(profile?.role === "admin" || profile?.role === "employee") && (
+            <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
+          )}
           <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
           <button className="button" onClick={signOut}>Sign Out</button>
         </div>

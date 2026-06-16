@@ -1,6 +1,6 @@
 create extension if not exists pgcrypto;
 
-create type public.user_role as enum ('admin', 'employee', 'customer', 'operator');
+create type public.user_role as enum ('admin', 'employee', 'customer', 'operator', 'sales');
 
 create type public.inventory_status as enum (
   'Received',
@@ -276,6 +276,16 @@ as $$
   select coalesce(public.current_user_role() in ('admin', 'employee'), false)
 $$;
 
+create or replace function public.is_staff_reader()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(public.current_user_role()::text in ('admin', 'employee', 'sales'), false)
+$$;
+
 alter table public.companies enable row level security;
 alter table public.profiles enable row level security;
 alter table public.yards enable row level security;
@@ -301,6 +311,12 @@ create policy "customers read own company"
 on public.companies
 for select
 using (id = public.current_user_company_id());
+
+create policy "staff read companies"
+on public.companies
+for select
+to authenticated
+using (public.is_staff_reader());
 
 create policy "profiles read self or internal"
 on public.profiles
@@ -363,14 +379,26 @@ to authenticated
 using (
   company_id is null
   or company_id = public.current_user_company_id()
-  or public.is_internal_user()
+  or public.is_staff_reader()
 );
+
+create policy "part numbers staff read"
+on public.part_numbers
+for select
+to authenticated
+using (public.is_staff_reader());
 
 create policy "inventory internal full"
 on public.pipe_inventory
 for all
 using (public.is_internal_user())
 with check (public.is_internal_user());
+
+create policy "inventory staff read"
+on public.pipe_inventory
+for select
+to authenticated
+using (public.is_staff_reader());
 
 create policy "inventory customer read own"
 on public.pipe_inventory
@@ -383,9 +411,51 @@ for all
 using (public.is_internal_user())
 with check (public.is_internal_user());
 
+create policy "transactions staff read"
+on public.pipe_transactions
+for select
+to authenticated
+using (public.is_staff_reader());
+
 create policy "transactions customer read own"
 on public.pipe_transactions
 for select
+using (company_id = public.current_user_company_id());
+
+create policy "receiving tickets staff read"
+on public.receiving_tickets
+for select
+to authenticated
+using (public.is_staff_reader());
+
+create policy "receiving tickets customer read own"
+on public.receiving_tickets
+for select
+to authenticated
+using (company_id = public.current_user_company_id());
+
+create policy "shipping tickets staff read"
+on public.shipping_tickets
+for select
+to authenticated
+using (public.is_staff_reader());
+
+create policy "shipping tickets customer read own"
+on public.shipping_tickets
+for select
+to authenticated
+using (company_id = public.current_user_company_id());
+
+create policy "ticket line items staff read"
+on public.ticket_line_items
+for select
+to authenticated
+using (public.is_staff_reader());
+
+create policy "ticket line items customer read own"
+on public.ticket_line_items
+for select
+to authenticated
 using (company_id = public.current_user_company_id());
 
 create policy "documents internal full"
@@ -393,6 +463,12 @@ on public.documents
 for all
 using (public.is_internal_user())
 with check (public.is_internal_user());
+
+create policy "documents staff read"
+on public.documents
+for select
+to authenticated
+using (public.is_staff_reader());
 
 create policy "documents customer read own"
 on public.documents

@@ -4,7 +4,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 
-type Role = "admin" | "customer";
+type Role = "admin" | "customer" | "sales";
 type LocationType = "rack" | "zone";
 type TransferMode = "all" | "partial";
 type PipeRange = "Range 2" | "Range 3";
@@ -711,6 +711,7 @@ function SignaturePad({
 
 export default function Home() {
   const [role, setRole] = useState<Role>("admin");
+  const [profileRole, setProfileRole] = useState<string>("admin");
   const [currentUserName, setCurrentUserName] = useState("User");
   const [selectedYard, setSelectedYard] = useState<YardRecord | null>(null);
   const [rackLayout, setRackLayout] = useState<RackConfig[]>(makeDefaultRacks());
@@ -775,6 +776,8 @@ export default function Home() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [savingHardbandLine, setSavingHardbandLine] = useState(false);
   const [message, setMessage] = useState("");
+  const isReadOnlyRole = profileRole === "sales" || role === "customer";
+  const canUseAdminTools = profileRole === "admin" || profileRole === "employee";
 
   const selectedTransferRow = useMemo(() => {
     if (selectedRows.length !== 1) return null;
@@ -1077,7 +1080,9 @@ export default function Home() {
       .single();
 
     setCurrentUserName(profile?.full_name || sessionData.session.user.email || "User");
+    setProfileRole(profile?.role ?? "admin");
     if (profile?.role === "customer") setRole("customer");
+    if (profile?.role === "sales") setRole("sales");
     if (profile?.role === "operator") {
       window.location.href = "/hardband";
       return;
@@ -1831,6 +1836,10 @@ export default function Home() {
     if (!selectedYard) return;
 
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot complete inventory.");
+      return;
+    }
 
     if (selectedRows.length === 0) {
       setMessage("Select one or more inventory lines before completing.");
@@ -1979,6 +1988,11 @@ export default function Home() {
   function openTransfer() {
     setMessage("");
 
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot transfer inventory.");
+      return;
+    }
+
     if (selectedRows.length !== 1) {
       setMessage("Select one inventory line before transferring.");
       return;
@@ -1990,6 +2004,7 @@ export default function Home() {
   }
 
   function quickTransfer(row: InventoryRow) {
+    if (isReadOnlyRole) return;
     setMessage("");
     setSelectedRows([row.id]);
     setTransferMode("all");
@@ -1999,6 +2014,11 @@ export default function Home() {
 
   async function openShip() {
     setMessage("");
+
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot ship inventory.");
+      return;
+    }
 
     if (selectedRows.length < 1) {
       setMessage("Select at least one inventory line before shipping.");
@@ -2047,6 +2067,11 @@ export default function Home() {
   function openEdit() {
     setMessage("");
 
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot adjust inventory.");
+      return;
+    }
+
     if (selectedRows.length !== 1 || !selectedEditRow) {
       setMessage("Select one inventory line before editing.");
       return;
@@ -2057,6 +2082,7 @@ export default function Home() {
   }
 
   async function quickShip(row: InventoryRow) {
+    if (isReadOnlyRole) return;
     setMessage("");
     setSelectedRows([row.id]);
     setShipForm({
@@ -2068,6 +2094,7 @@ export default function Home() {
   }
 
   function quickAdjust(row: InventoryRow) {
+    if (isReadOnlyRole) return;
     setMessage("");
     setSelectedRows([row.id]);
     setEditForm(buildEditForm(row));
@@ -2387,6 +2414,10 @@ export default function Home() {
     if (!selectedYard || !selectedEditRow) return;
 
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot adjust inventory.");
+      return;
+    }
 
     if (!editForm.customer.trim()) {
       setMessage("Customer is required.");
@@ -2475,6 +2506,10 @@ export default function Home() {
     if (!selectedYard) return;
   
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot receive inventory.");
+      return;
+    }
   
     if (!receiveForm.customer.trim()) {
       setMessage("Customer is required.");
@@ -2604,6 +2639,10 @@ export default function Home() {
     if (!selectedYard) return;
 
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot add inventory.");
+      return;
+    }
 
     if (!receiveForm.customer.trim()) {
       setMessage("Customer is required.");
@@ -2689,6 +2728,10 @@ export default function Home() {
     if (!selectedYard || !selectedTransferRow) return;
 
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot transfer inventory.");
+      return;
+    }
 
     if (!transferForm.comment.trim()) {
       setMessage("Transfer comment is required.");
@@ -2845,6 +2888,10 @@ export default function Home() {
     if (!selectedYard || selectedShipRows.length === 0) return;
 
     setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot ship inventory.");
+      return;
+    }
 
     if (!shipForm.carrier.trim()) {
       setMessage("Carrier is required.");
@@ -3199,21 +3246,27 @@ export default function Home() {
           Clear Filters
         </button>
 
-        <select className="field" value={role} onChange={(event) => setRole(event.target.value as Role)}>
+        <select
+          className="field"
+          value={role}
+          disabled={profileRole === "sales" || profileRole === "customer"}
+          onChange={(event) => setRole(event.target.value as Role)}
+        >
           <option value="admin">Admin</option>
           <option value="customer">Customer View</option>
+          <option value="sales">Sales View</option>
         </select>
 
         <div className="button-grid">
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
           <button className="button" onClick={refreshYardView}>Refresh</button>
-          <button className="button" disabled={role === "customer" || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
-          <button className="button" disabled={role === "customer"} onClick={openTransfer}>Transfer</button>
-          <button className="button primary" disabled={role === "customer"} onClick={() => setReceiveOpen(true)}>Receive</button>
+          <button className="button" disabled={isReadOnlyRole || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
+          <button className="button" disabled={isReadOnlyRole} onClick={openTransfer}>Transfer</button>
+          <button className="button primary" disabled={isReadOnlyRole} onClick={() => setReceiveOpen(true)}>Receive</button>
           <button
             className="button"
-            disabled={role === "customer"}
+            disabled={isReadOnlyRole}
             onClick={() => {
               setReceiveForm({
                 ...emptyReceiveForm,
@@ -3227,15 +3280,15 @@ export default function Home() {
           >
             Initial Inventory
           </button>
-          <button className="button" disabled={role === "customer"} onClick={openShip}>Ship</button>
-          <button className="button" disabled={role === "customer" || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
+          <button className="button" disabled={isReadOnlyRole} onClick={openShip}>Ship</button>
+          <button className="button" disabled={isReadOnlyRole || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
-          <button className="button" disabled={role === "customer"} onClick={openHardbandJobs}>Hardband Jobs</button>
+          <button className="button" disabled={!canUseAdminTools} onClick={openHardbandJobs}>Hardband Jobs</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
-          <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>
+          <button className="button" disabled={!canUseAdminTools} onClick={() => (window.location.href = "/admin")}>Admin</button>
         </div>
 
         {message && <div className="modal-message">{message}</div>}
@@ -3446,9 +3499,9 @@ export default function Home() {
                       </td>
                       <td>
                         <div className="quick-actions">
-                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickTransfer(row)}>Transfer</button>
-                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickShip(row)}>Ship</button>
-                          <button className="mini-action" disabled={role === "customer"} onClick={() => quickAdjust(row)}>Adjust</button>
+                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickTransfer(row)}>Transfer</button>
+                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickShip(row)}>Ship</button>
+                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickAdjust(row)}>Adjust</button>
                           <button className="mini-action" onClick={() => quickTickets(row)}>Tickets</button>
                           <button className="mini-action" onClick={() => quickActivity(row)}>History</button>
                         </div>
@@ -3496,7 +3549,7 @@ export default function Home() {
               <button className="button" onClick={exportInventoryCsv}>Export Rack CSV</button>
               <button
                 className="button primary"
-                disabled={role === "customer"}
+                disabled={isReadOnlyRole}
                 onClick={() => {
                   setReceiveForm({ ...emptyReceiveForm, destination: `rack:${selectedRackDetail.label}` });
                   setReceiveOpen(true);
@@ -3506,7 +3559,7 @@ export default function Home() {
               </button>
               <button
                 className="button"
-                disabled={role === "customer"}
+                disabled={isReadOnlyRole}
                 onClick={() => {
                   setReceiveForm({
                     ...emptyReceiveForm,
@@ -3605,9 +3658,9 @@ export default function Home() {
                           </td>
                           <td>
                             <div className="quick-actions">
-                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickTransfer(row)}>Transfer</button>
-                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickShip(row)}>Ship</button>
-                              <button className="mini-action" disabled={role === "customer"} onClick={() => quickAdjust(row)}>Adjust</button>
+                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickTransfer(row)}>Transfer</button>
+                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickShip(row)}>Ship</button>
+                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickAdjust(row)}>Adjust</button>
                             </div>
                           </td>
                           <td>{row.company}</td>
@@ -3742,7 +3795,7 @@ export default function Home() {
 
             <div className="slide-actions">
               <button className="button" onClick={() => setEditOpen(false)}>Cancel</button>
-              <button className="button primary" onClick={saveEdit} disabled={savingEdit}>{savingEdit ? "Saving..." : "Save Inventory Edit"}</button>
+              <button className="button primary" onClick={saveEdit} disabled={savingEdit || isReadOnlyRole}>{savingEdit ? "Saving..." : "Save Inventory Edit"}</button>
             </div>
           </section>
         </div>
@@ -3832,7 +3885,7 @@ export default function Home() {
 
             <div className="slide-actions">
               <button className="button" onClick={() => { setInitialInventoryOpen(false); setReceiveForm(emptyReceiveForm); }}>Cancel</button>
-              <button className="button primary" onClick={saveInitialInventory} disabled={savingInitialInventory}>
+              <button className="button primary" onClick={saveInitialInventory} disabled={savingInitialInventory || isReadOnlyRole}>
                 {savingInitialInventory ? "Saving..." : "Add Inventory"}
               </button>
             </div>
@@ -3991,7 +4044,7 @@ export default function Home() {
 
             <div className="slide-actions">
               <button className="button" onClick={() => { setReceiveOpen(false); setReceiveFiles([]); }}>Cancel</button>
-              <button className="button primary" onClick={saveReceive} disabled={savingReceive}>
+              <button className="button primary" onClick={saveReceive} disabled={savingReceive || isReadOnlyRole}>
                 {savingReceive ? "Saving..." : "Save Receiving"}
               </button>
             </div>
@@ -4080,7 +4133,7 @@ export default function Home() {
 
             <div className="slide-actions">
               <button className="button" onClick={() => setTransferOpen(false)}>Cancel</button>
-              <button className="button primary" onClick={saveTransfer} disabled={savingTransfer}>
+              <button className="button primary" onClick={saveTransfer} disabled={savingTransfer || isReadOnlyRole}>
                 {savingTransfer ? "Transferring..." : "Finish Transfer"}
               </button>
             </div>
@@ -4211,7 +4264,7 @@ export default function Home() {
 
             <div className="slide-actions">
               <button className="button" onClick={() => { setShipOpen(false); setShipFiles([]); }}>Cancel</button>
-              <button className="button primary" onClick={saveShip} disabled={savingShip}>
+              <button className="button primary" onClick={saveShip} disabled={savingShip || isReadOnlyRole}>
                 {savingShip ? "Saving..." : "Save Shipping Ticket / BOL"}
               </button>
             </div>

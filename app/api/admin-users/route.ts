@@ -29,9 +29,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!["admin", "employee", "customer", "operator"].includes(role)) {
+    if (!["admin", "employee", "customer", "operator", "sales"].includes(role)) {
       return Response.json(
-        { error: "Role must be admin, employee, customer, or operator." },
+        { error: "Role must be admin, employee, customer, operator, or sales." },
         { status: 400 }
       );
     }

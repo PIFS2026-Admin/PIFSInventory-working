@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "employee" | "customer" | "operator";
+export type UserRole = "admin" | "employee" | "customer" | "operator" | "sales";
 export type PipeRange = "Range 2" | "Range 3";
 
 export type InventoryStatus =

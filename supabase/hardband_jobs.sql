@@ -85,6 +85,13 @@ for select
 to authenticated
 using (company_id = public.current_user_company_id());
 
+drop policy if exists "hardband jobs staff read" on public.hardband_jobs;
+create policy "hardband jobs staff read"
+on public.hardband_jobs
+for select
+to authenticated
+using (public.is_staff_reader());
+
 drop policy if exists "hardband line items internal full" on public.hardband_job_line_items;
 create policy "hardband line items internal full"
 on public.hardband_job_line_items
@@ -118,6 +125,20 @@ using (
     from public.hardband_jobs job
     where job.id = hardband_job_id
       and job.company_id = public.current_user_company_id()
+  )
+);
+
+drop policy if exists "hardband line items staff read" on public.hardband_job_line_items;
+create policy "hardband line items staff read"
+on public.hardband_job_line_items
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.hardband_jobs job
+    where job.id = hardband_job_id
+      and public.is_staff_reader()
   )
 );
 
