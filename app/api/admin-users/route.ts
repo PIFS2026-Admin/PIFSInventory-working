@@ -36,10 +36,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const siteUrl =
-      request.headers.get("origin") ??
+    const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ??
-      "https://pifstitan.com";
+      process.env.NEXT_PUBLIC_APP_URL ??
+      "https://pifstitan.com"
+    ).replace(/\/$/, "");
 
     const { data: invitedUser, error: inviteError } =
       await adminSupabase.auth.admin.inviteUserByEmail(email, {
