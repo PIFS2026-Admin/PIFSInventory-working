@@ -280,10 +280,17 @@ button {
   outline: 1px dashed var(--orange);
 }
 
-.edit-rack {
+.layout-rack-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.edit-rack,
+.capacity-rack {
   width: 100%;
   min-height: 30px;
-  margin-top: 5px;
   font-size: 12px;
 }
 

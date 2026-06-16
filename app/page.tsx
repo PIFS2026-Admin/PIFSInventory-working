@@ -2289,6 +2289,29 @@ export default function Home() {
     }
   }
 
+  function editRackCapacity(label: string) {
+    const rack = rackLayout.find((item) => item.label === label);
+    if (!rack) return;
+
+    const nextCapacityText = window.prompt(`Capacity for rack ${label}`, String(rack.capacity));
+    if (nextCapacityText === null) return;
+
+    const nextCapacity = Number(nextCapacityText);
+
+    if (!Number.isFinite(nextCapacity) || nextCapacity <= 0) {
+      setMessage("Rack capacity must be a number greater than zero.");
+      return;
+    }
+
+    setRackLayout((current) =>
+      current.map((item) =>
+        item.label === label ? { ...item, capacity: Math.round(nextCapacity) } : item
+      )
+    );
+
+    setMessage(`Rack ${label} capacity set to ${Math.round(nextCapacity)} joints. Click Save Layout when you are done.`);
+  }
+
   function toggleRackEnabled(label: string) {
     const rack = rackLayout.find((item) => item.label === label);
     if (!rack) return;
@@ -3459,7 +3482,7 @@ export default function Home() {
                 return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
               });
               const joints = rackInventory.reduce((sum, row) => sum + row.joints, 0);
-              const fill = Math.min(100, Math.round((joints / rack.capacity) * 100));
+              const fill = rack.capacity > 0 ? Math.min(100, Math.round((joints / rack.capacity) * 100)) : 0;
 
               return (
                 <div
@@ -3502,9 +3525,14 @@ export default function Home() {
                   </button>
 
                   {layoutMode && (
-                    <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
-                      Edit
-                    </button>
+                    <div className="layout-rack-actions">
+                      <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
+                        Edit
+                      </button>
+                      <button className="mini-button capacity-rack" onClick={() => editRackCapacity(rack.label)}>
+                        Cap
+                      </button>
+                    </div>
                   )}
                 </div>
               );
@@ -3632,7 +3660,7 @@ export default function Home() {
               <div>
                 <span>Current Load</span>
                 <strong>{selectedRackTotals.joints}</strong>
-                <small>{Math.round((selectedRackTotals.joints / selectedRackDetail.capacity) * 100) || 0}% full</small>
+                <small>{selectedRackDetail.capacity > 0 ? Math.round((selectedRackTotals.joints / selectedRackDetail.capacity) * 100) : 0}% full</small>
               </div>
               <div>
                 <span>Footage</span>

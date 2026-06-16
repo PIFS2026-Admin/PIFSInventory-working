@@ -1194,6 +1194,23 @@ export default function AdminPage() {
                         </button>
                         <button
                           className="button"
+                          onClick={() => {
+                            const capacity = window.prompt("Rack capacity", String(rack.capacityJoints));
+                            if (capacity === null) return;
+
+                            const nextCapacity = Number(capacity);
+                            if (!Number.isFinite(nextCapacity) || nextCapacity <= 0) {
+                              setMessage("Rack capacity must be a number greater than zero.");
+                              return;
+                            }
+
+                            updateRack(rack, { capacityJoints: Math.round(nextCapacity) });
+                          }}
+                        >
+                          Capacity
+                        </button>
+                        <button
+                          className="button"
                           onClick={() => updateRack(rack, { isActive: !rack.isActive })}
                         >
                           {rack.isActive ? "Disable" : "Enable"}
