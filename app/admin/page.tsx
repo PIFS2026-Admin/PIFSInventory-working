@@ -581,7 +581,7 @@ export default function AdminPage() {
 
     setUserForm(emptyUserForm);
     await loadProfiles();
-    setMessage(result.warning ?? `User invite sent: ${result.email}`);
+    setMessage(result.warning ?? `User created and login email sent: ${result.email}`);
     setLoading(false);
   }
 

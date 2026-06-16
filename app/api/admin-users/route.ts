@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { randomBytes } from "crypto";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -18,6 +19,117 @@ function getErrorMessage(error: any) {
     return JSON.stringify(error);
   } catch {
     return "Unknown error.";
+  }
+}
+
+function makeTemporaryPassword() {
+  return `Titan-${randomBytes(4).toString("hex")}-${randomBytes(3).toString("hex")}!`;
+}
+
+function isMicrosoftMailConfigured() {
+  return Boolean(
+    process.env.MICROSOFT_TENANT_ID &&
+      process.env.MICROSOFT_CLIENT_ID &&
+      process.env.MICROSOFT_CLIENT_SECRET &&
+      process.env.MICROSOFT_MAIL_FROM
+  );
+}
+
+async function getMicrosoftAccessToken() {
+  const tenantId = process.env.MICROSOFT_TENANT_ID;
+  const clientId = process.env.MICROSOFT_CLIENT_ID;
+  const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error("Microsoft 365 email is not configured.");
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: "https://graph.microsoft.com/.default",
+    grant_type: "client_credentials",
+  });
+
+  const response = await fetch(
+    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok || !result.access_token) {
+    throw new Error(getErrorMessage(result));
+  }
+
+  return String(result.access_token);
+}
+
+async function sendMicrosoftLoginEmail(options: {
+  email: string;
+  fullName: string;
+  role: string;
+  temporaryPassword: string;
+  siteUrl: string;
+}) {
+  const from = process.env.MICROSOFT_MAIL_FROM;
+
+  if (!from) {
+    throw new Error("MICROSOFT_MAIL_FROM is missing.");
+  }
+
+  const accessToken = await getMicrosoftAccessToken();
+  const loginUrl = `${options.siteUrl}/login`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
+      <h2 style="margin:0 0 12px">Welcome to TITAN</h2>
+      <p>${options.fullName}, your TITAN account has been created.</p>
+      <p><strong>Login:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
+      <p><strong>Email:</strong> ${options.email}</p>
+      <p><strong>Temporary password:</strong> ${options.temporaryPassword}</p>
+      <p>Please sign in and change your password.</p>
+      <p style="color:#6b7280;font-size:12px">TITAN - Tubular Inventory Tracking & Asset Navigation</p>
+    </div>
+  `;
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: {
+          subject: "Your TITAN login",
+          body: {
+            contentType: "HTML",
+            content: html,
+          },
+          toRecipients: [
+            {
+              emailAddress: {
+                address: options.email,
+              },
+            },
+          ],
+        },
+        saveToSentItems: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const result = await response.json().catch(() => null);
+    throw new Error(getErrorMessage(result) || `Microsoft email failed with status ${response.status}.`);
   }
 }
 
@@ -67,91 +179,33 @@ export async function POST(request: Request) {
       });
     };
 
-    const { data: invitedUser, error: inviteError } =
-      await adminSupabase.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${siteUrl}/login`,
-        data: {
+    const temporaryPassword = password || makeTemporaryPassword();
+
+    const { data: createdUser, error: createError } =
+      await adminSupabase.auth.admin.createUser({
+        email,
+        password: temporaryPassword,
+        email_confirm: true,
+        user_metadata: {
           full_name: fullName,
           role,
         },
       });
 
-    if (inviteError) {
-      const inviteMessage = getErrorMessage(inviteError);
-
-      if (!password) {
-        return Response.json(
-          {
-            error:
-              `Invite email failed: ${inviteMessage}. ` +
-              "Enter a temporary password to create the user without an email, or fix the SMTP email settings and try again.",
-          },
-          { status: 400 }
-        );
-      }
-
-      const { data: createdUser, error: createError } =
-        await adminSupabase.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: true,
-        });
-
-      if (createError) {
-        return Response.json(
-          {
-            error:
-              `Invite email failed: ${inviteMessage}. ` +
-              `Temporary-password creation also failed: ${getErrorMessage(createError)}`,
-          },
-          { status: 400 }
-        );
-      }
-
-      const fallbackUserId = createdUser.user?.id;
-
-      if (!fallbackUserId) {
-        return Response.json(
-          { error: "User was created without an email invite, but no user id was returned." },
-          { status: 400 }
-        );
-      }
-
-      const { error: fallbackProfileError } = await saveProfile(fallbackUserId);
-
-      if (fallbackProfileError) {
-        return Response.json({ error: getErrorMessage(fallbackProfileError) }, { status: 400 });
-      }
-
-      return Response.json({
-        ok: true,
-        userId: fallbackUserId,
-        email,
-        role,
-        invited: false,
-        warning:
-          `User created with temporary password, but invite email failed: ${inviteMessage}. ` +
-          "Give the user the temporary password manually.",
-      });
-    }
-
-    const userId = invitedUser.user?.id;
-
-    if (!userId) {
+    if (createError) {
       return Response.json(
-        { error: "User invite was sent, but no user id was returned." },
+        { error: `Could not create user: ${getErrorMessage(createError)}` },
         { status: 400 }
       );
     }
 
-    if (password) {
-      const { error: passwordError } = await adminSupabase.auth.admin.updateUserById(userId, {
-        password,
-      });
+    const userId = createdUser.user?.id;
 
-      if (passwordError) {
-        return Response.json({ error: passwordError.message }, { status: 400 });
-      }
+    if (!userId) {
+      return Response.json(
+        { error: "User was created, but no user id was returned." },
+        { status: 400 }
+      );
     }
 
     const { error: profileError } = await saveProfile(userId);
@@ -160,12 +214,47 @@ export async function POST(request: Request) {
       return Response.json({ error: getErrorMessage(profileError) }, { status: 400 });
     }
 
+    if (!isMicrosoftMailConfigured()) {
+      return Response.json({
+        ok: true,
+        userId,
+        email,
+        role,
+        emailed: false,
+        temporaryPassword,
+        warning:
+          `User created, but Microsoft 365 email is not configured. Temporary password: ${temporaryPassword}`,
+      });
+    }
+
+    try {
+      await sendMicrosoftLoginEmail({
+        email,
+        fullName,
+        role,
+        temporaryPassword,
+        siteUrl,
+      });
+    } catch (emailError: any) {
+      return Response.json({
+        ok: true,
+        userId,
+        email,
+        role,
+        emailed: false,
+        temporaryPassword,
+        warning:
+          `User created, but Microsoft 365 email failed: ${getErrorMessage(emailError)}. ` +
+          `Temporary password: ${temporaryPassword}`,
+      });
+    }
+
     return Response.json({
       ok: true,
       userId,
       email,
       role,
-      invited: true,
+      emailed: true,
     });
   } catch (error: any) {
     return Response.json(
