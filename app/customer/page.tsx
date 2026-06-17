@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
+import NotificationCenter from "../../components/NotificationCenter";
 
 type CustomerProfile = {
   id: string;
@@ -355,6 +356,7 @@ export default function CustomerPage() {
         </div>
 
         <div className="customer-actions">
+          {profile && <NotificationCenter />}
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>
           <button className="button" onClick={signOut}>Sign Out</button>

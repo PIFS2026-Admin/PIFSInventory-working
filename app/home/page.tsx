@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import NotificationCenter from "../../components/NotificationCenter";
 import { supabase } from "../../lib/supabase";
 
 type Profile = {
@@ -24,6 +25,11 @@ const launchCards: LaunchCard[] = [
     title: "DTI",
     description: "Field inspection jobs, scorecards, red flags, and DTI reports.",
     href: "/dti",
+  },
+  {
+    title: "DTI Daily Summary",
+    description: "Paperless inspection summaries with email and print options.",
+    href: "/dti-summary",
   },
   {
     title: "Hardbanding",
@@ -136,6 +142,7 @@ export default function InternalHomePage() {
         </button>
 
         <div className="launch-actions">
+          {profile && <NotificationCenter />}
           <button className="button" onClick={loadProfile} disabled={loading}>
             Refresh
           </button>
