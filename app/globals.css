@@ -348,6 +348,17 @@ button {
   color: #fecaca;
 }
 
+.yard-map-shell {
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  border-radius: 10px;
+}
+
+.yard-map {
+  box-sizing: border-box;
+}
+
 .wtx-yard-map {
   box-shadow: inset 0 0 0 9999px rgba(6, 9, 13, 0.08);
 }

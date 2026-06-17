@@ -3520,25 +3520,27 @@ export default function Home() {
             </div>
           )}
 
-          <div
-            className="yard-map wtx-yard-map"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={moveRackOnMap}
-            style={{
-              position: "relative",
-              minHeight: "820px",
-              minWidth: "1220px",
-              width: "1220px",
-              overflow: "auto",
-              border: "1px solid #303846",
-              borderRadius: "10px",
-              backgroundImage: "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')",
-              backgroundSize: "74px 74px, 74px 74px, 100% 100%",
-              backgroundPosition: "26px 70px, 26px 70px, center",
-              backgroundRepeat: "repeat, repeat, no-repeat",
-              padding: "12px",
-            }}
-          >
+          <div className="yard-map-shell">
+            <div
+              className="yard-map wtx-yard-map"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={moveRackOnMap}
+              style={{
+                position: "relative",
+                minHeight: "820px",
+                minWidth: "1220px",
+                width: "100%",
+                overflow: "hidden",
+                border: "1px solid #303846",
+                borderRadius: "10px",
+                backgroundImage: "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')",
+                backgroundSize: "74px 74px, 74px 74px, 100% 100%",
+                backgroundPosition: "26px 70px, 26px 70px, center",
+                backgroundRepeat: "repeat, repeat, no-repeat",
+                boxSizing: "border-box",
+                padding: "12px",
+              }}
+            >
             <div
               style={{
                 position: "absolute",
@@ -3648,6 +3650,7 @@ export default function Home() {
                 </div>
               );
             })}
+            </div>
           </div>
         </section>
 
