@@ -2544,6 +2544,18 @@ th {
   display: inline;
 }
 
+.detail-grid div {
+  line-height: 1.45;
+}
+
+.detail-grid strong {
+  margin-right: 4px;
+}
+
+.detail-grid strong::after {
+  content: ":";
+}
+
 .dti-red-flag-list {
   margin: 14px 0;
 }
@@ -3409,6 +3421,134 @@ th {
   background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 25px, rgba(31, 41, 55, 0.35) 26px);
 }
 
+.inspection-summary-sheet.print-version {
+  width: 8.5in;
+  min-height: 11in;
+  padding: 0.44in;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.inspection-summary-sheet.print-version .summary-letterhead {
+  display: grid;
+  grid-template-columns: 2.5in 1fr;
+  gap: 0.35in;
+  align-items: start;
+  margin-bottom: 14px;
+}
+
+.inspection-summary-sheet.print-version .summary-letterhead img {
+  width: 2.1in;
+  margin-top: 0.12in;
+}
+
+.inspection-summary-sheet.print-version .summary-title-block h1 {
+  margin: 0 0 12px;
+  font-size: 30px;
+  font-weight: 500;
+}
+
+.inspection-summary-sheet.print-version .summary-print-line,
+.inspection-summary-sheet.print-version .summary-print-count {
+  display: flex;
+  align-items: end;
+  gap: 7px;
+  min-height: 22px;
+  white-space: nowrap;
+}
+
+.inspection-summary-sheet.print-version .summary-print-line span,
+.inspection-summary-sheet.print-version .summary-print-count span {
+  color: #202020;
+  font-weight: 700;
+}
+
+.inspection-summary-sheet.print-version .summary-print-line strong,
+.inspection-summary-sheet.print-version .summary-print-count strong {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: end;
+  min-width: 52px;
+  min-height: 18px;
+  border-bottom: 1.5px solid #8f8f8f;
+  padding: 0 4px 1px;
+  color: #111827;
+}
+
+.inspection-summary-sheet.print-version .summary-print-page-count {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.inspection-summary-sheet.print-version .summary-top-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 18px;
+  margin: 4px 0 14px 2.55in;
+}
+
+.inspection-summary-sheet.print-version .summary-top-fields .summary-print-line:last-child {
+  grid-column: 1 / -1;
+}
+
+.inspection-summary-sheet.print-version .summary-long-lines {
+  display: grid;
+  gap: 10px;
+  border-top: 2px solid #b7b7b2;
+  padding-top: 10px;
+  margin-bottom: 14px;
+}
+
+.inspection-summary-sheet.print-version .summary-box-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.inspection-summary-sheet.print-version .summary-count-box {
+  min-height: 2.1in;
+  padding: 10px;
+  border: 3px solid #2f2f2f;
+  display: grid;
+  gap: 7px;
+}
+
+.inspection-summary-sheet.print-version .summary-count-box.compact {
+  min-height: 1.1in;
+}
+
+.inspection-summary-sheet.print-version .summary-split-row.print {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 0.8fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.inspection-summary-sheet.print-version .summary-split-row.print > span {
+  color: #202020;
+  font-weight: 700;
+}
+
+.inspection-summary-sheet.print-version .summary-bottom-counts.print {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.inspection-summary-sheet.print-version .summary-print-notes {
+  min-height: 84px;
+}
+
+.inspection-summary-sheet.print-version .summary-footer {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 14px;
+  align-items: end;
+  margin-top: 18px;
+}
+
 .summary-remarks.print p {
   min-height: 1.1in;
   white-space: pre-wrap;
@@ -3486,7 +3626,6 @@ th {
   }
 
   .summary-page-count,
-  .summary-print-page-count,
   .summary-box-grid,
   .summary-footer {
     grid-template-columns: 1fr;
@@ -3512,7 +3651,7 @@ th {
     border-width: 2px;
   }
 
-  .summary-split-row {
+  .summary-split-row:not(.print) {
     grid-template-columns: 1fr;
   }
 
@@ -3586,11 +3725,46 @@ th {
   }
 
   .summary-line-field,
-  .summary-inline-count,
-  .summary-print-line,
-  .summary-print-count {
+  .summary-inline-count {
     min-height: 18px !important;
     gap: 5px !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-print-line,
+  .inspection-summary-sheet.print-version .summary-print-count {
+    display: flex !important;
+    align-items: end !important;
+    gap: 5px !important;
+    min-height: 16px !important;
+    white-space: nowrap !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-print-line strong,
+  .inspection-summary-sheet.print-version .summary-print-count strong {
+    min-height: 15px !important;
+    border-bottom: 1px solid #8f8f8f !important;
+    padding: 0 3px !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-top-fields {
+    grid-template-columns: 1fr 1fr !important;
+    margin: 3px 0 5px 1.63in !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-print-page-count {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-box-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-split-row.print {
+    grid-template-columns: 1fr 0.8fr 0.8fr !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-bottom-counts.print {
+    grid-template-columns: repeat(4, 1fr) !important;
   }
 
   .summary-top-fields,
@@ -3607,7 +3781,7 @@ th {
   }
 
   .summary-count-box {
-    min-height: 1.38in !important;
+    min-height: 1.26in !important;
     padding: 5px !important;
     border-width: 2px !important;
     gap: 3px !important;
@@ -3628,6 +3802,11 @@ th {
 
   .summary-note-lines {
     min-height: 24px !important;
+  }
+
+  .summary-print-notes {
+    min-height: 34px !important;
+    line-height: 1.25 !important;
   }
 
   .summary-footer {
