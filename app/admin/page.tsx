@@ -54,6 +54,15 @@ type PartNumber = {
   pipeRange: "Range 2" | "Range 3";
 };
 
+type InspectorRole = "lead_inspector" | "crew_lead" | "both";
+
+type Inspector = {
+  id: string;
+  fullName: string;
+  role: InspectorRole;
+  isActive: boolean;
+};
+
 type AdminUserForm = {
   email: string;
   password: string;
@@ -100,8 +109,20 @@ const emptyPartForm = {
   pipeRange: "Range 2" as "Range 2" | "Range 3",
 };
 
+const emptyInspectorForm = {
+  id: "",
+  fullName: "",
+  role: "lead_inspector" as InspectorRole,
+};
+
 function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
   return value === "Range 3" ? "Range 3" : "Range 2";
+}
+
+function inspectorRoleLabel(role: InspectorRole) {
+  if (role === "lead_inspector") return "Lead Inspector";
+  if (role === "crew_lead") return "Crew Lead";
+  return "Lead Inspector / Crew Lead";
 }
 
 function makeCode(value: string) {
@@ -131,12 +152,14 @@ export default function AdminPage() {
   const [racks, setRacks] = useState<Rack[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [partNumbers, setPartNumbers] = useState<PartNumber[]>([]);
+  const [inspectors, setInspectors] = useState<Inspector[]>([]);
 
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [userForm, setUserForm] = useState<AdminUserForm>(emptyUserForm);
   const [rackForm, setRackForm] = useState(emptyRackForm);
   const [zoneForm, setZoneForm] = useState(emptyZoneForm);
   const [partForm, setPartForm] = useState(emptyPartForm);
+  const [inspectorForm, setInspectorForm] = useState(emptyInspectorForm);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -176,7 +199,7 @@ export default function AdminPage() {
     }
 
     setCurrentUserName(profile.full_name || user.email || "User");
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors()]);
     setMessage("");
   }
 
@@ -302,8 +325,109 @@ export default function AdminPage() {
   }
 
   async function refreshAdmin() {
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors()]);
     setMessage("Admin tools refreshed.");
+  }
+
+  async function loadInspectors() {
+    const { data, error } = await supabase
+      .from("inspectors")
+      .select("id, full_name, role, is_active")
+      .order("full_name", { ascending: true });
+
+    if (error) {
+      setMessage(`Inspectors failed: ${error.message}`);
+      return;
+    }
+
+    setInspectors(
+      (data ?? []).map((inspector: any) => ({
+        id: inspector.id,
+        fullName: inspector.full_name ?? "",
+        role: (inspector.role ?? "lead_inspector") as InspectorRole,
+        isActive: Boolean(inspector.is_active),
+      }))
+    );
+  }
+
+  async function saveInspector() {
+    if (!inspectorForm.fullName.trim()) {
+      setMessage("Inspector name is required.");
+      return;
+    }
+
+    setMessage("");
+    setLoading(true);
+
+    const payload = {
+      full_name: inspectorForm.fullName.trim(),
+      role: inspectorForm.role,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = inspectorForm.id
+      ? await supabase.from("inspectors").update(payload).eq("id", inspectorForm.id)
+      : await supabase.from("inspectors").insert(payload);
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setInspectorForm(emptyInspectorForm);
+    await loadInspectors();
+    setMessage(inspectorForm.id ? "Inspector updated." : "Inspector created.");
+    setLoading(false);
+  }
+
+  function editInspector(inspector: Inspector) {
+    setInspectorForm({
+      id: inspector.id,
+      fullName: inspector.fullName,
+      role: inspector.role,
+    });
+  }
+
+  async function toggleInspector(inspector: Inspector) {
+    setMessage("");
+    setLoading(true);
+
+    const { error } = await supabase
+      .from("inspectors")
+      .update({ is_active: !inspector.isActive, updated_at: new Date().toISOString() })
+      .eq("id", inspector.id);
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    await loadInspectors();
+    setMessage(`${inspector.fullName} ${inspector.isActive ? "disabled" : "enabled"}.`);
+    setLoading(false);
+  }
+
+  async function deleteInspector(inspector: Inspector) {
+    const confirmed = window.confirm(`Delete inspector ${inspector.fullName}? Existing DTI jobs will keep the saved name.`);
+    if (!confirmed) return;
+
+    setMessage("");
+    setLoading(true);
+
+    const { error } = await supabase.from("inspectors").delete().eq("id", inspector.id);
+
+    if (error) {
+      setMessage(error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (inspectorForm.id === inspector.id) setInspectorForm(emptyInspectorForm);
+    await loadInspectors();
+    setMessage("Inspector deleted.");
+    setLoading(false);
   }
 
   async function loadPartNumbers() {
@@ -765,7 +889,7 @@ export default function AdminPage() {
       <section className="customer-welcome">
         <span>Welcome</span>
         <h1>{currentUserName}</h1>
-        <p>Admin tools for companies, users, racks, work zones, and part numbers.</p>
+        <p>Admin tools for companies, users, inspectors, racks, work zones, and part numbers.</p>
       </section>
 
       <section className="admin-grid">
@@ -868,6 +992,71 @@ export default function AdminPage() {
           <button className="button primary" onClick={createUser} disabled={loading}>
             Create User
           </button>
+        </div>
+      </section>
+
+      <section className="ticket-card admin-card">
+        <div className="admin-section-title">
+          <div>
+            <h3>Inspector Manager</h3>
+            <p>Create the approved Lead Inspector and Crew Lead lists used on DTI jobs.</p>
+          </div>
+          {inspectorForm.id && (
+            <button className="button" onClick={() => setInspectorForm(emptyInspectorForm)}>
+              New Inspector
+            </button>
+          )}
+        </div>
+
+        <div className="form-grid admin-form-grid">
+          <label>
+            Inspector Name
+            <input
+              value={inspectorForm.fullName}
+              onChange={(event) => setInspectorForm({ ...inspectorForm, fullName: event.target.value })}
+              placeholder="Lead or crew lead name"
+            />
+          </label>
+
+          <label>
+            Inspector Role
+            <select
+              value={inspectorForm.role}
+              onChange={(event) => setInspectorForm({ ...inspectorForm, role: event.target.value as InspectorRole })}
+            >
+              <option value="lead_inspector">Lead Inspector</option>
+              <option value="crew_lead">Crew Lead</option>
+              <option value="both">Lead Inspector / Crew Lead</option>
+            </select>
+          </label>
+        </div>
+
+        <button className="button primary" onClick={saveInspector} disabled={loading}>
+          {inspectorForm.id ? "Save Inspector" : "Add Inspector"}
+        </button>
+
+        <div className="part-number-list">
+          {inspectors.length === 0 && <p className="muted-text">No inspectors created yet.</p>}
+          {inspectors.map((inspector) => (
+            <article key={inspector.id} className="part-number-row">
+              <div>
+                <strong>{inspector.fullName}</strong>
+                <span>{inspectorRoleLabel(inspector.role)}</span>
+                <small>{inspector.isActive ? "Active" : "Disabled"}</small>
+              </div>
+              <div className="part-number-actions">
+                <button className="button" onClick={() => editInspector(inspector)}>
+                  Edit
+                </button>
+                <button className="button" onClick={() => toggleInspector(inspector)}>
+                  {inspector.isActive ? "Disable" : "Enable"}
+                </button>
+                <button className="button danger" onClick={() => deleteInspector(inspector)}>
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 

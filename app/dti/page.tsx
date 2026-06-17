@@ -11,6 +11,15 @@ type Company = {
   name: string;
 };
 
+type InspectorRole = "lead_inspector" | "crew_lead" | "both";
+
+type Inspector = {
+  id: string;
+  fullName: string;
+  role: InspectorRole;
+  isActive: boolean;
+};
+
 type Profile = {
   id: string;
   fullName: string;
@@ -646,6 +655,7 @@ function SignaturePad({
 export default function DtiPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [inspectors, setInspectors] = useState<Inspector[]>([]);
   const [jobs, setJobs] = useState<DtiJob[]>([]);
   const [responses, setResponses] = useState<ChecklistResponse[]>([]);
   const [selectedJobId, setSelectedJobId] = useState("");
@@ -672,6 +682,22 @@ export default function DtiPage() {
   const selectedJob = useMemo(() => {
     return jobs.find((job) => job.id === selectedJobId) ?? null;
   }, [jobs, selectedJobId]);
+
+  const leadInspectorOptions = useMemo(
+    () =>
+      inspectors.filter(
+        (inspector) => inspector.isActive && (inspector.role === "lead_inspector" || inspector.role === "both")
+      ),
+    [inspectors]
+  );
+
+  const crewLeadOptions = useMemo(
+    () =>
+      inspectors.filter(
+        (inspector) => inspector.isActive && (inspector.role === "crew_lead" || inspector.role === "both")
+      ),
+    [inspectors]
+  );
 
   const selectedResponses = useMemo(() => {
     if (!selectedJob) return [];
@@ -801,7 +827,7 @@ export default function DtiPage() {
       reviewedBy: current.reviewedBy || loadedProfile.fullName,
     }));
 
-    await Promise.all([loadCompanies(), loadJobs()]);
+    await Promise.all([loadCompanies(), loadInspectors(), loadJobs()]);
     setMessage("");
   }
 
@@ -817,6 +843,28 @@ export default function DtiPage() {
     }
 
     setCompanies((data ?? []).map((company: any) => ({ id: company.id, name: company.name ?? "" })));
+  }
+
+  async function loadInspectors() {
+    const { data, error } = await supabase
+      .from("inspectors")
+      .select("id, full_name, role, is_active")
+      .eq("is_active", true)
+      .order("full_name", { ascending: true });
+
+    if (error) {
+      setMessage(`Inspectors failed: ${error.message}`);
+      return;
+    }
+
+    setInspectors(
+      (data ?? []).map((inspector: any) => ({
+        id: inspector.id,
+        fullName: inspector.full_name ?? "",
+        role: (inspector.role ?? "lead_inspector") as InspectorRole,
+        isActive: Boolean(inspector.is_active),
+      }))
+    );
   }
 
   async function loadJobs() {
@@ -963,6 +1011,16 @@ export default function DtiPage() {
 
     if (!jobForm.customer.trim()) {
       setMessage("Customer is required.");
+      return;
+    }
+
+    if (!jobForm.leadInspector.trim()) {
+      setMessage("Lead Inspector is required. Add inspectors in Admin if the list is empty.");
+      return;
+    }
+
+    if (!jobForm.crewLead.trim()) {
+      setMessage("Crew Lead is required. Add crew leads in Admin if the list is empty.");
       return;
     }
 
@@ -1463,7 +1521,18 @@ export default function DtiPage() {
 
             <label>
               Lead Inspector
-              <input value={jobForm.leadInspector} onChange={(event) => setJobForm({ ...jobForm, leadInspector: event.target.value })} disabled={!canEdit} />
+              <select
+                value={jobForm.leadInspector}
+                onChange={(event) => setJobForm({ ...jobForm, leadInspector: event.target.value })}
+                disabled={!canEdit}
+              >
+                <option value="">Select lead inspector</option>
+                {leadInspectorOptions.map((inspector) => (
+                  <option key={inspector.id} value={inspector.fullName}>
+                    {inspector.fullName}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label>
@@ -1478,7 +1547,18 @@ export default function DtiPage() {
 
             <label>
               Crew Lead
-              <input value={jobForm.crewLead} onChange={(event) => setJobForm({ ...jobForm, crewLead: event.target.value })} disabled={!canEdit} />
+              <select
+                value={jobForm.crewLead}
+                onChange={(event) => setJobForm({ ...jobForm, crewLead: event.target.value })}
+                disabled={!canEdit}
+              >
+                <option value="">Select crew lead</option>
+                {crewLeadOptions.map((inspector) => (
+                  <option key={inspector.id} value={inspector.fullName}>
+                    {inspector.fullName}
+                  </option>
+                ))}
+              </select>
             </label>
 
             <label className="full">
