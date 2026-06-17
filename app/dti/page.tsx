@@ -519,6 +519,33 @@ function scoreLabel(score: number | null) {
   return "Critical";
 }
 
+function letterGrade(score: number | string | null) {
+  const numeric = typeof score === "number" ? score : Number(score);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "N/A";
+
+  const rounded = Math.round(numeric);
+  if (rounded >= 5) return "A";
+  if (rounded === 4) return "B";
+  if (rounded === 3) return "C";
+  if (rounded === 2) return "D";
+  return "F";
+}
+
+function scoreSummary(rows: ChecklistResponse[]) {
+  const scored = rows.filter((row) => row.score !== null);
+  const average = scored.length
+    ? scored.reduce((sum, row) => sum + Number(row.score ?? 0), 0) / scored.length
+    : 0;
+
+  return {
+    scoredCount: scored.length,
+    redCount: rows.filter((row) => row.redFlag || (row.score !== null && row.score <= 2)).length,
+    average,
+    averageText: average ? average.toFixed(1) : "-",
+    grade: letterGrade(average),
+  };
+}
+
 function SignaturePad({
   value,
   onChange,
@@ -630,6 +657,7 @@ export default function DtiPage() {
   });
   const [statusFilter, setStatusFilter] = useState("Active");
   const [sectionFilter, setSectionFilter] = useState("All Sections");
+  const [printSection, setPrintSection] = useState("All Sections");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading DTI management...");
   const [saving, setSaving] = useState(false);
@@ -641,7 +669,7 @@ export default function DtiPage() {
   const canClose = profile ? ["admin", "employee", "dti_superintendent"].includes(profile.role) : false;
 
   const selectedJob = useMemo(() => {
-    return jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null;
+    return jobs.find((job) => job.id === selectedJobId) ?? null;
   }, [jobs, selectedJobId]);
 
   const selectedResponses = useMemo(() => {
@@ -680,7 +708,7 @@ export default function DtiPage() {
   const metrics = useMemo(() => {
     const activeJobs = jobs.filter((job) => job.status !== "Closed");
     const redFlags = responses.filter((response) => response.redFlag || (response.score !== null && response.score <= 2)).length;
-    const scored = responses.filter((response) => response.score);
+    const scored = responses.filter((response) => response.score !== null);
     const averageScore = scored.length
       ? scored.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scored.length
       : 0;
@@ -701,6 +729,7 @@ export default function DtiPage() {
       closedThisWeek,
       redFlags,
       averageScore: averageScore ? averageScore.toFixed(1) : "-",
+      averageGrade: letterGrade(averageScore),
     };
   }, [jobs, responses]);
 
@@ -884,8 +913,8 @@ export default function DtiPage() {
       }))
     );
 
-    if (!selectedJobId && mappedJobs[0]) {
-      setSelectedJobId(mappedJobs[0].id);
+    if (selectedJobId && !mappedJobs.some((job) => job.id === selectedJobId)) {
+      setSelectedJobId("");
     }
   }
 
@@ -1008,7 +1037,7 @@ export default function DtiPage() {
           id: response.id,
           score: response.score,
           notes: response.notes || null,
-          red_flag: response.redFlag || Number(response.score ?? 0) <= 2,
+          red_flag: response.redFlag || (response.score !== null && response.score <= 2),
           updated_at: new Date().toISOString(),
         }));
 
@@ -1184,7 +1213,8 @@ export default function DtiPage() {
 
   function openPrint() {
     if (!selectedJob) return;
-    window.open(`/dti/print?id=${selectedJob.id}`, "_blank");
+    const section = encodeURIComponent(printSection);
+    window.open(`/dti/print?id=${selectedJob.id}&section=${section}`, "_blank");
   }
 
   return (
@@ -1220,7 +1250,11 @@ export default function DtiPage() {
         <div className="dashboard-card"><span>{metrics.activeJobs}</span><p>Active DTI Jobs</p></div>
         <div className="dashboard-card"><span>{metrics.reviewNeeded}</span><p>Needs Review</p></div>
         <div className="dashboard-card"><span>{metrics.closedThisWeek}</span><p>Closed This Week</p></div>
-        <div className="dashboard-card"><span>{metrics.averageScore}</span><p>Average Score</p></div>
+        <div className="dashboard-card">
+          <span>{metrics.averageScore}</span>
+          <p>Average Score</p>
+          <small>Grade {metrics.averageGrade}</small>
+        </div>
         <button
           type="button"
           className="dashboard-card metric-button"
@@ -1370,18 +1404,20 @@ export default function DtiPage() {
           <div className="hardband-job-list tall">
             {filteredJobs.map((job) => {
               const jobResponses = responses.filter((response) => response.dtiJobId === job.id);
-              const redCount = jobResponses.filter((response) => response.redFlag || Number(response.score ?? 0) <= 2).length;
-              const scoredCount = jobResponses.filter((response) => response.score).length;
+              const summary = scoreSummary(jobResponses);
 
               return (
                 <button
                   key={job.id}
                   className={`hardband-job-button ${selectedJob?.id === job.id ? "active" : ""}`}
-                  onClick={() => setSelectedJobId(job.id)}
+                  onClick={() => setSelectedJobId((current) => (current === job.id ? "" : job.id))}
                 >
                   <strong>{job.jobNumber}</strong>
-                  <span>{job.company} / {job.status}</span>
-                  <small>{job.jobDate || job.createdAt} / {scoredCount} scored / {redCount} red flags</small>
+                  <span>{job.company} / Rig {job.rig || "-"} / {job.status}</span>
+                  <small>
+                    Score {summary.averageText} / Grade {summary.grade} / {summary.scoredCount} scored / {summary.redCount} red flags
+                  </small>
+                  <small>{job.jobDate || job.createdAt}</small>
                 </button>
               );
             })}
@@ -1390,6 +1426,13 @@ export default function DtiPage() {
           </div>
         </section>
       </section>
+
+      {!selectedJob && (
+        <section className="dashboard-card wide dti-empty-detail">
+          <h2>Select a DTI Job</h2>
+          <p className="muted-text">Click a job card to open the checklist, enter scores, print reports, or close the job.</p>
+        </section>
+      )}
 
       {selectedJob && (
         <section className="dashboard-card wide dti-detail-card">
@@ -1423,6 +1466,13 @@ export default function DtiPage() {
 
           <div className="hardband-filter-row">
             <select value={sectionFilter} onChange={(event) => setSectionFilter(event.target.value)}>
+              <option>All Sections</option>
+              <option>Pre-Job</option>
+              <option>Field Inspection</option>
+              <option>Crew Scorecard</option>
+              <option>Summary</option>
+            </select>
+            <select value={printSection} onChange={(event) => setPrintSection(event.target.value)}>
               <option>All Sections</option>
               <option>Pre-Job</option>
               <option>Field Inspection</option>

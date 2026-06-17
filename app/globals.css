@@ -496,6 +496,7 @@ th {
 }
 
 .form-grid label {
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 900;
@@ -506,6 +507,8 @@ th {
 .form-grid select,
 .form-grid textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin-top: 6px;
   border-radius: 7px;
   border: 1px solid var(--line);
@@ -2243,6 +2246,13 @@ th {
   padding: 16px;
 }
 
+.dashboard-card small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .metric-button {
   width: 100%;
   text-align: left;
@@ -2266,7 +2276,19 @@ th {
   margin: 12px 0 14px;
 }
 
+.dti-create-grid label,
+.dti-create-grid input,
+.dti-create-grid select,
+.dti-create-grid textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .dti-detail-card {
+  margin-top: 18px;
+}
+
+.dti-empty-detail {
   margin-top: 18px;
 }
 

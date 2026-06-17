@@ -65,6 +65,18 @@ function scoreLabel(score: number | null) {
   return "Critical";
 }
 
+function letterGrade(score: number | string | null) {
+  const numeric = typeof score === "number" ? score : Number(score);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "N/A";
+
+  const rounded = Math.round(numeric);
+  if (rounded >= 5) return "A";
+  if (rounded === 4) return "B";
+  if (rounded === 3) return "C";
+  if (rounded === 2) return "D";
+  return "F";
+}
+
 function sectionGroups(rows: ResponseRow[]) {
   return ["Pre-Job", "Field Inspection", "Crew Scorecard", "Summary"].map((section) => ({
     section,
@@ -75,21 +87,27 @@ function sectionGroups(rows: ResponseRow[]) {
 export default function DtiPrintPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [responses, setResponses] = useState<ResponseRow[]>([]);
+  const [printSection, setPrintSection] = useState("All Sections");
   const [message, setMessage] = useState("Loading DTI report...");
 
+  const printResponses = useMemo(() => {
+    return responses.filter((row) => printSection === "All Sections" || row.section === printSection);
+  }, [responses, printSection]);
+
   const metrics = useMemo(() => {
-    const scored = responses.filter((row) => row.score);
+    const scored = printResponses.filter((row) => row.score !== null);
     const average = scored.length
       ? scored.reduce((sum, row) => sum + Number(row.score ?? 0), 0) / scored.length
       : 0;
 
     return {
       scored: scored.length,
-      total: responses.length,
+      total: printResponses.length,
       average: average ? average.toFixed(1) : "-",
-      redFlags: responses.filter((row) => row.redFlag || (row.score !== null && row.score <= 2)).length,
+      grade: letterGrade(average),
+      redFlags: printResponses.filter((row) => row.redFlag || (row.score !== null && row.score <= 2)).length,
     };
-  }, [responses]);
+  }, [printResponses]);
 
   useEffect(() => {
     loadReport();
@@ -98,6 +116,8 @@ export default function DtiPrintPage() {
   async function loadReport() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("id");
+    const section = params.get("section") || "All Sections";
+    setPrintSection(section);
 
     if (!id) {
       setMessage("Missing DTI job id.");
@@ -235,6 +255,7 @@ export default function DtiPrintPage() {
           <div>
             <h2>DTI Management Report</h2>
             <p>{job.jobNumber}</p>
+            <p>{printSection === "All Sections" ? "All Sections" : `Section: ${printSection}`}</p>
           </div>
           <div className="ticket-date-box">
             <span>Date</span>
@@ -261,11 +282,12 @@ export default function DtiPrintPage() {
           <div><span>Checklist Items</span><strong>{metrics.total}</strong></div>
           <div><span>Scored Items</span><strong>{metrics.scored}</strong></div>
           <div><span>Average Score</span><strong>{metrics.average}</strong></div>
+          <div><span>Letter Grade</span><strong>{metrics.grade}</strong></div>
           <div><span>Red Flags</span><strong>{metrics.redFlags}</strong></div>
           <div><span>Overall Result</span><strong>{job.overallResult || "-"}</strong></div>
         </div>
 
-        {sectionGroups(responses).map((group) => (
+        {sectionGroups(printResponses).filter((group) => group.rows.length > 0).map((group) => (
           <section key={group.section} className="dti-print-section">
             <h3>{group.section}</h3>
             <table className="print-ticket-table dti-report-table">
@@ -287,7 +309,7 @@ export default function DtiPrintPage() {
                     <td>{row.requirement}</td>
                     <td>{row.definition}</td>
                     <td>{row.priority}{row.weight !== null ? ` / ${(row.weight * 100).toFixed(0)}%` : ""}</td>
-                    <td>{row.score ? `${row.score} - ${scoreLabel(row.score)}` : "-"}</td>
+                    <td>{row.score !== null ? `${row.score} - ${scoreLabel(row.score)}` : "N/A"}</td>
                     <td>{row.redFlag || (row.score !== null && row.score <= 2) ? "Yes" : "-"}</td>
                     <td>{row.notes || "-"}</td>
                   </tr>
