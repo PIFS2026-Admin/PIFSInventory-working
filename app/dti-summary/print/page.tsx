@@ -28,6 +28,8 @@ type Summary = {
   totalDbr: number;
   minTongBox: number;
   minTongPin: number;
+  tstrBox: number;
+  tstrPin: number;
   emi: number;
   damagedTube: number;
   minWall: number;
@@ -87,6 +89,8 @@ function mapRow(row: any): Summary {
     totalDbr: count(row.total_dbr),
     minTongBox: count(row.min_tong_box),
     minTongPin: count(row.min_tong_pin),
+    tstrBox: count(row.tstr_box),
+    tstrPin: count(row.tstr_pin),
     emi: count(row.emi),
     damagedTube: count(row.damaged_tube),
     minWall: count(row.min_wall),
@@ -219,8 +223,9 @@ export default function DtiDailySummaryPrintPage() {
           </div>
 
           <div className="summary-count-box">
-            <CountLine label="Total DBR" value={summary.totalDbr} />
+            <CountLine label="Total DBR" value={summary.totalDbr || summary.minTongBox + summary.minTongPin + summary.tstrBox + summary.tstrPin + summary.emi + summary.damagedTube + summary.minWall} />
             <div className="summary-split-row print"><span>Min Tong</span><CountLine label="Box" value={summary.minTongBox} /><CountLine label="Pin" value={summary.minTongPin} /></div>
+            <div className="summary-split-row print"><span>TSTR</span><CountLine label="Box" value={summary.tstrBox} /><CountLine label="Pin" value={summary.tstrPin} /></div>
             <CountLine label="EMI" value={summary.emi} />
             <CountLine label="Damaged Tube" value={summary.damagedTube} />
             <CountLine label="MIN Wall" value={summary.minWall} />

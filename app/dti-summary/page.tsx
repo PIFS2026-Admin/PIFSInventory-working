@@ -36,6 +36,8 @@ type SummaryForm = {
   totalDbr: string;
   minTongBox: string;
   minTongPin: string;
+  tstrBox: string;
+  tstrPin: string;
   emi: string;
   damagedTube: string;
   minWall: string;
@@ -77,7 +79,7 @@ function blankForm(profileName = ""): SummaryForm {
     summaryNumber: "",
     operator: "",
     contractor: "",
-    location: "Pathfinder Yard (TX)",
+    location: "",
     summaryDate: today(),
     fieldInvoice: "",
     pageNumber: "1",
@@ -97,6 +99,8 @@ function blankForm(profileName = ""): SummaryForm {
     totalDbr: "",
     minTongBox: "",
     minTongPin: "",
+    tstrBox: "",
+    tstrPin: "",
     emi: "",
     damagedTube: "",
     minWall: "",
@@ -158,6 +162,8 @@ function mapRow(row: any): SummaryForm {
     totalDbr: readNumber(row.total_dbr),
     minTongBox: readNumber(row.min_tong_box),
     minTongPin: readNumber(row.min_tong_pin),
+    tstrBox: readNumber(row.tstr_box),
+    tstrPin: readNumber(row.tstr_pin),
     emi: readNumber(row.emi),
     damagedTube: readNumber(row.damaged_tube),
     minWall: readNumber(row.min_wall),
@@ -204,6 +210,8 @@ function buildPayload(form: SummaryForm, profileId: string, summaryNumber: strin
     total_dbr: numberValue(form.totalDbr),
     min_tong_box: numberValue(form.minTongBox),
     min_tong_pin: numberValue(form.minTongPin),
+    tstr_box: numberValue(form.tstrBox),
+    tstr_pin: numberValue(form.tstrPin),
     emi: numberValue(form.emi),
     damaged_tube: numberValue(form.damagedTube),
     min_wall: numberValue(form.minWall),
@@ -300,7 +308,7 @@ export default function DtiDailySummaryPage() {
   const totals = useMemo(() => {
     return {
       damageTotal: numberValue(form.damageSeatBox) + numberValue(form.damageSeatPin) + numberValue(form.damageThreadsBox) + numberValue(form.damageThreadsPin) + numberValue(form.shortBox) + numberValue(form.bentTube),
-      dbrTotal: numberValue(form.minTongBox) + numberValue(form.minTongPin) + numberValue(form.emi) + numberValue(form.damagedTube) + numberValue(form.minWall),
+      dbrTotal: numberValue(form.minTongBox) + numberValue(form.minTongPin) + numberValue(form.tstrBox) + numberValue(form.tstrPin) + numberValue(form.emi) + numberValue(form.damagedTube) + numberValue(form.minWall),
       refaceTotal: numberValue(form.refacePin) + numberValue(form.refaceBox),
       hardbandTotal: numberValue(form.hardbandPin) + numberValue(form.hardbandBox),
     };
@@ -410,10 +418,10 @@ export default function DtiDailySummaryPage() {
       const payload = buildPayload(
         {
           ...form,
-          totalDamages: form.totalDamages || String(totals.damageTotal),
-          totalDbr: form.totalDbr || String(totals.dbrTotal),
-          totalRefaces: form.totalRefaces || String(totals.refaceTotal),
-          totalHardbands: form.totalHardbands || String(totals.hardbandTotal),
+          totalDamages: String(totals.damageTotal),
+          totalDbr: String(totals.dbrTotal),
+          totalRefaces: String(totals.refaceTotal),
+          totalHardbands: String(totals.hardbandTotal),
         },
         profile.id,
         summaryNumber
@@ -599,7 +607,7 @@ export default function DtiDailySummaryPage() {
 
             <section className="summary-box-grid">
               <div className="summary-count-box">
-                <NumberLine label="Total Damages" value={form.totalDamages || String(totals.damageTotal || "")} onChange={(value) => updateForm({ totalDamages: value })} readOnly={readOnly} />
+                <NumberLine label="Total Damages" value={String(totals.damageTotal)} onChange={() => {}} readOnly />
                 <div className="summary-split-row">
                   <span>Damage Seat</span>
                   <NumberLine label="Box" value={form.damageSeatBox} onChange={(value) => updateForm({ damageSeatBox: value })} readOnly={readOnly} />
@@ -617,11 +625,16 @@ export default function DtiDailySummaryPage() {
               </div>
 
               <div className="summary-count-box">
-                <NumberLine label="Total DBR" value={form.totalDbr || String(totals.dbrTotal || "")} onChange={(value) => updateForm({ totalDbr: value })} readOnly={readOnly} />
+                <NumberLine label="Total DBR" value={String(totals.dbrTotal)} onChange={() => {}} readOnly />
                 <div className="summary-split-row">
                   <span>Min Tong</span>
                   <NumberLine label="Box" value={form.minTongBox} onChange={(value) => updateForm({ minTongBox: value })} readOnly={readOnly} />
                   <NumberLine label="Pin" value={form.minTongPin} onChange={(value) => updateForm({ minTongPin: value })} readOnly={readOnly} />
+                </div>
+                <div className="summary-split-row">
+                  <span>TSTR</span>
+                  <NumberLine label="Box" value={form.tstrBox} onChange={(value) => updateForm({ tstrBox: value })} readOnly={readOnly} />
+                  <NumberLine label="Pin" value={form.tstrPin} onChange={(value) => updateForm({ tstrPin: value })} readOnly={readOnly} />
                 </div>
                 <NumberLine label="EMI" value={form.emi} onChange={(value) => updateForm({ emi: value })} readOnly={readOnly} />
                 <NumberLine label="Damaged Tube" value={form.damagedTube} onChange={(value) => updateForm({ damagedTube: value })} readOnly={readOnly} />
@@ -631,13 +644,13 @@ export default function DtiDailySummaryPage() {
               </div>
 
               <div className="summary-count-box compact">
-                <NumberLine label="Total Refaces" value={form.totalRefaces || String(totals.refaceTotal || "")} onChange={(value) => updateForm({ totalRefaces: value })} readOnly={readOnly} />
+                <NumberLine label="Total Refaces" value={String(totals.refaceTotal)} onChange={() => {}} readOnly />
                 <NumberLine label="Pin" value={form.refacePin} onChange={(value) => updateForm({ refacePin: value })} readOnly={readOnly} />
                 <NumberLine label="Box" value={form.refaceBox} onChange={(value) => updateForm({ refaceBox: value })} readOnly={readOnly} />
               </div>
 
               <div className="summary-count-box compact">
-                <NumberLine label="Total Hardbands" value={form.totalHardbands || String(totals.hardbandTotal || "")} onChange={(value) => updateForm({ totalHardbands: value })} readOnly={readOnly} />
+                <NumberLine label="Total Hardbands" value={String(totals.hardbandTotal)} onChange={() => {}} readOnly />
                 <NumberLine label="Pin" value={form.hardbandPin} onChange={(value) => updateForm({ hardbandPin: value })} readOnly={readOnly} />
                 <NumberLine label="Box" value={form.hardbandBox} onChange={(value) => updateForm({ hardbandBox: value })} readOnly={readOnly} />
               </div>
