@@ -756,6 +756,7 @@ export default function Home() {
   const [conditionFilter, setConditionFilter] = useState("all");
   const [layoutMode, setLayoutMode] = useState(false);
   const [draggedRack, setDraggedRack] = useState<string | null>(null);
+  const [selectedLayoutRackLabel, setSelectedLayoutRackLabel] = useState("A1");
 
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [initialInventoryOpen, setInitialInventoryOpen] = useState(false);
@@ -991,6 +992,10 @@ export default function Home() {
     if (selectedLocation === "all") return null;
     return rackLayout.find((rack) => rack.label === selectedLocation) ?? null;
   }, [rackLayout, selectedLocation]);
+
+  const selectedLayoutRack = useMemo(() => {
+    return rackLayout.find((rack) => rack.label === selectedLayoutRackLabel) ?? rackLayout[0] ?? null;
+  }, [rackLayout, selectedLayoutRackLabel]);
 
   const selectedRackInventory = useMemo(() => {
     if (!selectedRackDetail) return [];
@@ -2487,6 +2492,10 @@ export default function Home() {
       setSelectedLocation("all");
     }
 
+    if (selectedLayoutRackLabel === label) {
+      setSelectedLayoutRackLabel("A1");
+    }
+
     setMessage(`Rack ${label} deleted. Click Save Layout when you are done.`);
   }
   async function findOrCreateCompany(name: string) {
@@ -3481,22 +3490,52 @@ export default function Home() {
         <section className="rack-section">
           <div className="section-heading">
             <h2>Yard Map</h2>
-            <p>{layoutMode ? "Drag racks or use the arrow buttons. Every move snaps to the A-K / 16-1 grid." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+            <p>{layoutMode ? "Select a rack, then use the editor controls. Dragging still snaps to the yard grid." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
+          {layoutMode && selectedLayoutRack && (
+            <div className="rack-editor-panel">
+              <div>
+                <span className="eyebrow">Selected Rack</span>
+                <h3>{selectedLayoutRack.label}</h3>
+                <p>
+                  {selectedLayoutRack.enabled ? "Enabled" : "Disabled"} / {selectedLayoutRack.capacity} joint capacity /{" "}
+                  {selectedLayoutRack.rotation === 90 ? "Vertical" : "Horizontal"}
+                </p>
+              </div>
+
+              <div className="rack-editor-controls">
+                <button className="mini-button" onClick={() => nudgeRack(selectedLayoutRack.label, 0, -1)}>Up</button>
+                <button className="mini-button" onClick={() => nudgeRack(selectedLayoutRack.label, -1, 0)}>Left</button>
+                <button className="mini-button" onClick={() => nudgeRack(selectedLayoutRack.label, 1, 0)}>Right</button>
+                <button className="mini-button" onClick={() => nudgeRack(selectedLayoutRack.label, 0, 1)}>Down</button>
+                <button className="mini-button" onClick={() => rotateRack(selectedLayoutRack.label)}>Turn</button>
+                <button className="mini-button" onClick={() => editRackCapacity(selectedLayoutRack.label)}>Capacity</button>
+                <button className="mini-button" onClick={() => renameRack(selectedLayoutRack.label)}>Rename</button>
+                <button className="mini-button" onClick={() => toggleRackEnabled(selectedLayoutRack.label)}>
+                  {selectedLayoutRack.enabled ? "Disable" : "Enable"}
+                </button>
+                <button className="mini-button danger" onClick={() => deleteRack(selectedLayoutRack.label)}>Delete</button>
+              </div>
+            </div>
+          )}
+
           <div
-            className="yard-map"
+            className="yard-map wtx-yard-map"
             onDragOver={(event) => event.preventDefault()}
             onDrop={moveRackOnMap}
             style={{
               position: "relative",
-              minHeight: "900px",
-              width: "100%",
+              minHeight: "820px",
+              minWidth: "1220px",
+              width: "1220px",
               overflow: "auto",
               border: "1px solid #303846",
               borderRadius: "10px",
-              background: "linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px)",
-              backgroundSize: "74px 74px",
+              backgroundImage: "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')",
+              backgroundSize: "74px 74px, 74px 74px, 100% 100%",
+              backgroundPosition: "26px 70px, 26px 70px, center",
+              backgroundRepeat: "repeat, repeat, no-repeat",
               padding: "12px",
             }}
           >
@@ -3558,10 +3597,13 @@ export default function Home() {
               return (
                 <div
                   key={rack.id}
-                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
+                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${selectedLayoutRackLabel === rack.label ? "selected-layout-rack" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
                   draggable={layoutMode}
                   onDragStart={() => setDraggedRack(rack.label)}
                   onDragEnd={() => setDraggedRack(null)}
+                  onClick={() => {
+                    if (layoutMode) setSelectedLayoutRackLabel(rack.label);
+                  }}
                   title={`${rack.label} / ${joints}/${rack.capacity} joints / ${rack.rotation === 90 ? "vertical" : "horizontal"}`}
                   style={{
                     position: "absolute",
@@ -3579,7 +3621,15 @@ export default function Home() {
                 >
                   <button
                     className="rack-tile-button compact-rack-button"
-                    onClick={() => (layoutMode ? toggleRackEnabled(rack.label) : openRackDetail(rack.label))}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (layoutMode) {
+                        setSelectedLayoutRackLabel(rack.label);
+                        return;
+                      }
+
+                      openRackDetail(rack.label);
+                    }}
                     style={{
                       minHeight: rack.rotation === 90 ? "62px" : "36px",
                       height: rack.rotation === 90 ? "62px" : "36px",
@@ -3595,37 +3645,6 @@ export default function Home() {
                     </span>
                   </button>
 
-                  {layoutMode && (
-                    <div className="layout-rack-actions">
-                      <button className="mini-button edit-rack" onClick={(event) => { event.stopPropagation(); renameRack(rack.label); }}>
-                        Edit
-                      </button>
-                      <button className="mini-button capacity-rack" onClick={(event) => { event.stopPropagation(); editRackCapacity(rack.label); }}>
-                        Cap
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); rotateRack(rack.label); }}>
-                        Turn
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); toggleRackEnabled(rack.label); }}>
-                        {rack.enabled ? "Off" : "On"}
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, -1, 0); }}>
-                        Left
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 1, 0); }}>
-                        Right
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 0, -1); }}>
-                        Up
-                      </button>
-                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 0, 1); }}>
-                        Down
-                      </button>
-                      <button className="mini-button danger" onClick={(event) => { event.stopPropagation(); deleteRack(rack.label); }}>
-                        Del
-                      </button>
-                    </div>
-                  )}
                 </div>
               );
             })}

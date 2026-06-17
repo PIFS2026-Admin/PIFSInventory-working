@@ -295,33 +295,61 @@ button {
   outline: 1px dashed var(--orange);
 }
 
+.selected-layout-rack .rack-tile-button {
+  border-color: var(--orange-2);
+  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.35), inset 0 -3px 0 var(--orange);
+}
+
 .vertical-rack .rack-code {
   writing-mode: vertical-rl;
   text-orientation: mixed;
 }
 
-.layout-rack-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(42px, 1fr));
-  gap: 4px;
-  margin-top: 5px;
-  min-width: 150px;
-  position: relative;
-  z-index: 5;
+.rack-editor-panel {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(20, 23, 28, 0.92);
 }
 
-.layout-rack-actions .mini-button,
+.rack-editor-panel h3 {
+  margin: 3px 0;
+  font-size: 24px;
+}
+
+.rack-editor-panel p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.rack-editor-controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(78px, 1fr));
+  gap: 8px;
+  min-width: min(100%, 520px);
+}
+
+.rack-editor-controls .mini-button,
 .edit-rack,
 .capacity-rack {
   width: 100%;
-  min-height: 28px;
-  padding: 0 7px;
-  font-size: 11px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 12px;
 }
 
 .mini-button.danger {
   border-color: rgba(239, 68, 68, 0.72);
   color: #fecaca;
+}
+
+.wtx-yard-map {
+  box-shadow: inset 0 0 0 9999px rgba(6, 9, 13, 0.08);
 }
 
 .table-wrap {
