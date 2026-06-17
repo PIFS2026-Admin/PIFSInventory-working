@@ -1924,6 +1924,11 @@ export default function Home() {
 
   useEffect(() => {
     loadYardSetup();
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("open") === "reports") {
+      openReports();
+    }
   }, []);
 
   const locationOptions = useMemo(() => {

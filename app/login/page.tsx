@@ -62,7 +62,17 @@ export default function LoginPage() {
       return;
     }
 
-    window.location.href = "/";
+    if (profile.role === "dti_superintendent" || profile.role === "dti_inspector") {
+      window.location.href = "/dti";
+      return;
+    }
+
+    if (profile.role === "admin" || profile.role === "employee") {
+      window.location.href = "/home";
+      return;
+    }
+
+    window.location.href = "/home";
   }
 
   async function sendPasswordReset() {
