@@ -15,7 +15,7 @@ type Company = {
 type Profile = {
   id: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales";
+  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector";
   companyId: string;
   companyName: string;
 };
@@ -58,7 +58,7 @@ type AdminUserForm = {
   email: string;
   password: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales";
+  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector";
   companyId: string;
 };
 
@@ -840,6 +840,8 @@ export default function AdminPage() {
             >
               <option value="customer">Customer</option>
               <option value="sales">Sales</option>
+              <option value="dti_superintendent">DTI Superintendent</option>
+              <option value="dti_inspector">DTI Inspector</option>
               <option value="operator">Hardband Operator</option>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
@@ -1088,6 +1090,8 @@ export default function AdminPage() {
                     >
                       <option value="customer">Customer</option>
                       <option value="sales">Sales</option>
+                      <option value="dti_superintendent">DTI Superintendent</option>
+                      <option value="dti_inspector">DTI Inspector</option>
                       <option value="operator">Hardband Operator</option>
                       <option value="employee">Employee</option>
                       <option value="admin">Admin</option>

@@ -2243,6 +2243,166 @@ th {
   padding: 16px;
 }
 
+.dti-shell .dashboard-header {
+  margin-bottom: 10px;
+}
+
+.dti-main-grid {
+  align-items: start;
+}
+
+.dti-create-grid {
+  margin: 12px 0 14px;
+}
+
+.dti-detail-card {
+  margin-top: 18px;
+}
+
+.dti-checklist-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.dti-check-row {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(300px, 420px);
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 19, 24, 0.86);
+}
+
+.dti-check-row.red-flag {
+  border-color: rgba(239, 68, 68, 0.8);
+  box-shadow: inset 4px 0 0 rgba(239, 68, 68, 0.85);
+}
+
+.dti-row-kicker {
+  color: var(--orange);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.dti-check-row h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.dti-check-row p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.dti-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.dti-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: var(--text);
+  background: rgba(31, 37, 48, 0.9);
+  font-size: 12px;
+}
+
+.dti-row-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.dti-score-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.dti-score-buttons button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.dti-score-buttons button.active {
+  background: var(--orange);
+  border-color: var(--orange);
+  color: #0b0d10;
+}
+
+.dti-score-buttons button:disabled,
+.dti-red-toggle input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dti-red-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.dti-row-controls textarea {
+  min-height: 82px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #101318;
+  color: var(--text);
+  padding: 11px;
+}
+
+.dti-close-card {
+  margin-top: 16px;
+}
+
+.dti-print-section {
+  margin-top: 18px;
+}
+
+.dti-print-section h3 {
+  margin: 0 0 8px;
+  color: #111827;
+  font-size: 16px;
+}
+
+.dti-report-table {
+  font-size: 9px;
+}
+
+.dti-report-table th,
+.dti-report-table td {
+  vertical-align: top;
+}
+
+.dti-report-page {
+  width: 11in;
+  max-width: none;
+}
+
+@media (max-width: 900px) {
+  .dti-check-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dti-score-buttons {
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+  }
+}
+
 .dashboard-card.wide {
   grid-column: 1 / -1;
 }

@@ -164,9 +164,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!["admin", "employee", "customer", "operator", "sales"].includes(role)) {
+    if (!["admin", "employee", "customer", "operator", "sales", "dti_superintendent", "dti_inspector"].includes(role)) {
       return Response.json(
-        { error: "Role must be admin, employee, customer, operator, or sales." },
+        { error: "Role must be admin, employee, customer, operator, sales, DTI superintendent, or DTI inspector." },
         { status: 400 }
       );
     }

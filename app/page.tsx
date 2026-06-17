@@ -1091,6 +1091,10 @@ export default function Home() {
       window.location.href = "/hardband";
       return;
     }
+    if (profile?.role === "dti_superintendent" || profile?.role === "dti_inspector") {
+      window.location.href = "/dti";
+      return;
+    }
 
     const { data: yard, error: yardError } = await supabase
       .from("yards")
@@ -3357,6 +3361,7 @@ export default function Home() {
           <button className="button" disabled={!canUseAdminTools} onClick={openHardbandJobs}>Hardband Jobs</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
+          <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dti")}>DTI</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
           <button className="button" disabled={!canUseAdminTools} onClick={() => (window.location.href = "/admin")}>Admin</button>
