@@ -661,6 +661,7 @@ export default function DtiPage() {
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading DTI management...");
   const [saving, setSaving] = useState(false);
+  const [emailingReport, setEmailingReport] = useState(false);
   const [showRedFlagList, setShowRedFlagList] = useState(false);
 
   const canEdit = profile
@@ -1217,6 +1218,53 @@ export default function DtiPage() {
     window.open(`/dti/print?id=${selectedJob.id}&section=${section}`, "_blank");
   }
 
+  async function emailDtiReport() {
+    if (!selectedJob || emailingReport) return;
+
+    const recipientEmail = window.prompt("Email DTI report to:");
+    if (!recipientEmail?.trim()) return;
+
+    const note = window.prompt("Optional message for the email:") ?? "";
+
+    setEmailingReport(true);
+    setMessage("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+
+      if (!token) {
+        throw new Error("Your login session expired. Please sign in again.");
+      }
+
+      const response = await fetch("/api/dti-report-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          section: printSection,
+          recipientEmail: recipientEmail.trim(),
+          note,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "DTI report email failed.");
+      }
+
+      setMessage(`DTI report emailed to ${recipientEmail.trim()}.`);
+    } catch (error: any) {
+      setMessage(`Email DTI report failed: ${error.message}`);
+    } finally {
+      setEmailingReport(false);
+    }
+  }
+
   async function deleteDtiJob(job: DtiJob) {
     if (!canClose || saving) return;
 
@@ -1507,6 +1555,9 @@ export default function DtiPage() {
               </select>
               <button className="button" onClick={saveChecklist} disabled={!canEdit || selectedJob.status === "Closed" || saving}>Save Checklist</button>
               <button className="button" onClick={openPrint}>Print / PDF</button>
+              <button className="button" onClick={emailDtiReport} disabled={emailingReport}>
+                {emailingReport ? "Emailing..." : "Email Report"}
+              </button>
               <button className="button" onClick={exportCsv}>Export CSV</button>
             </div>
           </div>
