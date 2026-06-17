@@ -311,6 +311,7 @@ const yardRackCodes = rackLetters.flatMap((letter) =>
 );
 const rackMapOrigin = { x: 26, y: 70 };
 const rackMapCell = { x: 74, y: 74 };
+const rackFreeMoveStep = 10;
 const rackTileSize = { width: 64, height: 38 };
 
 function parseRackCode(code: string) {
@@ -360,17 +361,13 @@ function defaultRackPosition(rackCode: string) {
   };
 }
 
-function snapRackPosition(x: number, y: number) {
-  const maxColumn = rackNumbers.length - 1;
-  const maxRow = rackLetters.length - 1;
-  const column = Math.max(0, Math.min(maxColumn, Math.round((x - rackMapOrigin.x) / rackMapCell.x)));
-  const row = Math.max(0, Math.min(maxRow, Math.round((y - rackMapOrigin.y) / rackMapCell.y)));
+function snapRackPosition(x: number, y: number, maxX?: number, maxY?: number) {
+  const snappedX = Math.round(x / rackFreeMoveStep) * rackFreeMoveStep;
+  const snappedY = Math.round(y / rackFreeMoveStep) * rackFreeMoveStep;
 
   return {
-    column,
-    row,
-    x: rackMapOrigin.x + column * rackMapCell.x,
-    y: rackMapOrigin.y + row * rackMapCell.y,
+    x: Math.max(0, Math.min(maxX ?? Number.POSITIVE_INFINITY, snappedX)),
+    y: Math.max(0, Math.min(maxY ?? Number.POSITIVE_INFINITY, snappedY)),
   };
 }
 
@@ -2264,10 +2261,12 @@ export default function Home() {
     event.preventDefault();
 
     const bounds = event.currentTarget.getBoundingClientRect();
+    const maxX = Math.max(0, Math.round(bounds.width - rackTileSize.width - 4));
+    const maxY = Math.max(0, Math.round(bounds.height - rackTileSize.height - 4));
     const x = Math.round(event.clientX - bounds.left - rackTileSize.width / 2);
     const y = Math.round(event.clientY - bounds.top - rackTileSize.height / 2);
 
-    moveRackToPosition(draggedRack, x, y);
+    moveRackToPosition(draggedRack, x, y, maxX, maxY);
 
     setDraggedRack(null);
   }
@@ -2386,43 +2385,21 @@ export default function Home() {
     );
   }
 
-  function moveRackToPosition(label: string, nextX: number, nextY: number) {
-    const nextPosition = snapRackPosition(nextX, nextY);
+  function moveRackToPosition(label: string, nextX: number, nextY: number, maxX?: number, maxY?: number) {
+    const nextPosition = snapRackPosition(nextX, nextY, maxX, maxY);
 
     setRackLayout((current) => {
-      const movingRack = current.find((rack) => rack.label === label);
-      if (!movingRack) return current;
+      if (!current.some((rack) => rack.label === label)) return current;
 
-      const targetRack = current.find((rack) => {
-        if (rack.label === label) return false;
-        const rackPosition = snapRackPosition(rack.layoutX, rack.layoutY);
-        return rackPosition.x === nextPosition.x && rackPosition.y === nextPosition.y;
-      });
-
-      return current.map((rack) => {
-        if (rack.label === label) {
-          return {
-            ...rack,
-            layoutX: nextPosition.x,
-            layoutY: nextPosition.y,
-            layoutGroup: rackLetters[nextPosition.row] ?? rack.layoutGroup,
-            sort_order: nextPosition.row * rackNumbers.length + nextPosition.column + 1,
-          };
-        }
-
-        if (targetRack && rack.label === targetRack.label) {
-          const oldPosition = snapRackPosition(movingRack.layoutX, movingRack.layoutY);
-          return {
-            ...rack,
-            layoutX: oldPosition.x,
-            layoutY: oldPosition.y,
-            layoutGroup: rackLetters[oldPosition.row] ?? rack.layoutGroup,
-            sort_order: oldPosition.row * rackNumbers.length + oldPosition.column + 1,
-          };
-        }
-
-        return rack;
-      });
+      return current.map((rack) =>
+        rack.label === label
+          ? {
+              ...rack,
+              layoutX: nextPosition.x,
+              layoutY: nextPosition.y,
+            }
+          : rack
+      );
     });
   }
 
@@ -2430,18 +2407,10 @@ export default function Home() {
     const rack = rackLayout.find((item) => item.label === label);
     if (!rack) return;
 
-    const currentPosition = snapRackPosition(rack.layoutX, rack.layoutY);
-    const nextColumn = currentPosition.column + columnDelta;
-    const nextRow = currentPosition.row + rowDelta;
-
-    if (nextColumn < 0 || nextColumn >= rackNumbers.length || nextRow < 0 || nextRow >= rackLetters.length) {
-      return;
-    }
-
     moveRackToPosition(
       label,
-      rackMapOrigin.x + nextColumn * rackMapCell.x,
-      rackMapOrigin.y + nextRow * rackMapCell.y
+      rack.layoutX + columnDelta * rackFreeMoveStep,
+      rack.layoutY + rowDelta * rackFreeMoveStep
     );
   }
 
@@ -3541,46 +3510,6 @@ export default function Home() {
                 padding: "12px",
               }}
             >
-            <div
-              style={{
-                position: "absolute",
-                left: 26,
-                top: 18,
-                display: "grid",
-                gridTemplateColumns: "repeat(16, 64px)",
-                columnGap: "10px",
-                color: "#f4f6f8",
-                fontSize: 12,
-                fontWeight: 900,
-                textAlign: "center",
-                pointerEvents: "none",
-              }}
-            >
-              {rackNumbers.map((number) => (
-                <span key={number}>{number}</span>
-              ))}
-            </div>
-
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                top: 70,
-                display: "grid",
-                gridTemplateRows: "repeat(11, 38px)",
-                rowGap: "36px",
-                color: "#8a8b8b",
-                fontSize: 12,
-                fontWeight: 900,
-                textAlign: "center",
-                pointerEvents: "none",
-              }}
-            >
-              {rackLetters.map((letter) => (
-                <span key={letter}>{letter}</span>
-              ))}
-            </div>
-
             {rackLayout.filter((rack) => layoutMode || rack.enabled).map((rack) => {
               const rackInventory = inventory.filter((row) => {
                 const searchText = search.toLowerCase().trim();
