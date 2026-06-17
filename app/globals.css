@@ -2619,3 +2619,31 @@ th {
     padding: 0 !important;
   }
 }
+
+@media print {
+  .dti-report-table thead {
+    display: table-header-group !important;
+  }
+
+  .dti-report-table thead tr {
+    display: table-row !important;
+  }
+
+  .dti-report-table thead th,
+  .dti-report-page .dti-report-table thead th,
+  .print-ticket-table.dti-report-table thead th {
+    background: #111827 !important;
+    color: #ffffff !important;
+    border: 1px solid #9ca3af !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .dti-report-table tbody td {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #cbd5e1 !important;
+  }
+}

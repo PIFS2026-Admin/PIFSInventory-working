@@ -87,7 +87,7 @@ export default function DtiPrintPage() {
       scored: scored.length,
       total: responses.length,
       average: average ? average.toFixed(1) : "-",
-      redFlags: responses.filter((row) => row.redFlag || Number(row.score ?? 0) <= 2).length,
+      redFlags: responses.filter((row) => row.redFlag || (row.score !== null && row.score <= 2)).length,
     };
   }, [responses]);
 
