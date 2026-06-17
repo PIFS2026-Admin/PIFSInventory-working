@@ -51,6 +51,8 @@ type InventoryRow = {
   createdAt: string;
   inspectionDue: string;
   company: string;
+  operator: string;
+  rig: string;
   afe: string;
   partNumber: string;
   size: string;
@@ -71,6 +73,8 @@ type ReceiveForm = SignatureFields & {
   poNumber: string;
   truckNumber: string;
   customer: string;
+  operator: string;
+  rig: string;
   destination: string;
   afe: string;
   partNumber: string;
@@ -96,6 +100,8 @@ type TransferForm = SignatureFields & {
 
 type EditForm = {
   customer: string;
+  operator: string;
+  rig: string;
   destination: string;
   afe: string;
   partNumber: string;
@@ -383,6 +389,8 @@ const emptyReceiveForm: ReceiveForm = {
   poNumber: "",
   truckNumber: "",
   customer: "CP Energy",
+  operator: "",
+  rig: "",
   destination: "zone:receiving",
   afe: "",
   partNumber: "",
@@ -430,6 +438,8 @@ const emptyHardbandLineForm: HardbandLineForm = {
 
 const emptyEditForm: EditForm = {
   customer: "",
+  operator: "",
+  rig: "",
   destination: "zone:receiving",
   afe: "",
   partNumber: "",
@@ -997,6 +1007,8 @@ export default function Home() {
         company_id,
         yard_id,
         afe,
+        operator,
+        rig,
         part_number,
         size,
         grade,
@@ -1047,6 +1059,8 @@ export default function Home() {
         createdAt: formatDate(row.created_at),
         inspectionDue: formatDate(row.inspection_due_date),
         company: company?.name ?? "Unknown",
+        operator: row.operator ?? "",
+        rig: row.rig ?? "",
         afe: row.afe ?? "",
         partNumber: row.part_number ?? "",
         size: row.size ?? "",
@@ -1998,6 +2012,8 @@ export default function Home() {
         !searchText ||
         [
           row.company,
+          row.operator,
+          row.rig,
           row.afe,
           row.partNumber,
           row.size,
@@ -2098,6 +2114,8 @@ export default function Home() {
 
     return {
       customer: row.company,
+      operator: row.operator,
+      rig: row.rig,
       destination,
       afe: row.afe,
       partNumber: row.partNumber,
@@ -2532,6 +2550,8 @@ export default function Home() {
           rack_id: rack?.id ?? null,
           workflow_zone_id: zone?.id ?? null,
           afe: editForm.afe || null,
+          operator: editForm.operator || null,
+          rig: editForm.rig || null,
           part_number: editForm.partNumber,
           size: editForm.size || null,
           grade: editForm.grade || null,
@@ -2619,6 +2639,8 @@ export default function Home() {
           rack_id: rack?.id ?? null,
           workflow_zone_id: zone?.id ?? null,
           afe: receiveForm.afe || null,
+          operator: receiveForm.operator || null,
+          rig: receiveForm.rig || null,
           part_number: receiveForm.partNumber,
           size: receiveForm.size || null,
           grade: receiveForm.grade || null,
@@ -2749,6 +2771,8 @@ export default function Home() {
           rack_id: rack?.id ?? null,
           workflow_zone_id: zone?.id ?? null,
           afe: receiveForm.afe || null,
+          operator: receiveForm.operator || null,
+          rig: receiveForm.rig || null,
           part_number: receiveForm.partNumber,
           size: receiveForm.size || null,
           grade: receiveForm.grade || null,
@@ -2879,6 +2903,8 @@ export default function Home() {
           rack_id: rack?.id ?? null,
           workflow_zone_id: zone?.id ?? null,
           afe: selectedTransferRow.afe || null,
+          operator: selectedTransferRow.operator || null,
+          rig: selectedTransferRow.rig || null,
           part_number: selectedTransferRow.partNumber,
           size: selectedTransferRow.size || null,
           grade: selectedTransferRow.grade || null,
@@ -3106,6 +3132,8 @@ export default function Home() {
     const headers = [
       "Date Created",
       "Company",
+      "Operator",
+      "Rig",
       "TU#",
       "Part Number",
       "Size",
@@ -3125,6 +3153,8 @@ export default function Home() {
       return [
         row.createdAt,
         row.company,
+        row.operator,
+        row.rig,
         row.afe,
         row.partNumber,
         row.size,
@@ -3515,6 +3545,8 @@ export default function Home() {
                   <th>Actions</th>
                   <th>Date Created</th>
                   <th>Company</th>
+                  <th>Operator</th>
+                  <th>Rig</th>
                   <th>TU#</th>
                   <th>Part Number</th>
                   <th>Range</th>
@@ -3545,6 +3577,8 @@ export default function Home() {
                       </td>
                       <td>{row.createdAt}</td>
                       <td>{row.company}</td>
+                      <td>{row.operator || "-"}</td>
+                      <td>{row.rig || "-"}</td>
                       <td>{row.afe}</td>
                       <td>{row.partNumber}</td>
                       <td>{row.pipeRange}</td>
@@ -3559,7 +3593,7 @@ export default function Home() {
 
                 {filteredInventory.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="empty-cell">No inventory found for this location.</td>
+                    <td colSpan={14} className="empty-cell">No inventory found for this location.</td>
                   </tr>
                 )}
               </tbody>
@@ -3674,6 +3708,8 @@ export default function Home() {
                       <th>Select</th>
                       <th>Actions</th>
                       <th>Company</th>
+                      <th>Operator</th>
+                      <th>Rig</th>
                       <th>TU#</th>
                       <th>Part Number</th>
                       <th>Size</th>
@@ -3701,6 +3737,8 @@ export default function Home() {
                             </div>
                           </td>
                           <td>{row.company}</td>
+                          <td>{row.operator || "-"}</td>
+                          <td>{row.rig || "-"}</td>
                           <td>{row.afe}</td>
                           <td>{row.partNumber}</td>
                           <td>{row.size}</td>
@@ -3717,7 +3755,7 @@ export default function Home() {
 
                     {selectedRackInventory.length === 0 && (
                       <tr>
-                        <td colSpan={13} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                        <td colSpan={15} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
                       </tr>
                     )}
                   </tbody>
@@ -3758,6 +3796,8 @@ export default function Home() {
                   {locationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
+              <label>Operator<input value={editForm.operator} onChange={(event) => setEditForm({ ...editForm, operator: event.target.value })} placeholder="Exxon Mobile" /></label>
+              <label>Rig<input value={editForm.rig} onChange={(event) => setEditForm({ ...editForm, rig: event.target.value })} placeholder="Ensign T125" /></label>
 
               <label>TU#<input value={editForm.afe} onChange={(event) => setEditForm({ ...editForm, afe: event.target.value })} /></label>
               <label>
@@ -3866,6 +3906,8 @@ export default function Home() {
                   {locationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
+              <label>Operator<input value={receiveForm.operator} onChange={(event) => setReceiveForm({ ...receiveForm, operator: event.target.value })} placeholder="Exxon Mobile" /></label>
+              <label>Rig<input value={receiveForm.rig} onChange={(event) => setReceiveForm({ ...receiveForm, rig: event.target.value })} placeholder="Ensign T125" /></label>
 
               <label>TU#<input value={receiveForm.afe} onChange={(event) => setReceiveForm({ ...receiveForm, afe: event.target.value })} /></label>
               <label>
@@ -3963,6 +4005,8 @@ export default function Home() {
                   {locationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
+              <label>Operator<input value={receiveForm.operator} onChange={(event) => setReceiveForm({ ...receiveForm, operator: event.target.value })} placeholder="Exxon Mobile" /></label>
+              <label>Rig<input value={receiveForm.rig} onChange={(event) => setReceiveForm({ ...receiveForm, rig: event.target.value })} placeholder="Ensign T125" /></label>
 
               <label>TU#<input value={receiveForm.afe} onChange={(event) => setReceiveForm({ ...receiveForm, afe: event.target.value })} /></label>
               <label>

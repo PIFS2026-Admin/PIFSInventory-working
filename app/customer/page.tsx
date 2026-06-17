@@ -18,6 +18,8 @@ type CustomerInventory = {
   id: string;
   createdAt: string;
   afe: string;
+  operator: string;
+  rig: string;
   partNumber: string;
   size: string;
   grade: string;
@@ -128,6 +130,8 @@ export default function CustomerPage() {
         id,
         created_at,
         afe,
+        operator,
+        rig,
         part_number,
         size,
         grade,
@@ -165,6 +169,8 @@ export default function CustomerPage() {
             id: row.id,
             createdAt: formatDate(row.created_at),
             afe: row.afe ?? "",
+            operator: row.operator ?? "",
+            rig: row.rig ?? "",
             partNumber: row.part_number ?? "",
             size: row.size ?? "",
             grade: row.grade ?? "",
@@ -256,7 +262,7 @@ export default function CustomerPage() {
 
       const matchesSearch =
         !searchText ||
-        [row.afe, row.partNumber, row.size, row.grade, row.connection, row.pipeRange, row.status, row.condition, row.location]
+        [row.afe, row.operator, row.rig, row.partNumber, row.size, row.grade, row.connection, row.pipeRange, row.status, row.condition, row.location]
           .join(" ")
           .toLowerCase()
           .includes(searchText);
@@ -283,6 +289,8 @@ export default function CustomerPage() {
     const headers = [
       "Date Created",
       "TU#",
+      "Operator",
+      "Rig",
       "Part Number",
       "Size",
       "Grade",
@@ -298,6 +306,8 @@ export default function CustomerPage() {
     const rows = filteredInventory.map((row) => [
       row.createdAt,
       row.afe,
+      row.operator,
+      row.rig,
       row.partNumber,
       row.size,
       row.grade,
@@ -439,6 +449,8 @@ export default function CustomerPage() {
               <tr>
                 <th>Date Created</th>
                 <th>TU#</th>
+                <th>Operator</th>
+                <th>Rig</th>
                 <th>Part Number</th>
                 <th>Size</th>
                 <th>Grade</th>
@@ -456,6 +468,8 @@ export default function CustomerPage() {
                 <tr key={row.id}>
                   <td>{row.createdAt}</td>
                   <td>{row.afe}</td>
+                  <td>{row.operator || "-"}</td>
+                  <td>{row.rig || "-"}</td>
                   <td>{row.partNumber}</td>
                   <td>{row.size}</td>
                   <td>{row.grade}</td>
@@ -471,7 +485,7 @@ export default function CustomerPage() {
 
               {filteredInventory.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="empty-cell">
+                  <td colSpan={14} className="empty-cell">
                     No customer inventory found.
                   </td>
                 </tr>

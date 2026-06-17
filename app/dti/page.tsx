@@ -773,6 +773,76 @@ export default function DtiPage() {
       });
   }, [jobs, responses]);
 
+  const leadInspectorPerformance = useMemo(() => {
+    const byLead = new Map<string, DtiJob[]>();
+    jobs.forEach((job) => {
+      const lead = job.leadInspector || "Unassigned";
+      byLead.set(lead, [...(byLead.get(lead) ?? []), job]);
+    });
+
+    return [...byLead.entries()]
+      .map(([lead, leadJobs]) => {
+        const jobIds = new Set(leadJobs.map((job) => job.id));
+        const leadResponses = responses.filter((response) => jobIds.has(response.dtiJobId));
+        const scored = leadResponses.filter((response) => response.score !== null);
+        const average = scored.length
+          ? scored.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scored.length
+          : 0;
+
+        const redFlags = leadResponses.filter(
+          (response) => response.redFlag || (response.score !== null && response.score <= 2)
+        ).length;
+
+        const categoryMap = new Map<string, number[]>();
+        scored.forEach((response) => {
+          const key = response.category || response.section || "General";
+          categoryMap.set(key, [...(categoryMap.get(key) ?? []), Number(response.score)]);
+        });
+
+        const categoryAverages = [...categoryMap.entries()]
+          .map(([label, values]) => ({
+            label,
+            average: values.reduce((sum, value) => sum + value, 0) / values.length,
+          }))
+          .sort((a, b) => b.average - a.average);
+
+        const operatorMap = new Map<string, { scores: number[]; jobs: number }>();
+        leadJobs.forEach((job) => {
+          const jobScores = responses
+            .filter((response) => response.dtiJobId === job.id && response.score !== null)
+            .map((response) => Number(response.score));
+          const key = job.operator || "Unassigned";
+          const current = operatorMap.get(key) ?? { scores: [], jobs: 0 };
+          current.scores.push(...jobScores);
+          current.jobs += 1;
+          operatorMap.set(key, current);
+        });
+
+        const bestOperator = [...operatorMap.entries()]
+          .map(([operator, item]) => ({
+            operator,
+            jobs: item.jobs,
+            average: item.scores.length
+              ? item.scores.reduce((sum, score) => sum + score, 0) / item.scores.length
+              : 0,
+          }))
+          .sort((a, b) => b.average - a.average || b.jobs - a.jobs)[0];
+
+        return {
+          lead,
+          jobs: leadJobs.length,
+          closedJobs: leadJobs.filter((job) => job.status === "Closed").length,
+          average,
+          grade: letterGrade(average),
+          redFlags,
+          strength: categoryAverages[0]?.label ?? "No scored categories yet",
+          weakness: categoryAverages[categoryAverages.length - 1]?.label ?? "No scored categories yet",
+          bestOperator: bestOperator ? `${bestOperator.operator} (${bestOperator.average.toFixed(1)})` : "No operator data yet",
+        };
+      })
+      .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.lead.localeCompare(b.lead));
+  }, [jobs, responses]);
+
   useEffect(() => {
     loadPage();
   }, []);
@@ -1458,6 +1528,52 @@ export default function DtiPage() {
           )}
         </section>
       )}
+
+      <section className="dashboard-card wide">
+        <h2>Lead Inspector Performance</h2>
+        <p className="muted-text">
+          Rankings are based on DTI scorecards. Strengths and focus areas come from checklist category averages.
+        </p>
+
+        {leadInspectorPerformance.length === 0 ? (
+          <p className="muted-text">No DTI scorecard data found yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Lead Inspector</th>
+                  <th>Jobs</th>
+                  <th>Closed</th>
+                  <th>Average</th>
+                  <th>Grade</th>
+                  <th>Red Flags</th>
+                  <th>Strongest Operator</th>
+                  <th>Strength</th>
+                  <th>Focus Area</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leadInspectorPerformance.map((lead, index) => (
+                  <tr key={lead.lead}>
+                    <td>{index + 1}</td>
+                    <td>{lead.lead}</td>
+                    <td>{lead.jobs}</td>
+                    <td>{lead.closedJobs}</td>
+                    <td>{lead.average.toFixed(1)}</td>
+                    <td>{lead.grade}</td>
+                    <td>{lead.redFlags}</td>
+                    <td>{lead.bestOperator}</td>
+                    <td>{lead.strength}</td>
+                    <td>{lead.weakness}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-grid dti-main-grid">
         <section className="dashboard-card">

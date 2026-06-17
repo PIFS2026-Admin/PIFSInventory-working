@@ -98,6 +98,8 @@ create table if not exists public.pipe_inventory (
   rack_id uuid references public.racks(id),
   workflow_zone_id uuid references public.workflow_zones(id),
   afe text,
+  operator text,
+  rig text,
   part_number text not null,
   size text,
   grade text,

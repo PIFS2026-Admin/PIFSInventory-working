@@ -40,27 +40,6 @@ type SummaryLine = {
   lines: number;
 };
 
-type DtiJobRow = {
-  id: string;
-  jobNumber: string;
-  company: string;
-  jobDate: string;
-  rig: string;
-  operator: string;
-  leadInspector: string;
-  crewLead: string;
-  status: string;
-  closedAt: string;
-};
-
-type DtiScoreRow = {
-  dtiJobId: string;
-  section: string;
-  category: string;
-  score: number | null;
-  redFlag: boolean;
-};
-
 const today = new Date();
 
 function formatDate(value: string) {
@@ -89,27 +68,6 @@ function prettyType(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function getJoinedName(value: unknown) {
-  const readName = (item: unknown) => {
-    if (!item || typeof item !== "object" || !("name" in item)) return "";
-    const name = (item as { name?: unknown }).name;
-    return typeof name === "string" ? name : "";
-  };
-
-  if (Array.isArray(value)) return readName(value[0]);
-  return readName(value);
-}
-
-function letterGrade(score: number) {
-  if (!Number.isFinite(score) || score <= 0) return "N/A";
-  const rounded = Math.round(score);
-  if (rounded >= 5) return "A";
-  if (rounded === 4) return "B";
-  if (rounded === 3) return "C";
-  if (rounded === 2) return "D";
-  return "F";
-}
-
 function addToSummary(map: Map<string, SummaryLine>, label: string, joints: number, footage: number) {
   const key = label || "Unassigned";
   const current = map.get(key) ?? { label: key, joints: 0, footage: 0, lines: 0 };
@@ -123,8 +81,6 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
-  const [dtiJobs, setDtiJobs] = useState<DtiJobRow[]>([]);
-  const [dtiScores, setDtiScores] = useState<DtiScoreRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("Loading employee dashboard...");
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -256,72 +212,6 @@ export default function DashboardPage() {
       })
     );
 
-    const { data: dtiJobData, error: dtiJobError } = await supabase
-      .from("dti_jobs")
-      .select(`
-        id,
-        job_number,
-        job_date,
-        rig,
-        operator,
-        lead_inspector,
-        crew_lead,
-        status,
-        closed_at,
-        companies(name)
-      `)
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (dtiJobError) {
-      setMessage(`DTI performance failed: ${dtiJobError.message}`);
-      setDtiJobs([]);
-      setDtiScores([]);
-      setLoading(false);
-      return;
-    }
-
-    const dtiJobIds = (dtiJobData ?? []).map((job: any) => job.id);
-    const { data: dtiScoreData, error: dtiScoreError } = dtiJobIds.length
-      ? await supabase
-          .from("dti_checklist_responses")
-          .select("dti_job_id, section, category, score, red_flag")
-          .in("dti_job_id", dtiJobIds)
-      : { data: [], error: null };
-
-    if (dtiScoreError) {
-      setMessage(`DTI scorecards failed: ${dtiScoreError.message}`);
-      setDtiJobs([]);
-      setDtiScores([]);
-      setLoading(false);
-      return;
-    }
-
-    setDtiJobs(
-      (dtiJobData ?? []).map((job: any) => ({
-        id: job.id,
-        jobNumber: job.job_number ?? "",
-        company: getJoinedName(job.companies) || "Unknown",
-        jobDate: formatDate(job.job_date),
-        rig: job.rig ?? "",
-        operator: job.operator ?? "",
-        leadInspector: job.lead_inspector ?? "",
-        crewLead: job.crew_lead ?? "",
-        status: job.status ?? "",
-        closedAt: job.closed_at ?? "",
-      }))
-    );
-
-    setDtiScores(
-      (dtiScoreData ?? []).map((score: any) => ({
-        dtiJobId: score.dti_job_id ?? "",
-        section: score.section ?? "",
-        category: score.category ?? "",
-        score: score.score === null || score.score === undefined ? null : Number(score.score),
-        redFlag: Boolean(score.red_flag),
-      }))
-    );
-
     setMessage("");
     setLoading(false);
   }
@@ -366,74 +256,6 @@ export default function DashboardPage() {
   }, [inventory]);
 
   const maxZoneJoints = Math.max(1, ...workZoneSummary.map((line) => line.joints));
-
-  const leadInspectorPerformance = useMemo(() => {
-    const byLead = new Map<string, DtiJobRow[]>();
-    dtiJobs.forEach((job) => {
-      const lead = job.leadInspector || "Unassigned";
-      byLead.set(lead, [...(byLead.get(lead) ?? []), job]);
-    });
-
-    return [...byLead.entries()]
-      .map(([lead, leadJobs]) => {
-        const jobIds = new Set(leadJobs.map((job) => job.id));
-        const scores = dtiScores.filter((score) => jobIds.has(score.dtiJobId));
-        const numericScores = scores.filter((score) => score.score !== null);
-        const average = numericScores.length
-          ? numericScores.reduce((sum, score) => sum + Number(score.score ?? 0), 0) / numericScores.length
-          : 0;
-
-        const redFlags = scores.filter((score) => score.redFlag || (score.score !== null && score.score <= 2)).length;
-
-        const categoryMap = new Map<string, number[]>();
-        numericScores.forEach((score) => {
-          const key = score.category || score.section || "General";
-          categoryMap.set(key, [...(categoryMap.get(key) ?? []), Number(score.score)]);
-        });
-
-        const categoryAverages = [...categoryMap.entries()]
-          .map(([label, values]) => ({
-            label,
-            average: values.reduce((sum, value) => sum + value, 0) / values.length,
-          }))
-          .sort((a, b) => b.average - a.average);
-
-        const operatorMap = new Map<string, { scores: number[]; jobs: number }>();
-        leadJobs.forEach((job) => {
-          const jobScores = dtiScores
-            .filter((score) => score.dtiJobId === job.id && score.score !== null)
-            .map((score) => Number(score.score));
-          const key = job.operator || "Unassigned";
-          const current = operatorMap.get(key) ?? { scores: [], jobs: 0 };
-          current.scores.push(...jobScores);
-          current.jobs += 1;
-          operatorMap.set(key, current);
-        });
-
-        const bestOperator = [...operatorMap.entries()]
-          .map(([operator, item]) => ({
-            operator,
-            jobs: item.jobs,
-            average: item.scores.length
-              ? item.scores.reduce((sum, score) => sum + score, 0) / item.scores.length
-              : 0,
-          }))
-          .sort((a, b) => b.average - a.average || b.jobs - a.jobs)[0];
-
-        return {
-          lead,
-          jobs: leadJobs.length,
-          closedJobs: leadJobs.filter((job) => job.status === "Closed").length,
-          average,
-          grade: letterGrade(average),
-          redFlags,
-          strength: categoryAverages[0]?.label ?? "No scored categories yet",
-          weakness: categoryAverages[categoryAverages.length - 1]?.label ?? "No scored categories yet",
-          bestOperator: bestOperator ? `${bestOperator.operator} (${bestOperator.average.toFixed(1)})` : "No operator data yet",
-        };
-      })
-      .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.lead.localeCompare(b.lead));
-  }, [dtiJobs, dtiScores]);
 
   if (loading) {
     return (
@@ -526,52 +348,6 @@ export default function DashboardPage() {
               <small>{line.lines} lines / {Math.round(line.footage).toLocaleString()} ft</small>
             </div>
           ))}
-        </article>
-
-        <article className="dashboard-card wide">
-          <h2>Lead Inspector Performance</h2>
-          <p className="muted-text">
-            Rankings are based on DTI scorecards. Strengths and focus areas come from section averages.
-          </p>
-
-          {leadInspectorPerformance.length === 0 && (
-            <p className="muted-text">No DTI scorecard data found yet.</p>
-          )}
-
-          {leadInspectorPerformance.length > 0 && (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Lead Inspector</th>
-                    <th>Jobs</th>
-                    <th>Average</th>
-                    <th>Grade</th>
-                    <th>Red Flags</th>
-                    <th>Strongest Operator</th>
-                    <th>Strength</th>
-                    <th>Focus Area</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leadInspectorPerformance.map((lead, index) => (
-                    <tr key={lead.lead}>
-                      <td>{index + 1}</td>
-                      <td>{lead.lead}</td>
-                      <td>{lead.jobs}</td>
-                      <td>{lead.average.toFixed(1)}</td>
-                      <td>{lead.grade}</td>
-                      <td>{lead.redFlags}</td>
-                      <td>{lead.bestOperator}</td>
-                      <td>{lead.strength}</td>
-                      <td>{lead.weakness}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </article>
 
         <article className="dashboard-card wide">
