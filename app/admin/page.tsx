@@ -736,13 +736,13 @@ export default function AdminPage() {
   return (
     <main className="customer-shell">
       <header className="customer-topbar">
-        <div className="brand">
+        <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>
             <div className="brand-title">TITAN Admin</div>
             <div className="brand-subtitle">Companies, users, racks, and work zones</div>
           </div>
-        </div>
+        </button>
 
         <div className="customer-actions">
           <button className="button" onClick={refreshAdmin} disabled={loading}>

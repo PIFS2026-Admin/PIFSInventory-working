@@ -127,13 +127,13 @@ export default function InternalHomePage() {
   return (
     <main className="launch-shell">
       <section className="launch-header">
-        <div className="brand compact">
+        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">TITAN</div>
             <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
           </div>
-        </div>
+        </button>
 
         <div className="launch-actions">
           <button className="button" onClick={loadProfile} disabled={loading}>

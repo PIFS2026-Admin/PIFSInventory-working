@@ -3274,13 +3274,13 @@ export default function Home() {
       </datalist>
 
       <aside className="side-panel">
-        <div className="brand">
+        <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>
             <div className="brand-title">TITAN</div>
             <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
           </div>
-        </div>
+        </button>
 
         <select className="field" value={selectedYard?.id ?? ""} disabled>
           <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>

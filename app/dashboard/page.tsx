@@ -271,13 +271,13 @@ export default function DashboardPage() {
   return (
     <main className="dashboard-shell">
       <header className="dashboard-header">
-        <div className="brand compact">
+        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>
             <div className="brand-title">TITAN Dashboard</div>
             <div className="brand-subtitle">Weekly transactions, work zones, and yard movement</div>
           </div>
-        </div>
+        </button>
         <div className="dashboard-actions">
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
           {(profile?.role === "admin" || profile?.role === "employee") && (

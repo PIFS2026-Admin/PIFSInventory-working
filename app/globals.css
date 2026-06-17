@@ -61,6 +61,21 @@ button {
   margin-bottom: 16px;
 }
 
+.brand-home-link {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brand-home-link:hover .brand-title {
+  color: var(--orange-2);
+}
+
 .brand-mark {
   width: 42px;
   height: 42px;

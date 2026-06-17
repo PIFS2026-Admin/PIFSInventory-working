@@ -1312,13 +1312,13 @@ export default function DtiPage() {
   return (
     <main className="dashboard-shell dti-shell">
       <header className="dashboard-header">
-        <div className="brand compact">
+        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">DTI Management</div>
             <div className="brand-subtitle">Field inspection work orders and scorecards</div>
           </div>
-        </div>
+        </button>
 
         <div className="dashboard-actions">
           <button className="button" onClick={loadPage}>Refresh</button>

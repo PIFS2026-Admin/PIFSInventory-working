@@ -831,13 +831,13 @@ export default function HardbandPage() {
   return (
     <main className="hardband-shell">
       <header className="hardband-header">
-        <div className="brand compact">
+        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">Hardband Work Orders</div>
             <div className="brand-subtitle">Jobs, serial numbers, status, and customer reports</div>
           </div>
-        </div>
+        </button>
         <div className="hardband-header-actions">
           {profile?.role !== "operator" && (
             <button className="button" onClick={() => (window.location.href = "/")}>
