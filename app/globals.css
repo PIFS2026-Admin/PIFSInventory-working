@@ -3419,23 +3419,97 @@ th {
 
 @media (max-width: 760px) {
   .daily-summary-shell {
-    padding: 12px;
+    padding: 16px;
+    overflow-x: hidden;
+  }
+
+  .summary-workspace {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .summary-list-panel {
+    padding: 14px;
   }
 
   .summary-list {
-    max-height: 260px;
+    max-height: none;
   }
 
   .inspection-summary-wrap {
-    margin-left: -12px;
-    margin-right: -12px;
+    margin: 0;
+    overflow-x: visible;
+    padding-bottom: 0;
   }
 
   .inspection-summary-sheet {
-    width: 8.5in;
-    transform: scale(0.48);
-    transform-origin: top left;
+    width: 100%;
+    min-height: auto;
+    transform: none;
     margin: 0;
+    padding: 16px;
+    border-radius: 10px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.32);
+  }
+
+  .summary-letterhead {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .summary-letterhead img {
+    width: min(180px, 70%);
+    margin-top: 0;
+  }
+
+  .summary-title-block h1 {
+    font-size: 26px;
+  }
+
+  .summary-top-fields {
+    grid-template-columns: 1fr;
+    margin: 10px 0 14px;
+  }
+
+  .summary-page-count,
+  .summary-print-page-count,
+  .summary-box-grid,
+  .summary-footer {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-line-field,
+  .summary-inline-count,
+  .summary-long-lines .summary-inline-count,
+  .summary-bottom-counts .summary-inline-count {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .summary-line-field span,
+  .summary-inline-count span {
+    white-space: normal;
+  }
+
+  .summary-count-box,
+  .summary-count-box.compact {
+    min-height: auto;
+    border-width: 2px;
+  }
+
+  .summary-split-row {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-bottom-counts {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .summary-footer strong {
+    text-align: left;
   }
 }
 

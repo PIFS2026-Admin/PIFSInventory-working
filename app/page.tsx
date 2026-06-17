@@ -3286,57 +3286,6 @@ export default function Home() {
           <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>
         </select>
 
-        <input
-          className="field"
-          placeholder="Search company, TU#, part number..."
-          value={search}
-          onChange={(event) => { setSearch(event.target.value); if (event.target.value.trim()) setSelectedLocation("all"); }}
-        />
-
-        <select className="field" value={customerFilter} onChange={(event) => { setCustomerFilter(event.target.value); setSelectedLocation("all"); }}>
-          <option value="all">All Customers</option>
-          {customerOptions.map((customer) => (
-            <option key={customer} value={customer}>{customer}</option>
-          ))}
-        </select>
-
-        <select className="field" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setSelectedLocation("all"); }}>
-          <option value="all">All Statuses</option>
-          {statusOptions.map((status) => (
-            <option key={status} value={status}>{status}</option>
-          ))}
-        </select>
-
-        <select className="field" value={conditionFilter} onChange={(event) => { setConditionFilter(event.target.value); setSelectedLocation("all"); }}>
-          <option value="all">All Conditions</option>
-          {conditionOptions.map((condition) => (
-            <option key={condition} value={condition}>{condition}</option>
-          ))}
-        </select>
-
-        <button
-          className="button"
-          onClick={() => {
-            setSearch("");
-            setCustomerFilter("all");
-            setStatusFilter("all");
-            setConditionFilter("all");
-          }}
-        >
-          Clear Filters
-        </button>
-
-        <select
-          className="field"
-          value={role}
-          disabled={profileRole === "sales" || profileRole === "customer"}
-          onChange={(event) => setRole(event.target.value as Role)}
-        >
-          <option value="admin">Admin</option>
-          <option value="customer">Customer View</option>
-          <option value="sales">Sales View</option>
-        </select>
-
         <div className="button-grid">
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
@@ -3363,13 +3312,10 @@ export default function Home() {
           <button className="button" disabled={isReadOnlyRole} onClick={openShip}>Ship</button>
           <button className="button" disabled={isReadOnlyRole || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
           <button className="button" onClick={openTickets}>Tickets</button>
-          <button className="button" disabled={!canUseAdminTools} onClick={openHardbandJobs}>Hardband Jobs</button>
           <button className="button" onClick={openReports}>Reports</button>
           <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
-          <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dti")}>DTI</button>
           <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
-          <button className="button" disabled={!canUseAdminTools} onClick={() => (window.location.href = "/admin")}>Admin</button>
         </div>
 
         {message && <div className="modal-message">{message}</div>}
