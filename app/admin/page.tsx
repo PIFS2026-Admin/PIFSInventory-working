@@ -54,7 +54,7 @@ type PartNumber = {
   pipeRange: "Range 2" | "Range 3";
 };
 
-type InspectorRole = "lead_inspector" | "crew_lead" | "both";
+type InspectorRole = "lead_inspector" | "level_2_inspector" | "crew_lead" | "both";
 
 type Inspector = {
   id: string;
@@ -121,8 +121,8 @@ function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
 
 function inspectorRoleLabel(role: InspectorRole) {
   if (role === "lead_inspector") return "Lead Inspector";
-  if (role === "crew_lead") return "Crew Lead";
-  return "Lead Inspector / Crew Lead";
+  if (role === "level_2_inspector" || role === "crew_lead") return "Level 2 Inspector";
+  return "Lead Inspector / Level 2 Inspector";
 }
 
 function makeCode(value: string) {
@@ -999,7 +999,7 @@ export default function AdminPage() {
         <div className="admin-section-title">
           <div>
             <h3>Inspector Manager</h3>
-            <p>Create the approved Lead Inspector and Crew Lead lists used on DTI jobs.</p>
+            <p>Create the approved Lead Inspector and Level 2 Inspector lists used on DTI jobs.</p>
           </div>
           {inspectorForm.id && (
             <button className="button" onClick={() => setInspectorForm(emptyInspectorForm)}>
@@ -1014,7 +1014,7 @@ export default function AdminPage() {
             <input
               value={inspectorForm.fullName}
               onChange={(event) => setInspectorForm({ ...inspectorForm, fullName: event.target.value })}
-              placeholder="Lead or crew lead name"
+              placeholder="Inspector name"
             />
           </label>
 
@@ -1025,8 +1025,7 @@ export default function AdminPage() {
               onChange={(event) => setInspectorForm({ ...inspectorForm, role: event.target.value as InspectorRole })}
             >
               <option value="lead_inspector">Lead Inspector</option>
-              <option value="crew_lead">Crew Lead</option>
-              <option value="both">Lead Inspector / Crew Lead</option>
+              <option value="level_2_inspector">Level 2 Inspector</option>
             </select>
           </label>
         </div>

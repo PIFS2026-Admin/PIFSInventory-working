@@ -6,7 +6,7 @@ alter table public.pipe_transactions
 create table if not exists public.inspectors (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
-  role text not null default 'lead_inspector' check (role in ('lead_inspector', 'crew_lead', 'both')),
+  role text not null default 'lead_inspector' check (role in ('lead_inspector', 'level_2_inspector', 'crew_lead', 'both')),
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

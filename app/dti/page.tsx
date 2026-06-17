@@ -11,7 +11,7 @@ type Company = {
   name: string;
 };
 
-type InspectorRole = "lead_inspector" | "crew_lead" | "both";
+type InspectorRole = "lead_inspector" | "level_2_inspector" | "crew_lead" | "both";
 
 type Inspector = {
   id: string;
@@ -694,7 +694,9 @@ export default function DtiPage() {
   const crewLeadOptions = useMemo(
     () =>
       inspectors.filter(
-        (inspector) => inspector.isActive && (inspector.role === "crew_lead" || inspector.role === "both")
+        (inspector) =>
+          inspector.isActive &&
+          (inspector.role === "level_2_inspector" || inspector.role === "crew_lead" || inspector.role === "both")
       ),
     [inspectors]
   );
@@ -1090,7 +1092,7 @@ export default function DtiPage() {
     }
 
     if (!jobForm.crewLead.trim()) {
-      setMessage("Crew Lead is required. Add crew leads in Admin if the list is empty.");
+      setMessage("Level 2 Inspector is required. Add inspectors in Admin if the list is empty.");
       return;
     }
 
@@ -1662,13 +1664,13 @@ export default function DtiPage() {
             </label>
 
             <label>
-              Crew Lead
+              Level 2 Inspector
               <select
                 value={jobForm.crewLead}
                 onChange={(event) => setJobForm({ ...jobForm, crewLead: event.target.value })}
                 disabled={!canEdit}
               >
-                <option value="">Select crew lead</option>
+                <option value="">Select Level 2 Inspector</option>
                 {crewLeadOptions.map((inspector) => (
                   <option key={inspector.id} value={inspector.fullName}>
                     {inspector.fullName}
@@ -1778,7 +1780,7 @@ export default function DtiPage() {
             <div><strong>Lead Inspector:</strong> <span>{selectedJob.leadInspector || "-"}</span></div>
             <div><strong>Field ERS / Superintendent:</strong> <span>{selectedJob.fieldSuperintendent || "-"}</span></div>
             <div><strong>Pad / Location:</strong> <span>{selectedJob.padLocation || "-"}</span></div>
-            <div><strong>Crew Lead:</strong> <span>{selectedJob.crewLead || "-"}</span></div>
+            <div><strong>Level 2 Inspector:</strong> <span>{selectedJob.crewLead || "-"}</span></div>
           </div>
 
           <div className="hardband-filter-row">

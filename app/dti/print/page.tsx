@@ -275,7 +275,7 @@ export default function DtiPrintPage() {
           <div><span>Lead Inspector</span><strong>{job.leadInspector || "-"}</strong></div>
           <div><span>Field ERS / Superintendent</span><strong>{job.fieldSuperintendent || "-"}</strong></div>
           <div><span>Pad / Location</span><strong>{job.padLocation || "-"}</strong></div>
-          <div><span>Crew Lead</span><strong>{job.crewLead || "-"}</strong></div>
+          <div><span>Level 2 Inspector</span><strong>{job.crewLead || "-"}</strong></div>
         </div>
 
         <div className="hardband-summary-grid">
