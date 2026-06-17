@@ -191,6 +191,10 @@ export default function HardbandPrintPage() {
     setMessage("");
   }
 
+  function goBack() {
+    window.location.href = "/hardband";
+  }
+
   if (!job) {
     return (
       <main className="print-shell">
@@ -202,7 +206,7 @@ export default function HardbandPrintPage() {
   return (
     <main className="print-shell">
       <div className="print-actions no-print">
-        <button className="button" onClick={() => history.back()}>Back</button>
+        <button className="button" onClick={goBack}>Back</button>
         <button className="button primary" onClick={() => window.print()}>Print / Save PDF</button>
       </div>
 

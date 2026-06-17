@@ -2243,6 +2243,17 @@ th {
   padding: 16px;
 }
 
+.metric-button {
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.metric-button:hover {
+  border-color: var(--orange);
+}
+
 .dti-shell .dashboard-header {
   margin-bottom: 10px;
 }
@@ -2257,6 +2268,56 @@ th {
 
 .dti-detail-card {
   margin-top: 18px;
+}
+
+.dti-job-facts {
+  display: grid;
+  gap: 4px;
+}
+
+.dti-job-facts div {
+  display: block;
+}
+
+.dti-job-facts strong,
+.dti-job-facts span {
+  display: inline;
+}
+
+.dti-red-flag-list {
+  margin: 14px 0;
+}
+
+.dti-red-flag-items {
+  display: grid;
+  gap: 8px;
+}
+
+.dti-red-flag-item {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--text);
+  padding: 12px;
+  cursor: pointer;
+}
+
+.dti-red-flag-item:hover {
+  border-color: var(--orange);
+}
+
+.dti-red-flag-item span {
+  color: var(--orange);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dti-red-flag-item small {
+  color: var(--muted);
 }
 
 .dti-checklist-list {
@@ -2322,7 +2383,7 @@ th {
 
 .dti-score-buttons {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
 }
 
@@ -2399,7 +2460,7 @@ th {
   }
 
   .dti-score-buttons {
-    grid-template-columns: repeat(5, minmax(44px, 1fr));
+    grid-template-columns: repeat(6, minmax(44px, 1fr));
   }
 }
 

@@ -313,6 +313,10 @@ export default function TicketPrintPage() {
     loadTicket();
   }, []);
 
+  function goBack() {
+    window.location.href = "/";
+  }
+
   if (error) {
     return (
       <main className="print-page">
@@ -324,7 +328,7 @@ export default function TicketPrintPage() {
   return (
     <main className="print-page">
       <div className="print-actions">
-        <button className="button" onClick={() => history.back()}>
+        <button className="button" onClick={goBack}>
           Back
         </button>
         <button className="button primary" onClick={() => window.print()}>

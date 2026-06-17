@@ -57,7 +57,7 @@ function getCompanyName(value: unknown) {
 }
 
 function scoreLabel(score: number | null) {
-  if (!score) return "Not scored";
+  if (!score) return "N/A";
   if (score >= 5) return "Excellent";
   if (score === 4) return "Good";
   if (score === 3) return "Acceptable";
@@ -201,6 +201,10 @@ export default function DtiPrintPage() {
     setMessage("");
   }
 
+  function goBack() {
+    window.location.href = "/dti";
+  }
+
   if (!job) {
     return (
       <main className="print-shell">
@@ -212,7 +216,7 @@ export default function DtiPrintPage() {
   return (
     <main className="print-shell dti-print-shell">
       <div className="print-actions no-print">
-        <button className="button" onClick={() => history.back()}>Back</button>
+        <button className="button" onClick={goBack}>Back</button>
         <button className="button primary" onClick={() => window.print()}>Print / Save PDF</button>
       </div>
 
@@ -306,7 +310,7 @@ export default function DtiPrintPage() {
               )}
             </span>
             <strong className="printed-signer-name">{job.reviewedBy || "-"}</strong>
-            <p>Reviewed By / Superintendent</p>
+            <p>Manager Signature</p>
           </div>
           <div>
             <span>{job.reviewDate || job.closedAt || "-"}</span>

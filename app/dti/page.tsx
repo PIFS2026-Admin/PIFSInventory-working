@@ -511,7 +511,7 @@ function normalizeRole(value: unknown): UserRole {
 }
 
 function scoreLabel(score: number | null) {
-  if (!score) return "Not scored";
+  if (!score) return "N/A";
   if (score >= 5) return "Excellent";
   if (score === 4) return "Good";
   if (score === 3) return "Acceptable";
@@ -598,7 +598,7 @@ function SignaturePad({
   return (
     <div className="signature-box">
       <div className="signature-header">
-        <span>Superintendent Signature</span>
+        <span>Manager Signature</span>
         <button className="button" type="button" onClick={clear}>
           Clear
         </button>
@@ -633,6 +633,7 @@ export default function DtiPage() {
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading DTI management...");
   const [saving, setSaving] = useState(false);
+  const [showRedFlagList, setShowRedFlagList] = useState(false);
 
   const canEdit = profile
     ? ["admin", "employee", "dti_superintendent", "dti_inspector"].includes(profile.role)
@@ -678,7 +679,7 @@ export default function DtiPage() {
 
   const metrics = useMemo(() => {
     const activeJobs = jobs.filter((job) => job.status !== "Closed");
-    const redFlags = responses.filter((response) => response.redFlag).length;
+    const redFlags = responses.filter((response) => response.redFlag || (response.score !== null && response.score <= 2)).length;
     const scored = responses.filter((response) => response.score);
     const averageScore = scored.length
       ? scored.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scored.length
@@ -701,6 +702,19 @@ export default function DtiPage() {
       redFlags,
       averageScore: averageScore ? averageScore.toFixed(1) : "-",
     };
+  }, [jobs, responses]);
+
+  const redFlagItems = useMemo(() => {
+    return responses
+      .filter((response) => response.redFlag || (response.score !== null && response.score <= 2))
+      .map((response) => ({
+        ...response,
+        job: jobs.find((job) => job.id === response.dtiJobId) ?? null,
+      }))
+      .sort((a, b) => {
+        const jobCompare = (a.job?.jobNumber ?? "").localeCompare(b.job?.jobNumber ?? "");
+        return jobCompare || a.sortOrder - b.sortOrder;
+      });
   }, [jobs, responses]);
 
   useEffect(() => {
@@ -1013,7 +1027,7 @@ export default function DtiPage() {
       }
 
       const jobResponses = responses.filter((response) => response.dtiJobId === selectedJob.id);
-      const redFlagCount = jobResponses.filter((response) => response.redFlag || Number(response.score ?? 0) <= 2).length;
+      const redFlagCount = jobResponses.filter((response) => response.redFlag || (response.score !== null && response.score <= 2)).length;
       const nextResult = redFlagCount > 0 ? "Needs Review" : "Acceptable";
 
       const { error: jobError } = await supabase
@@ -1078,7 +1092,7 @@ export default function DtiPage() {
     }
 
     if (!closeForm.signature) {
-      setMessage("Superintendent signature is required to close the DTI job.");
+      setMessage("Manager signature is required to close the DTI job.");
       return;
     }
 
@@ -1207,8 +1221,49 @@ export default function DtiPage() {
         <div className="dashboard-card"><span>{metrics.reviewNeeded}</span><p>Needs Review</p></div>
         <div className="dashboard-card"><span>{metrics.closedThisWeek}</span><p>Closed This Week</p></div>
         <div className="dashboard-card"><span>{metrics.averageScore}</span><p>Average Score</p></div>
-        <div className="dashboard-card"><span>{metrics.redFlags}</span><p>Open Red Flags</p></div>
+        <button
+          type="button"
+          className="dashboard-card metric-button"
+          onClick={() => setShowRedFlagList((current) => !current)}
+        >
+          <span>{metrics.redFlags}</span>
+          <p>Open Red Flags</p>
+        </button>
       </section>
+
+      {showRedFlagList && (
+        <section className="dashboard-card dti-red-flag-list">
+          <div className="section-heading">
+            <div>
+              <h2>Red Flags / Needs Improvement</h2>
+              <p>{redFlagItems.length} checklist items need attention.</p>
+            </div>
+            <button className="button" type="button" onClick={() => setShowRedFlagList(false)}>Close</button>
+          </div>
+          {redFlagItems.length === 0 ? (
+            <p className="muted-text">No red flags or low scores are currently open.</p>
+          ) : (
+            <div className="dti-red-flag-items">
+              {redFlagItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="dti-red-flag-item"
+                  onClick={() => {
+                    if (item.job) setSelectedJobId(item.job.id);
+                    setSectionFilter(item.section);
+                    document.querySelector(".dti-detail-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                >
+                  <strong>{item.job?.jobNumber ?? "DTI Job"}: {item.requirement}</strong>
+                  <span>{item.section} / {item.category} / {scoreLabel(item.score)}</span>
+                  <small>{item.notes || item.definition}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="dashboard-grid dti-main-grid">
         <section className="dashboard-card">
@@ -1353,17 +1408,17 @@ export default function DtiPage() {
             </div>
           </div>
 
-          <div className="transfer-summary">
-            <div><strong>Date</strong><span>{selectedJob.jobDate || "-"}</span></div>
-            <div><strong>Field Ticket #</strong><span>{selectedJob.fieldTicketNumber || "-"}</span></div>
-            <div><strong>Inspection Type</strong><span>{selectedJob.inspectionType || "-"}</span></div>
-            <div><strong>Inspection Company</strong><span>{selectedJob.inspectionCompany || "-"}</span></div>
-            <div><strong>Rig</strong><span>{selectedJob.rig || "-"}</span></div>
-            <div><strong>Operator</strong><span>{selectedJob.operator || "-"}</span></div>
-            <div><strong>Lead Inspector</strong><span>{selectedJob.leadInspector || "-"}</span></div>
-            <div><strong>Field ERS / Superintendent</strong><span>{selectedJob.fieldSuperintendent || "-"}</span></div>
-            <div><strong>Pad / Location</strong><span>{selectedJob.padLocation || "-"}</span></div>
-            <div><strong>Crew Lead</strong><span>{selectedJob.crewLead || "-"}</span></div>
+          <div className="transfer-summary dti-job-facts">
+            <div><strong>Date:</strong> <span>{selectedJob.jobDate || "-"}</span></div>
+            <div><strong>Field Ticket #:</strong> <span>{selectedJob.fieldTicketNumber || "-"}</span></div>
+            <div><strong>Inspection Type:</strong> <span>{selectedJob.inspectionType || "-"}</span></div>
+            <div><strong>Inspection Company:</strong> <span>{selectedJob.inspectionCompany || "-"}</span></div>
+            <div><strong>Rig:</strong> <span>{selectedJob.rig || "-"}</span></div>
+            <div><strong>Operator:</strong> <span>{selectedJob.operator || "-"}</span></div>
+            <div><strong>Lead Inspector:</strong> <span>{selectedJob.leadInspector || "-"}</span></div>
+            <div><strong>Field ERS / Superintendent:</strong> <span>{selectedJob.fieldSuperintendent || "-"}</span></div>
+            <div><strong>Pad / Location:</strong> <span>{selectedJob.padLocation || "-"}</span></div>
+            <div><strong>Crew Lead:</strong> <span>{selectedJob.crewLead || "-"}</span></div>
           </div>
 
           <div className="hardband-filter-row">
@@ -1378,7 +1433,7 @@ export default function DtiPage() {
 
           <div className="dti-checklist-list">
             {selectedResponses.map((response) => (
-              <article key={response.id} className={`dti-check-row ${response.redFlag ? "red-flag" : ""}`}>
+              <article key={response.id} className={`dti-check-row ${response.redFlag || (response.score !== null && response.score <= 2) ? "red-flag" : ""}`}>
                 <div>
                   <div className="dti-row-kicker">{response.section} / {response.category}</div>
                   <h3>{response.requirement}</h3>
@@ -1392,6 +1447,14 @@ export default function DtiPage() {
 
                 <div className="dti-row-controls">
                   <div className="dti-score-buttons">
+                    <button
+                      type="button"
+                      className={response.score === null ? "active" : ""}
+                      disabled={!canEdit || selectedJob.status === "Closed"}
+                      onClick={() => updateResponse(response.id, { score: null, redFlag: false })}
+                    >
+                      N/A
+                    </button>
                     {[1, 2, 3, 4, 5].map((score) => (
                       <button
                         key={score}
@@ -1429,7 +1492,7 @@ export default function DtiPage() {
               <h3>Close DTI Job</h3>
               <div className="form-grid">
                 <label>
-                  Reviewed By
+                  Manager Name
                   <input value={closeForm.reviewedBy} onChange={(event) => setCloseForm({ ...closeForm, reviewedBy: event.target.value })} />
                 </label>
                 <label>
