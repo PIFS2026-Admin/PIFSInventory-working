@@ -102,8 +102,13 @@ export default function InternalHomePage() {
       return;
     }
 
-    if (role === "dti_superintendent" || role === "dti_inspector") {
+    if (role === "dti_superintendent") {
       window.location.href = "/dti";
+      return;
+    }
+
+    if (role === "dti_inspector") {
+      window.location.href = "/dti-summary";
       return;
     }
 

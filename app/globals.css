@@ -3161,6 +3161,18 @@ th {
   color: var(--muted);
 }
 
+.summary-list-details {
+  display: grid;
+  gap: 3px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.summary-list-button[aria-expanded="true"] {
+  background: linear-gradient(135deg, rgba(255, 121, 22, 0.14), rgba(18, 22, 27, 0.96));
+}
+
 .summary-list-button.active,
 .summary-list-button:hover {
   border-color: var(--orange);
@@ -3516,7 +3528,7 @@ th {
 @media print {
   @page {
     size: letter portrait;
-    margin: 0.25in;
+    margin: 0.15in;
   }
 
   .daily-summary-shell,
@@ -3542,15 +3554,83 @@ th {
   }
 
   .inspection-summary-sheet {
-    width: 100% !important;
+    width: 8.2in !important;
     min-height: auto !important;
     border: 0 !important;
     box-shadow: none !important;
     margin: 0 !important;
-    padding: 0.05in !important;
+    padding: 0.12in !important;
     transform: none !important;
     background: #ffffff !important;
     color: #111827 !important;
     break-inside: avoid;
+    page-break-inside: avoid;
+    font-size: 10px !important;
+    line-height: 1.12 !important;
+  }
+
+  .summary-letterhead {
+    grid-template-columns: 1.65in 1fr !important;
+    gap: 0.18in !important;
+    margin-bottom: 6px !important;
+  }
+
+  .summary-letterhead img {
+    width: 1.45in !important;
+    margin-top: 0 !important;
+  }
+
+  .summary-title-block h1 {
+    font-size: 20px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .summary-line-field,
+  .summary-inline-count,
+  .summary-print-line,
+  .summary-print-count {
+    min-height: 18px !important;
+    gap: 5px !important;
+  }
+
+  .summary-top-fields,
+  .summary-long-lines,
+  .summary-bottom-counts,
+  .summary-footer {
+    gap: 4px !important;
+    margin: 4px 0 !important;
+  }
+
+  .summary-box-grid {
+    gap: 6px !important;
+    margin: 6px 0 !important;
+  }
+
+  .summary-count-box {
+    min-height: 1.38in !important;
+    padding: 5px !important;
+    border-width: 2px !important;
+    gap: 3px !important;
+  }
+
+  .summary-count-box.compact {
+    min-height: 0.62in !important;
+  }
+
+  .summary-remarks {
+    margin-top: 4px !important;
+  }
+
+  .summary-remarks textarea,
+  .summary-remarks.print p {
+    min-height: 0.62in !important;
+  }
+
+  .summary-note-lines {
+    min-height: 24px !important;
+  }
+
+  .summary-footer {
+    margin-top: 6px !important;
   }
 }

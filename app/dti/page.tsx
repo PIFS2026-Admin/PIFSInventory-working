@@ -665,7 +665,7 @@ export default function DtiPage() {
   const [showRedFlagList, setShowRedFlagList] = useState(false);
 
   const canEdit = profile
-    ? ["admin", "employee", "dti_superintendent", "dti_inspector"].includes(profile.role)
+    ? ["admin", "employee", "dti_superintendent"].includes(profile.role)
     : false;
   const canClose = profile ? ["admin", "employee", "dti_superintendent"].includes(profile.role) : false;
 
@@ -782,6 +782,16 @@ export default function DtiPage() {
 
     if (loadedProfile.role === "customer") {
       window.location.href = "/customer";
+      return;
+    }
+
+    if (loadedProfile.role === "dti_inspector") {
+      window.location.href = "/dti-summary";
+      return;
+    }
+
+    if (!["admin", "employee", "dti_superintendent"].includes(loadedProfile.role)) {
+      window.location.href = "/home";
       return;
     }
 

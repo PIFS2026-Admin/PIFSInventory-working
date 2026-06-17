@@ -62,8 +62,13 @@ export default function LoginPage() {
       return;
     }
 
-    if (profile.role === "dti_superintendent" || profile.role === "dti_inspector") {
+    if (profile.role === "dti_superintendent") {
       window.location.href = "/dti";
+      return;
+    }
+
+    if (profile.role === "dti_inspector") {
+      window.location.href = "/dti-summary";
       return;
     }
 

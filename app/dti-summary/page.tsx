@@ -56,8 +56,8 @@ type SummaryForm = {
   status: string;
 };
 
-const editableRoles: Role[] = ["admin", "employee", "dti_superintendent", "dti_inspector"];
-const readableRoles: Role[] = ["admin", "employee", "sales", "dti_superintendent", "dti_inspector"];
+const editableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
+const readableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -75,7 +75,7 @@ function blankForm(profileName = ""): SummaryForm {
   return {
     id: "",
     summaryNumber: "",
-    operator: profileName,
+    operator: "",
     contractor: "",
     location: "Pathfinder Yard (TX)",
     summaryDate: today(),
@@ -250,16 +250,18 @@ function TextLine({
   value,
   onChange,
   readOnly,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   readOnly: boolean;
+  type?: string;
 }) {
   return (
     <label className="summary-line-field">
       <span>{label}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} disabled={readOnly} />
+      <input type={type} value={value} onChange={(event) => onChange(event.target.value)} disabled={readOnly} />
     </label>
   );
 }
@@ -287,6 +289,7 @@ export default function DtiDailySummaryPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [summaries, setSummaries] = useState<SummaryForm[]>([]);
   const [form, setForm] = useState<SummaryForm>(blankForm());
+  const [expandedSummaryId, setExpandedSummaryId] = useState("");
   const [message, setMessage] = useState("Loading DTI daily summaries...");
   const [saving, setSaving] = useState(false);
   const [emailing, setEmailing] = useState(false);
@@ -383,7 +386,13 @@ export default function DtiDailySummaryPage() {
 
   function startNewSummary() {
     setForm(blankForm(profile?.fullName ?? ""));
+    setExpandedSummaryId("");
     setMessage("");
+  }
+
+  function selectSummary(summary: SummaryForm) {
+    setForm(summary);
+    setExpandedSummaryId((current) => (current === summary.id ? "" : summary.id));
   }
 
   async function saveSummary() {
@@ -540,11 +549,21 @@ export default function DtiDailySummaryPage() {
                 key={summary.id}
                 className={`summary-list-button ${summary.id === form.id ? "active" : ""}`}
                 type="button"
-                onClick={() => setForm(summary)}
+                aria-expanded={expandedSummaryId === summary.id}
+                onClick={() => selectSummary(summary)}
               >
                 <strong>{summary.summaryNumber}</strong>
-                <span>{summary.summaryDate} / {summary.contractor || "No contractor"}</span>
-                <small>{summary.totalJointsInspected || "0"} joints / {summary.status}</small>
+                <span>Operator: {summary.operator || "-"}</span>
+                <span>Contractor: {summary.contractor || "-"}</span>
+                <span>Field Invoice: {summary.fieldInvoice || "-"}</span>
+                {expandedSummaryId === summary.id && (
+                  <div className="summary-list-details">
+                    <small>Date: {summary.summaryDate || "-"}</small>
+                    <small>Joints: {summary.totalJointsInspected || "0"}</small>
+                    <small>Status: {summary.status || "Draft"}</small>
+                    <small>Location: {summary.location || "-"}</small>
+                  </div>
+                )}
               </button>
             ))}
             {summaries.length === 0 && <p className="muted-text">No daily summaries yet.</p>}
@@ -557,7 +576,7 @@ export default function DtiDailySummaryPage() {
               <img src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" />
               <div className="summary-title-block">
                 <h1>Inspection Summary</h1>
-                <TextLine label="Date" value={form.summaryDate} onChange={(value) => updateForm({ summaryDate: value })} readOnly={readOnly} />
+                <TextLine type="date" label="Date" value={form.summaryDate} onChange={(value) => updateForm({ summaryDate: value })} readOnly={readOnly} />
                 <TextLine label="Field Invoice" value={form.fieldInvoice} onChange={(value) => updateForm({ fieldInvoice: value })} readOnly={readOnly} />
                 <div className="summary-page-count">
                   <TextLine label="Page" value={form.pageNumber} onChange={(value) => updateForm({ pageNumber: value })} readOnly={readOnly} />
