@@ -295,18 +295,33 @@ button {
   outline: 1px dashed var(--orange);
 }
 
-.layout-rack-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin-top: 5px;
+.vertical-rack .rack-code {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
 }
 
+.layout-rack-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(42px, 1fr));
+  gap: 4px;
+  margin-top: 5px;
+  min-width: 150px;
+  position: relative;
+  z-index: 5;
+}
+
+.layout-rack-actions .mini-button,
 .edit-rack,
 .capacity-rack {
   width: 100%;
-  min-height: 30px;
-  font-size: 12px;
+  min-height: 28px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.mini-button.danger {
+  border-color: rgba(239, 68, 68, 0.72);
+  color: #fecaca;
 }
 
 .table-wrap {

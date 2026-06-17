@@ -309,6 +309,9 @@ const rackNumbers = Array.from({ length: 16 }, (_, index) => 16 - index);
 const yardRackCodes = rackLetters.flatMap((letter) =>
   rackNumbers.map((number) => `${letter}${number}`)
 );
+const rackMapOrigin = { x: 26, y: 70 };
+const rackMapCell = { x: 74, y: 74 };
+const rackTileSize = { width: 64, height: 38 };
 
 function parseRackCode(code: string) {
   const clean = String(code ?? "").trim().toUpperCase();
@@ -343,7 +346,7 @@ function defaultRackPosition(rackCode: string) {
   const parsed = parseRackCode(rackCode);
 
   if (!parsed) {
-    return { x: 26, y: 70 };
+    return { x: rackMapOrigin.x, y: rackMapOrigin.y };
   }
 
   const numberIndex = 16 - parsed.number;
@@ -352,8 +355,22 @@ function defaultRackPosition(rackCode: string) {
   const safeRow = letterIndex >= 0 ? letterIndex : 0;
 
   return {
-    x: 26 + safeColumn * 74,
-    y: 70 + safeRow * 74,
+    x: rackMapOrigin.x + safeColumn * rackMapCell.x,
+    y: rackMapOrigin.y + safeRow * rackMapCell.y,
+  };
+}
+
+function snapRackPosition(x: number, y: number) {
+  const maxColumn = rackNumbers.length - 1;
+  const maxRow = rackLetters.length - 1;
+  const column = Math.max(0, Math.min(maxColumn, Math.round((x - rackMapOrigin.x) / rackMapCell.x)));
+  const row = Math.max(0, Math.min(maxRow, Math.round((y - rackMapOrigin.y) / rackMapCell.y)));
+
+  return {
+    column,
+    row,
+    x: rackMapOrigin.x + column * rackMapCell.x,
+    y: rackMapOrigin.y + row * rackMapCell.y,
   };
 }
 
@@ -2242,16 +2259,10 @@ export default function Home() {
     event.preventDefault();
 
     const bounds = event.currentTarget.getBoundingClientRect();
-    const x = Math.max(8, Math.round(event.clientX - bounds.left - 32));
-    const y = Math.max(8, Math.round(event.clientY - bounds.top - 21));
+    const x = Math.round(event.clientX - bounds.left - rackTileSize.width / 2);
+    const y = Math.round(event.clientY - bounds.top - rackTileSize.height / 2);
 
-    setRackLayout((current) =>
-      current.map((rack) =>
-        rack.label === draggedRack
-          ? { ...rack, layoutX: x, layoutY: y }
-          : rack
-      )
-    );
+    moveRackToPosition(draggedRack, x, y);
 
     setDraggedRack(null);
   }
@@ -2267,8 +2278,8 @@ export default function Home() {
         rack_code: rack.label,
         capacity_joints: rack.capacity,
         sort_order: index + 1,
-        layout_x: rack.layoutX,
-        layout_y: rack.layoutY,
+        layout_x: snapRackPosition(rack.layoutX, rack.layoutY).x,
+        layout_y: snapRackPosition(rack.layoutX, rack.layoutY).y,
         layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
         rotation: rack.rotation,
         is_active: rack.enabled !== false,
@@ -2368,6 +2379,75 @@ export default function Home() {
     setMessage(
       `Rack ${label} ${rack.enabled ? "disabled" : "enabled"}. Click Save Layout when you are done.`
     );
+  }
+
+  function moveRackToPosition(label: string, nextX: number, nextY: number) {
+    const nextPosition = snapRackPosition(nextX, nextY);
+
+    setRackLayout((current) => {
+      const movingRack = current.find((rack) => rack.label === label);
+      if (!movingRack) return current;
+
+      const targetRack = current.find((rack) => {
+        if (rack.label === label) return false;
+        const rackPosition = snapRackPosition(rack.layoutX, rack.layoutY);
+        return rackPosition.x === nextPosition.x && rackPosition.y === nextPosition.y;
+      });
+
+      return current.map((rack) => {
+        if (rack.label === label) {
+          return {
+            ...rack,
+            layoutX: nextPosition.x,
+            layoutY: nextPosition.y,
+            layoutGroup: rackLetters[nextPosition.row] ?? rack.layoutGroup,
+            sort_order: nextPosition.row * rackNumbers.length + nextPosition.column + 1,
+          };
+        }
+
+        if (targetRack && rack.label === targetRack.label) {
+          const oldPosition = snapRackPosition(movingRack.layoutX, movingRack.layoutY);
+          return {
+            ...rack,
+            layoutX: oldPosition.x,
+            layoutY: oldPosition.y,
+            layoutGroup: rackLetters[oldPosition.row] ?? rack.layoutGroup,
+            sort_order: oldPosition.row * rackNumbers.length + oldPosition.column + 1,
+          };
+        }
+
+        return rack;
+      });
+    });
+  }
+
+  function nudgeRack(label: string, columnDelta: number, rowDelta: number) {
+    const rack = rackLayout.find((item) => item.label === label);
+    if (!rack) return;
+
+    const currentPosition = snapRackPosition(rack.layoutX, rack.layoutY);
+    const nextColumn = currentPosition.column + columnDelta;
+    const nextRow = currentPosition.row + rowDelta;
+
+    if (nextColumn < 0 || nextColumn >= rackNumbers.length || nextRow < 0 || nextRow >= rackLetters.length) {
+      return;
+    }
+
+    moveRackToPosition(
+      label,
+      rackMapOrigin.x + nextColumn * rackMapCell.x,
+      rackMapOrigin.y + nextRow * rackMapCell.y
+    );
+  }
+
+  function rotateRack(label: string) {
+    setRackLayout((current) =>
+      current.map((rack) =>
+        rack.label === label ? { ...rack, rotation: rack.rotation === 90 ? 0 : 90 } : rack
+      )
+    );
+
+    setMessage(`Rack ${label} orientation changed. Click Save Layout when you are done.`);
   }
 
   function openRackDetail(label: string) {
@@ -3401,7 +3481,7 @@ export default function Home() {
         <section className="rack-section">
           <div className="section-heading">
             <h2>Yard Map</h2>
-            <p>{layoutMode ? "Click a rack to enable or disable it. Drag racks into position, then Save Layout." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+            <p>{layoutMode ? "Drag racks or use the arrow buttons. Every move snaps to the A-K / 16-1 grid." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
           <div
@@ -3478,22 +3558,22 @@ export default function Home() {
               return (
                 <div
                   key={rack.id}
-                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""}`}
+                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
                   draggable={layoutMode}
                   onDragStart={() => setDraggedRack(rack.label)}
-                  title={`${rack.label} / ${joints}/${rack.capacity} joints`}
+                  onDragEnd={() => setDraggedRack(null)}
+                  title={`${rack.label} / ${joints}/${rack.capacity} joints / ${rack.rotation === 90 ? "vertical" : "horizontal"}`}
                   style={{
                     position: "absolute",
-                    left: rack.layoutX,
-                    top: rack.layoutY,
-                    width: "64px",
-                    minHeight: "38px",
-                    height: "38px",
+                    left: snapRackPosition(rack.layoutX, rack.layoutY).x,
+                    top: snapRackPosition(rack.layoutX, rack.layoutY).y,
+                    width: rack.rotation === 90 ? "38px" : `${rackTileSize.width}px`,
+                    minHeight: rack.rotation === 90 ? `${rackTileSize.width}px` : `${rackTileSize.height}px`,
+                    height: rack.rotation === 90 ? `${rackTileSize.width}px` : `${rackTileSize.height}px`,
                     cursor: layoutMode ? "grab" : "pointer",
                     borderColor: !rack.enabled ? "#7f1d1d" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
                     background: !rack.enabled ? "rgba(127, 29, 29, 0.25)" : joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
                     opacity: !rack.enabled ? 0.45 : 1,
-                    transform: `rotate(${rack.rotation}deg)`,
                     zIndex: selectedLocation === rack.label ? 3 : 2,
                   }}
                 >
@@ -3501,8 +3581,8 @@ export default function Home() {
                     className="rack-tile-button compact-rack-button"
                     onClick={() => (layoutMode ? toggleRackEnabled(rack.label) : openRackDetail(rack.label))}
                     style={{
-                      minHeight: "36px",
-                      height: "36px",
+                      minHeight: rack.rotation === 90 ? "62px" : "36px",
+                      height: rack.rotation === 90 ? "62px" : "36px",
                       padding: "5px 7px",
                       gap: "3px",
                       alignItems: "center",
@@ -3517,11 +3597,32 @@ export default function Home() {
 
                   {layoutMode && (
                     <div className="layout-rack-actions">
-                      <button className="mini-button edit-rack" onClick={() => renameRack(rack.label)}>
+                      <button className="mini-button edit-rack" onClick={(event) => { event.stopPropagation(); renameRack(rack.label); }}>
                         Edit
                       </button>
-                      <button className="mini-button capacity-rack" onClick={() => editRackCapacity(rack.label)}>
+                      <button className="mini-button capacity-rack" onClick={(event) => { event.stopPropagation(); editRackCapacity(rack.label); }}>
                         Cap
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); rotateRack(rack.label); }}>
+                        Turn
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); toggleRackEnabled(rack.label); }}>
+                        {rack.enabled ? "Off" : "On"}
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, -1, 0); }}>
+                        Left
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 1, 0); }}>
+                        Right
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 0, -1); }}>
+                        Up
+                      </button>
+                      <button className="mini-button" onClick={(event) => { event.stopPropagation(); nudgeRack(rack.label, 0, 1); }}>
+                        Down
+                      </button>
+                      <button className="mini-button danger" onClick={(event) => { event.stopPropagation(); deleteRack(rack.label); }}>
+                        Del
                       </button>
                     </div>
                   )}

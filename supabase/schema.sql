@@ -65,6 +65,10 @@ create table if not exists public.racks (
   rack_code text not null,
   capacity_joints integer not null default 500,
   sort_order integer not null default 0,
+  layout_x integer,
+  layout_y integer,
+  layout_group text,
+  rotation integer not null default 0,
   is_active boolean not null default true,
   unique (yard_id, rack_code)
 );
