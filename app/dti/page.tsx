@@ -1217,11 +1217,55 @@ export default function DtiPage() {
     window.open(`/dti/print?id=${selectedJob.id}&section=${section}`, "_blank");
   }
 
+  async function deleteDtiJob(job: DtiJob) {
+    if (!canClose || saving) return;
+
+    const confirmed = window.confirm(
+      `Delete DTI job ${job.jobNumber}? This removes the job, checklist scores, notes, and status history.`
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const { error: responseError } = await supabase
+        .from("dti_checklist_responses")
+        .delete()
+        .eq("dti_job_id", job.id);
+
+      if (responseError) throw responseError;
+
+      const { error: historyError } = await supabase
+        .from("dti_status_history")
+        .delete()
+        .eq("dti_job_id", job.id);
+
+      if (historyError) throw historyError;
+
+      const { error: jobError } = await supabase
+        .from("dti_jobs")
+        .delete()
+        .eq("id", job.id);
+
+      if (jobError) throw jobError;
+
+      if (selectedJobId === job.id) setSelectedJobId("");
+
+      await loadJobs();
+      setMessage(`${job.jobNumber} deleted.`);
+    } catch (error: any) {
+      setMessage(`Delete DTI job failed: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="dashboard-shell dti-shell">
       <header className="dashboard-header">
         <div className="brand compact">
-          <img className="brand-logo-img" src="/titan-logo.jpg" alt="TITAN" />
+          <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">DTI Management</div>
             <div className="brand-subtitle">Field inspection work orders and scorecards</div>
@@ -1407,18 +1451,34 @@ export default function DtiPage() {
               const summary = scoreSummary(jobResponses);
 
               return (
-                <button
+                <article
                   key={job.id}
-                  className={`hardband-job-button ${selectedJob?.id === job.id ? "active" : ""}`}
-                  onClick={() => setSelectedJobId((current) => (current === job.id ? "" : job.id))}
+                  className={`dti-job-card ${selectedJob?.id === job.id ? "active" : ""}`}
                 >
-                  <strong>{job.jobNumber}</strong>
-                  <span>{job.company} / Rig {job.rig || "-"} / {job.status}</span>
-                  <small>
-                    Score {summary.averageText} / Grade {summary.grade} / {summary.scoredCount} scored / {summary.redCount} red flags
-                  </small>
-                  <small>{job.jobDate || job.createdAt}</small>
-                </button>
+                  <button
+                    type="button"
+                    className="dti-job-open-button"
+                    onClick={() => setSelectedJobId((current) => (current === job.id ? "" : job.id))}
+                  >
+                    <strong>{job.jobNumber}</strong>
+                    <span>{job.company} / Rig {job.rig || "-"} / {job.status}</span>
+                    <small>
+                      Score {summary.averageText} / Grade {summary.grade} / {summary.scoredCount} scored / {summary.redCount} red flags
+                    </small>
+                    <small>{job.jobDate || job.createdAt}</small>
+                  </button>
+                  {canClose && (
+                    <button
+                      type="button"
+                      className="dti-job-delete-button"
+                      title={`Delete ${job.jobNumber}`}
+                      disabled={saving}
+                      onClick={() => deleteDtiJob(job)}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </article>
               );
             })}
 

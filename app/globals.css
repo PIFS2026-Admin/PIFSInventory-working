@@ -1699,6 +1699,65 @@ th {
   color: var(--muted);
 }
 
+.dti-job-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: stretch;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dti-job-card.active,
+.dti-job-card:hover {
+  border-color: var(--orange);
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
+.dti-job-open-button {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.dti-job-open-button span,
+.dti-job-open-button small {
+  color: var(--muted);
+}
+
+.dti-job-delete-button {
+  align-self: start;
+  margin: 8px 8px 0 0;
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 7px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.dti-job-delete-button:hover {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.85);
+}
+
+.dti-job-delete-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .hardband-detail-card {
   min-width: 0;
 }
