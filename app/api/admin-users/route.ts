@@ -1,10 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+function configuredAdminSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase admin user route is not configured.");
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey);
+}
 
 function getErrorMessage(error: any) {
   if (!error) return "Unknown error.";
@@ -142,6 +148,7 @@ async function sendMicrosoftLoginEmail(options: {
 
 export async function POST(request: Request) {
   try {
+    const adminSupabase = configuredAdminSupabase();
     const body = await request.json();
 
     const email = String(body.email ?? "").trim().toLowerCase();

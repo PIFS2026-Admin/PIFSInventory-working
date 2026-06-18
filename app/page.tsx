@@ -1183,7 +1183,8 @@ export default function Home() {
 
     setSelectedYard(yard);
 
-    let { data: dbRacks, error: rackLayoutError } = await supabase
+    let dbRacks: any[] | null = null;
+    const { data: rackRows, error: rackLayoutError } = await supabase
       .from("racks")
       .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_width, layout_height, layout_group, rotation, is_active")
       .eq("yard_id", yard.id)
@@ -1197,6 +1198,8 @@ export default function Home() {
         .order("sort_order", { ascending: true });
 
       dbRacks = fallbackRackQuery.data;
+    } else {
+      dbRacks = rackRows;
     }
 
     const savedRackMap = new Map<string, RackConfig>();
