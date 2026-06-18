@@ -1221,18 +1221,28 @@ export default function DtiPage() {
 
   async function changeStatus(status: JobStatus) {
     if (!selectedJob || !canEdit || !profile) return;
-    if (selectedJob.status === "Closed") {
-      setMessage("Closed DTI jobs are locked. Print or export the report from history.");
-      return;
-    }
 
     setSaving(true);
     setMessage("");
 
     try {
+      const reopeningJob = selectedJob.status === "Closed" && status !== "Closed";
+      const statusUpdate =
+        reopeningJob
+          ? {
+              status,
+              reviewed_by: null,
+              review_date: null,
+              reviewer_signature: null,
+              closed_at: null,
+              closed_by: null,
+              updated_at: new Date().toISOString(),
+            }
+          : { status, updated_at: new Date().toISOString() };
+
       const { error } = await supabase
         .from("dti_jobs")
-        .update({ status, updated_at: new Date().toISOString() })
+        .update(statusUpdate)
         .eq("id", selectedJob.id);
 
       if (error) throw error;
@@ -1240,7 +1250,7 @@ export default function DtiPage() {
       await supabase.from("dti_status_history").insert({
         dti_job_id: selectedJob.id,
         status,
-        comment: `Status changed to ${status}.`,
+        comment: reopeningJob ? `Reopened and changed to ${status}.` : `Status changed to ${status}.`,
         created_by: profile.id,
       });
 
@@ -1758,7 +1768,7 @@ export default function DtiPage() {
               <p>{selectedJob.company} / {selectedJob.status} / {selectedJob.overallResult}</p>
             </div>
             <div className="hardband-detail-actions">
-              <select value={selectedJob.status} disabled={!canEdit || selectedJob.status === "Closed"} onChange={(event) => changeStatus(event.target.value as JobStatus)}>
+              <select value={selectedJob.status} disabled={!canEdit || saving} onChange={(event) => changeStatus(event.target.value as JobStatus)}>
                 {statusOptions.map((status) => <option key={status}>{status}</option>)}
               </select>
               <button className="button" onClick={saveChecklist} disabled={!canEdit || selectedJob.status === "Closed" || saving}>Save Checklist</button>

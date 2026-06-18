@@ -93,6 +93,16 @@ type ReceiveForm = SignatureFields & {
   notes: string;
 };
 
+type ReceiveTruckLine = {
+  id: string;
+  carrier: string;
+  poNumber: string;
+  truckNumber: string;
+  joints: string;
+  missingBoxProtectors: string;
+  missingPinProtectors: string;
+};
+
 type TransferForm = SignatureFields & {
   destination: string;
   joints: string;
@@ -436,6 +446,16 @@ const emptyReceiveForm: ReceiveForm = {
   carrierName: "",
   carrierSignature: "",
   notes: "",
+};
+
+const emptyReceiveTruckLine: ReceiveTruckLine = {
+  id: "",
+  carrier: "",
+  poNumber: "",
+  truckNumber: "",
+  joints: "",
+  missingBoxProtectors: "0",
+  missingPinProtectors: "0",
 };
 
 const emptyTransferForm: TransferForm = {
@@ -795,6 +815,8 @@ export default function Home() {
   const [transferForm, setTransferForm] = useState<TransferForm>(emptyTransferForm);
   const [shipForm, setShipForm] = useState<ShipForm>(emptyShipForm);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
+  const [receiveTruckLines, setReceiveTruckLines] = useState<ReceiveTruckLine[]>([]);
+  const [shipQuantities, setShipQuantities] = useState<Record<string, string>>({});
   const [receiveFiles, setReceiveFiles] = useState<File[]>([]);
   const [shipFiles, setShipFiles] = useState<File[]>([]);
   const [transferFiles, setTransferFiles] = useState<File[]>([]);
@@ -2158,10 +2180,63 @@ export default function Home() {
     );
   }, [selectedShipRows]);
 
+  const pendingShipLines = useMemo(() => {
+    return selectedShipRows.map((row) => {
+      const requestedJoints = Math.max(0, Number(shipQuantities[row.id] ?? row.joints));
+      const joints = Math.min(row.joints, requestedJoints);
+      const footage = calculateRangeFootage(joints, row.pipeRange);
+
+      return { row, joints, footage, requestedJoints };
+    });
+  }, [selectedShipRows, shipQuantities]);
+
+  const pendingShipTotals = useMemo(() => {
+    return pendingShipLines.reduce(
+      (totals, line) => ({
+        joints: totals.joints + line.joints,
+        footage: totals.footage + line.footage,
+      }),
+      { joints: 0, footage: 0 }
+    );
+  }, [pendingShipLines]);
+
   function toggleRow(id: string) {
     setSelectedRows((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
     );
+  }
+
+  function setShipLineQuantity(rowId: string, value: string) {
+    setShipQuantities((current) => ({
+      ...current,
+      [rowId]: value,
+    }));
+  }
+
+  function addReceiveTruckLine() {
+    setReceiveTruckLines((current) => [
+      ...current,
+      {
+        ...emptyReceiveTruckLine,
+        id: crypto.randomUUID(),
+        carrier: receiveForm.carrier,
+        poNumber: receiveForm.poNumber,
+        truckNumber: "",
+        joints: "",
+        missingBoxProtectors: receiveForm.missingBoxProtectors || "0",
+        missingPinProtectors: receiveForm.missingPinProtectors || "0",
+      },
+    ]);
+  }
+
+  function updateReceiveTruckLine(id: string, updates: Partial<ReceiveTruckLine>) {
+    setReceiveTruckLines((current) =>
+      current.map((line) => (line.id === id ? { ...line, ...updates } : line))
+    );
+  }
+
+  function removeReceiveTruckLine(id: string) {
+    setReceiveTruckLines((current) => current.filter((line) => line.id !== id));
   }
 
   function openTransfer() {
@@ -2219,6 +2294,7 @@ export default function Home() {
       shipTo: firstCompany ?? "",
       bolNumber: await makeTicketNumber("BOL", "bol"),
     });
+    setShipQuantities(Object.fromEntries(selectedShipRows.map((row) => [row.id, String(row.joints)])));
     setShipOpen(true);
   }
 
@@ -2273,6 +2349,7 @@ export default function Home() {
       shipTo: row.company,
       bolNumber: await makeTicketNumber("BOL", "bol"),
     });
+    setShipQuantities({ [row.id]: String(row.joints) });
     setShipOpen(true);
   }
 
@@ -2798,16 +2875,52 @@ export default function Home() {
       setMessage("Part number is required.");
       return;
     }
-  
-    const joints = Number(receiveForm.joints || 0);
-    const footage = calculateRangeFootage(joints, receiveForm.pipeRange);
-    const missingBoxProtectors = Math.max(0, Number(receiveForm.missingBoxProtectors || 0));
-    const missingPinProtectors = Math.max(0, Number(receiveForm.missingPinProtectors || 0));
-  
-    if (joints <= 0) {
-      setMessage("Enter joints before saving.");
+
+    const truckLines =
+      receiveTruckLines.length > 0
+        ? receiveTruckLines
+        : [
+            {
+              ...emptyReceiveTruckLine,
+              id: "primary",
+              carrier: receiveForm.carrier,
+              poNumber: receiveForm.poNumber,
+              truckNumber: receiveForm.truckNumber,
+              joints: receiveForm.joints,
+              missingBoxProtectors: receiveForm.missingBoxProtectors,
+              missingPinProtectors: receiveForm.missingPinProtectors,
+            },
+          ];
+
+    const cleanTruckLines = truckLines.map((line, index) => {
+      const joints = Number(line.joints || 0);
+      const pipeRange = receiveForm.pipeRange;
+
+      return {
+        ...line,
+        carrier: (line.carrier || receiveForm.carrier).trim(),
+        poNumber: (line.poNumber || receiveForm.poNumber).trim(),
+        truckNumber: (line.truckNumber || receiveForm.truckNumber).trim(),
+        joints,
+        footage: calculateRangeFootage(joints, pipeRange),
+        missingBoxProtectors: Math.max(0, Number(line.missingBoxProtectors || 0)),
+        missingPinProtectors: Math.max(0, Number(line.missingPinProtectors || 0)),
+        label: `Truck ${index + 1}`,
+      };
+    });
+
+    if (cleanTruckLines.some((line) => line.joints <= 0)) {
+      setMessage("Each receiving truck line must have joints before saving.");
       return;
     }
+
+    const totalJoints = cleanTruckLines.reduce((sum, line) => sum + line.joints, 0);
+    const totalFootage = cleanTruckLines.reduce((sum, line) => sum + line.footage, 0);
+    const missingBoxProtectors = cleanTruckLines.reduce((sum, line) => sum + line.missingBoxProtectors, 0);
+    const missingPinProtectors = cleanTruckLines.reduce((sum, line) => sum + line.missingPinProtectors, 0);
+    const carrierSummary = Array.from(new Set(cleanTruckLines.map((line) => line.carrier).filter(Boolean))).join(", ");
+    const poSummary = Array.from(new Set(cleanTruckLines.map((line) => line.poNumber).filter(Boolean))).join(", ");
+    const truckSummary = Array.from(new Set(cleanTruckLines.map((line) => line.truckNumber).filter(Boolean))).join(", ");
   
     setSavingReceive(true);
   
@@ -2817,45 +2930,15 @@ export default function Home() {
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
       const ticketNumber = await makeTicketNumber("REC", "receiving");
   
-      const { data: inventoryLine, error: inventoryError } = await supabase
-        .from("pipe_inventory")
-        .insert({
-          company_id: companyId,
-          yard_id: selectedYard.id,
-          rack_id: rack?.id ?? null,
-          workflow_zone_id: zone?.id ?? null,
-          afe: receiveForm.afe || null,
-          operator: receiveForm.operator || null,
-          rig: receiveForm.rig || null,
-          part_number: receiveForm.partNumber,
-          size: receiveForm.size || null,
-          grade: receiveForm.grade || null,
-          connection: receiveForm.connection || null,
-          pipe_range: receiveForm.pipeRange,
-          condition: receiveForm.condition || "New",
-          status: receiveForm.status || "Received",
-          inspection_color: "None",
-          inspection_due_date: receiveForm.inspectionDue || null,
-          bulk_joints: joints,
-          bulk_footage: footage,
-          tallied_joints: 0,
-          tallied_footage: 0,
-        })
-        .select("id")
-        .single();
-  
-      if (inventoryError) throw inventoryError;
-      if (!inventoryLine?.id) throw new Error("Receiving saved inventory but did not return an inventory id.");
-  
       const { data: receivingTicket, error: ticketError } = await supabase
         .from("receiving_tickets")
         .insert({
           company_id: companyId,
           yard_id: selectedYard.id,
           ticket_number: ticketNumber,
-          carrier: receiveForm.carrier || null,
-          po_number: receiveForm.poNumber || null,
-          truck_number: receiveForm.truckNumber || null,
+          carrier: carrierSummary || null,
+          po_number: poSummary || null,
+          truck_number: truckSummary || null,
           destination: destinationName,
           missing_box_protectors: missingBoxProtectors,
           missing_pin_protectors: missingPinProtectors,
@@ -2871,8 +2954,8 @@ export default function Home() {
           connection: receiveForm.connection || null,
           pipe_range: receiveForm.pipeRange,
           condition: receiveForm.condition || "New",
-          joints,
-          footage,
+          joints: totalJoints,
+          footage: totalFootage,
         })
         .select("id")
         .single();
@@ -2880,25 +2963,84 @@ export default function Home() {
       if (ticketError) throw ticketError;
       if (!receivingTicket?.id) throw new Error("Receiving ticket was saved but did not return a ticket id.");
 
+      const createdInventoryIds: string[] = [];
+      const ticketLineItems = [];
+
+      for (const line of cleanTruckLines) {
+        const { data: inventoryLine, error: inventoryError } = await supabase
+          .from("pipe_inventory")
+          .insert({
+            company_id: companyId,
+            yard_id: selectedYard.id,
+            rack_id: rack?.id ?? null,
+            workflow_zone_id: zone?.id ?? null,
+            afe: receiveForm.afe || null,
+            operator: receiveForm.operator || null,
+            rig: receiveForm.rig || null,
+            part_number: receiveForm.partNumber,
+            size: receiveForm.size || null,
+            grade: receiveForm.grade || null,
+            connection: receiveForm.connection || null,
+            pipe_range: receiveForm.pipeRange,
+            condition: receiveForm.condition || "New",
+            status: receiveForm.status || "Received",
+            inspection_color: "None",
+            inspection_due_date: receiveForm.inspectionDue || null,
+            bulk_joints: line.joints,
+            bulk_footage: line.footage,
+            tallied_joints: 0,
+            tallied_footage: 0,
+          })
+          .select("id")
+          .single();
+
+        if (inventoryError) throw inventoryError;
+        if (!inventoryLine?.id) throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
+        createdInventoryIds.push(inventoryLine.id);
+
+        ticketLineItems.push({
+          ticket_id: receivingTicket.id,
+          pipe_inventory_id: inventoryLine.id,
+          company_id: companyId,
+          part_number: receiveForm.partNumber,
+          afe: receiveForm.afe || null,
+          size: receiveForm.size || null,
+          grade: receiveForm.grade || null,
+          connection: receiveForm.connection || null,
+          pipe_range: receiveForm.pipeRange,
+          condition: receiveForm.condition || "New",
+          joints: line.joints,
+          footage: line.footage,
+        });
+
+        await supabase.from("pipe_transactions").insert({
+          pipe_inventory_id: inventoryLine.id,
+          company_id: companyId,
+          yard_id: selectedYard.id,
+          transaction_type: "receive",
+          from_location: line.truckNumber ? `Truck ${line.truckNumber}` : null,
+          to_location: destinationName,
+          quantity_joints: line.joints,
+          quantity_footage: line.footage,
+          comment: receiveForm.notes || `Received ${line.label} on ticket ${ticketNumber}`,
+        });
+      }
+
+      if (ticketLineItems.length > 0) {
+        const { error: lineError } = await supabase
+          .from("ticket_line_items")
+          .insert(ticketLineItems);
+
+        if (lineError) throw lineError;
+      }
+
       await saveTicketAttachments({
         files: receiveFiles,
         companyId,
-        inventoryId: inventoryLine.id,
+        inventoryId: createdInventoryIds[0],
         receivingTicketId: receivingTicket.id,
         ticketNumber,
         folder: "receiving",
-      });
-  
-      await supabase.from("pipe_transactions").insert({
-        pipe_inventory_id: inventoryLine.id,
-        company_id: companyId,
-        yard_id: selectedYard.id,
-        transaction_type: "receive",
-        from_location: null,
-        to_location: destinationName,
-        quantity_joints: joints,
-        quantity_footage: footage,
-        comment: receiveForm.notes || `Received on ticket ${ticketNumber}`,
       });
   
       await loadInventory(selectedYard.id, rackLayout, zones);
@@ -2906,8 +3048,9 @@ export default function Home() {
   
       setReceiveOpen(false);
       setReceiveForm(emptyReceiveForm);
+      setReceiveTruckLines([]);
       setReceiveFiles([]);
-      setMessage(`Receiving saved. Ticket ${ticketNumber}${receiveFiles.length ? ` with ${receiveFiles.length} attachment(s)` : ""}`);
+      setMessage(`Receiving saved. Ticket ${ticketNumber} with ${cleanTruckLines.length} truck line(s)${receiveFiles.length ? ` and ${receiveFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
       setMessage(`Receive failed: ${error.message}`);
     } finally {
@@ -3205,6 +3348,30 @@ export default function Home() {
       return;
     }
 
+    const shipLines = selectedShipRows.map((row) => {
+      const requestedJoints = Number(shipQuantities[row.id] ?? row.joints);
+      const joints = Math.max(0, requestedJoints);
+
+      return {
+        row,
+        requestedJoints,
+        joints,
+        footage: calculateRangeFootage(joints, row.pipeRange),
+      };
+    });
+
+    if (shipLines.some((line) => line.requestedJoints > line.row.joints)) {
+      setMessage("Ship quantity cannot be greater than the joints available on that line.");
+      return;
+    }
+
+    const activeShipLines = shipLines.filter((line) => line.joints > 0);
+
+    if (activeShipLines.length === 0) {
+      setMessage("Enter at least one joint to ship.");
+      return;
+    }
+
     setSavingShip(true);
 
     try {
@@ -3235,7 +3402,7 @@ export default function Home() {
 
       if (ticketError) throw ticketError;
 
-      const lineItems = selectedShipRows.map((row) => ({
+      const lineItems = activeShipLines.map(({ row, joints, footage }) => ({
         ticket_id: ticket.id,
         pipe_inventory_id: row.id,
         company_id: row.companyId,
@@ -3246,8 +3413,8 @@ export default function Home() {
         connection: row.connection || null,
         pipe_range: row.pipeRange,
         condition: row.condition || null,
-        joints: row.joints,
-        footage: row.footage,
+        joints,
+        footage,
       }));
 
       const { error: lineError } = await supabase
@@ -3265,16 +3432,28 @@ export default function Home() {
         folder: "shipping",
       });
 
-      for (const row of selectedShipRows) {
+      for (const { row, joints, footage } of activeShipLines) {
+        const remainingJoints = Math.max(0, row.joints - joints);
+        const remainingFootage = calculateRangeFootage(remainingJoints, row.pipeRange);
+        const inventoryUpdate =
+          remainingJoints === 0
+            ? {
+                status: "Shipped",
+                bulk_joints: 0,
+                bulk_footage: 0,
+                tallied_joints: 0,
+                tallied_footage: 0,
+              }
+            : {
+                bulk_joints: remainingJoints,
+                bulk_footage: remainingFootage,
+                tallied_joints: 0,
+                tallied_footage: 0,
+              };
+
         const { error: inventoryError } = await supabase
           .from("pipe_inventory")
-          .update({
-            status: "Shipped",
-            bulk_joints: 0,
-            bulk_footage: 0,
-            tallied_joints: 0,
-            tallied_footage: 0,
-          })
+          .update(inventoryUpdate)
           .eq("id", row.id);
 
         if (inventoryError) throw inventoryError;
@@ -3284,8 +3463,8 @@ export default function Home() {
           company_id: row.companyId,
           yard_id: selectedYard.id,
           transaction_type: "ship",
-          quantity_joints: row.joints,
-          quantity_footage: row.footage,
+          quantity_joints: joints,
+          quantity_footage: footage,
           from_location: row.rackId ?? row.zoneId,
           to_location: shipForm.destination || shipForm.shipTo,
           comment: shipForm.notes || `Shipped on ${ticketNumber}`,
@@ -3299,6 +3478,7 @@ export default function Home() {
       setShipOpen(false);
       setSelectedRows([]);
       setShipForm(emptyShipForm);
+      setShipQuantities({});
       setShipFiles([]);
       setMessage(`Shipping ticket ${ticketNumber} saved. BOL ${bolNumber}${shipFiles.length ? ` with ${shipFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
@@ -4148,7 +4328,7 @@ export default function Home() {
                 <h2>Receive Pipe</h2>
                 <p>Create inventory and receiving record</p>
               </div>
-              <button className="icon-button" onClick={() => { setReceiveOpen(false); setReceiveFiles([]); }}>X</button>
+              <button className="icon-button" onClick={() => { setReceiveOpen(false); setReceiveTruckLines([]); setReceiveFiles([]); }}>X</button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
@@ -4217,6 +4397,53 @@ export default function Home() {
               <label>Calculated Footage<input readOnly value={calculateRangeFootage(Number(receiveForm.joints || 0), receiveForm.pipeRange).toLocaleString()} /></label>
               <label>Missing Box Protectors<input type="number" min="0" value={receiveForm.missingBoxProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingBoxProtectors: event.target.value })} /></label>
               <label>Missing Pin Protectors<input type="number" min="0" value={receiveForm.missingPinProtectors} onChange={(event) => setReceiveForm({ ...receiveForm, missingPinProtectors: event.target.value })} /></label>
+              <section className="ticket-card full">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <h3>Truck Lines</h3>
+                    <p>Use this when one receiving ticket has more than one truck.</p>
+                  </div>
+                  <button type="button" className="button" onClick={addReceiveTruckLine}>Add Truck</button>
+                </div>
+                {receiveTruckLines.length === 0 ? (
+                  <p className="muted-text">No extra trucks added. The main carrier, PO, truck number, joints, and missing protector fields above will be used.</p>
+                ) : (
+                  <div className="ticket-preview">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Carrier</th>
+                          <th>PO</th>
+                          <th>Truck</th>
+                          <th>Joints</th>
+                          <th>Footage</th>
+                          <th>Missing Box</th>
+                          <th>Missing Pin</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {receiveTruckLines.map((line) => {
+                          const lineJoints = Number(line.joints || 0);
+
+                          return (
+                            <tr key={line.id}>
+                              <td><input value={line.carrier} onChange={(event) => updateReceiveTruckLine(line.id, { carrier: event.target.value })} /></td>
+                              <td><input value={line.poNumber} onChange={(event) => updateReceiveTruckLine(line.id, { poNumber: event.target.value })} /></td>
+                              <td><input value={line.truckNumber} onChange={(event) => updateReceiveTruckLine(line.id, { truckNumber: event.target.value })} /></td>
+                              <td><input type="number" min="0" value={line.joints} onChange={(event) => updateReceiveTruckLine(line.id, { joints: event.target.value })} /></td>
+                              <td>{calculateRangeFootage(lineJoints, receiveForm.pipeRange).toLocaleString()}</td>
+                              <td><input type="number" min="0" value={line.missingBoxProtectors} onChange={(event) => updateReceiveTruckLine(line.id, { missingBoxProtectors: event.target.value })} /></td>
+                              <td><input type="number" min="0" value={line.missingPinProtectors} onChange={(event) => updateReceiveTruckLine(line.id, { missingPinProtectors: event.target.value })} /></td>
+                              <td><button type="button" className="button danger-button" onClick={() => removeReceiveTruckLine(line.id)}>Remove</button></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
               <label>
                 Snap Photo
                 <input
@@ -4283,7 +4510,7 @@ export default function Home() {
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => { setReceiveOpen(false); setReceiveFiles([]); }}>Cancel</button>
+              <button className="button" onClick={() => { setReceiveOpen(false); setReceiveTruckLines([]); setReceiveFiles([]); }}>Cancel</button>
               <button className="button primary" onClick={saveReceive} disabled={savingReceive || isReadOnlyRole}>
                 {savingReceive ? "Saving..." : "Save Receiving"}
               </button>
@@ -4424,16 +4651,59 @@ export default function Home() {
                 <h2>Shipping Ticket / BOL</h2>
                 <p>{selectedShipRows.length} selected line items</p>
               </div>
-              <button className="icon-button" onClick={() => { setShipOpen(false); setShipFiles([]); }}>X</button>
+              <button className="icon-button" onClick={() => { setShipOpen(false); setShipQuantities({}); setShipFiles([]); }}>X</button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
 
             <div className="transfer-summary">
               <div><strong>Ship To</strong><span>{shipForm.shipTo || "Required"}</span></div>
-              <div><strong>Total Joints</strong><span>{selectedTotals.joints}</span></div>
-              <div><strong>Total Footage</strong><span>{selectedTotals.footage.toLocaleString()}</span></div>
+              <div><strong>Total Joints</strong><span>{pendingShipTotals.joints}</span></div>
+              <div><strong>Total Footage</strong><span>{pendingShipTotals.footage.toLocaleString()}</span></div>
             </div>
+
+            <section className="ticket-card full">
+              <h3>Ship Quantities</h3>
+              <div className="ticket-preview">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Company</th>
+                      <th>Part Number</th>
+                      <th>Available</th>
+                      <th>Joints to Ship</th>
+                      <th>Calculated Footage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingShipLines.map(({ row, joints, footage }) => (
+                      <tr key={row.id}>
+                        <td>{row.company}</td>
+                        <td>{row.partNumber}</td>
+                        <td>{row.joints}</td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            max={row.joints}
+                            value={shipQuantities[row.id] ?? String(row.joints)}
+                            onChange={(event) => setShipLineQuantity(row.id, event.target.value)}
+                          />
+                        </td>
+                        <td>{footage.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={3}><strong>Totals</strong></td>
+                      <td><strong>{pendingShipTotals.joints}</strong></td>
+                      <td><strong>{pendingShipTotals.footage.toLocaleString()}</strong></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </section>
 
             <div className="form-grid">
               <label>Carrier<input value={shipForm.carrier} onChange={(event) => setShipForm({ ...shipForm, carrier: event.target.value })} /></label>
@@ -4522,15 +4792,15 @@ export default function Home() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedShipRows.map((row) => (
+                  {pendingShipLines.map(({ row, joints, footage }) => (
                     <tr key={row.id}>
                       <td>{row.company}</td>
                       <td>{row.afe}</td>
                       <td>{row.partNumber}</td>
                       <td>{row.pipeRange}</td>
                       <td>{row.condition}</td>
-                      <td>{row.joints}</td>
-                      <td>{row.footage.toLocaleString()}</td>
+                      <td>{joints}</td>
+                      <td>{footage.toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -4538,7 +4808,7 @@ export default function Home() {
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => { setShipOpen(false); setShipFiles([]); }}>Cancel</button>
+              <button className="button" onClick={() => { setShipOpen(false); setShipQuantities({}); setShipFiles([]); }}>Cancel</button>
               <button className="button primary" onClick={saveShip} disabled={savingShip || isReadOnlyRole}>
                 {savingShip ? "Saving..." : "Save Shipping Ticket / BOL"}
               </button>
