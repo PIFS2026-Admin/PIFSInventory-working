@@ -23,6 +23,8 @@ type RackConfig = {
   sort_order: number;
   layoutX: number;
   layoutY: number;
+  layoutWidth: number;
+  layoutHeight: number;
   layoutGroup: string;
   rotation: number;
   enabled: boolean;
@@ -281,6 +283,12 @@ type CompanyOption = {
   name: string;
 };
 
+type InventoryOption = {
+  id: string;
+  optionType: "status" | "condition";
+  label: string;
+};
+
 type ReportLine = {
   label: string;
   lines: number;
@@ -313,6 +321,8 @@ const rackMapOrigin = { x: 26, y: 70 };
 const rackMapCell = { x: 74, y: 74 };
 const rackFreeMoveStep = 10;
 const rackTileSize = { width: 64, height: 38 };
+const defaultStatusOptions = ["Received", "Available", "WIP", "Awaiting Inspection", "Awaiting Ship", "Shipped", "Rejected", "Scrap", "On Hold"];
+const defaultConditionOptions = ["New", "Used", "Premium", "Inspected", "Repair", "Rejected", "Scrap", "On Hold"];
 
 function parseRackCode(code: string) {
   const clean = String(code ?? "").trim().toUpperCase();
@@ -383,6 +393,8 @@ const makeDefaultRacks = (): RackConfig[] => {
       sort_order: index + 1,
       layoutX: position.x,
       layoutY: position.y,
+      layoutWidth: rackTileSize.width,
+      layoutHeight: rackTileSize.height,
       layoutGroup: parsed?.letter ?? "A",
       rotation: 0,
       enabled: true,
@@ -745,6 +757,10 @@ export default function Home() {
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [partNumbers, setPartNumbers] = useState<PartNumberRecord[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [inventoryOptions, setInventoryOptions] = useState<InventoryOption[]>([
+    ...defaultStatusOptions.map((label) => ({ id: `default-status-${label}`, optionType: "status" as const, label })),
+    ...defaultConditionOptions.map((label) => ({ id: `default-condition-${label}`, optionType: "condition" as const, label })),
+  ]);
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [search, setSearch] = useState("");
@@ -1148,11 +1164,21 @@ export default function Home() {
 
     setSelectedYard(yard);
 
-    const { data: dbRacks } = await supabase
+    let { data: dbRacks, error: rackLayoutError } = await supabase
       .from("racks")
-      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation, is_active")
+      .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_width, layout_height, layout_group, rotation, is_active")
       .eq("yard_id", yard.id)
       .order("sort_order", { ascending: true });
+
+    if (rackLayoutError) {
+      const fallbackRackQuery = await supabase
+        .from("racks")
+        .select("id, rack_code, capacity_joints, sort_order, layout_x, layout_y, layout_group, rotation, is_active")
+        .eq("yard_id", yard.id)
+        .order("sort_order", { ascending: true });
+
+      dbRacks = fallbackRackQuery.data;
+    }
 
     const savedRackMap = new Map<string, RackConfig>();
 
@@ -1173,6 +1199,8 @@ export default function Home() {
         sort_order: Number(rack.sort_order ?? yardRackCodes.indexOf(normalizedLabel) + 1),
         layoutX: Number(rack.layout_x ?? fallback.x),
         layoutY: Number(rack.layout_y ?? fallback.y),
+        layoutWidth: Math.max(34, Number(rack.layout_width ?? rackTileSize.width)),
+        layoutHeight: Math.max(26, Number(rack.layout_height ?? rackTileSize.height)),
         layoutGroup,
         rotation: Number(rack.rotation ?? 0),
         enabled,
@@ -1203,6 +1231,7 @@ export default function Home() {
     setZones(mappedZones);
     await loadCompanies();
     await loadPartNumbers();
+    await loadInventoryOptions();
     await loadInventory(yard.id, mappedRacks, mappedZones);
     setLoadingSetup(false);
   }
@@ -1255,6 +1284,41 @@ export default function Home() {
           pipeRange: normalizePipeRange(row.pipe_range),
         };
       })
+    );
+  }
+
+  async function loadInventoryOptions() {
+    const { data, error } = await supabase
+      .from("inventory_options")
+      .select("id, option_type, label, is_active")
+      .eq("is_active", true)
+      .order("option_type", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("label", { ascending: true });
+
+    if (error) {
+      setInventoryOptions([
+        ...defaultStatusOptions.map((label) => ({ id: `default-status-${label}`, optionType: "status" as const, label })),
+        ...defaultConditionOptions.map((label) => ({ id: `default-condition-${label}`, optionType: "condition" as const, label })),
+      ]);
+      return;
+    }
+
+    const mapped = (data ?? [])
+      .map((row: any) => ({
+        id: row.id,
+        optionType: row.option_type as "status" | "condition",
+        label: row.label ?? "",
+      }))
+      .filter((option) => option.label && ["status", "condition"].includes(option.optionType));
+
+    setInventoryOptions(
+      mapped.length > 0
+        ? mapped
+        : [
+            ...defaultStatusOptions.map((label) => ({ id: `default-status-${label}`, optionType: "status" as const, label })),
+            ...defaultConditionOptions.map((label) => ({ id: `default-condition-${label}`, optionType: "condition" as const, label })),
+          ]
     );
   }
 
@@ -2005,12 +2069,18 @@ export default function Home() {
   }, [companies, inventory, partNumbers]);
 
   const statusOptions = useMemo(() => {
-    return Array.from(new Set(inventory.map((row) => row.status).filter(Boolean))).sort();
-  }, [inventory]);
+    return Array.from(new Set([
+      ...inventoryOptions.filter((option) => option.optionType === "status").map((option) => option.label),
+      ...inventory.map((row) => row.status),
+    ].filter(Boolean))).sort();
+  }, [inventory, inventoryOptions]);
 
   const conditionOptions = useMemo(() => {
-    return Array.from(new Set(inventory.map((row) => row.condition).filter(Boolean))).sort();
-  }, [inventory]);
+    return Array.from(new Set([
+      ...inventoryOptions.filter((option) => option.optionType === "condition").map((option) => option.label),
+      ...inventory.map((row) => row.condition),
+    ].filter(Boolean))).sort();
+  }, [inventory, inventoryOptions]);
 
   function rowMatchesQuickFilters(row: InventoryRow) {
     const matchesCustomer = customerFilter === "all" || normalizeFilter(row.company) === normalizeFilter(customerFilter);
@@ -2225,46 +2295,19 @@ export default function Home() {
     );
   }
 
-  async function ensureAllYardRacks() {
-    if (!selectedYard) return;
-
-    setMessage("");
-
-    const rows = makeDefaultRacks().map((rack) => ({
-      yard_id: selectedYard.id,
-      rack_code: rack.label,
-      capacity_joints: rack.capacity,
-      sort_order: rack.sort_order,
-      layout_x: rack.layoutX,
-      layout_y: rack.layoutY,
-      layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
-      rotation: rack.rotation,
-      is_active: rack.enabled !== false,
-    }));
-
-    const { error } = await supabase
-      .from("racks")
-      .upsert(rows, { onConflict: "yard_id,rack_code" });
-
-    if (error) {
-      setMessage(`Rack grid repair failed: ${error.message}`);
-      return;
-    }
-
-    await loadYardSetup();
-    setSelectedLocation("all");
-    setMessage("A-K rack grid loaded with 16 racks per row.");
-  }
   function moveRackOnMap(event: any) {
     if (!layoutMode || !draggedRack) return;
 
     event.preventDefault();
 
     const bounds = event.currentTarget.getBoundingClientRect();
-    const maxX = Math.max(0, Math.round(bounds.width - rackTileSize.width - 4));
-    const maxY = Math.max(0, Math.round(bounds.height - rackTileSize.height - 4));
-    const x = Math.round(event.clientX - bounds.left - rackTileSize.width / 2);
-    const y = Math.round(event.clientY - bounds.top - rackTileSize.height / 2);
+    const rack = rackLayout.find((item) => item.label === draggedRack);
+    const rackWidth = rack?.layoutWidth ?? rackTileSize.width;
+    const rackHeight = rack?.layoutHeight ?? rackTileSize.height;
+    const maxX = Math.max(0, Math.round(bounds.width - rackWidth - 4));
+    const maxY = Math.max(0, Math.round(bounds.height - rackHeight - 4));
+    const x = Math.round(event.clientX - bounds.left - rackWidth / 2);
+    const y = Math.round(event.clientY - bounds.top - rackHeight / 2);
 
     moveRackToPosition(draggedRack, x, y, maxX, maxY);
 
@@ -2284,14 +2327,24 @@ export default function Home() {
         sort_order: index + 1,
         layout_x: snapRackPosition(rack.layoutX, rack.layoutY).x,
         layout_y: snapRackPosition(rack.layoutX, rack.layoutY).y,
+        layout_width: rack.layoutWidth,
+        layout_height: rack.layoutHeight,
         layout_group: rack.enabled === false ? `disabled:${rack.layoutGroup}` : rack.layoutGroup,
         rotation: rack.rotation,
         is_active: rack.enabled !== false,
       }));
 
-      const { error } = await supabase
+      let { error } = await supabase
         .from("racks")
         .upsert(rows, { onConflict: "yard_id,rack_code" });
+
+      if (error && String(error.message ?? "").includes("layout_")) {
+        const fallbackRows = rows.map(({ layout_width, layout_height, ...row }) => row);
+        const fallbackResult = await supabase
+          .from("racks")
+          .upsert(fallbackRows, { onConflict: "yard_id,rack_code" });
+        error = fallbackResult.error;
+      }
 
       if (error) throw error;
 
@@ -2422,6 +2475,59 @@ export default function Home() {
     );
 
     setMessage(`Rack ${label} orientation changed. Click Save Layout when you are done.`);
+  }
+
+  function resizeRackTile(label: string, width: number, height: number) {
+    const nextWidth = Math.max(34, Math.min(220, Math.round(width / 2) * 2));
+    const nextHeight = Math.max(26, Math.min(160, Math.round(height / 2) * 2));
+
+    setRackLayout((current) =>
+      current.map((rack) =>
+        rack.label === label
+          ? {
+              ...rack,
+              layoutWidth: nextWidth,
+              layoutHeight: nextHeight,
+            }
+          : rack
+      )
+    );
+  }
+
+  function startRackResize(event: any, label: string) {
+    if (!layoutMode) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rack = rackLayout.find((item) => item.label === label);
+    const point = event.touches ? event.touches[0] : event;
+    if (!rack || !point) return;
+
+    const startX = point.clientX;
+    const startY = point.clientY;
+    const startWidth = rack.layoutWidth ?? rackTileSize.width;
+    const startHeight = rack.layoutHeight ?? rackTileSize.height;
+
+    const handleMove = (moveEvent: any) => {
+      const movePoint = moveEvent.touches ? moveEvent.touches[0] : moveEvent;
+      if (!movePoint) return;
+
+      moveEvent.preventDefault();
+      resizeRackTile(label, startWidth + movePoint.clientX - startX, startHeight + movePoint.clientY - startY);
+    };
+
+    const stopResize = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", stopResize);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", stopResize);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", stopResize);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", stopResize);
   }
 
   function openRackDetail(label: string) {
@@ -3448,7 +3554,6 @@ export default function Home() {
 
           <div className="topbar-actions">
             <button className="button" onClick={() => { setSelectedLocation("all"); setRackDetailOpen(false); }}>Show All</button>
-            {layoutMode && <button className="button" onClick={ensureAllYardRacks}>Add Missing A-K Racks</button>}
             {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
@@ -3540,9 +3645,11 @@ export default function Home() {
                     position: "absolute",
                     left: snapRackPosition(rack.layoutX, rack.layoutY).x,
                     top: snapRackPosition(rack.layoutX, rack.layoutY).y,
-                    width: rack.rotation === 90 ? "38px" : `${rackTileSize.width}px`,
-                    minHeight: rack.rotation === 90 ? `${rackTileSize.width}px` : `${rackTileSize.height}px`,
-                    height: rack.rotation === 90 ? `${rackTileSize.width}px` : `${rackTileSize.height}px`,
+                    width: `${rack.layoutWidth ?? rackTileSize.width}px`,
+                    minWidth: "34px",
+                    minHeight: "26px",
+                    height: `${rack.layoutHeight ?? rackTileSize.height}px`,
+                    overflow: "hidden",
                     cursor: layoutMode ? "grab" : "pointer",
                     borderColor: !rack.enabled ? "#7f1d1d" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
                     background: !rack.enabled ? "rgba(127, 29, 29, 0.25)" : joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
@@ -3562,8 +3669,8 @@ export default function Home() {
                       openRackDetail(rack.label);
                     }}
                     style={{
-                      minHeight: rack.rotation === 90 ? "62px" : "36px",
-                      height: rack.rotation === 90 ? "62px" : "36px",
+                      minHeight: "100%",
+                      height: "100%",
                       padding: "5px 7px",
                       gap: "3px",
                       alignItems: "center",
@@ -3575,7 +3682,14 @@ export default function Home() {
                       <span style={{ width: `${fill}%`, background: joints > 0 ? "#f97316" : "#303846" }} />
                     </span>
                   </button>
-
+                  {layoutMode && (
+                    <span
+                      className="rack-resize-handle"
+                      onMouseDown={(event) => startRackResize(event, rack.label)}
+                      onTouchStart={(event) => startRackResize(event, rack.label)}
+                      aria-label={`Resize ${rack.label}`}
+                    />
+                  )}
                 </div>
               );
             })}
@@ -3877,25 +3991,14 @@ export default function Home() {
               <label>
                 Condition
                 <select value={editForm.condition} onChange={(event) => setEditForm({ ...editForm, condition: event.target.value })}>
-                  <option>New</option>
-                  <option>Premium</option>
-                  <option>Used</option>
-                  <option>Repair</option>
-                  <option>Rejected</option>
-                  <option>Scrap</option>
+                  {conditionOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 
               <label>
                 Status
                 <select value={editForm.status} onChange={(event) => setEditForm({ ...editForm, status: event.target.value })}>
-                  <option>Received</option>
-                  <option>Available</option>
-                  <option>Awaiting Inspection</option>
-                  <option>Awaiting Ship</option>
-                  <option>WIP</option>
-                  <option>On Hold</option>
-                  <option>Shipped</option>
+                  {statusOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 
@@ -3989,23 +4092,14 @@ export default function Home() {
               <label>
                 Condition
                 <select value={receiveForm.condition} onChange={(event) => setReceiveForm({ ...receiveForm, condition: event.target.value })}>
-                  <option>New</option>
-                  <option>Premium</option>
-                  <option>Used</option>
-                  <option>Repair</option>
-                  <option>Rejected</option>
-                  <option>Scrap</option>
+                  {conditionOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 
               <label>
                 Status
                 <select value={receiveForm.status} onChange={(event) => setReceiveForm({ ...receiveForm, status: event.target.value })}>
-                  <option>Available</option>
-                  <option>Received</option>
-                  <option>Awaiting Inspection</option>
-                  <option>WIP</option>
-                  <option>On Hold</option>
+                  {statusOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 
@@ -4086,23 +4180,14 @@ export default function Home() {
               <label>
                 Condition
                 <select value={receiveForm.condition} onChange={(event) => setReceiveForm({ ...receiveForm, condition: event.target.value })}>
-                  <option>New</option>
-                  <option>Premium</option>
-                  <option>Used</option>
-                  <option>Repair</option>
-                  <option>Rejected</option>
-                  <option>Scrap</option>
+                  {conditionOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 
               <label>
                 Status
                 <select value={receiveForm.status} onChange={(event) => setReceiveForm({ ...receiveForm, status: event.target.value })}>
-                  <option>Received</option>
-                  <option>Available</option>
-                  <option>Awaiting Inspection</option>
-                  <option>WIP</option>
-                  <option>On Hold</option>
+                  {statusOptions.map((option) => <option key={option}>{option}</option>)}
                 </select>
               </label>
 

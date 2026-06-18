@@ -63,6 +63,16 @@ type Inspector = {
   isActive: boolean;
 };
 
+type InventoryOptionType = "status" | "condition";
+
+type InventoryOption = {
+  id: string;
+  optionType: InventoryOptionType;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
 type AdminUserForm = {
   email: string;
   password: string;
@@ -115,6 +125,38 @@ const emptyInspectorForm = {
   role: "lead_inspector" as InspectorRole,
 };
 
+const emptyOptionForm = {
+  id: "",
+  optionType: "status" as InventoryOptionType,
+  label: "",
+};
+
+const defaultInventoryOptions: InventoryOption[] = [
+  "Received",
+  "Available",
+  "WIP",
+  "Awaiting Inspection",
+  "Awaiting Ship",
+  "Shipped",
+  "Rejected",
+  "Scrap",
+  "On Hold",
+].map((label, index) => ({
+  id: `default-status-${label}`,
+  optionType: "status" as const,
+  label,
+  sortOrder: index + 1,
+  isActive: true,
+})).concat(
+  ["New", "Used", "Premium", "Inspected", "Repair", "Rejected", "Scrap", "On Hold"].map((label, index) => ({
+    id: `default-condition-${label}`,
+    optionType: "condition" as const,
+    label,
+    sortOrder: index + 1,
+    isActive: true,
+  }))
+);
+
 function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
   return value === "Range 3" ? "Range 3" : "Range 2";
 }
@@ -153,6 +195,7 @@ export default function AdminPage() {
   const [zones, setZones] = useState<Zone[]>([]);
   const [partNumbers, setPartNumbers] = useState<PartNumber[]>([]);
   const [inspectors, setInspectors] = useState<Inspector[]>([]);
+  const [inventoryOptions, setInventoryOptions] = useState<InventoryOption[]>(defaultInventoryOptions);
 
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [userForm, setUserForm] = useState<AdminUserForm>(emptyUserForm);
@@ -160,6 +203,7 @@ export default function AdminPage() {
   const [zoneForm, setZoneForm] = useState(emptyZoneForm);
   const [partForm, setPartForm] = useState(emptyPartForm);
   const [inspectorForm, setInspectorForm] = useState(emptyInspectorForm);
+  const [optionForm, setOptionForm] = useState(emptyOptionForm);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -169,6 +213,16 @@ export default function AdminPage() {
   const activeCompanies = useMemo(
     () => companies.filter((company) => company.isActive),
     [companies]
+  );
+
+  const statusOptions = useMemo(
+    () => inventoryOptions.filter((option) => option.optionType === "status"),
+    [inventoryOptions]
+  );
+
+  const conditionOptions = useMemo(
+    () => inventoryOptions.filter((option) => option.optionType === "condition"),
+    [inventoryOptions]
   );
 
   async function signOut() {
@@ -199,7 +253,7 @@ export default function AdminPage() {
     }
 
     setCurrentUserName(profile.full_name || user.email || "User");
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors(), loadInventoryOptions()]);
     setMessage("");
   }
 
@@ -325,8 +379,103 @@ export default function AdminPage() {
   }
 
   async function refreshAdmin() {
-    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors()]);
+    await Promise.all([loadCompanies(), loadProfiles(), loadYards(), loadPartNumbers(), loadInspectors(), loadInventoryOptions()]);
     setMessage("Admin tools refreshed.");
+  }
+
+  async function loadInventoryOptions() {
+    const { data, error } = await supabase
+      .from("inventory_options")
+      .select("id, option_type, label, sort_order, is_active")
+      .order("option_type", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("label", { ascending: true });
+
+    if (error) {
+      setInventoryOptions(defaultInventoryOptions);
+      return;
+    }
+
+    const mapped = (data ?? []).map((option: any) => ({
+      id: option.id,
+      optionType: option.option_type as InventoryOptionType,
+      label: option.label ?? "",
+      sortOrder: Number(option.sort_order ?? 0),
+      isActive: option.is_active !== false,
+    })).filter((option) => option.label && option.isActive);
+
+    setInventoryOptions(mapped.length > 0 ? mapped : defaultInventoryOptions);
+  }
+
+  async function saveInventoryOption() {
+    const label = optionForm.label.trim();
+
+    if (!label) {
+      setMessage("Option label is required.");
+      return;
+    }
+
+    setMessage("");
+    setLoading(true);
+
+    const payload = {
+      option_type: optionForm.optionType,
+      label,
+      sort_order: inventoryOptions.filter((option) => option.optionType === optionForm.optionType).length + 1,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = optionForm.id && !optionForm.id.startsWith("default-")
+      ? await supabase.from("inventory_options").update(payload).eq("id", optionForm.id)
+      : await supabase.from("inventory_options").insert(payload);
+
+    if (error) {
+      setMessage(`Option save failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    setOptionForm(emptyOptionForm);
+    await loadInventoryOptions();
+    setMessage("Status/condition option saved.");
+    setLoading(false);
+  }
+
+  function editInventoryOption(option: InventoryOption) {
+    setOptionForm({
+      id: option.id,
+      optionType: option.optionType,
+      label: option.label,
+    });
+  }
+
+  async function deleteInventoryOption(option: InventoryOption) {
+    const confirmed = window.confirm(`Delete ${option.label}? Existing inventory keeps the saved text, but this removes it from dropdowns.`);
+    if (!confirmed) return;
+
+    setMessage("");
+    setLoading(true);
+
+    if (option.id.startsWith("default-")) {
+      setInventoryOptions((current) => current.filter((item) => item.id !== option.id));
+      setLoading(false);
+      setMessage("Default option hidden for this session. Save custom options in Supabase for permanent changes.");
+      return;
+    }
+
+    const { error } = await supabase.from("inventory_options").delete().eq("id", option.id);
+
+    if (error) {
+      setMessage(`Option delete failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    if (optionForm.id === option.id) setOptionForm(emptyOptionForm);
+    await loadInventoryOptions();
+    setMessage("Status/condition option deleted.");
+    setLoading(false);
   }
 
   async function loadInspectors() {
@@ -893,8 +1042,12 @@ export default function AdminPage() {
       </section>
 
       <section className="admin-grid">
-        <div className="ticket-card admin-card">
-          <h3>Create Company</h3>
+        <details className="ticket-card admin-card admin-collapsible" open>
+          <summary>
+            <h3>Create Company</h3>
+            <span>Open / close</span>
+          </summary>
+          <div className="admin-collapsible-body">
 
           <label>
             Company Name
@@ -917,10 +1070,15 @@ export default function AdminPage() {
           <button className="button primary" onClick={createCompany} disabled={loading}>
             Save Company
           </button>
-        </div>
+          </div>
+        </details>
 
-        <div className="ticket-card admin-card">
-          <h3>Create User</h3>
+        <details className="ticket-card admin-card admin-collapsible" open>
+          <summary>
+            <h3>Create User</h3>
+            <span>Open / close</span>
+          </summary>
+          <div className="admin-collapsible-body">
 
           <label>
             Full Name
@@ -992,15 +1150,20 @@ export default function AdminPage() {
           <button className="button primary" onClick={createUser} disabled={loading}>
             Create User
           </button>
-        </div>
+          </div>
+        </details>
       </section>
 
-      <section className="ticket-card admin-card">
-        <div className="admin-section-title">
+      <details className="ticket-card admin-card admin-collapsible" open>
+        <summary>
           <div>
             <h3>Inspector Manager</h3>
             <p>Create the approved Lead Inspector and Level 2 Inspector lists used on DTI jobs.</p>
           </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+        <div className="admin-section-title compact-title">
           {inspectorForm.id && (
             <button className="button" onClick={() => setInspectorForm(emptyInspectorForm)}>
               New Inspector
@@ -1057,14 +1220,19 @@ export default function AdminPage() {
             </article>
           ))}
         </div>
-      </section>
+        </div>
+      </details>
 
-      <section className="ticket-card admin-card">
-        <div className="admin-section-title">
+      <details className="ticket-card admin-card admin-collapsible" open>
+        <summary>
           <div>
             <h3>Part Number Manager</h3>
             <p>Save common tubular descriptions so receiving and inventory edits can auto-fill pipe details.</p>
           </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+        <div className="admin-section-title compact-title">
           {partForm.id && (
             <button className="button" onClick={() => setPartForm(emptyPartForm)}>
               New Part
@@ -1169,10 +1337,89 @@ export default function AdminPage() {
             </article>
           ))}
         </div>
-      </section>
+        </div>
+      </details>
 
-      <section className="ticket-card admin-card">
-        <h3>Companies</h3>
+      <details className="ticket-card admin-card admin-collapsible" open>
+        <summary>
+          <div>
+            <h3>Status & Condition Manager</h3>
+            <p>Add, edit, or delete the dropdown options used by receiving, edits, and filters.</p>
+          </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+          <div className="form-grid admin-form-grid">
+            <label>
+              Option Type
+              <select
+                value={optionForm.optionType}
+                onChange={(event) => setOptionForm({ ...optionForm, optionType: event.target.value as InventoryOptionType })}
+              >
+                <option value="status">Status</option>
+                <option value="condition">Condition</option>
+              </select>
+            </label>
+
+            <label>
+              Label
+              <input
+                value={optionForm.label}
+                onChange={(event) => setOptionForm({ ...optionForm, label: event.target.value })}
+                placeholder={optionForm.optionType === "status" ? "Available" : "Used"}
+              />
+            </label>
+          </div>
+
+          <button className="button primary" onClick={saveInventoryOption} disabled={loading}>
+            {optionForm.id ? "Save Option" : "Add Option"}
+          </button>
+          {optionForm.id && (
+            <button className="button" onClick={() => setOptionForm(emptyOptionForm)}>
+              New Option
+            </button>
+          )}
+
+          <div className="option-manager-grid">
+            <div>
+              <h4>Statuses</h4>
+              <div className="part-number-list option-list">
+                {statusOptions.map((option) => (
+                  <article key={option.id} className="part-number-row">
+                    <strong>{option.label}</strong>
+                    <div className="part-number-actions">
+                      <button className="button" onClick={() => editInventoryOption(option)}>Edit</button>
+                      <button className="button danger" onClick={() => deleteInventoryOption(option)}>Delete</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4>Conditions</h4>
+              <div className="part-number-list option-list">
+                {conditionOptions.map((option) => (
+                  <article key={option.id} className="part-number-row">
+                    <strong>{option.label}</strong>
+                    <div className="part-number-actions">
+                      <button className="button" onClick={() => editInventoryOption(option)}>Edit</button>
+                      <button className="button danger" onClick={() => deleteInventoryOption(option)}>Delete</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details className="ticket-card admin-card admin-collapsible">
+        <summary>
+          <h3>Companies</h3>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
         <div className="table-wrap">
           <table>
             <thead>
@@ -1240,10 +1487,15 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
-      </section>
+        </div>
+      </details>
 
-      <section className="ticket-card admin-card">
-        <h3>Users</h3>
+      <details className="ticket-card admin-card admin-collapsible">
+        <summary>
+          <h3>Users</h3>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
         <div className="table-wrap">
           <table>
             <thead>
@@ -1303,10 +1555,15 @@ export default function AdminPage() {
             </tbody>
           </table>
         </div>
-      </section>
+        </div>
+      </details>
 
-      <section className="ticket-card admin-card">
-        <h3>Yard Setup</h3>
+      <details className="ticket-card admin-card admin-collapsible" open>
+        <summary>
+          <h3>Yard Setup</h3>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
 
         <label>
           Yard
@@ -1493,7 +1750,8 @@ export default function AdminPage() {
             </div>
           </div>
         </div>
-      </section>
+        </div>
+      </details>
 
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </main>
