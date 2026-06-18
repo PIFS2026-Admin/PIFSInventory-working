@@ -131,7 +131,7 @@ const emptyOptionForm = {
   label: "",
 };
 
-const defaultInventoryOptions: InventoryOption[] = [
+const defaultStatusInventoryOptions: InventoryOption[] = [
   "Received",
   "Available",
   "WIP",
@@ -147,15 +147,29 @@ const defaultInventoryOptions: InventoryOption[] = [
   label,
   sortOrder: index + 1,
   isActive: true,
-})).concat(
-  ["New", "Used", "Premium", "Inspected", "Repair", "Rejected", "Scrap", "On Hold"].map((label, index) => ({
+}));
+
+const defaultConditionInventoryOptions: InventoryOption[] = [
+  "New",
+  "Used",
+  "Premium",
+  "Inspected",
+  "Repair",
+  "Rejected",
+  "Scrap",
+  "On Hold",
+].map((label, index) => ({
     id: `default-condition-${label}`,
     optionType: "condition" as const,
     label,
     sortOrder: index + 1,
     isActive: true,
-  }))
-);
+}));
+
+const defaultInventoryOptions: InventoryOption[] = [
+  ...defaultStatusInventoryOptions,
+  ...defaultConditionInventoryOptions,
+];
 
 function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
   return value === "Range 3" ? "Range 3" : "Range 2";
