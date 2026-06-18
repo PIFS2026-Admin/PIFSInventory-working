@@ -1277,7 +1277,7 @@ export default function Home() {
           id: row.id,
           name: row.name ?? "",
         }))
-        .filter((company) => company.name.trim())
+        .filter((company: CompanyOption) => company.name.trim())
     );
   }
 
@@ -1334,7 +1334,7 @@ export default function Home() {
         optionType: row.option_type as "status" | "condition",
         label: row.label ?? "",
       }))
-      .filter((option) => option.label && ["status", "condition"].includes(option.optionType));
+      .filter((option: InventoryOption) => option.label && ["status", "condition"].includes(option.optionType));
 
     setInventoryOptions(
       mapped.length > 0

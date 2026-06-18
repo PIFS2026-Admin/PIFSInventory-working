@@ -367,7 +367,7 @@ export default function AdminPage() {
 
     setRacks(mappedRacks);
     setSelectedRackIds((current) =>
-      current.filter((id) => mappedRacks.some((rack) => rack.id === id))
+      current.filter((id) => mappedRacks.some((rack: Rack) => rack.id === id))
     );
   }
 
@@ -420,7 +420,7 @@ export default function AdminPage() {
       label: option.label ?? "",
       sortOrder: Number(option.sort_order ?? 0),
       isActive: option.is_active !== false,
-    })).filter((option) => option.label && option.isActive);
+    })).filter((option: InventoryOption) => option.label && option.isActive);
 
     setInventoryOptions(mapped.length > 0 ? mapped : defaultInventoryOptions);
   }

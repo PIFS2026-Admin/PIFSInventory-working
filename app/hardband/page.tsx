@@ -517,7 +517,7 @@ export default function HardbandPage() {
     );
 
     if (!selectedJobId && mappedJobs[0]) {
-      setSelectedJobId((mappedJobs.find((job) => job.status !== "Closed") ?? mappedJobs[0]).id);
+      setSelectedJobId((mappedJobs.find((job: HardbandJob) => job.status !== "Closed") ?? mappedJobs[0]).id);
     }
   }
 

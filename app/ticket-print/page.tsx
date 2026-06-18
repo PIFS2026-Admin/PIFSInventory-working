@@ -238,7 +238,7 @@ export default function TicketPrintPage() {
         }
 
         setLines(
-          (lineData ?? []).map((line) => {
+          (lineData ?? []).map((line: any) => {
             const pipeRange = normalizePipeRange(line.pipe_range);
             const joints = Number(line.joints ?? 0);
 

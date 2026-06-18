@@ -185,7 +185,7 @@ export default function CustomerPage() {
             footage,
           };
         })
-        .filter((row) => row.status !== "Shipped" && (row.joints > 0 || row.footage > 0))
+        .filter((row: CustomerInventory) => row.status !== "Shipped" && (row.joints > 0 || row.footage > 0))
     );
 
     const { data: receiveTickets } = await supabase
