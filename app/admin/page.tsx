@@ -204,6 +204,7 @@ export default function AdminPage() {
   const [partForm, setPartForm] = useState(emptyPartForm);
   const [inspectorForm, setInspectorForm] = useState(emptyInspectorForm);
   const [optionForm, setOptionForm] = useState(emptyOptionForm);
+  const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -342,14 +343,17 @@ export default function AdminPage() {
       return;
     }
 
-    setRacks(
-      (data ?? []).map((rack: any) => ({
-        id: rack.id,
-        rackCode: rack.rack_code ?? "",
-        capacityJoints: Number(rack.capacity_joints ?? 500),
-        sortOrder: Number(rack.sort_order ?? 0),
-        isActive: rack.is_active !== false,
-      }))
+    const mappedRacks = (data ?? []).map((rack: any) => ({
+      id: rack.id,
+      rackCode: rack.rack_code ?? "",
+      capacityJoints: Number(rack.capacity_joints ?? 500),
+      sortOrder: Number(rack.sort_order ?? 0),
+      isActive: rack.is_active !== false,
+    }));
+
+    setRacks(mappedRacks);
+    setSelectedRackIds((current) =>
+      current.filter((id) => mappedRacks.some((rack) => rack.id === id))
     );
   }
 
@@ -889,7 +893,7 @@ export default function AdminPage() {
     setMessage("");
 
     if (!selectedYardId || !rackForm.rackCode.trim()) {
-      setMessage("Rack code is required.");
+      setMessage("Rack name is required.");
       return;
     }
 
@@ -897,7 +901,7 @@ export default function AdminPage() {
 
     const { error } = await supabase.from("racks").insert({
       yard_id: selectedYardId,
-      rack_code: rackForm.rackCode.trim().toUpperCase(),
+      rack_code: rackForm.rackCode.trim(),
       capacity_joints: Number(rackForm.capacityJoints || 500),
       sort_order: Number(rackForm.sortOrder || 0),
       is_active: true,
@@ -937,6 +941,51 @@ export default function AdminPage() {
 
     await loadRacks();
     setMessage("Rack updated.");
+    setLoading(false);
+  }
+
+  function toggleRackSelection(id: string) {
+    setSelectedRackIds((current) =>
+      current.includes(id) ? current.filter((rackId) => rackId !== id) : [...current, id]
+    );
+  }
+
+  function toggleAllRackSelection() {
+    setSelectedRackIds((current) =>
+      current.length === racks.length ? [] : racks.map((rack) => rack.id)
+    );
+  }
+
+  async function deleteSelectedRacks() {
+    if (selectedRackIds.length === 0) {
+      setMessage("Select at least one rack to delete.");
+      return;
+    }
+
+    const deleteCount = selectedRackIds.length;
+    const confirmed = window.confirm(
+      `Delete ${deleteCount} selected rack${deleteCount === 1 ? "" : "s"}? This cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setMessage("");
+    setLoading(true);
+
+    const { error } = await supabase
+      .from("racks")
+      .delete()
+      .in("id", selectedRackIds);
+
+    if (error) {
+      setMessage(`Rack delete failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    setSelectedRackIds([]);
+    await loadRacks();
+    setMessage(`${deleteCount} rack${deleteCount === 1 ? "" : "s"} deleted.`);
     setLoading(false);
   }
 
@@ -1587,11 +1636,11 @@ export default function AdminPage() {
             <h3>Racks</h3>
             <div className="form-grid">
               <label>
-                Rack Code
+                Rack Name
                 <input
                   value={rackForm.rackCode}
                   onChange={(event) => setRackForm({ ...rackForm, rackCode: event.target.value })}
-                  placeholder="A1"
+                  placeholder="A1, North Row, Receiving 1..."
                 />
               </label>
               <label>
@@ -1611,14 +1660,31 @@ export default function AdminPage() {
                 />
               </label>
             </div>
-            <button className="button primary" onClick={createRack} disabled={loading}>
-              Add Rack
-            </button>
+            <div className="admin-rack-actions">
+              <button className="button primary" onClick={createRack} disabled={loading}>
+                Add Rack
+              </button>
+              <button
+                className="button danger"
+                onClick={deleteSelectedRacks}
+                disabled={loading || selectedRackIds.length === 0}
+              >
+                Delete Selected ({selectedRackIds.length})
+              </button>
+            </div>
 
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        checked={racks.length > 0 && selectedRackIds.length === racks.length}
+                        onChange={toggleAllRackSelection}
+                        aria-label="Select all racks"
+                      />
+                    </th>
                     <th>Rack</th>
                     <th>Capacity</th>
                     <th>Status</th>
@@ -1628,6 +1694,14 @@ export default function AdminPage() {
                 <tbody>
                   {racks.map((rack) => (
                     <tr key={rack.id}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedRackIds.includes(rack.id)}
+                          onChange={() => toggleRackSelection(rack.id)}
+                          aria-label={`Select rack ${rack.rackCode}`}
+                        />
+                      </td>
                       <td>{rack.rackCode}</td>
                       <td>{rack.capacityJoints}</td>
                       <td>{rack.isActive ? "Active" : "Disabled"}</td>
@@ -1635,8 +1709,8 @@ export default function AdminPage() {
                         <button
                           className="button"
                           onClick={() => {
-                            const rackCode = window.prompt("Rack code", rack.rackCode);
-                            if (rackCode) updateRack(rack, { rackCode: rackCode.trim().toUpperCase() });
+                            const rackCode = window.prompt("Rack name", rack.rackCode);
+                            if (rackCode) updateRack(rack, { rackCode: rackCode.trim() });
                           }}
                         >
                           Rename

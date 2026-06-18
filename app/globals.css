@@ -351,8 +351,11 @@ button {
 .yard-map-shell {
   width: 100%;
   max-width: 100%;
+  max-height: calc(100vh - 260px);
+  min-height: 460px;
   overflow: auto;
   border-radius: 10px;
+  border: 1px solid var(--line);
 }
 
 .yard-map {
@@ -1456,6 +1459,17 @@ th {
 
 .admin-card .button {
   margin: 14px;
+}
+
+.admin-rack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px;
+}
+
+.admin-rack-actions .button {
+  margin: 0;
 }
 
 .company-logo-cell {

@@ -348,8 +348,9 @@ function parseRackCode(code: string) {
 }
 
 function normalizeRackCode(code: string) {
-  const parsed = parseRackCode(code);
-  if (!parsed) return String(code ?? "").trim().toUpperCase();
+  const clean = String(code ?? "").trim();
+  const parsed = parseRackCode(clean);
+  if (!parsed) return clean;
   return `${parsed.letter}${parsed.number}`;
 }
 
@@ -1010,6 +1011,24 @@ export default function Home() {
     return rackLayout.find((rack) => rack.label === selectedLayoutRackLabel) ?? rackLayout[0] ?? null;
   }, [rackLayout, selectedLayoutRackLabel]);
 
+  const yardMapSize = useMemo(() => {
+    const visibleRacks = rackLayout.filter((rack) => layoutMode || rack.enabled);
+
+    return visibleRacks.reduce(
+      (size, rack) => {
+        const position = snapRackPosition(rack.layoutX, rack.layoutY);
+        const width = rack.layoutWidth ?? rackTileSize.width;
+        const height = rack.layoutHeight ?? rackTileSize.height;
+
+        return {
+          width: Math.max(size.width, position.x + width + 80),
+          height: Math.max(size.height, position.y + height + 80),
+        };
+      },
+      { width: 1220, height: 820 }
+    );
+  }, [layoutMode, rackLayout]);
+
   const selectedRackInventory = useMemo(() => {
     if (!selectedRackDetail) return [];
     return inventory.filter((row) => row.locationType === "rack" && row.rackId === selectedRackDetail.label);
@@ -1184,19 +1203,20 @@ export default function Home() {
 
     for (const rack of dbRacks ?? []) {
       const normalizedLabel = normalizeRackCode(rack.rack_code ?? "");
-      if (!yardRackCodes.includes(normalizedLabel)) continue;
+      if (!normalizedLabel) continue;
 
       const fallback = defaultRackPosition(normalizedLabel);
       const parsed = parseRackCode(normalizedLabel);
       const rawLayoutGroup = String(rack.layout_group ?? parsed?.letter ?? "A");
       const enabled = rack.is_active !== false && !rawLayoutGroup.startsWith("disabled:");
       const layoutGroup = rawLayoutGroup.replace(/^disabled:/, "") || parsed?.letter || "A";
+      const defaultSortIndex = yardRackCodes.indexOf(normalizedLabel);
 
       savedRackMap.set(normalizedLabel, {
         id: rack.id,
         label: normalizedLabel,
         capacity: Number(rack.capacity_joints ?? 500),
-        sort_order: Number(rack.sort_order ?? yardRackCodes.indexOf(normalizedLabel) + 1),
+        sort_order: Number(rack.sort_order ?? (defaultSortIndex >= 0 ? defaultSortIndex + 1 : 9999)),
         layoutX: Number(rack.layout_x ?? fallback.x),
         layoutY: Number(rack.layout_y ?? fallback.y),
         layoutWidth: Math.max(34, Number(rack.layout_width ?? rackTileSize.width)),
@@ -1207,7 +1227,11 @@ export default function Home() {
       });
     }
 
-    const mappedRacks = makeDefaultRacks().map((rack) => savedRackMap.get(rack.label) ?? rack);
+    const defaultRacks = makeDefaultRacks().map((rack) => savedRackMap.get(rack.label) ?? rack);
+    const customRacks = Array.from(savedRackMap.values())
+      .filter((rack) => !yardRackCodes.includes(rack.label))
+      .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
+    const mappedRacks = [...defaultRacks, ...customRacks];
     setRackLayout(mappedRacks);
 
     const { data: dbZones } = await supabase
@@ -2356,14 +2380,9 @@ export default function Home() {
     }
   }
   function renameRack(label: string) {
-    const nextLabel = normalizeRackCode(window.prompt("New rack label, example A1 or K16", label) ?? "");
+    const nextLabel = normalizeRackCode(window.prompt("New rack label", label) ?? "");
 
     if (!nextLabel || nextLabel === label) return;
-
-    if (!yardRackCodes.includes(nextLabel)) {
-      setMessage("Use rack labels A1 through K16.");
-      return;
-    }
 
     if (rackLayout.some((rack) => rack.label === nextLabel && rack.label !== label)) {
       setMessage(`Rack ${nextLabel} already exists.`);
@@ -3601,9 +3620,9 @@ export default function Home() {
               onDrop={moveRackOnMap}
               style={{
                 position: "relative",
-                minHeight: "820px",
-                minWidth: "1220px",
-                width: "100%",
+                minHeight: `${yardMapSize.height}px`,
+                minWidth: `${yardMapSize.width}px`,
+                width: `${yardMapSize.width}px`,
                 overflow: "hidden",
                 border: "1px solid #303846",
                 borderRadius: "10px",
