@@ -241,6 +241,7 @@ export default function TicketPrintPage() {
           (lineData ?? []).map((line: any) => {
             const pipeRange = normalizePipeRange(line.pipe_range);
             const joints = Number(line.joints ?? 0);
+            const storedFootage = line.footage === null || line.footage === undefined ? NaN : Number(line.footage);
 
             return {
               id: line.id,
@@ -249,7 +250,7 @@ export default function TicketPrintPage() {
               pipeRange,
               condition: line.condition ?? "",
               joints,
-              footage: calculateRangeFootage(joints, pipeRange),
+              footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
             };
           })
         );

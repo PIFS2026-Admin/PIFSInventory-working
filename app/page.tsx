@@ -1859,6 +1859,7 @@ export default function Home() {
         const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
         const pipeRange = normalizePipeRange(row.pipe_range);
         const joints = Number(row.joints ?? 0);
+        const storedFootage = row.footage === null || row.footage === undefined ? NaN : Number(row.footage);
 
         return {
           id: row.id,
@@ -1869,7 +1870,7 @@ export default function Home() {
           pipeRange,
           condition: row.condition ?? "",
           joints,
-          footage: calculateRangeFootage(joints, pipeRange),
+          footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
         };
       })
     );
@@ -4663,7 +4664,10 @@ export default function Home() {
             </div>
 
             <section className="ticket-card full">
-              <h3>Ship Quantities</h3>
+              <h3>Shipping Ticket Quantities</h3>
+              <p className="muted-text">
+                Enter the exact quantity for this ticket. These quantities print on the ticket and are removed from inventory.
+              </p>
               <div className="ticket-preview">
                 <table>
                   <thead>
