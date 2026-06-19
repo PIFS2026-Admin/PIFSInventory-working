@@ -669,6 +669,34 @@ function safeFileName(fileName: string) {
     .slice(0, 120) || "attachment";
 }
 
+function signatureToBlackDataUrl(canvas: HTMLCanvasElement) {
+  const output = document.createElement("canvas");
+  output.width = canvas.width;
+  output.height = canvas.height;
+
+  const outputContext = output.getContext("2d");
+  const sourceContext = canvas.getContext("2d");
+
+  if (!outputContext || !sourceContext) return canvas.toDataURL("image/png");
+
+  outputContext.drawImage(canvas, 0, 0);
+  const imageData = outputContext.getImageData(0, 0, output.width, output.height);
+
+  for (let index = 0; index < imageData.data.length; index += 4) {
+    const alpha = imageData.data[index + 3];
+
+    if (alpha > 8) {
+      imageData.data[index] = 0;
+      imageData.data[index + 1] = 0;
+      imageData.data[index + 2] = 0;
+      imageData.data[index + 3] = 255;
+    }
+  }
+
+  outputContext.putImageData(imageData, 0, 0);
+  return output.toDataURL("image/png");
+}
+
 function SignaturePad({
   label,
   value,
@@ -740,7 +768,7 @@ function SignaturePad({
 
     drawingRef.current = false;
     const canvas = canvasRef.current;
-    if (canvas) onChange(canvas.toDataURL("image/png"));
+    if (canvas) onChange(signatureToBlackDataUrl(canvas));
   }
 
   function clearSignature() {

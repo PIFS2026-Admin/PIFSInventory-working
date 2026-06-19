@@ -105,10 +105,57 @@ function getCompanyName(value: unknown) {
   return readName(value);
 }
 
+function makeSignatureBlack(value: string) {
+  return new Promise<string>((resolve) => {
+    if (!value || !value.startsWith("data:image")) {
+      resolve(value);
+      return;
+    }
+
+    const image = new Image();
+
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        resolve(value);
+        return;
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+
+      for (let index = 0; index < imageData.data.length; index += 4) {
+        const alpha = imageData.data[index + 3];
+
+        if (alpha > 8) {
+          imageData.data[index] = 0;
+          imageData.data[index + 1] = 0;
+          imageData.data[index + 2] = 0;
+          imageData.data[index + 3] = 255;
+        }
+      }
+
+      context.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+
+    image.onerror = () => resolve(value);
+    image.src = value;
+  });
+}
+
 export default function TicketPrintPage() {
   const [ticket, setTicket] = useState<Ticket>(emptyTicket);
   const [lines, setLines] = useState<TicketLine[]>([]);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
+  const [printSignatures, setPrintSignatures] = useState({
+    pathfinderSignature: "",
+    carrierSignature: "",
+  });
   const [error, setError] = useState("");
 
   const totals = useMemo(() => {
@@ -393,6 +440,27 @@ export default function TicketPrintPage() {
     loadTicket();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function prepareSignatures() {
+      const [pathfinderSignature, carrierSignature] = await Promise.all([
+        makeSignatureBlack(ticket.pathfinderSignature),
+        makeSignatureBlack(ticket.carrierSignature),
+      ]);
+
+      if (active) {
+        setPrintSignatures({ pathfinderSignature, carrierSignature });
+      }
+    }
+
+    prepareSignatures();
+
+    return () => {
+      active = false;
+    };
+  }, [ticket.pathfinderSignature, ticket.carrierSignature]);
+
   function goBack() {
     window.location.href = "/";
   }
@@ -551,14 +619,18 @@ export default function TicketPrintPage() {
           <div>
             <span>
               {ticket.pathfinderName && <strong className="printed-signer-name">{ticket.pathfinderName}</strong>}
-              {ticket.pathfinderSignature && <img src={ticket.pathfinderSignature} alt="Pathfinder Representative Signature" />}
+              {printSignatures.pathfinderSignature && (
+                <img src={printSignatures.pathfinderSignature} alt="Pathfinder Representative Signature" />
+              )}
             </span>
             <p>Pathfinder Representative</p>
           </div>
           <div>
             <span>
               {ticket.carrierName && <strong className="printed-signer-name">{ticket.carrierName}</strong>}
-              {ticket.carrierSignature && <img src={ticket.carrierSignature} alt="Carrier / Driver Signature" />}
+              {printSignatures.carrierSignature && (
+                <img src={printSignatures.carrierSignature} alt="Carrier / Driver Signature" />
+              )}
             </span>
             <p>Carrier / Driver Signature</p>
           </div>
