@@ -58,6 +58,25 @@ type SummaryForm = {
   status: string;
 };
 
+type JobStatus = "Open" | "In Progress" | "Review" | "Closed";
+
+type DtiJob = {
+  id: string;
+  jobNumber: string;
+  operator: string;
+  leadInspector: string;
+  status: JobStatus;
+};
+
+type ChecklistResponse = {
+  id: string;
+  dtiJobId: string;
+  section: string;
+  category: string;
+  score: number | null;
+  redFlag: boolean;
+};
+
 const editableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
 const readableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
 
@@ -134,6 +153,17 @@ function readNumber(value: unknown) {
 function numberValue(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function letterGrade(score: number | string | null) {
+  const numeric = typeof score === "number" ? score : Number(score);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "N/A";
+  const rounded = Math.round(numeric);
+  if (rounded >= 5) return "A";
+  if (rounded === 4) return "B";
+  if (rounded === 3) return "C";
+  if (rounded === 2) return "D";
+  return "F";
 }
 
 function mapRow(row: any): SummaryForm {
@@ -296,6 +326,8 @@ function NumberLine({
 export default function DtiDailySummaryPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [summaries, setSummaries] = useState<SummaryForm[]>([]);
+  const [jobs, setJobs] = useState<DtiJob[]>([]);
+  const [responses, setResponses] = useState<ChecklistResponse[]>([]);
   const [form, setForm] = useState<SummaryForm>(blankForm());
   const [expandedSummaryId, setExpandedSummaryId] = useState("");
   const [message, setMessage] = useState("Loading DTI daily summaries...");
@@ -313,6 +345,72 @@ export default function DtiDailySummaryPage() {
       hardbandTotal: numberValue(form.hardbandPin) + numberValue(form.hardbandBox),
     };
   }, [form]);
+
+  const leadInspectorPerformance = useMemo(() => {
+    const jobsByLead = new Map<string, DtiJob[]>();
+
+    jobs.forEach((job) => {
+      const lead = job.leadInspector || "Unassigned";
+      jobsByLead.set(lead, [...(jobsByLead.get(lead) ?? []), job]);
+    });
+
+    return [...jobsByLead.entries()]
+      .map(([lead, leadJobs]) => {
+        const jobIds = new Set(leadJobs.map((job) => job.id));
+        const leadResponses = responses.filter((response) => jobIds.has(response.dtiJobId));
+        const scoredResponses = leadResponses.filter((response) => response.score !== null);
+        const average = scoredResponses.length
+          ? scoredResponses.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scoredResponses.length
+          : 0;
+        const redFlags = leadResponses.filter((response) => response.redFlag || (response.score !== null && response.score <= 2)).length;
+
+        const categoryScores = new Map<string, number[]>();
+        scoredResponses.forEach((response) => {
+          const label = response.category || response.section || "General";
+          categoryScores.set(label, [...(categoryScores.get(label) ?? []), Number(response.score)]);
+        });
+
+        const categoryAverages = [...categoryScores.entries()]
+          .map(([label, scores]) => ({
+            label,
+            average: scores.reduce((sum, score) => sum + score, 0) / scores.length,
+          }))
+          .sort((a, b) => b.average - a.average);
+
+        const operatorScores = new Map<string, { scores: number[]; jobs: number }>();
+        leadJobs.forEach((job) => {
+          const label = job.operator || "Unassigned";
+          const jobScores = responses
+            .filter((response) => response.dtiJobId === job.id && response.score !== null)
+            .map((response) => Number(response.score));
+          const current = operatorScores.get(label) ?? { scores: [], jobs: 0 };
+          current.scores.push(...jobScores);
+          current.jobs += 1;
+          operatorScores.set(label, current);
+        });
+
+        const bestOperator = [...operatorScores.entries()]
+          .map(([operator, item]) => ({
+            operator,
+            jobs: item.jobs,
+            average: item.scores.length ? item.scores.reduce((sum, score) => sum + score, 0) / item.scores.length : 0,
+          }))
+          .sort((a, b) => b.average - a.average || b.jobs - a.jobs)[0];
+
+        return {
+          lead,
+          jobs: leadJobs.length,
+          closedJobs: leadJobs.filter((job) => job.status === "Closed").length,
+          average,
+          grade: letterGrade(average),
+          redFlags,
+          strength: categoryAverages[0]?.label ?? "No scored categories yet",
+          weakness: categoryAverages[categoryAverages.length - 1]?.label ?? "No scored categories yet",
+          bestOperator: bestOperator ? `${bestOperator.operator} (${bestOperator.average.toFixed(1)})` : "No operator data yet",
+        };
+      })
+      .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.lead.localeCompare(b.lead));
+  }, [jobs, responses]);
 
   useEffect(() => {
     loadPage();
@@ -352,7 +450,7 @@ export default function DtiDailySummaryPage() {
 
     setProfile(nextProfile);
     setForm(blankForm(nextProfile.fullName));
-    await loadSummaries();
+    await Promise.all([loadSummaries(), loadPerformanceData()]);
   }
 
   async function loadSummaries() {
@@ -371,6 +469,56 @@ export default function DtiDailySummaryPage() {
     const mapped = (data ?? []).map(mapRow);
     setSummaries(mapped);
     setMessage("");
+  }
+
+  async function loadPerformanceData() {
+    const { data: jobData, error: jobError } = await supabase
+      .from("dti_jobs")
+      .select("id, job_number, operator, lead_inspector, status")
+      .order("created_at", { ascending: false });
+
+    if (jobError) {
+      setMessage(`Lead inspector performance failed: ${jobError.message}`);
+      return;
+    }
+
+    const mappedJobs: DtiJob[] = (jobData ?? []).map((job: any) => {
+      const status = readText(job.status);
+      return {
+        id: readText(job.id),
+        jobNumber: readText(job.job_number),
+        operator: readText(job.operator),
+        leadInspector: readText(job.lead_inspector),
+        status: (["Open", "In Progress", "Review", "Closed"].includes(status) ? status : "Open") as JobStatus,
+      };
+    });
+
+    const jobIds = mappedJobs.map((job) => job.id).filter(Boolean);
+    if (jobIds.length === 0) {
+      setJobs([]);
+      setResponses([]);
+      return;
+    }
+
+    const { data: responseData, error: responseError } = await supabase
+      .from("dti_checklist_responses")
+      .select("id, dti_job_id, section, category, score, red_flag")
+      .in("dti_job_id", jobIds);
+
+    if (responseError) {
+      setMessage(`Lead inspector scorecards failed: ${responseError.message}`);
+      return;
+    }
+
+    setJobs(mappedJobs);
+    setResponses((responseData ?? []).map((response: any) => ({
+      id: readText(response.id),
+      dtiJobId: readText(response.dti_job_id),
+      section: readText(response.section),
+      category: readText(response.category),
+      score: response.score === null || response.score === undefined ? null : Number(response.score),
+      redFlag: Boolean(response.red_flag),
+    })));
   }
 
   async function makeSummaryNumber(dateText: string) {
@@ -576,6 +724,33 @@ export default function DtiDailySummaryPage() {
             ))}
             {summaries.length === 0 && <p className="muted-text">No daily summaries yet.</p>}
           </div>
+
+          <section className="summary-performance-panel">
+            <h3>Lead Inspector Performance</h3>
+            <p className="muted-text">Rankings come from scored DTI jobs.</p>
+            {leadInspectorPerformance.length === 0 ? (
+              <p className="muted-text">No scorecard data yet.</p>
+            ) : (
+              <div className="summary-performance-list">
+                {leadInspectorPerformance.map((lead, index) => (
+                  <article key={lead.lead} className="summary-performance-card">
+                    <div>
+                      <strong>#{index + 1} {lead.lead}</strong>
+                      <span>{lead.jobs} jobs / {lead.closedJobs} closed</span>
+                    </div>
+                    <div>
+                      <strong>{lead.average ? lead.average.toFixed(1) : "-"}</strong>
+                      <span>Grade {lead.grade}</span>
+                    </div>
+                    <small>Red Flags: {lead.redFlags}</small>
+                    <small>Best Operator: {lead.bestOperator}</small>
+                    <small>Strength: {lead.strength}</small>
+                    <small>Improve: {lead.weakness}</small>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </aside>
 
         <section className="inspection-summary-wrap">
@@ -609,7 +784,7 @@ export default function DtiDailySummaryPage() {
               <div className="summary-count-box">
                 <NumberLine label="Total Damages" value={String(totals.damageTotal)} onChange={() => {}} readOnly />
                 <div className="summary-split-row">
-                  <span>Damage Seat</span>
+                  <span>Damage Seal</span>
                   <NumberLine label="Box" value={form.damageSeatBox} onChange={(value) => updateForm({ damageSeatBox: value })} readOnly={readOnly} />
                   <NumberLine label="Pin" value={form.damageSeatPin} onChange={(value) => updateForm({ damageSeatPin: value })} readOnly={readOnly} />
                 </div>

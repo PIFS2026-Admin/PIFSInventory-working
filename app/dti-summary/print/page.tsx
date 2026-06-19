@@ -214,7 +214,7 @@ export default function DtiDailySummaryPrintPage() {
         <section className="summary-box-grid">
           <div className="summary-count-box">
             <CountLine label="Total Damages" value={summary.totalDamages} />
-            <div className="summary-split-row print"><span>Damage Seat</span><CountLine label="Box" value={summary.damageSeatBox} /><CountLine label="Pin" value={summary.damageSeatPin} /></div>
+            <div className="summary-split-row print"><span>Damage Seal</span><CountLine label="Box" value={summary.damageSeatBox} /><CountLine label="Pin" value={summary.damageSeatPin} /></div>
             <div className="summary-split-row print"><span>Damage Threads</span><CountLine label="Box" value={summary.damageThreadsBox} /><CountLine label="Pin" value={summary.damageThreadsPin} /></div>
             <CountLine label="Short Box" value={summary.shortBox} />
             <CountLine label="Bent Tube" value={summary.bentTube} />

@@ -3348,6 +3348,50 @@ th {
   border-color: var(--orange);
 }
 
+.summary-performance-panel {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.summary-performance-panel h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.summary-performance-list {
+  display: grid;
+  gap: 10px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.summary-performance-card {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.summary-performance-card > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.summary-performance-card strong {
+  color: var(--text);
+}
+
+.summary-performance-card span,
+.summary-performance-card small {
+  color: var(--muted);
+}
+
 .inspection-summary-wrap {
   overflow-x: auto;
   padding-bottom: 18px;
