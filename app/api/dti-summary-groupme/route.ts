@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
     const { data: summary, error: summaryError } = await adminClient
       .from("dti_daily_summaries")
-      .select("id, summary_number, summary_date, operator, contractor, location, field_invoice, total_joints_inspected, total_damages, total_dbr, total_refaces, total_hardbands, inspection_report_name, inspection_report_url")
+      .select("id, summary_number, summary_date, operator, contractor, location, field_invoice, total_joints_inspected, total_damages, total_dbr, total_refaces, total_hardbands, inspected_by, inspection_report_name, inspection_report_url")
       .eq("id", summaryId)
       .single();
 
@@ -99,6 +99,7 @@ export async function POST(request: Request) {
       `Contractor: ${summary.contractor ?? "-"}`,
       `Location: ${summary.location ?? "-"}`,
       `Field Invoice: ${summary.field_invoice ?? "-"}`,
+      `Inspected By: ${summary.inspected_by ?? "-"}`,
       `Joints: ${summary.total_joints_inspected ?? 0}`,
       `Damages: ${summary.total_damages ?? 0}`,
       `DBR: ${summary.total_dbr ?? 0}`,
