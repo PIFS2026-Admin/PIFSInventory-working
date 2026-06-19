@@ -241,6 +241,8 @@ type HardbandLineForm = {
 type TicketLine = {
   id: string;
   ticketId: string;
+  receivingTicketId: string;
+  shippingTicketId: string;
   company: string;
   afe: string;
   partNumber: string;
@@ -1756,6 +1758,8 @@ export default function Home() {
       .select(`
         id,
         ticket_id,
+        receiving_ticket_id,
+        shipping_ticket_id,
         company_id,
         afe,
         part_number,
@@ -1863,7 +1867,9 @@ export default function Home() {
 
         return {
           id: row.id,
-          ticketId: row.ticket_id ?? "",
+          ticketId: row.ticket_id ?? row.shipping_ticket_id ?? row.receiving_ticket_id ?? "",
+          receivingTicketId: row.receiving_ticket_id ?? "",
+          shippingTicketId: row.shipping_ticket_id ?? "",
           company: company?.name ?? "Unknown",
           afe: row.afe ?? "",
           partNumber: row.part_number ?? "",
@@ -3000,7 +3006,7 @@ export default function Home() {
         createdInventoryIds.push(inventoryLine.id);
 
         ticketLineItems.push({
-          ticket_id: receivingTicket.id,
+          receiving_ticket_id: receivingTicket.id,
           pipe_inventory_id: inventoryLine.id,
           company_id: companyId,
           part_number: receiveForm.partNumber,
@@ -3405,6 +3411,7 @@ export default function Home() {
 
       const lineItems = activeShipLines.map(({ row, joints, footage }) => ({
         ticket_id: ticket.id,
+        shipping_ticket_id: ticket.id,
         pipe_inventory_id: row.id,
         company_id: row.companyId,
         part_number: row.partNumber,
@@ -5062,7 +5069,10 @@ export default function Home() {
                 {filteredReceivingTickets.length === 0 && <p className="muted-text">No receiving tickets found.</p>}
 
                 {filteredReceivingTickets.map((ticket) => {
+                  const lines = ticketLines.filter((line) => line.receivingTicketId === ticket.id);
                   const attachments = ticketAttachments.filter((attachment) => attachment.receivingTicketId === ticket.id);
+                  const joints = lines.reduce((sum, line) => sum + line.joints, 0);
+                  const footage = lines.reduce((sum, line) => sum + line.footage, 0);
 
                   return (
                     <article key={ticket.id} className="ticket-row stacked">
@@ -5082,6 +5092,12 @@ export default function Home() {
                         <span>Missing box protectors: {ticket.missingBoxProtectors}</span>
                         <span>Missing pin protectors: {ticket.missingPinProtectors}</span>
                       </div>
+                      {lines.length > 0 && (
+                        <div>
+                          <span>{joints} joints</span>
+                          <span>{footage.toLocaleString()} ft</span>
+                        </div>
+                      )}
                       <button
                         className="button"
                         onClick={() =>
@@ -5109,7 +5125,7 @@ export default function Home() {
                 {filteredShippingTickets.length === 0 && <p className="muted-text">No shipping tickets found.</p>}
 
                 {filteredShippingTickets.map((ticket) => {
-                  const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
+                  const lines = ticketLines.filter((line) => line.shippingTicketId === ticket.id || line.ticketId === ticket.id);
                   const attachments = ticketAttachments.filter((attachment) => attachment.shippingTicketId === ticket.id);
                   const joints = lines.reduce((sum, line) => sum + line.joints, 0);
                   const footage = lines.reduce((sum, line) => sum + line.footage, 0);

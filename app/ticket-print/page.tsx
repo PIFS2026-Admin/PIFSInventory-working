@@ -38,6 +38,13 @@ type TicketLine = {
   footage: number;
 };
 
+type TicketAttachment = {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  documentType: string;
+};
+
 const emptyTicket: Ticket = {
   id: "",
   type: "receiving",
@@ -101,6 +108,7 @@ function getCompanyName(value: unknown) {
 export default function TicketPrintPage() {
   const [ticket, setTicket] = useState<Ticket>(emptyTicket);
   const [lines, setLines] = useState<TicketLine[]>([]);
+  const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
   const [error, setError] = useState("");
 
   const totals = useMemo(() => {
@@ -229,7 +237,7 @@ export default function TicketPrintPage() {
         const { data: lineData, error: lineError } = await supabase
           .from("ticket_line_items")
           .select("id, afe, part_number, pipe_range, condition, joints, footage")
-          .eq("ticket_id", data.id)
+          .or(`ticket_id.eq.${data.id},shipping_ticket_id.eq.${data.id}`)
           .order("id", { ascending: true });
 
         if (lineError) {
@@ -253,6 +261,26 @@ export default function TicketPrintPage() {
               footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
             };
           })
+        );
+
+        const { data: attachmentData, error: attachmentError } = await supabase
+          .from("documents")
+          .select("id, document_type, file_url, file_name")
+          .eq("shipping_ticket_id", data.id)
+          .order("created_at", { ascending: true });
+
+        if (attachmentError) {
+          setError(attachmentError.message);
+          return;
+        }
+
+        setAttachments(
+          (attachmentData ?? []).map((attachment: any) => ({
+            id: attachment.id,
+            documentType: attachment.document_type ?? "",
+            fileName: attachment.file_name ?? "Attachment",
+            fileUrl: attachment.file_url ?? "",
+          }))
         );
 
         return;
@@ -298,17 +326,68 @@ export default function TicketPrintPage() {
         createdAt: data.created_at ?? "",
       });
 
-      setLines([
-        {
-          id: data.id,
-          afe: data.afe ?? "",
-          partNumber: data.part_number ?? "",
-          pipeRange: normalizePipeRange(data.pipe_range),
-          condition: data.condition ?? "",
-          joints: Number(data.joints ?? 0),
-          footage: calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range)),
-        },
-      ]);
+      const { data: lineData, error: lineError } = await supabase
+        .from("ticket_line_items")
+        .select("id, afe, part_number, pipe_range, condition, joints, footage")
+        .eq("receiving_ticket_id", data.id)
+        .order("id", { ascending: true });
+
+      if (lineError) {
+        setError(lineError.message);
+        return;
+      }
+
+      const mappedLines = (lineData ?? []).map((line: any) => {
+        const pipeRange = normalizePipeRange(line.pipe_range);
+        const joints = Number(line.joints ?? 0);
+        const storedFootage = line.footage === null || line.footage === undefined ? NaN : Number(line.footage);
+
+        return {
+          id: line.id,
+          afe: line.afe ?? "",
+          partNumber: line.part_number ?? "",
+          pipeRange,
+          condition: line.condition ?? "",
+          joints,
+          footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
+        };
+      });
+
+      setLines(
+        mappedLines.length > 0
+          ? mappedLines
+          : [
+              {
+                id: data.id,
+                afe: data.afe ?? "",
+                partNumber: data.part_number ?? "",
+                pipeRange: normalizePipeRange(data.pipe_range),
+                condition: data.condition ?? "",
+                joints: Number(data.joints ?? 0),
+                footage: calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range)),
+              },
+            ]
+      );
+
+      const { data: attachmentData, error: attachmentError } = await supabase
+        .from("documents")
+        .select("id, document_type, file_url, file_name")
+        .eq("receiving_ticket_id", data.id)
+        .order("created_at", { ascending: true });
+
+      if (attachmentError) {
+        setError(attachmentError.message);
+        return;
+      }
+
+      setAttachments(
+        (attachmentData ?? []).map((attachment: any) => ({
+          id: attachment.id,
+          documentType: attachment.document_type ?? "",
+          fileName: attachment.file_name ?? "Attachment",
+          fileUrl: attachment.file_url ?? "",
+        }))
+      );
     }
 
     loadTicket();
@@ -454,6 +533,19 @@ export default function TicketPrintPage() {
           <h3>Notes</h3>
           <p>{ticket.notes || "No notes."}</p>
         </section>
+
+        {attachments.length > 0 && (
+          <section className="ticket-notes ticket-attachments-print">
+            <h3>Attachments</h3>
+            {attachments.map((attachment) => (
+              <p key={attachment.id}>
+                <a href={attachment.fileUrl} target="_blank" rel="noreferrer">
+                  {attachment.fileName}
+                </a>
+              </p>
+            ))}
+          </section>
+        )}
 
         <section className="signature-grid">
           <div>
