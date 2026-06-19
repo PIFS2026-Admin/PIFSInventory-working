@@ -144,6 +144,14 @@ type ReceivingTicket = {
   carrier: string;
   poNumber: string;
   truckNumber: string;
+  destination: string;
+  afe: string;
+  partNumber: string;
+  size: string;
+  grade: string;
+  connection: string;
+  pipeRange: PipeRange;
+  condition: string;
   missingBoxProtectors: number;
   missingPinProtectors: number;
   notes: string;
@@ -846,6 +854,8 @@ export default function Home() {
   const [shipForm, setShipForm] = useState<ShipForm>(emptyShipForm);
   const [editForm, setEditForm] = useState<EditForm>(emptyEditForm);
   const [receiveTruckLines, setReceiveTruckLines] = useState<ReceiveTruckLine[]>([]);
+  const [activeReceiveTicketId, setActiveReceiveTicketId] = useState("");
+  const [activeReceiveTicketNumber, setActiveReceiveTicketNumber] = useState("");
   const [shipQuantities, setShipQuantities] = useState<Record<string, string>>({});
   const [receiveFiles, setReceiveFiles] = useState<File[]>([]);
   const [shipFiles, setShipFiles] = useState<File[]>([]);
@@ -1742,9 +1752,17 @@ export default function Home() {
         carrier,
         po_number,
         truck_number,
+        destination,
         missing_box_protectors,
         missing_pin_protectors,
         notes,
+        afe,
+        part_number,
+        size,
+        grade,
+        connection,
+        pipe_range,
+        condition,
         created_at,
         companies(name)
       `)
@@ -1858,6 +1876,14 @@ export default function Home() {
           carrier: row.carrier ?? "",
           poNumber: row.po_number ?? "",
           truckNumber: row.truck_number ?? "",
+          destination: row.destination ?? "",
+          afe: row.afe ?? "",
+          partNumber: row.part_number ?? "",
+          size: row.size ?? "",
+          grade: row.grade ?? "",
+          connection: row.connection ?? "",
+          pipeRange: normalizePipeRange(row.pipe_range),
+          condition: row.condition ?? "New",
           missingBoxProtectors: Number(row.missing_box_protectors ?? 0),
           missingPinProtectors: Number(row.missing_pin_protectors ?? 0),
           notes: row.notes ?? "",
@@ -2272,6 +2298,89 @@ export default function Home() {
 
   function removeReceiveTruckLine(id: string) {
     setReceiveTruckLines((current) => current.filter((line) => line.id !== id));
+  }
+
+  function closeReceivePanel() {
+    setReceiveOpen(false);
+    setActiveReceiveTicketId("");
+    setActiveReceiveTicketNumber("");
+    setReceiveTruckLines([]);
+    setReceiveFiles([]);
+  }
+
+  function openNewReceive() {
+    setMessage("");
+    setActiveReceiveTicketId("");
+    setActiveReceiveTicketNumber("");
+    setReceiveForm(emptyReceiveForm);
+    setReceiveTruckLines([]);
+    setReceiveFiles([]);
+    setReceiveOpen(true);
+  }
+
+  function appendUniqueValues(existing: string, incoming: string) {
+    return Array.from(
+      new Set(
+        [existing, incoming]
+          .flatMap((value) => value.split(","))
+          .map((value) => value.trim())
+          .filter(Boolean)
+      )
+    ).join(", ");
+  }
+
+  function destinationValueFromName(name: string) {
+    const rack = rackLayout.find((item) => item.label === name);
+    if (rack) return `rack:${rack.label}`;
+
+    const zone = zones.find((item) => item.name === name || item.code === name);
+    if (zone) return `zone:${zone.code}`;
+
+    return emptyReceiveForm.destination;
+  }
+
+  function openReceiveForTicket(ticket: ReceivingTicket) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot receive inventory.");
+      return;
+    }
+
+    const firstLine = ticketLines.find((line) => line.receivingTicketId === ticket.id);
+
+    setMessage("");
+    setActiveReceiveTicketId(ticket.id);
+    setActiveReceiveTicketNumber(ticket.ticketNumber);
+    setReceiveForm({
+      ...emptyReceiveForm,
+      carrier: ticket.carrier,
+      poNumber: ticket.poNumber,
+      truckNumber: "",
+      customer: ticket.company,
+      destination: destinationValueFromName(ticket.destination),
+      afe: ticket.afe || firstLine?.afe || "",
+      partNumber: ticket.partNumber || firstLine?.partNumber || "",
+      size: ticket.size,
+      grade: ticket.grade,
+      connection: ticket.connection,
+      pipeRange: ticket.pipeRange || firstLine?.pipeRange || "Range 2",
+      condition: ticket.condition || firstLine?.condition || "New",
+      status: "Received",
+      joints: "",
+      missingBoxProtectors: "0",
+      missingPinProtectors: "0",
+      notes: ticket.notes,
+    });
+    setReceiveTruckLines([
+      {
+        ...emptyReceiveTruckLine,
+        id: crypto.randomUUID(),
+        carrier: ticket.carrier,
+        poNumber: ticket.poNumber,
+      },
+    ]);
+    setReceiveFiles([]);
+    setTicketsOpen(false);
+    setReceiveOpen(true);
   }
 
   function openTransfer() {
@@ -2963,40 +3072,86 @@ export default function Home() {
       const companyId = await findOrCreateCompany(receiveForm.customer);
       const { rack, zone } = getDestination(receiveForm.destination);
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
-      const ticketNumber = await makeTicketNumber("REC", "receiving");
-  
-      const { data: receivingTicket, error: ticketError } = await supabase
-        .from("receiving_tickets")
-        .insert({
-          company_id: companyId,
-          yard_id: selectedYard.id,
-          ticket_number: ticketNumber,
-          carrier: carrierSummary || null,
-          po_number: poSummary || null,
-          truck_number: truckSummary || null,
-          destination: destinationName,
-          missing_box_protectors: missingBoxProtectors,
-          missing_pin_protectors: missingPinProtectors,
-          pathfinder_name: receiveForm.pathfinderName || null,
-          pathfinder_signature: receiveForm.pathfinderSignature || null,
-          carrier_name: receiveForm.carrierName || null,
-          carrier_signature: receiveForm.carrierSignature || null,
-          notes: receiveForm.notes || null,
-          afe: receiveForm.afe || null,
-          part_number: receiveForm.partNumber,
-          size: receiveForm.size || null,
-          grade: receiveForm.grade || null,
-          connection: receiveForm.connection || null,
-          pipe_range: receiveForm.pipeRange,
-          condition: receiveForm.condition || "New",
-          joints: totalJoints,
-          footage: totalFootage,
-        })
-        .select("id")
-        .single();
-  
-      if (ticketError) throw ticketError;
-      if (!receivingTicket?.id) throw new Error("Receiving ticket was saved but did not return a ticket id.");
+      let receivingTicketId = activeReceiveTicketId;
+      let ticketNumber = activeReceiveTicketNumber;
+
+      if (activeReceiveTicketId) {
+        const { data: existingTicket, error: existingTicketError } = await supabase
+          .from("receiving_tickets")
+          .select("ticket_number, carrier, po_number, truck_number, missing_box_protectors, missing_pin_protectors, joints, footage, notes")
+          .eq("id", activeReceiveTicketId)
+          .single();
+
+        if (existingTicketError) throw existingTicketError;
+
+        ticketNumber = existingTicket?.ticket_number || activeReceiveTicketNumber;
+
+        const { error: updateTicketError } = await supabase
+          .from("receiving_tickets")
+          .update({
+            carrier: appendUniqueValues(existingTicket?.carrier ?? "", carrierSummary) || null,
+            po_number: appendUniqueValues(existingTicket?.po_number ?? "", poSummary) || null,
+            truck_number: appendUniqueValues(existingTicket?.truck_number ?? "", truckSummary) || null,
+            destination: destinationName,
+            missing_box_protectors: Number(existingTicket?.missing_box_protectors ?? 0) + missingBoxProtectors,
+            missing_pin_protectors: Number(existingTicket?.missing_pin_protectors ?? 0) + missingPinProtectors,
+            pathfinder_name: receiveForm.pathfinderName || null,
+            pathfinder_signature: receiveForm.pathfinderSignature || null,
+            carrier_name: receiveForm.carrierName || null,
+            carrier_signature: receiveForm.carrierSignature || null,
+            notes: receiveForm.notes || existingTicket?.notes || null,
+            afe: receiveForm.afe || null,
+            part_number: receiveForm.partNumber,
+            size: receiveForm.size || null,
+            grade: receiveForm.grade || null,
+            connection: receiveForm.connection || null,
+            pipe_range: receiveForm.pipeRange,
+            condition: receiveForm.condition || "New",
+            joints: Number(existingTicket?.joints ?? 0) + totalJoints,
+            footage: Number(existingTicket?.footage ?? 0) + totalFootage,
+          })
+          .eq("id", activeReceiveTicketId);
+
+        if (updateTicketError) throw updateTicketError;
+      } else {
+        ticketNumber = await makeTicketNumber("REC", "receiving");
+
+        const { data: receivingTicket, error: ticketError } = await supabase
+          .from("receiving_tickets")
+          .insert({
+            company_id: companyId,
+            yard_id: selectedYard.id,
+            ticket_number: ticketNumber,
+            carrier: carrierSummary || null,
+            po_number: poSummary || null,
+            truck_number: truckSummary || null,
+            destination: destinationName,
+            missing_box_protectors: missingBoxProtectors,
+            missing_pin_protectors: missingPinProtectors,
+            pathfinder_name: receiveForm.pathfinderName || null,
+            pathfinder_signature: receiveForm.pathfinderSignature || null,
+            carrier_name: receiveForm.carrierName || null,
+            carrier_signature: receiveForm.carrierSignature || null,
+            notes: receiveForm.notes || null,
+            afe: receiveForm.afe || null,
+            part_number: receiveForm.partNumber,
+            size: receiveForm.size || null,
+            grade: receiveForm.grade || null,
+            connection: receiveForm.connection || null,
+            pipe_range: receiveForm.pipeRange,
+            condition: receiveForm.condition || "New",
+            joints: totalJoints,
+            footage: totalFootage,
+          })
+          .select("id")
+          .single();
+
+        if (ticketError) throw ticketError;
+        if (!receivingTicket?.id) throw new Error("Receiving ticket was saved but did not return a ticket id.");
+        receivingTicketId = receivingTicket.id;
+      }
+
+      if (!receivingTicketId) throw new Error("Receiving ticket id is missing.");
 
       const createdInventoryIds: string[] = [];
       const ticketLineItems = [];
@@ -3034,7 +3189,7 @@ export default function Home() {
         createdInventoryIds.push(inventoryLine.id);
 
         ticketLineItems.push({
-          receiving_ticket_id: receivingTicket.id,
+          receiving_ticket_id: receivingTicketId,
           pipe_inventory_id: inventoryLine.id,
           company_id: companyId,
           part_number: receiveForm.partNumber,
@@ -3073,7 +3228,7 @@ export default function Home() {
         files: receiveFiles,
         companyId,
         inventoryId: createdInventoryIds[0],
-        receivingTicketId: receivingTicket.id,
+        receivingTicketId,
         ticketNumber,
         folder: "receiving",
       });
@@ -3082,10 +3237,12 @@ export default function Home() {
       await loadTickets();
   
       setReceiveOpen(false);
+      setActiveReceiveTicketId("");
+      setActiveReceiveTicketNumber("");
       setReceiveForm(emptyReceiveForm);
       setReceiveTruckLines([]);
       setReceiveFiles([]);
-      setMessage(`Receiving saved. Ticket ${ticketNumber} with ${cleanTruckLines.length} truck line(s)${receiveFiles.length ? ` and ${receiveFiles.length} attachment(s)` : ""}`);
+      setMessage(`${activeReceiveTicketId ? "Truck line(s) added" : "Receiving saved"}. Ticket ${ticketNumber} with ${cleanTruckLines.length} truck line(s)${receiveFiles.length ? ` and ${receiveFiles.length} attachment(s)` : ""}`);
     } catch (error: any) {
       setMessage(`Receive failed: ${error.message}`);
     } finally {
@@ -3729,7 +3886,7 @@ export default function Home() {
           <button className="button" onClick={refreshYardView}>Refresh</button>
           <button className="button" disabled={isReadOnlyRole || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
           <button className="button" disabled={isReadOnlyRole} onClick={openTransfer}>Transfer</button>
-          <button className="button primary" disabled={isReadOnlyRole} onClick={() => setReceiveOpen(true)}>Receive</button>
+          <button className="button primary" disabled={isReadOnlyRole} onClick={openNewReceive}>Receive</button>
           <button
             className="button"
             disabled={isReadOnlyRole}
@@ -4361,10 +4518,10 @@ export default function Home() {
           <section className="slide-over">
             <div className="slide-header">
               <div>
-                <h2>Receive Pipe</h2>
-                <p>Create inventory and receiving record</p>
+                <h2>{activeReceiveTicketId ? "Add Truck to Receiving Ticket" : "Receive Pipe"}</h2>
+                <p>{activeReceiveTicketId ? `Continue ${activeReceiveTicketNumber}` : "Create inventory and receiving record"}</p>
               </div>
-              <button className="icon-button" onClick={() => { setReceiveOpen(false); setReceiveTruckLines([]); setReceiveFiles([]); }}>X</button>
+              <button className="icon-button" onClick={closeReceivePanel}>X</button>
             </div>
 
             {message && <div className="modal-message">{message}</div>}
@@ -4546,9 +4703,9 @@ export default function Home() {
             </div>
 
             <div className="slide-actions">
-              <button className="button" onClick={() => { setReceiveOpen(false); setReceiveTruckLines([]); setReceiveFiles([]); }}>Cancel</button>
+              <button className="button" onClick={closeReceivePanel}>Cancel</button>
               <button className="button primary" onClick={saveReceive} disabled={savingReceive || isReadOnlyRole}>
-                {savingReceive ? "Saving..." : "Save Receiving"}
+                {savingReceive ? "Saving..." : activeReceiveTicketId ? "Add Truck" : "Save Receiving"}
               </button>
             </div>
           </section>
@@ -5133,6 +5290,13 @@ export default function Home() {
                         }
                       >
                         Print / PDF
+                      </button>
+                      <button
+                        className="button"
+                        disabled={isReadOnlyRole}
+                        onClick={() => openReceiveForTicket(ticket)}
+                      >
+                        Add Truck
                       </button>
                       {attachments.length > 0 && (
                         <div className="ticket-line-list">

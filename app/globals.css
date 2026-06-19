@@ -4075,3 +4075,43 @@ th {
     margin-top: 6px !important;
   }
 }
+
+@media print {
+  .ticket-table thead,
+  .print-ticket-table thead,
+  .ticket-lines thead,
+  .hardband-report-table thead,
+  .dti-report-table thead {
+    display: table-header-group !important;
+  }
+
+  .ticket-table thead tr,
+  .print-ticket-table thead tr,
+  .ticket-lines thead tr,
+  .hardband-report-table thead tr,
+  .dti-report-table thead tr {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+  }
+
+  .ticket-table thead th,
+  .print-ticket-table thead th,
+  .ticket-lines thead th,
+  .hardband-report-table thead th,
+  .dti-report-table thead th {
+    background: #f3f4f6 !important;
+    color: #111827 !important;
+    border: 1px solid #6b7280 !important;
+    font-weight: 800 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .ticket-table thead th *,
+  .print-ticket-table thead th *,
+  .ticket-lines thead th *,
+  .hardband-report-table thead th *,
+  .dti-report-table thead th * {
+    color: #111827 !important;
+  }
+}
