@@ -17,16 +17,24 @@ create table if not exists public.dti_daily_summaries (
   damage_threads_box integer not null default 0,
   damage_threads_pin integer not null default 0,
   short_box integer not null default 0,
+  damaged_hardband_box integer not null default 0,
+  damaged_hardband_pin integer not null default 0,
   bent_tube integer not null default 0,
   damage_other text,
+  damage_other_description text,
+  damage_other_quantity integer not null default 0,
   damage_notes text,
   total_dbr integer not null default 0,
   min_tong_box integer not null default 0,
   min_tong_pin integer not null default 0,
+  tstr_box integer not null default 0,
+  tstr_pin integer not null default 0,
   emi integer not null default 0,
   damaged_tube integer not null default 0,
   min_wall integer not null default 0,
   dbr_other text,
+  dbr_other_description text,
+  dbr_other_quantity integer not null default 0,
   dbr_notes text,
   total_refaces integer not null default 0,
   reface_pin integer not null default 0,
@@ -40,6 +48,8 @@ create table if not exists public.dti_daily_summaries (
   repair_hb_joints integer not null default 0,
   remarks text,
   inspected_by text,
+  inspection_report_name text,
+  inspection_report_url text,
   status text not null default 'Draft',
   created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
@@ -63,16 +73,24 @@ alter table public.dti_daily_summaries add column if not exists damage_seat_pin 
 alter table public.dti_daily_summaries add column if not exists damage_threads_box integer default 0;
 alter table public.dti_daily_summaries add column if not exists damage_threads_pin integer default 0;
 alter table public.dti_daily_summaries add column if not exists short_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists damaged_hardband_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists damaged_hardband_pin integer default 0;
 alter table public.dti_daily_summaries add column if not exists bent_tube integer default 0;
 alter table public.dti_daily_summaries add column if not exists damage_other text;
+alter table public.dti_daily_summaries add column if not exists damage_other_description text;
+alter table public.dti_daily_summaries add column if not exists damage_other_quantity integer default 0;
 alter table public.dti_daily_summaries add column if not exists damage_notes text;
 alter table public.dti_daily_summaries add column if not exists total_dbr integer default 0;
 alter table public.dti_daily_summaries add column if not exists min_tong_box integer default 0;
 alter table public.dti_daily_summaries add column if not exists min_tong_pin integer default 0;
+alter table public.dti_daily_summaries add column if not exists tstr_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists tstr_pin integer default 0;
 alter table public.dti_daily_summaries add column if not exists emi integer default 0;
 alter table public.dti_daily_summaries add column if not exists damaged_tube integer default 0;
 alter table public.dti_daily_summaries add column if not exists min_wall integer default 0;
 alter table public.dti_daily_summaries add column if not exists dbr_other text;
+alter table public.dti_daily_summaries add column if not exists dbr_other_description text;
+alter table public.dti_daily_summaries add column if not exists dbr_other_quantity integer default 0;
 alter table public.dti_daily_summaries add column if not exists dbr_notes text;
 alter table public.dti_daily_summaries add column if not exists total_refaces integer default 0;
 alter table public.dti_daily_summaries add column if not exists reface_pin integer default 0;
@@ -86,6 +104,8 @@ alter table public.dti_daily_summaries add column if not exists hb_joints intege
 alter table public.dti_daily_summaries add column if not exists repair_hb_joints integer default 0;
 alter table public.dti_daily_summaries add column if not exists remarks text;
 alter table public.dti_daily_summaries add column if not exists inspected_by text;
+alter table public.dti_daily_summaries add column if not exists inspection_report_name text;
+alter table public.dti_daily_summaries add column if not exists inspection_report_url text;
 alter table public.dti_daily_summaries add column if not exists status text default 'Draft';
 alter table public.dti_daily_summaries add column if not exists created_by uuid references auth.users(id);
 alter table public.dti_daily_summaries add column if not exists created_at timestamptz default now();

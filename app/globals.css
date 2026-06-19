@@ -3591,10 +3591,56 @@ th {
   font-weight: 700;
 }
 
+.summary-other-row {
+  grid-template-columns: 1fr 1.4fr 0.75fr;
+}
+
+.summary-other-row .summary-line-field,
+.summary-other-row .summary-inline-count {
+  min-width: 0;
+}
+
 .summary-note-lines {
   min-height: 84px;
   line-height: 1.6;
   background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 25px, rgba(31, 41, 55, 0.35) 26px);
+}
+
+.summary-report-upload {
+  border: 1px solid #d5d5d0;
+  background: #ffffff;
+  color: #111827;
+  padding: 10px 12px;
+  margin-top: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.summary-report-upload label {
+  display: grid;
+  gap: 6px;
+  color: #4b5563;
+  font-weight: 700;
+}
+
+.summary-report-upload input {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #cfd4dc;
+  border-radius: 6px;
+  padding: 8px;
+  min-height: 0;
+  font-weight: 600;
+}
+
+.summary-report-upload p {
+  margin: 0;
+  color: #111827;
+}
+
+.summary-report-upload a {
+  color: #d65f00;
+  font-weight: 800;
 }
 
 .summary-bottom-counts {

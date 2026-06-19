@@ -22,8 +22,12 @@ type Summary = {
   damageThreadsBox: number;
   damageThreadsPin: number;
   shortBox: number;
+  damagedHardbandBox: number;
+  damagedHardbandPin: number;
   bentTube: number;
   damageOther: string;
+  damageOtherDescription: string;
+  damageOtherQuantity: number;
   damageNotes: string;
   totalDbr: number;
   minTongBox: number;
@@ -34,6 +38,8 @@ type Summary = {
   damagedTube: number;
   minWall: number;
   dbrOther: string;
+  dbrOtherDescription: string;
+  dbrOtherQuantity: number;
   dbrNotes: string;
   totalRefaces: number;
   refacePin: number;
@@ -80,22 +86,28 @@ function mapRow(row: any): Summary {
     totalDamages: count(row.total_damages),
     damageSeatBox: count(row.damage_seat_box),
     damageSeatPin: count(row.damage_seat_pin),
-    damageThreadsBox: count(row.damage_threads_box),
-    damageThreadsPin: count(row.damage_threads_pin),
-    shortBox: count(row.short_box),
-    bentTube: count(row.bent_tube),
-    damageOther: text(row.damage_other),
-    damageNotes: text(row.damage_notes),
+  damageThreadsBox: count(row.damage_threads_box),
+  damageThreadsPin: count(row.damage_threads_pin),
+  shortBox: count(row.short_box),
+  damagedHardbandBox: count(row.damaged_hardband_box ?? row.short_box),
+  damagedHardbandPin: count(row.damaged_hardband_pin),
+  bentTube: count(row.bent_tube),
+  damageOther: text(row.damage_other),
+  damageOtherDescription: text(row.damage_other_description ?? row.damage_other),
+  damageOtherQuantity: count(row.damage_other_quantity),
+  damageNotes: text(row.damage_notes),
     totalDbr: count(row.total_dbr),
     minTongBox: count(row.min_tong_box),
     minTongPin: count(row.min_tong_pin),
     tstrBox: count(row.tstr_box),
     tstrPin: count(row.tstr_pin),
     emi: count(row.emi),
-    damagedTube: count(row.damaged_tube),
-    minWall: count(row.min_wall),
-    dbrOther: text(row.dbr_other),
-    dbrNotes: text(row.dbr_notes),
+  damagedTube: count(row.damaged_tube),
+  minWall: count(row.min_wall),
+  dbrOther: text(row.dbr_other),
+  dbrOtherDescription: text(row.dbr_other_description ?? row.dbr_other),
+  dbrOtherQuantity: count(row.dbr_other_quantity),
+  dbrNotes: text(row.dbr_notes),
     totalRefaces: count(row.total_refaces),
     refacePin: count(row.reface_pin),
     refaceBox: count(row.reface_box),
@@ -216,20 +228,20 @@ export default function DtiDailySummaryPrintPage() {
             <CountLine label="Total Damages" value={summary.totalDamages} />
             <div className="summary-split-row print"><span>Damage Seal</span><CountLine label="Box" value={summary.damageSeatBox} /><CountLine label="Pin" value={summary.damageSeatPin} /></div>
             <div className="summary-split-row print"><span>Damage Threads</span><CountLine label="Box" value={summary.damageThreadsBox} /><CountLine label="Pin" value={summary.damageThreadsPin} /></div>
-            <CountLine label="Short Box" value={summary.shortBox} />
+            <div className="summary-split-row print"><span>Damaged Hardband</span><CountLine label="Box" value={summary.damagedHardbandBox || summary.shortBox} /><CountLine label="Pin" value={summary.damagedHardbandPin} /></div>
             <CountLine label="Bent Tube" value={summary.bentTube} />
-            <Line label="Other" value={summary.damageOther} />
+            <div className="summary-split-row print"><span>Other</span><Line label="Description" value={summary.damageOtherDescription || summary.damageOther} /><CountLine label="Qty" value={summary.damageOtherQuantity} /></div>
             <div className="summary-print-notes">{summary.damageNotes}</div>
           </div>
 
           <div className="summary-count-box">
-            <CountLine label="Total DBR" value={summary.totalDbr || summary.minTongBox + summary.minTongPin + summary.tstrBox + summary.tstrPin + summary.emi + summary.damagedTube + summary.minWall} />
+            <CountLine label="Total DBR" value={summary.totalDbr || summary.minTongBox + summary.minTongPin + summary.tstrBox + summary.tstrPin + summary.emi + summary.damagedTube + summary.minWall + summary.dbrOtherQuantity} />
             <div className="summary-split-row print"><span>Min Tong</span><CountLine label="Box" value={summary.minTongBox} /><CountLine label="Pin" value={summary.minTongPin} /></div>
             <div className="summary-split-row print"><span>TSTR</span><CountLine label="Box" value={summary.tstrBox} /><CountLine label="Pin" value={summary.tstrPin} /></div>
             <CountLine label="EMI" value={summary.emi} />
             <CountLine label="Damaged Tube" value={summary.damagedTube} />
             <CountLine label="MIN Wall" value={summary.minWall} />
-            <Line label="Other" value={summary.dbrOther} />
+            <div className="summary-split-row print"><span>Other</span><Line label="Description" value={summary.dbrOtherDescription || summary.dbrOther} /><CountLine label="Qty" value={summary.dbrOtherQuantity} /></div>
             <div className="summary-print-notes">{summary.dbrNotes}</div>
           </div>
 

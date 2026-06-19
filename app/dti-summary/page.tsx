@@ -30,8 +30,12 @@ type SummaryForm = {
   damageThreadsBox: string;
   damageThreadsPin: string;
   shortBox: string;
+  damagedHardbandBox: string;
+  damagedHardbandPin: string;
   bentTube: string;
   damageOther: string;
+  damageOtherDescription: string;
+  damageOtherQuantity: string;
   damageNotes: string;
   totalDbr: string;
   minTongBox: string;
@@ -42,6 +46,8 @@ type SummaryForm = {
   damagedTube: string;
   minWall: string;
   dbrOther: string;
+  dbrOtherDescription: string;
+  dbrOtherQuantity: string;
   dbrNotes: string;
   totalRefaces: string;
   refacePin: string;
@@ -56,6 +62,8 @@ type SummaryForm = {
   remarks: string;
   inspectedBy: string;
   status: string;
+  inspectionReportName: string;
+  inspectionReportUrl: string;
 };
 
 type JobStatus = "Open" | "In Progress" | "Review" | "Closed";
@@ -112,8 +120,12 @@ function blankForm(profileName = ""): SummaryForm {
     damageThreadsBox: "",
     damageThreadsPin: "",
     shortBox: "",
+    damagedHardbandBox: "",
+    damagedHardbandPin: "",
     bentTube: "",
     damageOther: "",
+    damageOtherDescription: "",
+    damageOtherQuantity: "",
     damageNotes: "",
     totalDbr: "",
     minTongBox: "",
@@ -124,6 +136,8 @@ function blankForm(profileName = ""): SummaryForm {
     damagedTube: "",
     minWall: "",
     dbrOther: "",
+    dbrOtherDescription: "",
+    dbrOtherQuantity: "",
     dbrNotes: "",
     totalRefaces: "",
     refacePin: "",
@@ -138,6 +152,8 @@ function blankForm(profileName = ""): SummaryForm {
     remarks: "",
     inspectedBy: profileName,
     status: "Draft",
+    inspectionReportName: "",
+    inspectionReportUrl: "",
   };
 }
 
@@ -186,8 +202,12 @@ function mapRow(row: any): SummaryForm {
     damageThreadsBox: readNumber(row.damage_threads_box),
     damageThreadsPin: readNumber(row.damage_threads_pin),
     shortBox: readNumber(row.short_box),
+    damagedHardbandBox: readNumber(row.damaged_hardband_box ?? row.short_box),
+    damagedHardbandPin: readNumber(row.damaged_hardband_pin),
     bentTube: readNumber(row.bent_tube),
     damageOther: readText(row.damage_other),
+    damageOtherDescription: readText(row.damage_other_description ?? row.damage_other),
+    damageOtherQuantity: readNumber(row.damage_other_quantity),
     damageNotes: readText(row.damage_notes),
     totalDbr: readNumber(row.total_dbr),
     minTongBox: readNumber(row.min_tong_box),
@@ -198,6 +218,8 @@ function mapRow(row: any): SummaryForm {
     damagedTube: readNumber(row.damaged_tube),
     minWall: readNumber(row.min_wall),
     dbrOther: readText(row.dbr_other),
+    dbrOtherDescription: readText(row.dbr_other_description ?? row.dbr_other),
+    dbrOtherQuantity: readNumber(row.dbr_other_quantity),
     dbrNotes: readText(row.dbr_notes),
     totalRefaces: readNumber(row.total_refaces),
     refacePin: readNumber(row.reface_pin),
@@ -212,6 +234,8 @@ function mapRow(row: any): SummaryForm {
     remarks: readText(row.remarks),
     inspectedBy: readText(row.inspected_by),
     status: readText(row.status) || "Draft",
+    inspectionReportName: readText(row.inspection_report_name),
+    inspectionReportUrl: readText(row.inspection_report_url),
   };
 }
 
@@ -233,9 +257,13 @@ function buildPayload(form: SummaryForm, profileId: string, summaryNumber: strin
     damage_seat_pin: numberValue(form.damageSeatPin),
     damage_threads_box: numberValue(form.damageThreadsBox),
     damage_threads_pin: numberValue(form.damageThreadsPin),
-    short_box: numberValue(form.shortBox),
+    short_box: numberValue(form.damagedHardbandBox || form.shortBox),
+    damaged_hardband_box: numberValue(form.damagedHardbandBox || form.shortBox),
+    damaged_hardband_pin: numberValue(form.damagedHardbandPin),
     bent_tube: numberValue(form.bentTube),
-    damage_other: form.damageOther || null,
+    damage_other: form.damageOtherDescription || form.damageOther || null,
+    damage_other_description: form.damageOtherDescription || form.damageOther || null,
+    damage_other_quantity: numberValue(form.damageOtherQuantity),
     damage_notes: form.damageNotes || null,
     total_dbr: numberValue(form.totalDbr),
     min_tong_box: numberValue(form.minTongBox),
@@ -245,7 +273,9 @@ function buildPayload(form: SummaryForm, profileId: string, summaryNumber: strin
     emi: numberValue(form.emi),
     damaged_tube: numberValue(form.damagedTube),
     min_wall: numberValue(form.minWall),
-    dbr_other: form.dbrOther || null,
+    dbr_other: form.dbrOtherDescription || form.dbrOther || null,
+    dbr_other_description: form.dbrOtherDescription || form.dbrOther || null,
+    dbr_other_quantity: numberValue(form.dbrOtherQuantity),
     dbr_notes: form.dbrNotes || null,
     total_refaces: numberValue(form.totalRefaces),
     reface_pin: numberValue(form.refacePin),
@@ -260,9 +290,22 @@ function buildPayload(form: SummaryForm, profileId: string, summaryNumber: strin
     remarks: form.remarks || null,
     inspected_by: form.inspectedBy || null,
     status: form.status || "Draft",
+    inspection_report_name: form.inspectionReportName || null,
+    inspection_report_url: form.inspectionReportUrl || null,
     created_by: profileId,
     updated_at: new Date().toISOString(),
   };
+}
+
+function safeFileName(name: string) {
+  return (
+    name
+      .trim()
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 140) || "inspection-report"
+  );
 }
 
 function ticketDateStamp(dateText: string) {
@@ -333,14 +376,32 @@ export default function DtiDailySummaryPage() {
   const [message, setMessage] = useState("Loading DTI daily summaries...");
   const [saving, setSaving] = useState(false);
   const [emailing, setEmailing] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [inspectionReportFile, setInspectionReportFile] = useState<File | null>(null);
 
   const canEdit = profile ? editableRoles.includes(profile.role) : false;
   const selectedId = form.id;
 
   const totals = useMemo(() => {
     return {
-      damageTotal: numberValue(form.damageSeatBox) + numberValue(form.damageSeatPin) + numberValue(form.damageThreadsBox) + numberValue(form.damageThreadsPin) + numberValue(form.shortBox) + numberValue(form.bentTube),
-      dbrTotal: numberValue(form.minTongBox) + numberValue(form.minTongPin) + numberValue(form.tstrBox) + numberValue(form.tstrPin) + numberValue(form.emi) + numberValue(form.damagedTube) + numberValue(form.minWall),
+      damageTotal:
+        numberValue(form.damageSeatBox) +
+        numberValue(form.damageSeatPin) +
+        numberValue(form.damageThreadsBox) +
+        numberValue(form.damageThreadsPin) +
+        numberValue(form.damagedHardbandBox || form.shortBox) +
+        numberValue(form.damagedHardbandPin) +
+        numberValue(form.bentTube) +
+        numberValue(form.damageOtherQuantity),
+      dbrTotal:
+        numberValue(form.minTongBox) +
+        numberValue(form.minTongPin) +
+        numberValue(form.tstrBox) +
+        numberValue(form.tstrPin) +
+        numberValue(form.emi) +
+        numberValue(form.damagedTube) +
+        numberValue(form.minWall) +
+        numberValue(form.dbrOtherQuantity),
       refaceTotal: numberValue(form.refacePin) + numberValue(form.refaceBox),
       hardbandTotal: numberValue(form.hardbandPin) + numberValue(form.hardbandBox),
     };
@@ -543,15 +604,76 @@ export default function DtiDailySummaryPage() {
   function startNewSummary() {
     setForm(blankForm(profile?.fullName ?? ""));
     setExpandedSummaryId("");
+    setInspectionReportFile(null);
     setMessage("");
   }
 
   function selectSummary(summary: SummaryForm) {
     setForm(summary);
+    setInspectionReportFile(null);
     setExpandedSummaryId((current) => (current === summary.id ? "" : summary.id));
+    setMessage(`Editing ${summary.summaryNumber}. Make corrections, then save.`);
   }
 
-  async function saveSummary() {
+  async function uploadInspectionReport(summaryId: string, summaryNumber: string) {
+    if (!inspectionReportFile) return null;
+
+    const filePath = `dti-daily-summaries/${summaryNumber}/${Date.now()}-${safeFileName(inspectionReportFile.name)}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("ticket-attachments")
+      .upload(filePath, inspectionReportFile, {
+        cacheControl: "3600",
+        contentType: inspectionReportFile.type || "application/octet-stream",
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: publicUrlData } = supabase.storage
+      .from("ticket-attachments")
+      .getPublicUrl(filePath);
+
+    const patch = {
+      inspection_report_name: inspectionReportFile.name,
+      inspection_report_url: publicUrlData.publicUrl,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: updateError } = await supabase
+      .from("dti_daily_summaries")
+      .update(patch)
+      .eq("id", summaryId);
+
+    if (updateError) throw updateError;
+
+    setInspectionReportFile(null);
+
+    return {
+      name: inspectionReportFile.name,
+      url: publicUrlData.publicUrl,
+    };
+  }
+
+  async function postSummaryToGroupMe(summaryId: string) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) throw new Error("Your login session expired. Sign in again.");
+
+    const response = await fetch("/api/dti-summary-groupme", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ summaryId }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error ?? "GroupMe post failed.");
+  }
+
+  async function saveSummary(postAfterSave = false) {
     if (!profile || !canEdit || saving) return;
     if (!form.summaryDate) {
       setMessage("Date is required.");
@@ -559,30 +681,39 @@ export default function DtiDailySummaryPage() {
     }
 
     setSaving(true);
+    setPosting(postAfterSave);
     setMessage("");
 
     try {
       const summaryNumber = form.summaryNumber || (await makeSummaryNumber(form.summaryDate));
+      const payloadForm = {
+        ...form,
+        status: postAfterSave ? "Posted" : form.status,
+        totalDamages: String(totals.damageTotal),
+        totalDbr: String(totals.dbrTotal),
+        totalRefaces: String(totals.refaceTotal),
+        totalHardbands: String(totals.hardbandTotal),
+      };
       const payload = buildPayload(
         {
-          ...form,
-          totalDamages: String(totals.damageTotal),
-          totalDbr: String(totals.dbrTotal),
-          totalRefaces: String(totals.refaceTotal),
-          totalHardbands: String(totals.hardbandTotal),
+          ...payloadForm,
         },
         profile.id,
         summaryNumber
       );
 
+      let savedSummary: SummaryForm | null = null;
+
       if (form.id) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("dti_daily_summaries")
           .update(payload)
-          .eq("id", form.id);
+          .eq("id", form.id)
+          .select("*")
+          .single();
 
         if (error) throw error;
-        setForm((current) => ({ ...current, summaryNumber }));
+        savedSummary = mapRow(data);
       } else {
         const { data, error } = await supabase
           .from("dti_daily_summaries")
@@ -591,15 +722,32 @@ export default function DtiDailySummaryPage() {
           .single();
 
         if (error) throw error;
-        setForm(mapRow(data));
+        savedSummary = mapRow(data);
       }
 
+      if (!savedSummary) throw new Error("Daily summary was not returned after saving.");
+
+      const uploadedReport = await uploadInspectionReport(savedSummary.id, summaryNumber);
+      if (uploadedReport) {
+        savedSummary = {
+          ...savedSummary,
+          inspectionReportName: uploadedReport.name,
+          inspectionReportUrl: uploadedReport.url,
+        };
+      }
+
+      if (postAfterSave) {
+        await postSummaryToGroupMe(savedSummary.id);
+      }
+
+      setForm(savedSummary);
       await loadSummaries();
-      setMessage(`Daily summary ${summaryNumber} saved.`);
+      setMessage(`Daily summary ${summaryNumber} ${postAfterSave ? "posted to GroupMe" : "saved"}.`);
     } catch (error: any) {
       setMessage(`Save failed: ${error.message}`);
     } finally {
       setSaving(false);
+      setPosting(false);
     }
   }
 
@@ -676,7 +824,8 @@ export default function DtiDailySummaryPage() {
           <button className="button" onClick={() => (window.location.href = "/dti")}>DTI Jobs</button>
           <button className="button" onClick={openPrint} disabled={!selectedId}>Print / PDF</button>
           <button className="button" onClick={emailSummary} disabled={!selectedId || emailing}>{emailing ? "Emailing..." : "Email"}</button>
-          <button className="button primary" onClick={saveSummary} disabled={!canEdit || saving}>{saving ? "Saving..." : "Save Summary"}</button>
+          <button className="button primary" onClick={() => saveSummary()} disabled={!canEdit || saving}>{saving && !posting ? "Saving..." : "Save Summary"}</button>
+          <button className="button" onClick={() => saveSummary(true)} disabled={!canEdit || saving}>{posting ? "Posting..." : "Post Summary"}</button>
           <button className="button" onClick={signOut}>Sign Out</button>
         </div>
       </header>
@@ -714,10 +863,12 @@ export default function DtiDailySummaryPage() {
                 <span>Field Invoice: {summary.fieldInvoice || "-"}</span>
                 {expandedSummaryId === summary.id && (
                   <div className="summary-list-details">
+                    <small>Click this card to edit and correct this saved summary.</small>
                     <small>Date: {summary.summaryDate || "-"}</small>
                     <small>Joints: {summary.totalJointsInspected || "0"}</small>
                     <small>Status: {summary.status || "Draft"}</small>
                     <small>Location: {summary.location || "-"}</small>
+                    {summary.inspectionReportName && <small>Report: {summary.inspectionReportName}</small>}
                   </div>
                 )}
               </button>
@@ -793,9 +944,17 @@ export default function DtiDailySummaryPage() {
                   <NumberLine label="Box" value={form.damageThreadsBox} onChange={(value) => updateForm({ damageThreadsBox: value })} readOnly={readOnly} />
                   <NumberLine label="Pin" value={form.damageThreadsPin} onChange={(value) => updateForm({ damageThreadsPin: value })} readOnly={readOnly} />
                 </div>
-                <NumberLine label="Short Box" value={form.shortBox} onChange={(value) => updateForm({ shortBox: value })} readOnly={readOnly} />
+                <div className="summary-split-row">
+                  <span>Damaged Hardband</span>
+                  <NumberLine label="Box" value={form.damagedHardbandBox || form.shortBox} onChange={(value) => updateForm({ damagedHardbandBox: value, shortBox: value })} readOnly={readOnly} />
+                  <NumberLine label="Pin" value={form.damagedHardbandPin} onChange={(value) => updateForm({ damagedHardbandPin: value })} readOnly={readOnly} />
+                </div>
                 <NumberLine label="Bent Tube" value={form.bentTube} onChange={(value) => updateForm({ bentTube: value })} readOnly={readOnly} />
-                <TextLine label="Other" value={form.damageOther} onChange={(value) => updateForm({ damageOther: value })} readOnly={readOnly} />
+                <div className="summary-split-row summary-other-row">
+                  <span>Other</span>
+                  <TextLine label="Description" value={form.damageOtherDescription || form.damageOther} onChange={(value) => updateForm({ damageOtherDescription: value, damageOther: value })} readOnly={readOnly} />
+                  <NumberLine label="Qty" value={form.damageOtherQuantity} onChange={(value) => updateForm({ damageOtherQuantity: value })} readOnly={readOnly} />
+                </div>
                 <textarea className="summary-note-lines" value={form.damageNotes} onChange={(event) => updateForm({ damageNotes: event.target.value })} disabled={readOnly} placeholder="Additional damage notes" />
               </div>
 
@@ -814,7 +973,11 @@ export default function DtiDailySummaryPage() {
                 <NumberLine label="EMI" value={form.emi} onChange={(value) => updateForm({ emi: value })} readOnly={readOnly} />
                 <NumberLine label="Damaged Tube" value={form.damagedTube} onChange={(value) => updateForm({ damagedTube: value })} readOnly={readOnly} />
                 <NumberLine label="MIN Wall" value={form.minWall} onChange={(value) => updateForm({ minWall: value })} readOnly={readOnly} />
-                <TextLine label="Other" value={form.dbrOther} onChange={(value) => updateForm({ dbrOther: value })} readOnly={readOnly} />
+                <div className="summary-split-row summary-other-row">
+                  <span>Other</span>
+                  <TextLine label="Description" value={form.dbrOtherDescription || form.dbrOther} onChange={(value) => updateForm({ dbrOtherDescription: value, dbrOther: value })} readOnly={readOnly} />
+                  <NumberLine label="Qty" value={form.dbrOtherQuantity} onChange={(value) => updateForm({ dbrOtherQuantity: value })} readOnly={readOnly} />
+                </div>
                 <textarea className="summary-note-lines" value={form.dbrNotes} onChange={(event) => updateForm({ dbrNotes: event.target.value })} disabled={readOnly} placeholder="Additional DBR notes" />
               </div>
 
@@ -842,6 +1005,24 @@ export default function DtiDailySummaryPage() {
               <span>Remarks</span>
               <textarea value={form.remarks} onChange={(event) => updateForm({ remarks: event.target.value })} disabled={readOnly} />
             </label>
+
+            <section className="summary-report-upload no-print">
+              <label>
+                <span>Inspection Report Excel Copy</span>
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  disabled={readOnly}
+                  onChange={(event) => setInspectionReportFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              {inspectionReportFile && <p>Ready to attach: {inspectionReportFile.name}</p>}
+              {form.inspectionReportUrl && (
+                <p>
+                  Attached report: <a href={form.inspectionReportUrl} target="_blank" rel="noreferrer">{form.inspectionReportName || "Open report"}</a>
+                </p>
+              )}
+            </section>
 
             <footer className="summary-footer">
               <p>Inspections done per TH-Hill DS-1 5th Edition</p>
