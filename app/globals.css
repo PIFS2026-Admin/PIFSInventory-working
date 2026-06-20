@@ -4251,9 +4251,13 @@ th {
 
 .pos-scan-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(240px, 1fr) auto auto auto auto;
   gap: 10px;
   margin: 14px 0;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .scan-field {

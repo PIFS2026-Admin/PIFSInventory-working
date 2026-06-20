@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
@@ -212,9 +212,19 @@ export default function InventoryModulePage() {
   const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
   const [expandedTicketId, setExpandedTicketId] = useState("");
   const [emailingTicketId, setEmailingTicketId] = useState("");
+  const [cameraScanMessage, setCameraScanMessage] = useState("");
+  const [cameraScanning, setCameraScanning] = useState(false);
+  const scanFieldRef = useRef<HTMLInputElement | null>(null);
+  const cameraFileRef = useRef<HTMLInputElement | null>(null);
 
   const canUseInventory = role === "admin" || role === "employee";
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
+
+  useEffect(() => {
+    if (!issueOpen) return;
+    const timer = window.setTimeout(() => scanFieldRef.current?.focus(), 80);
+    return () => window.clearTimeout(timer);
+  }, [issueOpen, issueCart.length]);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -657,10 +667,77 @@ export default function InventoryModulePage() {
     const item = findItemForCounter(scanInput);
     if (!item) {
       setMessage("No item matched that barcode, item ID, or search text.");
+      scanFieldRef.current?.focus();
       return;
     }
     addItemToCart(item);
     setScanInput("");
+    setCameraScanMessage("");
+    window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+  }
+
+  function openCameraScanner() {
+    setCameraScanMessage("");
+    const detectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
+
+    if (!detectorSupported) {
+      setCameraScanMessage("Camera barcode scanning is not supported in this browser yet. USB scanners and typed barcodes still work.");
+      scanFieldRef.current?.focus();
+      return;
+    }
+
+    cameraFileRef.current?.click();
+  }
+
+  async function handleCameraBarcode(file: File | undefined) {
+    if (!file) return;
+
+    setCameraScanning(true);
+    setCameraScanMessage("Reading barcode...");
+
+    try {
+      const BarcodeDetectorConstructor = (window as typeof window & {
+        BarcodeDetector?: new (options?: { formats?: string[] }) => {
+          detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
+        };
+      }).BarcodeDetector;
+
+      if (!BarcodeDetectorConstructor) {
+        setCameraScanMessage("Camera barcode scanning is not supported in this browser yet.");
+        return;
+      }
+
+      const bitmap = await createImageBitmap(file);
+      const detector = new BarcodeDetectorConstructor({
+        formats: ["code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "qr_code"],
+      });
+      const results = await detector.detect(bitmap);
+      bitmap.close();
+
+      const barcode = results[0]?.rawValue?.trim() || "";
+      if (!barcode) {
+        setCameraScanMessage("No barcode found in that photo. Try again with the barcode centered and well lit.");
+        return;
+      }
+
+      const item = findItemForCounter(barcode);
+      if (!item) {
+        setScanInput(barcode);
+        setCameraScanMessage(`Scanned ${barcode}, but no inventory item matched it.`);
+        scanFieldRef.current?.focus();
+        return;
+      }
+
+      addItemToCart(item);
+      setScanInput("");
+      setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
+      window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+    } catch (error: any) {
+      setCameraScanMessage(`Barcode scan failed: ${error.message}`);
+    } finally {
+      setCameraScanning(false);
+      if (cameraFileRef.current) cameraFileRef.current.value = "";
+    }
   }
 
   function updateCartQuantity(itemId: string, value: string) {
@@ -1033,19 +1110,35 @@ export default function InventoryModulePage() {
 
           <div className="pos-scan-row">
             <input
+              ref={scanFieldRef}
               className="field scan-field"
               value={scanInput}
               onChange={(event) => setScanInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") addScannedItem();
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addScannedItem();
+                }
               }}
               placeholder="Scan barcode or type item ID"
               autoComplete="off"
             />
+            <input
+              ref={cameraFileRef}
+              className="hidden-file-input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(event) => handleCameraBarcode(event.target.files?.[0])}
+            />
+            <button className="button" onClick={openCameraScanner} disabled={cameraScanning}>
+              {cameraScanning ? "Scanning..." : "Scan Camera"}
+            </button>
             <button className="button primary" onClick={addScannedItem}>Add to Cart</button>
             <button className="button" onClick={() => openIssue()}>Complete Issue</button>
             <button className="button ghost" onClick={clearIssueCart} disabled={issueCart.length === 0}>Clear</button>
           </div>
+          {cameraScanMessage && <div className="modal-message compact">{cameraScanMessage}</div>}
 
           {issueCart.length === 0 ? (
             <div className="empty-pos-cart">
@@ -1059,6 +1152,7 @@ export default function InventoryModulePage() {
                   <tr>
                     <th>Item</th>
                     <th>Description</th>
+                    <th>Barcode</th>
                     <th>Location</th>
                     <th>On Hand</th>
                     <th>Issue Qty</th>
@@ -1071,6 +1165,7 @@ export default function InventoryModulePage() {
                     <tr key={line.itemId}>
                       <td>{line.itemCode}</td>
                       <td>{line.itemName}</td>
+                      <td>{line.barcode || "-"}</td>
                       <td>{line.location || "-"}</td>
                       <td>{line.qtyOnHand.toLocaleString()}</td>
                       <td>
@@ -1144,6 +1239,7 @@ export default function InventoryModulePage() {
               <thead>
                 <tr>
                   <th>Item ID</th>
+                  <th>Barcode</th>
                   <th>Item Name</th>
                   <th>Category</th>
                   <th>Location</th>
@@ -1159,6 +1255,7 @@ export default function InventoryModulePage() {
                 {filteredItems.map((item) => (
                   <tr key={item.id} className={selectedItemId === item.id ? "selected-row" : ""}>
                     <td>{item.itemCode}</td>
+                    <td>{item.barcode || "-"}</td>
                     <td>{item.itemName}</td>
                     <td>{item.category || "-"}</td>
                     <td>{item.location || "-"}</td>
