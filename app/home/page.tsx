@@ -22,6 +22,16 @@ const launchCards: LaunchCard[] = [
     href: "/",
   },
   {
+    title: "Inventory",
+    description: "Standalone tools, parts, consumables, issue tickets, and stock adjustments.",
+    href: "/inventory",
+  },
+  {
+    title: "Purchase Orders",
+    description: "Vendors, PO line items, receiving, invoices, and packing slips.",
+    href: "/purchase-orders",
+  },
+  {
     title: "DTI",
     description: "Field inspection jobs, scorecards, red flags, and DTI reports.",
     href: "/dti",
