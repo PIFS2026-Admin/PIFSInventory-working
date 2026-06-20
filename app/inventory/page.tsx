@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import { supabase } from "../../lib/supabase";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
@@ -216,6 +217,7 @@ export default function InventoryModulePage() {
   const [cameraScanning, setCameraScanning] = useState(false);
   const scanFieldRef = useRef<HTMLInputElement | null>(null);
   const cameraFileRef = useRef<HTMLInputElement | null>(null);
+  const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
 
   const canUseInventory = role === "admin" || role === "employee";
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
@@ -678,14 +680,6 @@ export default function InventoryModulePage() {
 
   function openCameraScanner() {
     setCameraScanMessage("");
-    const detectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
-
-    if (!detectorSupported) {
-      setCameraScanMessage("Camera barcode scanning is not supported in this browser yet. USB scanners and typed barcodes still work.");
-      scanFieldRef.current?.focus();
-      return;
-    }
-
     cameraFileRef.current?.click();
   }
 
@@ -694,27 +688,16 @@ export default function InventoryModulePage() {
 
     setCameraScanning(true);
     setCameraScanMessage("Reading barcode...");
+    const imageUrl = URL.createObjectURL(file);
 
     try {
-      const BarcodeDetectorConstructor = (window as typeof window & {
-        BarcodeDetector?: new (options?: { formats?: string[] }) => {
-          detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
-        };
-      }).BarcodeDetector;
-
-      if (!BarcodeDetectorConstructor) {
-        setCameraScanMessage("Camera barcode scanning is not supported in this browser yet.");
-        return;
+      if (!barcodeReaderRef.current) {
+        barcodeReaderRef.current = new BrowserMultiFormatReader();
       }
 
-      const bitmap = await createImageBitmap(file);
-      const detector = new BarcodeDetectorConstructor({
-        formats: ["code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "qr_code"],
-      });
-      const results = await detector.detect(bitmap);
-      bitmap.close();
+      const result = await barcodeReaderRef.current.decodeFromImageUrl(imageUrl);
+      const barcode = result.getText().trim();
 
-      const barcode = results[0]?.rawValue?.trim() || "";
       if (!barcode) {
         setCameraScanMessage("No barcode found in that photo. Try again with the barcode centered and well lit.");
         return;
@@ -733,9 +716,10 @@ export default function InventoryModulePage() {
       setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
       window.setTimeout(() => scanFieldRef.current?.focus(), 25);
     } catch (error: any) {
-      setCameraScanMessage(`Barcode scan failed: ${error.message}`);
+      setCameraScanMessage("No barcode was found. Try a closer, brighter photo with the barcode filling most of the screen.");
     } finally {
       setCameraScanning(false);
+      URL.revokeObjectURL(imageUrl);
       if (cameraFileRef.current) cameraFileRef.current.value = "";
     }
   }
