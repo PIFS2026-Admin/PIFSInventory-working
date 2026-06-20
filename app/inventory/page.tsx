@@ -56,6 +56,21 @@ type IssueTicket = {
   notes: string;
 };
 
+type IssueTicketLine = {
+  id: string;
+  issueTicketId: string;
+  ticketNumber: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  department: string;
+  qtyIssued: number;
+  unitCost: number;
+  lineValue: number;
+  unitTruck: string;
+  pickedBy: string;
+};
+
 type IssueCartLine = {
   itemId: string;
   itemCode: string;
@@ -179,6 +194,7 @@ export default function InventoryModulePage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [tickets, setTickets] = useState<IssueTicket[]>([]);
+  const [ticketLines, setTicketLines] = useState<IssueTicketLine[]>([]);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -194,6 +210,8 @@ export default function InventoryModulePage() {
   const [issueForm, setIssueForm] = useState<IssueForm>(emptyIssueForm);
   const [scanInput, setScanInput] = useState("");
   const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
+  const [expandedTicketId, setExpandedTicketId] = useState("");
+  const [emailingTicketId, setEmailingTicketId] = useState("");
 
   const canUseInventory = role === "admin" || role === "employee";
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
@@ -293,7 +311,7 @@ export default function InventoryModulePage() {
       return;
     }
 
-    await Promise.all([loadVendors(), loadItems(), loadTransactions(), loadTickets()]);
+    await Promise.all([loadVendors(), loadItems(), loadTransactions(), loadTickets(), loadIssueTicketLines()]);
     setMessage("");
     setLoading(false);
   }
@@ -408,6 +426,35 @@ export default function InventoryModulePage() {
         totalValue: Number(row.total_value || 0),
         status: row.status || "",
         notes: row.notes || "",
+      })),
+    );
+  }
+
+  async function loadIssueTicketLines() {
+    const { data, error } = await supabase
+      .from("inventory_issue_ticket_lines")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setMessage(`Issue ticket lines failed: ${error.message}`);
+      return;
+    }
+
+    setTicketLines(
+      (data || []).map((row) => ({
+        id: row.id,
+        issueTicketId: row.issue_ticket_id || "",
+        ticketNumber: row.ticket_number || "",
+        itemId: row.item_id || "",
+        itemCode: row.item_code || "",
+        itemName: row.item_name || "",
+        department: row.department || "",
+        qtyIssued: Number(row.qty_issued || 0),
+        unitCost: Number(row.unit_cost || 0),
+        lineValue: Number(row.line_value || 0),
+        unitTruck: row.unit_truck || "",
+        pickedBy: row.picked_by || "",
       })),
     );
   }
@@ -740,9 +787,152 @@ export default function InventoryModulePage() {
     setIssueForm({ ...emptyIssueForm, pickedBy: userName });
     setIssueCart([]);
     setScanInput("");
-    await Promise.all([loadItems(), loadTransactions(), loadTickets()]);
+    await Promise.all([loadItems(), loadTransactions(), loadTickets(), loadIssueTicketLines()]);
     setMessage(`Issue ticket ${ticketNumber} created with ${issueCart.length} line items.`);
     setSaving(false);
+  }
+
+  function linesForTicket(ticket: IssueTicket) {
+    return ticketLines.filter((line) => line.issueTicketId === ticket.id || line.ticketNumber === ticket.ticketNumber);
+  }
+
+  function issueTicketHtml(ticket: IssueTicket, lines: IssueTicketLine[]) {
+    const totalQty = lines.reduce((sum, line) => sum + line.qtyIssued, 0);
+    const totalValue = lines.reduce((sum, line) => sum + line.lineValue, 0);
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <title>${ticket.ticketNumber}</title>
+          <style>
+            @page { size: letter; margin: 0.45in; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; background: #fff; }
+            .sheet { max-width: 980px; margin: 0 auto; }
+            .top { display: flex; justify-content: space-between; gap: 24px; border-bottom: 3px solid #f97316; padding-bottom: 18px; margin-bottom: 22px; }
+            .brand { display: flex; align-items: center; gap: 14px; }
+            .brand img { width: 150px; max-height: 80px; object-fit: contain; }
+            h1 { margin: 0 0 6px; font-size: 26px; }
+            h2 { margin: 0; font-size: 20px; }
+            .company { text-align: right; font-size: 13px; line-height: 1.35; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #cbd5e1; margin: 18px 0; }
+            .cell { border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; padding: 10px; min-height: 54px; }
+            .cell:nth-child(4n) { border-right: 0; }
+            .label { display: block; color: #64748b; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: 800; }
+            table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 12px; }
+            th { background: #111827; color: #fff; text-align: left; padding: 8px; }
+            td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; }
+            .total td { font-weight: 800; }
+            .notes { border: 1px solid #cbd5e1; padding: 12px; margin-top: 18px; min-height: 80px; white-space: pre-wrap; }
+            .print-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 12px auto; max-width: 980px; }
+            .print-actions button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+            .primary { background: #f97316; color: #111827; }
+            .secondary { background: #111827; color: #fff; }
+            @media print { .print-actions { display: none; } body { background: #fff; } }
+          </style>
+        </head>
+        <body>
+          <div class="print-actions">
+            <button class="secondary" onclick="window.close()">Close</button>
+            <button class="primary" onclick="window.print()">Print / Save PDF</button>
+          </div>
+          <main class="sheet">
+            <section class="top">
+              <div class="brand">
+                <img src="/titan_logo.jpg" alt="TITAN" />
+                <div>
+                  <h1>Issue Ticket</h1>
+                  <h2>${ticket.ticketNumber}</h2>
+                </div>
+              </div>
+              <div class="company">
+                <strong>Pathfinder Inspections &amp; Field Services</strong><br />
+                7501 Groening St.<br />
+                Odessa, TX 79765<br />
+                (432) 233-3600<br />
+                pifstitan.com
+              </div>
+            </section>
+            <section class="grid">
+              <div class="cell"><span class="label">Date</span><span class="value">${ticket.issueDate || "-"}</span></div>
+              <div class="cell"><span class="label">Issued To</span><span class="value">${ticket.issuedTo || "-"}</span></div>
+              <div class="cell"><span class="label">Department</span><span class="value">${ticket.department || "-"}</span></div>
+              <div class="cell"><span class="label">Status</span><span class="value">${ticket.status || "Issued"}</span></div>
+              <div class="cell"><span class="label">Picked By</span><span class="value">${ticket.pickedBy || "-"}</span></div>
+              <div class="cell"><span class="label">Unit / Truck</span><span class="value">${ticket.unitTruck || "-"}</span></div>
+              <div class="cell"><span class="label">Job Number</span><span class="value">${ticket.jobNumber || "-"}</span></div>
+              <div class="cell"><span class="label">Total Value</span><span class="value">${money(totalValue || ticket.totalValue)}</span></div>
+            </section>
+            <table>
+              <thead>
+                <tr><th>Item ID</th><th>Item Name</th><th>Department</th><th>Qty</th><th>Unit Cost</th><th>Line Value</th></tr>
+              </thead>
+              <tbody>
+                ${lines
+                  .map(
+                    (line) => `<tr>
+                      <td>${line.itemCode || "-"}</td>
+                      <td>${line.itemName || "-"}</td>
+                      <td>${line.department || "-"}</td>
+                      <td>${line.qtyIssued.toLocaleString()}</td>
+                      <td>${money(line.unitCost)}</td>
+                      <td>${money(line.lineValue)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+                <tr class="total"><td colspan="3">Totals</td><td>${totalQty.toLocaleString()}</td><td></td><td>${money(totalValue || ticket.totalValue)}</td></tr>
+              </tbody>
+            </table>
+            <section class="notes"><strong>Notes</strong><br />${ticket.notes || "No notes."}</section>
+          </main>
+        </body>
+      </html>`;
+  }
+
+  function printIssueTicket(ticket: IssueTicket) {
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the issue ticket.");
+      return;
+    }
+    printWindow.document.write(issueTicketHtml(ticket, linesForTicket(ticket)));
+    printWindow.document.close();
+  }
+
+  async function emailIssueTicket(ticket: IssueTicket) {
+    const recipientEmail = window.prompt("Email this issue ticket to:");
+    if (!recipientEmail) return;
+    const note = window.prompt("Optional message to include:") || "";
+
+    setEmailingTicketId(ticket.id);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Your login session expired. Sign in again before emailing.");
+      setEmailingTicketId("");
+      return;
+    }
+
+    const response = await fetch("/api/inventory-issue-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ticketId: ticket.id, recipientEmail, note }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setMessage(`Email failed: ${result?.error || "Unknown error."}`);
+    } else {
+      setMessage(`Issue ticket ${ticket.ticketNumber} emailed to ${recipientEmail}.`);
+    }
+
+    setEmailingTicketId("");
   }
 
   function exportInventory() {
@@ -1016,18 +1206,78 @@ export default function InventoryModulePage() {
           <section className="ticket-card">
             <h3>Recent Issue Tickets</h3>
             {tickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
-            {tickets.map((ticket) => (
-              <article className="history-row" key={ticket.id}>
-                <div>
-                  <strong>{ticket.ticketNumber}</strong>
-                  <span>{ticket.issuedTo || "-"}</span>
-                </div>
-                <div>
-                  <span>{money(ticket.totalValue)}</span>
-                  <small>{ticket.issueDate}</small>
-                </div>
-              </article>
-            ))}
+            {tickets.map((ticket) => {
+              const lines = linesForTicket(ticket);
+              const expanded = expandedTicketId === ticket.id;
+
+              return (
+                <article className={`document-card ${expanded ? "open" : ""}`} key={ticket.id}>
+                  <button
+                    className="document-card-summary"
+                    type="button"
+                    onClick={() => setExpandedTicketId(expanded ? "" : ticket.id)}
+                  >
+                    <div>
+                      <strong>{ticket.ticketNumber}</strong>
+                      <span>{ticket.issuedTo || "-"} / {ticket.department || "-"}</span>
+                      <small>{lines.length} lines / {ticket.issueDate}</small>
+                    </div>
+                    <span className="document-status">{ticket.status || "Issued"}</span>
+                  </button>
+
+                  {expanded && (
+                    <div className="document-card-detail">
+                      <div className="document-detail-grid">
+                        <span><strong>Picked By:</strong> {ticket.pickedBy || "-"}</span>
+                        <span><strong>Unit / Truck:</strong> {ticket.unitTruck || "-"}</span>
+                        <span><strong>Job Number:</strong> {ticket.jobNumber || "-"}</span>
+                        <span><strong>Total:</strong> {money(ticket.totalValue)}</span>
+                      </div>
+
+                      <div className="table-wrap">
+                        <table className="document-line-table">
+                          <thead>
+                            <tr>
+                              <th>Item ID</th>
+                              <th>Item Name</th>
+                              <th>Qty</th>
+                              <th>Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lines.length === 0 && (
+                              <tr><td colSpan={4}>No line items found for this ticket.</td></tr>
+                            )}
+                            {lines.map((line) => (
+                              <tr key={line.id}>
+                                <td>{line.itemCode || "-"}</td>
+                                <td>{line.itemName || "-"}</td>
+                                <td>{line.qtyIssued.toLocaleString()}</td>
+                                <td>{money(line.lineValue)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {ticket.notes && <p className="muted-text">{ticket.notes}</p>}
+
+                      <div className="document-actions">
+                        <button className="mini-button" type="button" onClick={() => printIssueTicket(ticket)}>Print / PDF</button>
+                        <button
+                          className="mini-button"
+                          type="button"
+                          onClick={() => emailIssueTicket(ticket)}
+                          disabled={emailingTicketId === ticket.id}
+                        >
+                          {emailingTicketId === ticket.id ? "Emailing..." : "Email"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </section>
         </aside>
       </section>

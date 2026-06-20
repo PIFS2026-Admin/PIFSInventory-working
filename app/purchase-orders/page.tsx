@@ -146,10 +146,16 @@ export default function PurchaseOrdersPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [uploading, setUploading] = useState(false);
+  const [expandedPoId, setExpandedPoId] = useState("");
+  const [emailingPoId, setEmailingPoId] = useState("");
 
   const canUsePurchaseOrders = role === "admin" || role === "employee";
   const selectedOrder = orders.find((order) => order.id === selectedPoId) || null;
   const selectedLines = lines.filter((line) => line.purchaseOrderId === selectedPoId);
+
+  function linesForOrder(order: PurchaseOrder) {
+    return lines.filter((line) => line.purchaseOrderId === order.id);
+  }
 
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -515,6 +521,169 @@ export default function PurchaseOrdersPage() {
     setUploading(false);
   }
 
+  function purchaseOrderHtml(order: PurchaseOrder, orderLines: PurchaseOrderLine[]) {
+    const rows = orderLines.length
+      ? orderLines
+          .map(
+            (line) => `
+              <tr>
+                <td>${line.itemCode || "-"}</td>
+                <td>${line.itemName || "-"}</td>
+                <td>${line.quantityOrdered.toLocaleString()}</td>
+                <td>${line.quantityReceived.toLocaleString()}</td>
+                <td>${money(line.unitCost)}</td>
+                <td>${money(line.lineTotal)}</td>
+              </tr>
+            `,
+          )
+          .join("")
+      : `<tr><td colspan="6">No line items found for this purchase order.</td></tr>`;
+
+    const totalOrdered = orderLines.reduce((sum, line) => sum + line.quantityOrdered, 0);
+    const totalReceived = orderLines.reduce((sum, line) => sum + line.quantityReceived, 0);
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <title>${order.poNumber}</title>
+          <style>
+            @page { size: letter; margin: 0.35in; }
+            * { box-sizing: border-box; }
+            body { margin: 0; background: #e5e7eb; color: #111827; font-family: Arial, sans-serif; }
+            .toolbar { display: flex; justify-content: flex-end; gap: 8px; max-width: 980px; margin: 14px auto; }
+            .toolbar button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+            .primary { background: #f97316; color: #111827; }
+            .page { max-width: 980px; margin: 0 auto 28px; background: white; padding: 34px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
+            .letterhead { display: grid; grid-template-columns: 220px 1fr; gap: 28px; align-items: start; border-bottom: 3px solid #f97316; padding-bottom: 18px; }
+            .letterhead img { max-width: 190px; max-height: 82px; object-fit: contain; }
+            .company h2 { margin: 0 0 8px; font-size: 22px; }
+            .title-row { display: grid; grid-template-columns: 1fr 190px; gap: 18px; margin: 24px 0; align-items: start; }
+            .title-row h1 { margin: 0 0 10px; font-size: 26px; }
+            .date-box, .info-grid div, .notes { border: 1px solid #d1d5db; padding: 12px; }
+            .label { display: block; color: #64748b; font-size: 11px; text-transform: uppercase; }
+            .value { display: block; font-size: 15px; font-weight: 800; }
+            .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #d1d5db; border-right: 0; border-bottom: 0; margin-bottom: 22px; }
+            .info-grid div { border-left: 0; border-top: 0; min-height: 58px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            th { background: #111827; color: white; text-align: left; padding: 10px; }
+            td { border: 1px solid #d1d5db; padding: 9px 10px; vertical-align: top; }
+            tfoot td { font-weight: 800; }
+            .notes { margin-top: 22px; min-height: 80px; }
+            @media print {
+              body { background: white; }
+              .toolbar { display: none; }
+              .page { box-shadow: none; margin: 0; max-width: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="toolbar">
+            <button onclick="window.close()">Back</button>
+            <button class="primary" onclick="window.print()">Print / Save PDF</button>
+          </div>
+          <main class="page">
+            <section class="letterhead">
+              <img src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" />
+              <div class="company">
+                <h2>Pathfinder Inspections &amp; Field Services</h2>
+                <div>7501 Groening St.<br />Odessa, TX 79765<br />(432) 233-3600</div>
+              </div>
+            </section>
+            <section class="title-row">
+              <div>
+                <h1>Purchase Order</h1>
+                <strong>${order.poNumber}</strong>
+              </div>
+              <div class="date-box">
+                <span class="label">Date</span>
+                <span class="value">${order.orderDate || "-"}</span>
+                <span class="label">Status</span>
+                <span class="value">${order.status || "-"}</span>
+              </div>
+            </section>
+            <section class="info-grid">
+              <div><span class="label">Vendor</span><span class="value">${order.vendorName || "-"}</span></div>
+              <div><span class="label">Requested By</span><span class="value">${order.requestedBy || "-"}</span></div>
+              <div><span class="label">Total Value</span><span class="value">${money(order.totalValue)}</span></div>
+            </section>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item ID</th>
+                  <th>Item Name</th>
+                  <th>Ordered</th>
+                  <th>Received</th>
+                  <th>Unit Cost</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2">Totals</td>
+                  <td>${totalOrdered.toLocaleString()}</td>
+                  <td>${totalReceived.toLocaleString()}</td>
+                  <td></td>
+                  <td>${money(order.totalValue)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            <section class="notes">
+              <strong>Notes</strong>
+              <p>${order.notes || "No notes."}</p>
+            </section>
+          </main>
+        </body>
+      </html>`;
+  }
+
+  function printPurchaseOrder(order: PurchaseOrder) {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setMessage("Popup blocked. Allow popups to print this purchase order.");
+      return;
+    }
+
+    printWindow.document.write(purchaseOrderHtml(order, linesForOrder(order)));
+    printWindow.document.close();
+    printWindow.focus();
+  }
+
+  async function emailPurchaseOrder(order: PurchaseOrder) {
+    const recipientEmail = window.prompt("Email this purchase order to:");
+    if (!recipientEmail) return;
+    const note = window.prompt("Optional message to include:") || "";
+
+    setEmailingPoId(order.id);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Your login session expired. Sign in again before emailing.");
+      setEmailingPoId("");
+      return;
+    }
+
+    const response = await fetch("/api/purchase-order-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ poId: order.id, recipientEmail, note }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setMessage(`Email failed: ${result?.error || "Unknown error."}`);
+    } else {
+      setMessage(`Purchase order ${order.poNumber} emailed to ${recipientEmail}.`);
+    }
+
+    setEmailingPoId("");
+  }
+
   function exportOrders() {
     downloadCsv(
       "titan-purchase-orders.csv",
@@ -589,17 +758,83 @@ export default function PurchaseOrdersPage() {
           <section className="ticket-card">
             <h3>Purchase Orders</h3>
             {filteredOrders.length === 0 && <p className="muted-text">No purchase orders found.</p>}
-            {filteredOrders.map((order) => (
-              <button
-                className={`list-card-button ${selectedPoId === order.id ? "active" : ""}`}
-                key={order.id}
-                onClick={() => setSelectedPoId(order.id)}
-              >
-                <strong>{order.poNumber}</strong>
-                <span>{order.vendorName || "No vendor"} / {order.status}</span>
-                <small>{order.orderDate} / {money(order.totalValue)}</small>
-              </button>
-            ))}
+            {filteredOrders.map((order) => {
+              const orderLines = linesForOrder(order);
+              const expanded = expandedPoId === order.id;
+
+              return (
+                <article className={`document-card ${expanded ? "open" : ""}`} key={order.id}>
+                  <button
+                    className="document-card-summary"
+                    type="button"
+                    onClick={() => {
+                      setSelectedPoId(order.id);
+                      setExpandedPoId(expanded ? "" : order.id);
+                    }}
+                  >
+                    <div>
+                      <strong>{order.poNumber}</strong>
+                      <span>{order.vendorName || "No vendor"} / {order.requestedBy || "-"}</span>
+                      <small>{orderLines.length} lines / {order.orderDate} / {money(order.totalValue)}</small>
+                    </div>
+                    <span className="document-status">{order.status}</span>
+                  </button>
+
+                  {expanded && (
+                    <div className="document-card-detail">
+                      <div className="document-detail-grid">
+                        <span><strong>Requested By:</strong> {order.requestedBy || "-"}</span>
+                        <span><strong>Status:</strong> {order.status || "-"}</span>
+                        <span><strong>Total:</strong> {money(order.totalValue)}</span>
+                        <span><strong>Notes:</strong> {order.notes || "-"}</span>
+                      </div>
+
+                      <div className="table-wrap">
+                        <table className="document-line-table">
+                          <thead>
+                            <tr>
+                              <th>Item ID</th>
+                              <th>Item Name</th>
+                              <th>Ordered</th>
+                              <th>Received</th>
+                              <th>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orderLines.length === 0 && (
+                              <tr><td colSpan={5}>No line items found for this PO.</td></tr>
+                            )}
+                            {orderLines.map((line) => (
+                              <tr key={line.id}>
+                                <td>{line.itemCode || "-"}</td>
+                                <td>{line.itemName || "-"}</td>
+                                <td>{line.quantityOrdered.toLocaleString()}</td>
+                                <td>{line.quantityReceived.toLocaleString()}</td>
+                                <td>{money(line.lineTotal)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="document-actions">
+                        <button className="mini-button" type="button" onClick={() => printPurchaseOrder(order)}>Print / PDF</button>
+                        <button
+                          className="mini-button"
+                          type="button"
+                          onClick={() => emailPurchaseOrder(order)}
+                          disabled={emailingPoId === order.id}
+                        >
+                          {emailingPoId === order.id ? "Emailing..." : "Email"}
+                        </button>
+                        <button className="mini-button" type="button" onClick={() => openEditPo(order)}>Edit PO</button>
+                        <button className="mini-button" type="button" onClick={openLineForm}>Add Line</button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
           </section>
         </aside>
 
@@ -616,6 +851,14 @@ export default function PurchaseOrdersPage() {
                 <div className="row-actions no-print">
                   <button className="mini-button" onClick={() => openEditPo(selectedOrder)}>Edit PO</button>
                   <button className="mini-button" onClick={openLineForm}>Add Line</button>
+                  <button className="mini-button" onClick={() => printPurchaseOrder(selectedOrder)}>Print / PDF</button>
+                  <button
+                    className="mini-button"
+                    onClick={() => emailPurchaseOrder(selectedOrder)}
+                    disabled={emailingPoId === selectedOrder.id}
+                  >
+                    {emailingPoId === selectedOrder.id ? "Emailing..." : "Email"}
+                  </button>
                   <label className="mini-button file-button">
                     {uploading ? "Uploading..." : "Attach"}
                     <input type="file" onChange={(event) => uploadDocument(event.target.files)} />
