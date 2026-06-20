@@ -56,6 +56,19 @@ type IssueTicket = {
   notes: string;
 };
 
+type IssueCartLine = {
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  barcode: string;
+  location: string;
+  quantity: number;
+  qtyOnHand: number;
+  minQuantity: number;
+  unitPrice: number;
+  lineValue: number;
+};
+
 type ItemForm = {
   id: string;
   itemCode: string;
@@ -74,8 +87,6 @@ type ItemForm = {
 };
 
 type IssueForm = {
-  itemId: string;
-  quantity: string;
   issuedTo: string;
   department: string;
   pickedBy: string;
@@ -102,8 +113,6 @@ const emptyItemForm: ItemForm = {
 };
 
 const emptyIssueForm: IssueForm = {
-  itemId: "",
-  quantity: "1",
   issuedTo: "",
   department: "",
   pickedBy: "",
@@ -183,6 +192,8 @@ export default function InventoryModulePage() {
   const [adjustNotes, setAdjustNotes] = useState("");
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueForm, setIssueForm] = useState<IssueForm>(emptyIssueForm);
+  const [scanInput, setScanInput] = useState("");
+  const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
 
   const canUseInventory = role === "admin" || role === "employee";
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
@@ -231,6 +242,24 @@ export default function InventoryModulePage() {
   const lowStockCount = useMemo(
     () => items.filter((item) => item.lowStock || item.qtyOnHand <= item.minQuantity).length,
     [items],
+  );
+  const outOfStockCount = useMemo(() => items.filter((item) => item.qtyOnHand <= 0).length, [items]);
+  const activeItemCount = useMemo(() => items.filter((item) => item.active).length, [items]);
+  const lowStockItems = useMemo(
+    () =>
+      items
+        .filter((item) => item.lowStock || item.qtyOnHand <= item.minQuantity)
+        .sort((a, b) => a.qtyOnHand - b.qtyOnHand)
+        .slice(0, 8),
+    [items],
+  );
+  const cartQuantity = useMemo(
+    () => issueCart.reduce((sum, line) => sum + line.quantity, 0),
+    [issueCart],
+  );
+  const cartValue = useMemo(
+    () => issueCart.reduce((sum, line) => sum + line.lineValue, 0),
+    [issueCart],
   );
 
   useEffect(() => {
@@ -520,25 +549,108 @@ export default function InventoryModulePage() {
 
   function openIssue(item?: InventoryItem) {
     const target = item || selectedItem;
-    setIssueForm({ ...emptyIssueForm, itemId: target?.id || "", pickedBy: userName });
+    setIssueForm((current) => ({ ...current, pickedBy: current.pickedBy || userName }));
+    if (target) addItemToCart(target);
     setIssueOpen(true);
   }
 
-  async function saveIssueTicket() {
-    const item = items.find((candidate) => candidate.id === issueForm.itemId);
-    const qty = numberValue(issueForm.quantity);
+  function findItemForCounter(value: string) {
+    const term = value.trim().toLowerCase();
+    if (!term) return null;
+    return (
+      items.find((item) => item.barcode && item.barcode.toLowerCase() === term) ||
+      items.find((item) => item.itemCode.toLowerCase() === term) ||
+      items.find((item) => item.itemName.toLowerCase() === term || item.itemName.toLowerCase().includes(term)) ||
+      null
+    );
+  }
+
+  function addItemToCart(item: InventoryItem, quantity = 1) {
+    if (!item.active) {
+      setMessage(`${item.itemCode} is inactive.`);
+      return;
+    }
+    if (item.qtyOnHand <= 0) {
+      setMessage(`${item.itemCode} has no inventory on hand.`);
+      return;
+    }
+
+    setMessage("");
+    setIssueCart((current) => {
+      const existing = current.find((line) => line.itemId === item.id);
+      const existingQty = existing?.quantity || 0;
+      const nextQty = Math.min(item.qtyOnHand, existingQty + quantity);
+      if (existing && nextQty === existingQty) {
+        setMessage(`${item.itemCode} cannot exceed quantity on hand.`);
+        return current;
+      }
+      if (existing) {
+        return current.map((line) =>
+          line.itemId === item.id
+            ? { ...line, quantity: nextQty, lineValue: nextQty * line.unitPrice }
+            : line,
+        );
+      }
+      return current.concat({
+        itemId: item.id,
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        barcode: item.barcode,
+        location: item.location,
+        quantity: Math.min(item.qtyOnHand, quantity),
+        qtyOnHand: item.qtyOnHand,
+        minQuantity: item.minQuantity,
+        unitPrice: item.unitPrice,
+        lineValue: Math.min(item.qtyOnHand, quantity) * item.unitPrice,
+      });
+    });
+  }
+
+  function addScannedItem() {
+    const item = findItemForCounter(scanInput);
     if (!item) {
-      setMessage("Choose an inventory item.");
+      setMessage("No item matched that barcode, item ID, or search text.");
       return;
     }
-    if (qty <= 0) {
-      setMessage("Issue quantity must be greater than zero.");
+    addItemToCart(item);
+    setScanInput("");
+  }
+
+  function updateCartQuantity(itemId: string, value: string) {
+    const qty = Math.max(0, Math.floor(numberValue(value)));
+    setIssueCart((current) =>
+      current
+        .map((line) => {
+          if (line.itemId !== itemId) return line;
+          const nextQty = Math.min(qty, line.qtyOnHand);
+          return { ...line, quantity: nextQty, lineValue: nextQty * line.unitPrice };
+        })
+        .filter((line) => line.quantity > 0),
+    );
+  }
+
+  function removeCartLine(itemId: string) {
+    setIssueCart((current) => current.filter((line) => line.itemId !== itemId));
+  }
+
+  function clearIssueCart() {
+    setIssueCart([]);
+    setScanInput("");
+    setMessage("");
+  }
+
+  async function saveIssueTicket() {
+    if (issueCart.length === 0) {
+      setMessage("Add at least one item to the issue cart.");
       return;
     }
-    if (qty > item.qtyOnHand) {
-      setMessage("Issue quantity is greater than quantity on hand.");
+
+    const invalidLine = issueCart.find((line) => line.quantity <= 0 || line.quantity > line.qtyOnHand);
+    if (invalidLine) {
+      setMessage(`${invalidLine.itemCode} has an invalid issue quantity.`);
       return;
     }
+
     if (!issueForm.issuedTo.trim()) {
       setMessage("Issued To is required.");
       return;
@@ -548,7 +660,6 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const ticketNumber = `ISS-${todayStamp()}`;
-    const lineValue = qty * item.unitPrice;
 
     const { data: ticket, error: ticketError } = await supabase
       .from("inventory_issue_tickets")
@@ -560,7 +671,7 @@ export default function InventoryModulePage() {
         picked_by: issueForm.pickedBy || userName,
         unit_truck: issueForm.unitTruck || null,
         job_number: issueForm.jobNumber || null,
-        total_value: lineValue,
+        total_value: cartValue,
         status: "Issued",
         notes: issueForm.notes || null,
       })
@@ -573,20 +684,22 @@ export default function InventoryModulePage() {
       return;
     }
 
-    const { error: lineError } = await supabase.from("inventory_issue_ticket_lines").insert({
+    const linePayload = issueCart.map((line) => ({
       issue_ticket_id: ticket.id,
       ticket_number: ticketNumber,
-      item_id: item.id,
-      item_code: item.itemCode,
-      item_name: item.itemName,
+      item_id: line.itemId,
+      item_code: line.itemCode,
+      item_name: line.itemName,
       department: issueForm.department || null,
-      qty_issued: qty,
-      unit_cost: item.unitPrice,
-      line_value: lineValue,
+      qty_issued: line.quantity,
+      unit_cost: line.unitPrice,
+      line_value: line.lineValue,
       unit_truck: issueForm.unitTruck || null,
       picked_by: issueForm.pickedBy || userName,
       line_processed: true,
-    });
+    }));
+
+    const { error: lineError } = await supabase.from("inventory_issue_ticket_lines").insert(linePayload);
 
     if (lineError) {
       setMessage(`Issue ticket created, line failed: ${lineError.message}`);
@@ -594,34 +707,41 @@ export default function InventoryModulePage() {
       return;
     }
 
-    const nextQty = item.qtyOnHand - qty;
-    const { error: itemError } = await supabase
-      .from("inventory_items")
-      .update({ qty_on_hand: nextQty, low_stock: nextQty <= item.minQuantity })
-      .eq("id", item.id);
+    for (const line of issueCart) {
+      const nextQty = line.qtyOnHand - line.quantity;
+      const { error: itemError } = await supabase
+        .from("inventory_items")
+        .update({ qty_on_hand: nextQty, low_stock: nextQty <= line.minQuantity })
+        .eq("id", line.itemId);
 
-    if (itemError) {
-      setMessage(`Issue line saved, item quantity failed: ${itemError.message}`);
-      setSaving(false);
-      return;
+      if (itemError) {
+        setMessage(`Issue line saved, ${line.itemCode} quantity failed: ${itemError.message}`);
+        setSaving(false);
+        return;
+      }
     }
 
-    await supabase.from("inventory_transactions").insert({
-      item_id: item.id,
-      item_code: item.itemCode,
+    const transactionPayload = issueCart.map((line) => ({
+      item_id: line.itemId,
+      item_code: line.itemCode,
       transaction_type: "Issue",
-      quantity: qty,
+      quantity: line.quantity,
       reference_type: "Issue Ticket",
       reference_number: ticketNumber,
       entered_by: issueForm.pickedBy || userName,
       notes: issueForm.notes || null,
       transaction_source: "TITAN Inventory",
       quantity_direction: "Out",
-    });
+    }));
+
+    await supabase.from("inventory_transactions").insert(transactionPayload);
 
     setIssueOpen(false);
+    setIssueForm({ ...emptyIssueForm, pickedBy: userName });
+    setIssueCart([]);
+    setScanInput("");
     await Promise.all([loadItems(), loadTransactions(), loadTickets()]);
-    setMessage(`Issue ticket ${ticketNumber} created.`);
+    setMessage(`Issue ticket ${ticketNumber} created with ${issueCart.length} line items.`);
     setSaving(false);
   }
 
@@ -678,6 +798,7 @@ export default function InventoryModulePage() {
           <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventory}>Export CSV</button>
+          <button className="button" onClick={() => openIssue()}>Issue Inventory</button>
           <button className="button primary" onClick={openNewItem}>Add Item</button>
         </div>
       </section>
@@ -698,9 +819,109 @@ export default function InventoryModulePage() {
           <span>Low Stock</span>
         </article>
         <article className="metric-card">
+          <strong>{outOfStockCount}</strong>
+          <span>Out of Stock</span>
+        </article>
+        <article className="metric-card">
           <strong>{money(totalValue)}</strong>
           <span>Total Value</span>
         </article>
+      </section>
+
+      <section className="inventory-dashboard no-print">
+        <article className="ticket-card pos-card">
+          <div className="detail-title-row">
+            <div>
+              <h3>Inventory Counter</h3>
+              <p className="muted-text">Scan a barcode, enter an item ID, or search by item name. Add several items, then create one issue ticket.</p>
+            </div>
+            <div className="pos-total">
+              <strong>{cartQuantity.toLocaleString()}</strong>
+              <span>items in cart / {money(cartValue)}</span>
+            </div>
+          </div>
+
+          <div className="pos-scan-row">
+            <input
+              className="field scan-field"
+              value={scanInput}
+              onChange={(event) => setScanInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") addScannedItem();
+              }}
+              placeholder="Scan barcode or type item ID"
+              autoComplete="off"
+            />
+            <button className="button primary" onClick={addScannedItem}>Add to Cart</button>
+            <button className="button" onClick={() => openIssue()}>Complete Issue</button>
+            <button className="button ghost" onClick={clearIssueCart} disabled={issueCart.length === 0}>Clear</button>
+          </div>
+
+          {issueCart.length === 0 ? (
+            <div className="empty-pos-cart">
+              <strong>No items in issue cart.</strong>
+              <span>Select Issue from the item table or scan an item to begin.</span>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Description</th>
+                    <th>Location</th>
+                    <th>On Hand</th>
+                    <th>Issue Qty</th>
+                    <th>Value</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {issueCart.map((line) => (
+                    <tr key={line.itemId}>
+                      <td>{line.itemCode}</td>
+                      <td>{line.itemName}</td>
+                      <td>{line.location || "-"}</td>
+                      <td>{line.qtyOnHand.toLocaleString()}</td>
+                      <td>
+                        <input
+                          className="qty-input"
+                          type="number"
+                          min="1"
+                          max={line.qtyOnHand}
+                          value={line.quantity}
+                          onChange={(event) => updateCartQuantity(line.itemId, event.target.value)}
+                        />
+                      </td>
+                      <td>{money(line.lineValue)}</td>
+                      <td><button className="mini-button" onClick={() => removeCartLine(line.itemId)}>Remove</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+
+        <aside className="ticket-card stock-watch-card">
+          <h3>Stock Watch</h3>
+          <div className="stock-watch-metrics">
+            <div><strong>{activeItemCount}</strong><span>Active</span></div>
+            <div><strong>{lowStockCount}</strong><span>Low</span></div>
+            <div><strong>{outOfStockCount}</strong><span>Out</span></div>
+          </div>
+          {lowStockItems.length === 0 ? (
+            <p className="muted-text">No low stock items right now.</p>
+          ) : (
+            lowStockItems.map((item) => (
+              <button className="list-card-button compact-list-button" key={item.id} onClick={() => setSelectedItemId(item.id)}>
+                <strong>{item.itemCode}</strong>
+                <span>{item.itemName}</span>
+                <small>{item.qtyOnHand.toLocaleString()} on hand / min {item.minQuantity.toLocaleString()}</small>
+              </button>
+            ))
+          )}
+        </aside>
       </section>
 
       <section className="filter-grid no-print">
@@ -875,19 +1096,45 @@ export default function InventoryModulePage() {
           <section className="slide-over">
             <div className="slide-header">
               <div>
-                <h2>Issue Inventory</h2>
-                <p>Create an issue ticket and reduce inventory.</p>
+                <h2>Complete Issue Ticket</h2>
+                <p>{issueCart.length} line items / {cartQuantity.toLocaleString()} total quantity / {money(cartValue)}</p>
               </div>
               <button className="icon-button" onClick={() => setIssueOpen(false)}>X</button>
             </div>
+
+            <section className="ticket-card issue-cart-review">
+              <h3>Issue Cart</h3>
+              {issueCart.length === 0 ? (
+                <p className="muted-text">No items are in the issue cart.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Unit Cost</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {issueCart.map((line) => (
+                        <tr key={line.itemId}>
+                          <td>{line.itemCode}</td>
+                          <td>{line.itemName}</td>
+                          <td>{line.quantity.toLocaleString()}</td>
+                          <td>{money(line.unitPrice)}</td>
+                          <td>{money(line.lineValue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
             <div className="form-grid">
-              <label className="full">Item
-                <select value={issueForm.itemId} onChange={(event) => setIssueForm({ ...issueForm, itemId: event.target.value })}>
-                  <option value="">Choose item</option>
-                  {items.map((item) => <option key={item.id} value={item.id}>{item.itemCode} - {item.itemName} ({item.qtyOnHand})</option>)}
-                </select>
-              </label>
-              <label>Quantity<input type="number" value={issueForm.quantity} onChange={(event) => setIssueForm({ ...issueForm, quantity: event.target.value })} /></label>
               <label>Issued To<input value={issueForm.issuedTo} onChange={(event) => setIssueForm({ ...issueForm, issuedTo: event.target.value })} /></label>
               <label>Department<input value={issueForm.department} onChange={(event) => setIssueForm({ ...issueForm, department: event.target.value })} /></label>
               <label>Picked By<input value={issueForm.pickedBy} onChange={(event) => setIssueForm({ ...issueForm, pickedBy: event.target.value })} /></label>
@@ -897,7 +1144,7 @@ export default function InventoryModulePage() {
             </div>
             <div className="slide-actions">
               <button className="button" onClick={() => setIssueOpen(false)}>Cancel</button>
-              <button className="button primary" onClick={saveIssueTicket} disabled={saving}>{saving ? "Saving..." : "Create Issue Ticket"}</button>
+              <button className="button primary" onClick={saveIssueTicket} disabled={saving || issueCart.length === 0}>{saving ? "Saving..." : "Create Issue Ticket"}</button>
             </div>
           </section>
         </div>

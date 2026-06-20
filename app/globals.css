@@ -4186,7 +4186,7 @@ th {
 
 .module-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin: 14px 0;
 }
@@ -4215,6 +4215,115 @@ th {
   grid-template-columns: 2fr repeat(4, minmax(140px, 1fr));
   gap: 10px;
   margin: 14px 0;
+}
+
+.inventory-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  margin: 14px 0;
+  align-items: start;
+}
+
+.pos-card {
+  min-width: 0;
+}
+
+.pos-total {
+  min-width: 180px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 12px;
+  text-align: right;
+}
+
+.pos-total strong {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.pos-total span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pos-scan-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.scan-field {
+  min-height: 52px;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.empty-pos-cart {
+  display: grid;
+  gap: 4px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 18px;
+  color: var(--muted);
+}
+
+.empty-pos-cart strong {
+  color: var(--text);
+}
+
+.qty-input {
+  width: 88px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #101318;
+  color: var(--text);
+  font-weight: 900;
+  padding: 6px 8px;
+}
+
+.stock-watch-card {
+  min-width: 0;
+}
+
+.stock-watch-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.stock-watch-metrics div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 10px;
+}
+
+.stock-watch-metrics strong,
+.stock-watch-metrics span,
+.compact-list-button strong,
+.compact-list-button span,
+.compact-list-button small {
+  display: block;
+}
+
+.stock-watch-metrics span,
+.compact-list-button small {
+  color: var(--muted);
+}
+
+.compact-list-button {
+  padding: 8px 10px;
+}
+
+.issue-cart-review {
+  margin-bottom: 12px;
 }
 
 .module-grid {
@@ -4349,9 +4458,23 @@ th {
 
   .module-metrics,
   .filter-grid,
+  .inventory-dashboard,
   .module-grid,
   .po-module .module-grid,
   .po-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pos-scan-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pos-scan-row .button {
+    width: 100%;
+  }
+
+  .pos-total {
+    width: 100%;
+    text-align: left;
   }
 }
