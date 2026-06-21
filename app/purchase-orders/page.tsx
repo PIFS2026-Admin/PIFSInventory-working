@@ -8,6 +8,7 @@ type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 type Vendor = {
   id: string;
   vendorName: string;
+  email: string;
 };
 
 type InventoryItem = {
@@ -28,6 +29,10 @@ type PurchaseOrder = {
   status: string;
   notes: string;
   totalValue: number;
+  vendorEmail: string;
+  submittedAt: string;
+  approvedAt: string;
+  orderedAt: string;
 };
 
 type PurchaseOrderLine = {
@@ -62,6 +67,8 @@ type LineForm = {
 };
 
 const statusOptions = ["Draft", "Submitted", "Ordered", "Partially Received", "Received", "Closed", "Cancelled"];
+const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
+const managementRoles = ["admin", "inventory_manager"];
 
 const emptyPoForm: PoForm = {
   id: "",
@@ -149,7 +156,8 @@ export default function PurchaseOrdersPage() {
   const [expandedPoId, setExpandedPoId] = useState("");
   const [emailingPoId, setEmailingPoId] = useState("");
 
-  const canUsePurchaseOrders = role === "admin" || role === "employee";
+  const canUsePurchaseOrders = inventoryRoles.includes(role);
+  const canManagePurchaseOrders = managementRoles.includes(role);
   const selectedOrder = orders.find((order) => order.id === selectedPoId) || null;
   const selectedLines = lines.filter((line) => line.purchaseOrderId === selectedPoId);
 
@@ -201,7 +209,7 @@ export default function PurchaseOrdersPage() {
     setRole(nextRole);
     setUserName(profileData?.full_name || user.email || "TITAN User");
 
-    if (nextRole !== "admin" && nextRole !== "employee") {
+    if (!inventoryRoles.includes(nextRole)) {
       setMessage("Purchase Orders are for internal users only.");
       setLoading(false);
       return;
@@ -215,7 +223,7 @@ export default function PurchaseOrdersPage() {
   async function loadVendors() {
     const { data, error } = await supabase
       .from("inventory_vendors")
-      .select("id, vendor_name")
+      .select("id, vendor_name, email")
       .order("vendor_name");
 
     if (error) {
@@ -223,7 +231,7 @@ export default function PurchaseOrdersPage() {
       return;
     }
 
-    setVendors((data || []).map((row) => ({ id: row.id, vendorName: row.vendor_name || "" })));
+    setVendors((data || []).map((row) => ({ id: row.id, vendorName: row.vendor_name || "", email: row.email || "" })));
   }
 
   async function loadItems() {
@@ -269,6 +277,10 @@ export default function PurchaseOrdersPage() {
       status: row.status || "Draft",
       notes: row.notes || "",
       totalValue: Number(row.total_value || 0),
+      vendorEmail: row.vendor_email || "",
+      submittedAt: row.submitted_at || "",
+      approvedAt: row.approved_at || "",
+      orderedAt: row.ordered_at || "",
     }));
     setOrders(mapped);
     if (!selectedPoId && mapped.length > 0) setSelectedPoId(mapped[0].id);
@@ -328,27 +340,52 @@ export default function PurchaseOrdersPage() {
     setSaving(true);
     setMessage("");
     const vendor = vendors.find((candidate) => candidate.id === poForm.vendorId);
-    const payload = {
+    const existingOrder = orders.find((order) => order.id === poForm.id);
+    const movedToSubmitted = poForm.status === "Submitted" && existingOrder?.status !== "Submitted";
+    const movedToOrdered = poForm.status === "Ordered" && existingOrder?.status !== "Ordered";
+
+    if (poForm.status === "Ordered" && !canManagePurchaseOrders) {
+      setMessage("Only admins and inventory managers can approve and order purchase orders.");
+      setSaving(false);
+      return;
+    }
+
+    const payload: Record<string, string | null> = {
       po_number: poForm.poNumber.trim(),
       vendor_id: poForm.vendorId || null,
       vendor_name: vendor?.vendorName || poForm.vendorName || null,
+      vendor_email: vendor?.email || null,
       order_date: poForm.orderDate,
       requested_by: poForm.requestedBy || userName,
       status: poForm.status,
       notes: poForm.notes || null,
     };
+    if (movedToSubmitted) {
+      payload.submitted_at = new Date().toISOString();
+      payload.submitted_by = userName;
+    }
+    if (movedToOrdered) {
+      payload.approved_at = new Date().toISOString();
+      payload.approved_by = userName;
+      payload.ordered_at = new Date().toISOString();
+      payload.ordered_by = userName;
+    }
 
     const request = poForm.id
-      ? supabase.from("purchase_orders").update(payload).eq("id", poForm.id)
-      : supabase.from("purchase_orders").insert(payload);
+      ? supabase.from("purchase_orders").update(payload).eq("id", poForm.id).select("id").single()
+      : supabase.from("purchase_orders").insert(payload).select("id").single();
 
-    const { error } = await request;
-    if (error) {
-      setMessage(`PO save failed: ${error.message}`);
+    const { data: savedOrder, error } = await request;
+    if (error || !savedOrder) {
+      setMessage(`PO save failed: ${error?.message || "purchase order was not returned."}`);
     } else {
       setPoFormOpen(false);
       await loadOrders();
-      setMessage("Purchase order saved.");
+      if (movedToOrdered && vendor?.email) {
+        await sendPurchaseOrderEmail(savedOrder.id, vendor.email, "Attached is your TITAN purchase order.", "Purchase order saved and emailed to vendor.");
+      } else {
+        setMessage(movedToOrdered && !vendor?.email ? "Purchase order saved. Vendor email is missing, so it was not emailed." : "Purchase order saved.");
+      }
     }
     setSaving(false);
   }
@@ -649,20 +686,12 @@ export default function PurchaseOrdersPage() {
     printWindow.focus();
   }
 
-  async function emailPurchaseOrder(order: PurchaseOrder) {
-    const recipientEmail = window.prompt("Email this purchase order to:");
-    if (!recipientEmail) return;
-    const note = window.prompt("Optional message to include:") || "";
-
-    setEmailingPoId(order.id);
-    setMessage("");
-
+  async function sendPurchaseOrderEmail(poId: string, recipientEmail: string, note: string, successMessage: string) {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
     if (!token) {
       setMessage("Your login session expired. Sign in again before emailing.");
-      setEmailingPoId("");
-      return;
+      return false;
     }
 
     const response = await fetch("/api/purchase-order-email", {
@@ -671,17 +700,80 @@ export default function PurchaseOrdersPage() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ poId: order.id, recipientEmail, note }),
+      body: JSON.stringify({ poId, recipientEmail, note }),
     });
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
       setMessage(`Email failed: ${result?.error || "Unknown error."}`);
-    } else {
-      setMessage(`Purchase order ${order.poNumber} emailed to ${recipientEmail}.`);
+      return false;
     }
 
+    setMessage(successMessage);
+    return true;
+  }
+
+  async function emailPurchaseOrder(order: PurchaseOrder) {
+    const recipientEmail = window.prompt("Email this purchase order to:");
+    if (!recipientEmail) return;
+    const note = window.prompt("Optional message to include:") || "";
+
+    setEmailingPoId(order.id);
+    setMessage("");
+    await sendPurchaseOrderEmail(order.id, recipientEmail, note, `Purchase order ${order.poNumber} emailed to ${recipientEmail}.`);
     setEmailingPoId("");
+  }
+
+  async function deletePurchaseOrder(order: PurchaseOrder) {
+    if (!canManagePurchaseOrders) {
+      setMessage("Only admins and inventory managers can delete purchase orders.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${order.poNumber}? This also removes its line items and attached document links.`);
+    if (!confirmed) return;
+
+    setSaving(true);
+    setMessage("");
+
+    const { error: documentError } = await supabase
+      .from("inventory_documents")
+      .delete()
+      .eq("linked_record_type", "purchase_order")
+      .eq("linked_record_id", order.id);
+
+    if (documentError) {
+      setMessage(`Delete failed: ${documentError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    const { error: lineError } = await supabase
+      .from("purchase_order_lines")
+      .delete()
+      .eq("purchase_order_id", order.id);
+
+    if (lineError) {
+      setMessage(`Delete failed: ${lineError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    const { error } = await supabase.from("purchase_orders").delete().eq("id", order.id);
+    if (error) {
+      setMessage(`Delete failed: ${error.message}`);
+    } else {
+      if (selectedPoId === order.id) {
+        setSelectedPoId("");
+      }
+      if (expandedPoId === order.id) {
+        setExpandedPoId("");
+      }
+      await loadOrders();
+      setMessage(`${order.poNumber} deleted.`);
+    }
+
+    setSaving(false);
   }
 
   function exportOrders() {
@@ -829,6 +921,11 @@ export default function PurchaseOrdersPage() {
                         </button>
                         <button className="mini-button" type="button" onClick={() => openEditPo(order)}>Edit PO</button>
                         <button className="mini-button" type="button" onClick={openLineForm}>Add Line</button>
+                        {canManagePurchaseOrders && (
+                          <button className="mini-button danger" type="button" onClick={() => deletePurchaseOrder(order)} disabled={saving}>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -863,6 +960,11 @@ export default function PurchaseOrdersPage() {
                     {uploading ? "Uploading..." : "Attach"}
                     <input type="file" onChange={(event) => uploadDocument(event.target.files)} />
                   </label>
+                  {canManagePurchaseOrders && (
+                    <button className="mini-button danger" onClick={() => deletePurchaseOrder(selectedOrder)} disabled={saving}>
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -939,7 +1041,11 @@ export default function PurchaseOrdersPage() {
               <label>Requested By<input value={poForm.requestedBy} onChange={(event) => setPoForm({ ...poForm, requestedBy: event.target.value })} /></label>
               <label>Status
                 <select value={poForm.status} onChange={(event) => setPoForm({ ...poForm, status: event.target.value })}>
-                  {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+                  {statusOptions.map((status) => (
+                    <option key={status} value={status} disabled={status === "Ordered" && !canManagePurchaseOrders}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="full">Notes<textarea value={poForm.notes} onChange={(event) => setPoForm({ ...poForm, notes: event.target.value })} /></label>

@@ -9,6 +9,12 @@ type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 type Vendor = {
   id: string;
   vendorName: string;
+  vendorCode: string;
+  vendorType: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  terms: string;
   active: boolean;
 };
 
@@ -111,6 +117,35 @@ type IssueForm = {
   notes: string;
 };
 
+type InventoryModuleView = "dashboard" | "counter" | "items" | "tickets" | "vendors";
+
+type VendorForm = {
+  id: string;
+  vendorName: string;
+  vendorCode: string;
+  vendorType: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  terms: string;
+  active: boolean;
+};
+
+type ReceiveForm = {
+  itemId: string;
+  quantity: string;
+  unitPrice: string;
+  referenceNumber: string;
+  receivedBy: string;
+  notes: string;
+};
+
+type PriceForm = {
+  itemId: string;
+  unitPrice: string;
+  notes: string;
+};
+
 const emptyItemForm: ItemForm = {
   id: "",
   itemCode: "",
@@ -134,6 +169,35 @@ const emptyIssueForm: IssueForm = {
   pickedBy: "",
   unitTruck: "",
   jobNumber: "",
+  notes: "",
+};
+
+const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
+
+const emptyVendorForm: VendorForm = {
+  id: "",
+  vendorName: "",
+  vendorCode: "",
+  vendorType: "",
+  contactName: "",
+  phone: "",
+  email: "",
+  terms: "",
+  active: true,
+};
+
+const emptyReceiveForm: ReceiveForm = {
+  itemId: "",
+  quantity: "1",
+  unitPrice: "",
+  referenceNumber: "",
+  receivedBy: "",
+  notes: "",
+};
+
+const emptyPriceForm: PriceForm = {
+  itemId: "",
+  unitPrice: "",
   notes: "",
 };
 
@@ -202,8 +266,15 @@ export default function InventoryModulePage() {
   const [locationFilter, setLocationFilter] = useState("all");
   const [vendorFilter, setVendorFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
+  const [activeView, setActiveView] = useState<InventoryModuleView>("dashboard");
   const [itemFormOpen, setItemFormOpen] = useState(false);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
+  const [vendorFormOpen, setVendorFormOpen] = useState(false);
+  const [vendorForm, setVendorForm] = useState<VendorForm>(emptyVendorForm);
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [receiveForm, setReceiveForm] = useState<ReceiveForm>(emptyReceiveForm);
+  const [priceOpen, setPriceOpen] = useState(false);
+  const [priceForm, setPriceForm] = useState<PriceForm>(emptyPriceForm);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustQty, setAdjustQty] = useState("");
   const [adjustNotes, setAdjustNotes] = useState("");
@@ -217,9 +288,11 @@ export default function InventoryModulePage() {
   const [cameraScanning, setCameraScanning] = useState(false);
   const scanFieldRef = useRef<HTMLInputElement | null>(null);
   const cameraFileRef = useRef<HTMLInputElement | null>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
 
-  const canUseInventory = role === "admin" || role === "employee";
+  const canUseInventory = inventoryRoles.includes(role);
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
   useEffect(() => {
@@ -291,9 +364,59 @@ export default function InventoryModulePage() {
     () => issueCart.reduce((sum, line) => sum + line.lineValue, 0),
     [issueCart],
   );
+  const weekStart = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - start.getDay());
+    return start;
+  }, []);
+  const weeklyTickets = useMemo(
+    () => tickets.filter((ticket) => new Date(`${ticket.issueDate}T00:00:00`) >= weekStart),
+    [tickets, weekStart],
+  );
+  const weeklyTicketIds = useMemo(() => new Set(weeklyTickets.map((ticket) => ticket.id)), [weeklyTickets]);
+  const weeklyLines = useMemo(
+    () => ticketLines.filter((line) => weeklyTicketIds.has(line.issueTicketId)),
+    [ticketLines, weeklyTicketIds],
+  );
+  const ticketLookup = useMemo(
+    () => new Map(tickets.map((ticket) => [ticket.id, ticket])),
+    [tickets],
+  );
+  const weeklySpending = useMemo(
+    () => weeklyLines.reduce((sum, line) => sum + line.lineValue, 0),
+    [weeklyLines],
+  );
+  const topIssuedItems = useMemo(() => {
+    const totals = new Map<string, { label: string; qty: number; value: number }>();
+    weeklyLines.forEach((line) => {
+      const key = line.itemCode || line.itemName || line.id;
+      const current = totals.get(key) || { label: `${line.itemCode || "-"} ${line.itemName || ""}`.trim(), qty: 0, value: 0 };
+      current.qty += line.qtyIssued;
+      current.value += line.lineValue;
+      totals.set(key, current);
+    });
+    return Array.from(totals.values()).sort((a, b) => b.qty - a.qty).slice(0, 10);
+  }, [weeklyLines]);
+  const topIssuedUnits = useMemo(() => {
+    const totals = new Map<string, { label: string; qty: number; value: number }>();
+    weeklyLines.forEach((line) => {
+      const ticket = ticketLookup.get(line.issueTicketId);
+      const key = line.unitTruck || ticket?.unitTruck || "No unit/truck";
+      const current = totals.get(key) || { label: key, qty: 0, value: 0 };
+      current.qty += line.qtyIssued;
+      current.value += line.lineValue;
+      totals.set(key, current);
+    });
+    return Array.from(totals.values()).sort((a, b) => b.value - a.value).slice(0, 10);
+  }, [ticketLookup, weeklyLines]);
 
   useEffect(() => {
     loadPage();
+  }, []);
+
+  useEffect(() => {
+    return () => stopCameraScanner();
   }, []);
 
   async function loadPage() {
@@ -317,7 +440,7 @@ export default function InventoryModulePage() {
     setRole(nextRole);
     setUserName(profileData?.full_name || user.email || "TITAN User");
 
-    if (nextRole !== "admin" && nextRole !== "employee") {
+    if (!inventoryRoles.includes(nextRole)) {
       setMessage("Inventory is for internal users only.");
       setLoading(false);
       return;
@@ -331,7 +454,7 @@ export default function InventoryModulePage() {
   async function loadVendors() {
     const { data, error } = await supabase
       .from("inventory_vendors")
-      .select("id, vendor_name, active")
+      .select("id, vendor_name, vendor_code, vendor_type, contact_name, phone, email, terms, active")
       .order("vendor_name");
 
     if (error) {
@@ -343,6 +466,12 @@ export default function InventoryModulePage() {
       (data || []).map((vendor) => ({
         id: vendor.id,
         vendorName: vendor.vendor_name || "",
+        vendorCode: vendor.vendor_code || "",
+        vendorType: vendor.vendor_type || "",
+        contactName: vendor.contact_name || "",
+        phone: vendor.phone || "",
+        email: vendor.email || "",
+        terms: vendor.terms || "",
         active: Boolean(vendor.active),
       })),
     );
@@ -476,6 +605,62 @@ export default function InventoryModulePage() {
     setItemFormOpen(true);
   }
 
+  function openNewVendor() {
+    setVendorForm(emptyVendorForm);
+    setVendorFormOpen(true);
+  }
+
+  function openEditVendor(vendor: Vendor) {
+    setVendorForm({
+      id: vendor.id,
+      vendorName: vendor.vendorName,
+      vendorCode: vendor.vendorCode,
+      vendorType: vendor.vendorType,
+      contactName: vendor.contactName,
+      phone: vendor.phone,
+      email: vendor.email,
+      terms: vendor.terms,
+      active: vendor.active,
+    });
+    setVendorFormOpen(true);
+  }
+
+  async function saveVendor() {
+    if (!vendorForm.vendorName.trim()) {
+      setMessage("Vendor name is required.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const payload = {
+      vendor_name: vendorForm.vendorName.trim(),
+      vendor_code: vendorForm.vendorCode.trim() || null,
+      vendor_type: vendorForm.vendorType.trim() || null,
+      contact_name: vendorForm.contactName.trim() || null,
+      phone: vendorForm.phone.trim() || null,
+      email: vendorForm.email.trim() || null,
+      terms: vendorForm.terms.trim() || null,
+      active: vendorForm.active,
+    };
+
+    const request = vendorForm.id
+      ? supabase.from("inventory_vendors").update(payload).eq("id", vendorForm.id)
+      : supabase.from("inventory_vendors").insert(payload);
+
+    const { error } = await request;
+    if (error) {
+      setMessage(`Vendor save failed: ${error.message}`);
+    } else {
+      setVendorFormOpen(false);
+      await loadVendors();
+      setMessage("Vendor saved.");
+    }
+
+    setSaving(false);
+  }
+
   function openEditItem(item: InventoryItem) {
     setItemForm({
       id: item.id,
@@ -539,6 +724,133 @@ export default function InventoryModulePage() {
       setMessage("Inventory item saved.");
     }
     setSaving(false);
+  }
+
+  function openManualReceive(item?: InventoryItem) {
+    const target = item || selectedItem;
+    setReceiveForm({
+      ...emptyReceiveForm,
+      itemId: target?.id || "",
+      quantity: "",
+      unitPrice: target ? String(target.unitPrice) : "",
+      referenceNumber: "",
+      notes: "",
+    });
+    setReceiveOpen(true);
+  }
+
+  async function saveManualReceive() {
+    const item = items.find((candidate) => candidate.id === receiveForm.itemId);
+    const quantity = numberValue(receiveForm.quantity);
+    const unitPrice = numberValue(receiveForm.unitPrice);
+
+    if (!item) {
+      setMessage("Choose an inventory item to receive.");
+      return;
+    }
+    if (quantity <= 0) {
+      setMessage("Receive quantity must be greater than zero.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const nextQty = item.qtyOnHand + quantity;
+    const updatePayload: Record<string, number | boolean> = {
+      qty_on_hand: nextQty,
+      low_stock: nextQty <= item.minQuantity,
+    };
+    if (unitPrice > 0) updatePayload.unit_price = unitPrice;
+
+    const { error: updateError } = await supabase
+      .from("inventory_items")
+      .update(updatePayload)
+      .eq("id", item.id);
+
+    if (updateError) {
+      setMessage(`Receive failed: ${updateError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    const { error: txError } = await supabase.from("inventory_transactions").insert({
+      item_id: item.id,
+      item_code: item.itemCode,
+      transaction_type: "Manual Receive",
+      quantity,
+      reference_type: "Manual Receive",
+      reference_number: receiveForm.referenceNumber || "Non-PO Receive",
+      entered_by: userName,
+      notes: receiveForm.notes || null,
+      transaction_source: "TITAN Inventory",
+      quantity_direction: "In",
+    });
+
+    await Promise.all([loadItems(), loadTransactions()]);
+    setReceiveOpen(false);
+    setSaving(false);
+    setMessage(txError ? `Received, but history failed: ${txError.message}` : "Inventory received.");
+  }
+
+  function openPriceAdjust(item?: InventoryItem) {
+    const target = item || selectedItem;
+    if (!target) {
+      setMessage("Select an item before changing price.");
+      return;
+    }
+    setPriceForm({
+      itemId: target.id,
+      unitPrice: String(target.unitPrice),
+      notes: "",
+    });
+    setPriceOpen(true);
+  }
+
+  async function savePriceAdjustment() {
+    const item = items.find((candidate) => candidate.id === priceForm.itemId);
+    const unitPrice = numberValue(priceForm.unitPrice);
+
+    if (!item) {
+      setMessage("Choose an inventory item before changing price.");
+      return;
+    }
+    if (unitPrice < 0) {
+      setMessage("Unit price cannot be negative.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const { error } = await supabase
+      .from("inventory_items")
+      .update({ unit_price: unitPrice })
+      .eq("id", item.id);
+
+    if (error) {
+      setMessage(`Price update failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+
+    await supabase.from("inventory_transactions").insert({
+      item_id: item.id,
+      item_code: item.itemCode,
+      transaction_type: "Price Update",
+      quantity: 0,
+      reference_type: "Manual Price",
+      reference_number: "Price Adjustment",
+      entered_by: userName,
+      notes: priceForm.notes || `Unit price changed to ${money(unitPrice)}`,
+      transaction_source: "TITAN Inventory",
+      quantity_direction: "Neutral",
+    });
+
+    await Promise.all([loadItems(), loadTransactions()]);
+    setPriceOpen(false);
+    setSaving(false);
+    setMessage("Unit price updated.");
   }
 
   function openAdjust(item: InventoryItem) {
@@ -678,9 +990,56 @@ export default function InventoryModulePage() {
     window.setTimeout(() => scanFieldRef.current?.focus(), 25);
   }
 
-  function openCameraScanner() {
+  function stopCameraScanner() {
+    barcodeControlsRef.current?.stop?.();
+    barcodeControlsRef.current = null;
+    setCameraScanning(false);
+  }
+
+  async function openCameraScanner() {
     setCameraScanMessage("");
-    cameraFileRef.current?.click();
+    const video = cameraVideoRef.current;
+    if (!video) {
+      cameraFileRef.current?.click();
+      return;
+    }
+
+    try {
+      if (!barcodeReaderRef.current) {
+        barcodeReaderRef.current = new BrowserMultiFormatReader();
+      }
+
+      setCameraScanning(true);
+      setCameraScanMessage("Point the camera at the barcode.");
+      const controls = await (barcodeReaderRef.current as any).decodeFromVideoDevice(
+        undefined,
+        video,
+        (result: any) => {
+          const barcode = result?.getText?.().trim();
+          if (!barcode) return;
+
+          const item = findItemForCounter(barcode);
+          if (!item) {
+            setScanInput(barcode);
+            setCameraScanMessage(`Scanned ${barcode}, but no inventory item matched it.`);
+            stopCameraScanner();
+            scanFieldRef.current?.focus();
+            return;
+          }
+
+          addItemToCart(item);
+          setScanInput("");
+          setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
+          stopCameraScanner();
+          window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+        },
+      );
+      barcodeControlsRef.current = controls as { stop: () => void };
+    } catch (error: any) {
+      setCameraScanning(false);
+      setCameraScanMessage("Camera scanning is not available in this browser. Opening photo scanner instead.");
+      cameraFileRef.current?.click();
+    }
   }
 
   async function handleCameraBarcode(file: File | undefined) {
@@ -1049,7 +1408,10 @@ export default function InventoryModulePage() {
           <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventory}>Export CSV</button>
+          <button className="button" onClick={() => openManualReceive()}>Receive Stock</button>
+          <button className="button" onClick={() => openPriceAdjust()}>Adjust Price</button>
           <button className="button" onClick={() => openIssue()}>Issue Inventory</button>
+          <button className="button" onClick={openNewVendor}>Add Vendor</button>
           <button className="button primary" onClick={openNewItem}>Add Item</button>
         </div>
       </section>
@@ -1079,6 +1441,62 @@ export default function InventoryModulePage() {
         </article>
       </section>
 
+      <section className="module-tabs no-print">
+        {[
+          ["dashboard", "Dashboard"],
+          ["counter", "Issue Counter"],
+          ["items", "Items"],
+          ["tickets", "Issue Tickets"],
+          ["vendors", "Vendors"],
+        ].map(([view, label]) => (
+          <button
+            key={view}
+            className={`button ${activeView === view ? "primary" : ""}`}
+            type="button"
+            onClick={() => setActiveView(view as InventoryModuleView)}
+          >
+            {label}
+          </button>
+        ))}
+      </section>
+
+      {activeView === "dashboard" && (
+        <section className="inventory-dashboard no-print">
+          <article className="ticket-card">
+            <h3>Weekly Inventory Dashboard</h3>
+            <div className="stock-watch-metrics">
+              <div><strong>{money(weeklySpending)}</strong><span>Weekly Spend</span></div>
+              <div><strong>{weeklyTickets.length}</strong><span>Issue Tickets</span></div>
+              <div><strong>{weeklyLines.reduce((sum, line) => sum + line.qtyIssued, 0).toLocaleString()}</strong><span>Items Issued</span></div>
+            </div>
+            <p className="muted-text">Week starts Sunday. This is the same window used by the weekly email summary.</p>
+          </article>
+
+          <article className="ticket-card">
+            <h3>Top 10 Items Issued</h3>
+            {topIssuedItems.length === 0 && <p className="muted-text">No items issued this week.</p>}
+            {topIssuedItems.map((item, index) => (
+              <div className="dashboard-list-row" key={item.label}>
+                <span>#{index + 1} {item.label}</span>
+                <strong>{item.qty.toLocaleString()} / {money(item.value)}</strong>
+              </div>
+            ))}
+          </article>
+
+          <article className="ticket-card">
+            <h3>Top 10 Units / Trucks</h3>
+            {topIssuedUnits.length === 0 && <p className="muted-text">No unit or truck issues this week.</p>}
+            {topIssuedUnits.map((unit, index) => (
+              <div className="dashboard-list-row" key={unit.label}>
+                <span>#{index + 1} {unit.label}</span>
+                <strong>{unit.qty.toLocaleString()} / {money(unit.value)}</strong>
+              </div>
+            ))}
+          </article>
+        </section>
+      )}
+
+      {activeView === "counter" && (
       <section className="inventory-dashboard no-print">
         <article className="ticket-card pos-card">
           <div className="detail-title-row">
@@ -1115,9 +1533,12 @@ export default function InventoryModulePage() {
               capture="environment"
               onChange={(event) => handleCameraBarcode(event.target.files?.[0])}
             />
+            {cameraScanning && <video ref={cameraVideoRef} className="barcode-video" muted playsInline />}
+            {!cameraScanning && <video ref={cameraVideoRef} className="barcode-video hidden-video" muted playsInline />}
             <button className="button" onClick={openCameraScanner} disabled={cameraScanning}>
               {cameraScanning ? "Scanning..." : "Scan Camera"}
             </button>
+            {cameraScanning && <button className="button ghost" onClick={stopCameraScanner}>Stop Scan</button>}
             <button className="button primary" onClick={addScannedItem}>Add to Cart</button>
             <button className="button" onClick={() => openIssue()}>Complete Issue</button>
             <button className="button ghost" onClick={clearIssueCart} disabled={issueCart.length === 0}>Clear</button>
@@ -1192,7 +1613,10 @@ export default function InventoryModulePage() {
           )}
         </aside>
       </section>
+      )}
 
+      {activeView === "items" && (
+      <>
       <section className="filter-grid no-print">
         <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item ID, name, barcode, category..." />
         <select className="field" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
@@ -1256,6 +1680,8 @@ export default function InventoryModulePage() {
                       <button className="mini-button" onClick={() => setSelectedItemId(item.id)}>History</button>
                       <button className="mini-button" onClick={() => openEditItem(item)}>Edit</button>
                       <button className="mini-button" onClick={() => openAdjust(item)}>Adjust</button>
+                      <button className="mini-button" onClick={() => openManualReceive(item)}>Receive</button>
+                      <button className="mini-button" onClick={() => openPriceAdjust(item)}>Price</button>
                       <button className="mini-button" onClick={() => openIssue(item)}>Issue</button>
                     </td>
                   </tr>
@@ -1362,6 +1788,109 @@ export default function InventoryModulePage() {
           </section>
         </aside>
       </section>
+      </>
+      )}
+
+      {activeView === "tickets" && (
+        <section className="ticket-card">
+          <h3>Issue Tickets</h3>
+          {tickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
+          {tickets.map((ticket) => {
+            const lines = linesForTicket(ticket);
+            const expanded = expandedTicketId === ticket.id;
+
+            return (
+              <article className={`document-card ${expanded ? "open" : ""}`} key={ticket.id}>
+                <button className="document-card-summary" type="button" onClick={() => setExpandedTicketId(expanded ? "" : ticket.id)}>
+                  <div>
+                    <strong>{ticket.ticketNumber}</strong>
+                    <span>{ticket.issuedTo || "-"} / {ticket.department || "-"}</span>
+                    <small>{lines.length} lines / {ticket.issueDate} / {money(ticket.totalValue)}</small>
+                  </div>
+                  <span className="document-status">{ticket.status || "Issued"}</span>
+                </button>
+                {expanded && (
+                  <div className="document-card-detail">
+                    <div className="document-detail-grid">
+                      <span><strong>Picked By:</strong> {ticket.pickedBy || "-"}</span>
+                      <span><strong>Unit / Truck:</strong> {ticket.unitTruck || "-"}</span>
+                      <span><strong>Job Number:</strong> {ticket.jobNumber || "-"}</span>
+                      <span><strong>Total:</strong> {money(ticket.totalValue)}</span>
+                    </div>
+                    <div className="table-wrap">
+                      <table className="document-line-table">
+                        <thead><tr><th>Item ID</th><th>Item Name</th><th>Qty</th><th>Value</th></tr></thead>
+                        <tbody>
+                          {lines.length === 0 && <tr><td colSpan={4}>No line items found for this ticket.</td></tr>}
+                          {lines.map((line) => (
+                            <tr key={line.id}>
+                              <td>{line.itemCode || "-"}</td>
+                              <td>{line.itemName || "-"}</td>
+                              <td>{line.qtyIssued.toLocaleString()}</td>
+                              <td>{money(line.lineValue)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {ticket.notes && <p className="muted-text">{ticket.notes}</p>}
+                    <div className="document-actions">
+                      <button className="mini-button" type="button" onClick={() => printIssueTicket(ticket)}>Print / PDF</button>
+                      <button className="mini-button" type="button" onClick={() => emailIssueTicket(ticket)} disabled={emailingTicketId === ticket.id}>
+                        {emailingTicketId === ticket.id ? "Emailing..." : "Email"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
+
+      {activeView === "vendors" && (
+        <section className="ticket-card">
+          <div className="detail-title-row">
+            <div>
+              <h3>Vendors</h3>
+              <p className="muted-text">Manage vendor contact details for purchase orders.</p>
+            </div>
+            <button className="button primary" onClick={openNewVendor}>Add Vendor</button>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th>Code</th>
+                  <th>Type</th>
+                  <th>Contact</th>
+                  <th>Phone</th>
+                  <th>Email</th>
+                  <th>Terms</th>
+                  <th>Status</th>
+                  <th className="no-print">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendors.map((vendor) => (
+                  <tr key={vendor.id}>
+                    <td>{vendor.vendorName}</td>
+                    <td>{vendor.vendorCode || "-"}</td>
+                    <td>{vendor.vendorType || "-"}</td>
+                    <td>{vendor.contactName || "-"}</td>
+                    <td>{vendor.phone || "-"}</td>
+                    <td>{vendor.email || "-"}</td>
+                    <td>{vendor.terms || "-"}</td>
+                    <td><span className={vendor.active ? "badge green" : "badge red"}>{vendor.active ? "Active" : "Inactive"}</span></td>
+                    <td className="no-print"><button className="mini-button" onClick={() => openEditVendor(vendor)}>Edit</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {itemFormOpen && (
         <div className="modal-backdrop">
@@ -1395,6 +1924,95 @@ export default function InventoryModulePage() {
             <div className="slide-actions">
               <button className="button" onClick={() => setItemFormOpen(false)}>Cancel</button>
               <button className="button primary" onClick={saveItem} disabled={saving}>{saving ? "Saving..." : "Save Item"}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {vendorFormOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over compact-slide">
+            <div className="slide-header">
+              <div>
+                <h2>{vendorForm.id ? "Edit Vendor" : "Add Vendor"}</h2>
+                <p>Vendor details are used on purchase orders.</p>
+              </div>
+              <button className="icon-button" onClick={() => setVendorFormOpen(false)}>X</button>
+            </div>
+            <div className="form-grid">
+              <label>Vendor Name<input value={vendorForm.vendorName} onChange={(event) => setVendorForm({ ...vendorForm, vendorName: event.target.value })} /></label>
+              <label>Vendor Code<input value={vendorForm.vendorCode} onChange={(event) => setVendorForm({ ...vendorForm, vendorCode: event.target.value })} /></label>
+              <label>Vendor Type<input value={vendorForm.vendorType} onChange={(event) => setVendorForm({ ...vendorForm, vendorType: event.target.value })} /></label>
+              <label>Contact Name<input value={vendorForm.contactName} onChange={(event) => setVendorForm({ ...vendorForm, contactName: event.target.value })} /></label>
+              <label>Phone<input value={vendorForm.phone} onChange={(event) => setVendorForm({ ...vendorForm, phone: event.target.value })} /></label>
+              <label>Email<input value={vendorForm.email} onChange={(event) => setVendorForm({ ...vendorForm, email: event.target.value })} /></label>
+              <label className="full">Terms<textarea value={vendorForm.terms} onChange={(event) => setVendorForm({ ...vendorForm, terms: event.target.value })} /></label>
+              <label className="checkbox-row"><input type="checkbox" checked={vendorForm.active} onChange={(event) => setVendorForm({ ...vendorForm, active: event.target.checked })} /> Active</label>
+            </div>
+            <div className="slide-actions">
+              <button className="button" onClick={() => setVendorFormOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={saveVendor} disabled={saving}>{saving ? "Saving..." : "Save Vendor"}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {receiveOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over compact-slide">
+            <div className="slide-header">
+              <div>
+                <h2>Manual Receive</h2>
+                <p>Receive non-PO stock directly into inventory.</p>
+              </div>
+              <button className="icon-button" onClick={() => setReceiveOpen(false)}>X</button>
+            </div>
+            <div className="form-grid single-column">
+              <label>Inventory Item
+                <select value={receiveForm.itemId} onChange={(event) => setReceiveForm({ ...receiveForm, itemId: event.target.value })}>
+                  <option value="">Choose item</option>
+                  {items.map((item) => <option key={item.id} value={item.id}>{item.itemCode} - {item.itemName}</option>)}
+                </select>
+              </label>
+              <label>Quantity Received<input type="number" value={receiveForm.quantity} onChange={(event) => setReceiveForm({ ...receiveForm, quantity: event.target.value })} /></label>
+              <label>Unit Price<input type="number" value={receiveForm.unitPrice} onChange={(event) => setReceiveForm({ ...receiveForm, unitPrice: event.target.value })} /></label>
+              <label>Reference Number<input value={receiveForm.referenceNumber} onChange={(event) => setReceiveForm({ ...receiveForm, referenceNumber: event.target.value })} placeholder="Packing slip, invoice, or manual reference" /></label>
+              <label>Notes<textarea value={receiveForm.notes} onChange={(event) => setReceiveForm({ ...receiveForm, notes: event.target.value })} /></label>
+            </div>
+            <div className="slide-actions">
+              <button className="button" onClick={() => setReceiveOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={saveManualReceive} disabled={saving}>{saving ? "Saving..." : "Receive Stock"}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {priceOpen && (
+        <div className="modal-backdrop">
+          <section className="slide-over compact-slide">
+            <div className="slide-header">
+              <div>
+                <h2>Adjust Unit Price</h2>
+                <p>Manual price changes are saved on the item and logged to history.</p>
+              </div>
+              <button className="icon-button" onClick={() => setPriceOpen(false)}>X</button>
+            </div>
+            <div className="form-grid single-column">
+              <label>Inventory Item
+                <select value={priceForm.itemId} onChange={(event) => {
+                  const item = items.find((candidate) => candidate.id === event.target.value);
+                  setPriceForm({ ...priceForm, itemId: event.target.value, unitPrice: item ? String(item.unitPrice) : priceForm.unitPrice });
+                }}>
+                  <option value="">Choose item</option>
+                  {items.map((item) => <option key={item.id} value={item.id}>{item.itemCode} - {item.itemName}</option>)}
+                </select>
+              </label>
+              <label>Unit Price<input type="number" value={priceForm.unitPrice} onChange={(event) => setPriceForm({ ...priceForm, unitPrice: event.target.value })} /></label>
+              <label>Notes<textarea value={priceForm.notes} onChange={(event) => setPriceForm({ ...priceForm, notes: event.target.value })} placeholder="Reason for pricing change" /></label>
+            </div>
+            <div className="slide-actions">
+              <button className="button" onClick={() => setPriceOpen(false)}>Cancel</button>
+              <button className="button primary" onClick={savePriceAdjustment} disabled={saving}>{saving ? "Saving..." : "Save Price"}</button>
             </div>
           </section>
         </div>

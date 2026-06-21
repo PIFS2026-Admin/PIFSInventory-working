@@ -171,9 +171,21 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!["admin", "employee", "customer", "operator", "sales", "dti_superintendent", "dti_inspector"].includes(role)) {
+    const allowedRoles = [
+      "admin",
+      "employee",
+      "customer",
+      "operator",
+      "sales",
+      "dti_superintendent",
+      "dti_inspector",
+      "inventory_specialist",
+      "inventory_manager",
+    ];
+
+    if (!allowedRoles.includes(role)) {
       return Response.json(
-        { error: "Role must be admin, employee, customer, operator, sales, DTI superintendent, or DTI inspector." },
+        { error: "Role must be admin, employee, customer, operator, sales, DTI superintendent, DTI inspector, inventory specialist, or inventory manager." },
         { status: 400 }
       );
     }

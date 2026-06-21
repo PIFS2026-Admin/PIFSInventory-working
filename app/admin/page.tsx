@@ -15,7 +15,7 @@ type Company = {
 type Profile = {
   id: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector";
+  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector" | "inventory_specialist" | "inventory_manager";
   companyId: string;
   companyName: string;
 };
@@ -77,7 +77,7 @@ type AdminUserForm = {
   email: string;
   password: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector";
+  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector" | "inventory_specialist" | "inventory_manager";
   companyId: string;
 };
 
@@ -1187,6 +1187,8 @@ export default function AdminPage() {
               <option value="sales">Sales</option>
               <option value="dti_superintendent">DTI Superintendent</option>
               <option value="dti_inspector">DTI Inspector</option>
+              <option value="inventory_specialist">Inventory Specialist</option>
+              <option value="inventory_manager">Inventory Manager</option>
               <option value="operator">Hardband Operator</option>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
@@ -1595,6 +1597,8 @@ export default function AdminPage() {
                       <option value="sales">Sales</option>
                       <option value="dti_superintendent">DTI Superintendent</option>
                       <option value="dti_inspector">DTI Inspector</option>
+                      <option value="inventory_specialist">Inventory Specialist</option>
+                      <option value="inventory_manager">Inventory Manager</option>
                       <option value="operator">Hardband Operator</option>
                       <option value="employee">Employee</option>
                       <option value="admin">Admin</option>

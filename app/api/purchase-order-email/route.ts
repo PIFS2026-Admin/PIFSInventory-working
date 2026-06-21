@@ -138,7 +138,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Your user profile could not be loaded." }, { status: 403 });
     }
 
-    const allowedRoles = ["admin", "employee"];
+    const allowedRoles = ["admin", "inventory_specialist", "inventory_manager"];
     if (!allowedRoles.includes(String(profile.role))) {
       return Response.json({ error: "You do not have permission to email purchase orders." }, { status: 403 });
     }
