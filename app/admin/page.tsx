@@ -102,6 +102,8 @@ const emptyCompanyForm = {
 
 const companyLogoBucket = "company-logos";
 
+const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
+
 const emptyRackForm = {
   rackCode: "",
   capacityJoints: "500",
@@ -204,6 +206,19 @@ function getCompanyName(value: unknown) {
 
   if (Array.isArray(value)) return readName(value[0]);
   return readName(value);
+}
+
+function sortInventoryYards(yards: Yard[]) {
+  return [...yards].sort((a, b) => {
+    const aIndex = defaultInventoryYardOrder.indexOf(a.code);
+    const bIndex = defaultInventoryYardOrder.indexOf(b.code);
+
+    if (aIndex !== -1 || bIndex !== -1) {
+      return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    }
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export default function AdminPage() {
@@ -347,25 +362,39 @@ export default function AdminPage() {
   }
 
   async function loadYards() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (token) {
+      await fetch("/api/admin-inventory-yards", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }).catch(() => null);
+    }
+
     const { data, error } = await supabase
       .from("yards")
-      .select("id, name, code")
-      .order("name", { ascending: true });
+      .select("id, name, code");
 
     if (error) {
       setMessage(`Yards failed: ${error.message}`);
       return;
     }
 
-    const mapped = (data ?? []).map((yard: any) => ({
+    const mapped = sortInventoryYards((data ?? []).map((yard: any) => ({
       id: yard.id,
       name: yard.name ?? "",
       code: yard.code ?? "",
-    }));
+    })));
 
     setYards(mapped);
 
-    const nextYardId = selectedYardId || mapped[0]?.id || "";
+    const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId);
+    const nextYardId = selectedStillExists
+      ? selectedYardId
+      : mapped.find((yard) => yard.code === "PIFS")?.id || mapped[0]?.id || "";
     setSelectedYardId(nextYardId);
 
     if (nextYardId) {
