@@ -5,6 +5,12 @@ import { supabase } from "../../lib/supabase";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 
+type InventoryYard = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 type Vendor = {
   id: string;
   vendorName: string;
@@ -69,6 +75,9 @@ type LineForm = {
 const statusOptions = ["Draft", "Submitted", "Ordered", "Partially Received", "Received", "Closed", "Cancelled"];
 const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
 const managementRoles = ["admin", "inventory_manager"];
+const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
+const defaultInventoryYardCode = "PIFS";
+const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 
 const emptyPoForm: PoForm = {
   id: "",
@@ -137,6 +146,7 @@ function downloadCsv(fileName: string, headers: string[], rows: Array<Array<stri
 
 export default function PurchaseOrdersPage() {
   const [role, setRole] = useState<Role>("customer");
+  const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -155,11 +165,14 @@ export default function PurchaseOrdersPage() {
   const [uploading, setUploading] = useState(false);
   const [expandedPoId, setExpandedPoId] = useState("");
   const [emailingPoId, setEmailingPoId] = useState("");
+  const [inventoryYards, setInventoryYards] = useState<InventoryYard[]>([]);
+  const [selectedInventoryYardId, setSelectedInventoryYardId] = useState("");
 
   const canUsePurchaseOrders = inventoryRoles.includes(role);
   const canManagePurchaseOrders = managementRoles.includes(role);
   const selectedOrder = orders.find((order) => order.id === selectedPoId) || null;
   const selectedLines = lines.filter((line) => line.purchaseOrderId === selectedPoId);
+  const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
 
   function linesForOrder(order: PurchaseOrder) {
     return lines.filter((line) => line.purchaseOrderId === order.id);
@@ -206,7 +219,9 @@ export default function PurchaseOrdersPage() {
       .single();
 
     const nextRole = normalizeRole(profileData?.role);
+    const nextEmail = user.email || "";
     setRole(nextRole);
+    setUserEmail(nextEmail);
     setUserName(profileData?.full_name || user.email || "TITAN User");
 
     if (!inventoryRoles.includes(nextRole)) {
@@ -215,16 +230,71 @@ export default function PurchaseOrdersPage() {
       return;
     }
 
-    await Promise.all([loadVendors(), loadItems(), loadOrders(), loadLines()]);
+    const yards = await loadInventoryYards(user.id, nextEmail);
+    setInventoryYards(yards);
+    const preferredYard = yards.find((yard) => yard.code === defaultInventoryYardCode) || yards[0];
+    const nextYardId = preferredYard?.id || "";
+    setSelectedInventoryYardId(nextYardId);
+
+    await reloadPurchaseOrderData(nextYardId);
     setMessage("");
     setLoading(false);
   }
 
-  async function loadVendors() {
+  async function loadInventoryYards(userId: string, email: string) {
     const { data, error } = await supabase
+      .from("yards")
+      .select("id, name, code")
+      .in("code", inventoryYardCodes)
+      .order("name");
+
+    if (error) {
+      setMessage(`Inventory yards failed: ${error.message}`);
+      return [];
+    }
+
+    const yards = (data || []).map((yard) => ({
+      id: yard.id,
+      name: yard.name || yard.code || "Inventory Yard",
+      code: yard.code || "",
+    }));
+
+    const isWade = email.trim().toLowerCase() === wadeInventoryAdminEmail;
+    if (isWade) return yards;
+
+    const defaultYards = yards.filter((yard) => yard.code === defaultInventoryYardCode);
+    const { data: assignments, error: assignmentError } = await supabase
+      .from("inventory_user_yards")
+      .select("yard_id")
+      .eq("user_id", userId);
+
+    if (assignmentError) return defaultYards;
+
+    const assignedYardIds = new Set((assignments || []).map((row) => row.yard_id));
+    const assignedYards = yards.filter((yard) => assignedYardIds.has(yard.id));
+    return [...defaultYards, ...assignedYards.filter((yard) => yard.code !== defaultInventoryYardCode)];
+  }
+
+  async function reloadPurchaseOrderData(yardId = selectedInventoryYardId) {
+    setSelectedPoId("");
+    await Promise.all([loadVendors(yardId), loadItems(yardId), loadOrders(yardId), loadLines(yardId)]);
+  }
+
+  async function handleInventoryYardChange(yardId: string) {
+    setSelectedInventoryYardId(yardId);
+    setMessage("Loading selected yard...");
+    await reloadPurchaseOrderData(yardId);
+    setMessage("");
+  }
+
+  async function loadVendors(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_vendors")
       .select("id, vendor_name, email")
       .order("vendor_name");
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Vendors failed: ${error.message}`);
@@ -234,11 +304,14 @@ export default function PurchaseOrdersPage() {
     setVendors((data || []).map((row) => ({ id: row.id, vendorName: row.vendor_name || "", email: row.email || "" })));
   }
 
-  async function loadItems() {
-    const { data, error } = await supabase
+  async function loadItems(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_items")
       .select("id, item_code, item_name, unit_price, qty_on_hand")
       .order("item_code");
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Inventory items failed: ${error.message}`);
@@ -256,11 +329,14 @@ export default function PurchaseOrdersPage() {
     );
   }
 
-  async function loadOrders() {
-    const { data, error } = await supabase
+  async function loadOrders(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("purchase_orders")
       .select("*")
       .order("order_date", { ascending: false });
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Purchase orders failed: ${error.message}`);
@@ -286,11 +362,14 @@ export default function PurchaseOrdersPage() {
     if (!selectedPoId && mapped.length > 0) setSelectedPoId(mapped[0].id);
   }
 
-  async function loadLines() {
-    const { data, error } = await supabase
+  async function loadLines(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("purchase_order_lines")
       .select("*")
       .order("created_at");
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`PO lines failed: ${error.message}`);
@@ -351,6 +430,7 @@ export default function PurchaseOrdersPage() {
     }
 
     const payload: Record<string, string | null> = {
+      yard_id: selectedInventoryYardId || null,
       po_number: poForm.poNumber.trim(),
       vendor_id: poForm.vendorId || null,
       vendor_name: vendor?.vendorName || poForm.vendorName || null,
@@ -380,7 +460,7 @@ export default function PurchaseOrdersPage() {
       setMessage(`PO save failed: ${error?.message || "purchase order was not returned."}`);
     } else {
       setPoFormOpen(false);
-      await loadOrders();
+      await loadOrders(selectedInventoryYardId);
       if (movedToOrdered && vendor?.email) {
         await sendPurchaseOrderEmail(savedOrder.id, vendor.email, "Attached is your TITAN purchase order.", "Purchase order saved and emailed to vendor.");
       } else {
@@ -427,6 +507,7 @@ export default function PurchaseOrdersPage() {
     setMessage("");
     const lineTotal = qty * unitCost;
     const { error } = await supabase.from("purchase_order_lines").insert({
+      yard_id: selectedInventoryYardId || null,
       purchase_order_id: selectedOrder.id,
       item_id: lineForm.itemId || null,
       item_code: lineForm.itemCode || null,
@@ -445,7 +526,7 @@ export default function PurchaseOrdersPage() {
 
     await recalcPoTotal(selectedOrder.id);
     setLineFormOpen(false);
-    await Promise.all([loadOrders(), loadLines()]);
+    await Promise.all([loadOrders(selectedInventoryYardId), loadLines(selectedInventoryYardId)]);
     setMessage("PO line added.");
     setSaving(false);
   }
@@ -492,6 +573,7 @@ export default function PurchaseOrdersPage() {
       const nextQty = item.qtyOnHand + receivedNow;
       await supabase.from("inventory_items").update({ qty_on_hand: nextQty }).eq("id", item.id);
       await supabase.from("inventory_transactions").insert({
+        yard_id: selectedInventoryYardId || null,
         item_id: item.id,
         item_code: item.itemCode,
         transaction_type: "PO Receipt",
@@ -506,7 +588,11 @@ export default function PurchaseOrdersPage() {
     }
 
     await refreshPoStatus(line.purchaseOrderId);
-    await Promise.all([loadItems(), loadOrders(), loadLines()]);
+    await Promise.all([
+      loadItems(selectedInventoryYardId),
+      loadOrders(selectedInventoryYardId),
+      loadLines(selectedInventoryYardId),
+    ]);
     setMessage("PO line received.");
     setSaving(false);
   }
@@ -544,6 +630,7 @@ export default function PurchaseOrdersPage() {
 
     const { data: publicUrlData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
     const { error: docError } = await supabase.from("inventory_documents").insert({
+      yard_id: selectedInventoryYardId || null,
       linked_record_type: "purchase_order",
       linked_record_id: selectedOrder.id,
       file_name: file.name,
@@ -769,7 +856,7 @@ export default function PurchaseOrdersPage() {
       if (expandedPoId === order.id) {
         setExpandedPoId("");
       }
-      await loadOrders();
+      await loadOrders(selectedInventoryYardId);
       setMessage(`${order.poNumber} deleted.`);
     }
 
@@ -816,10 +903,24 @@ export default function PurchaseOrdersPage() {
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">Purchase Orders</div>
-            <div className="brand-subtitle">Vendors, orders, receiving, and documents</div>
+            <div className="brand-subtitle">
+              Vendors, orders, receiving, and documents / {selectedInventoryYard?.name || "Loading yard"}
+            </div>
           </div>
         </button>
         <div className="module-actions no-print">
+          <select
+            className="field"
+            value={selectedInventoryYardId}
+            onChange={(event) => handleInventoryYardChange(event.target.value)}
+            disabled={loading || inventoryYards.length <= 1}
+          >
+            {inventoryYards.map((yard) => (
+              <option key={yard.id} value={yard.id}>
+                {yard.name}
+              </option>
+            ))}
+          </select>
           <button className="button" onClick={() => (window.location.href = "/home")}>Home</button>
           <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
           <button className="button" onClick={() => window.print()}>Print</button>

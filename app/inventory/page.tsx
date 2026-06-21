@@ -6,6 +6,12 @@ import { supabase } from "../../lib/supabase";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 
+type InventoryYard = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 type Vendor = {
   id: string;
   vendorName: string;
@@ -173,6 +179,9 @@ const emptyIssueForm: IssueForm = {
 };
 
 const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
+const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
+const defaultInventoryYardCode = "PIFS";
+const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 
 const emptyVendorForm: VendorForm = {
   id: "",
@@ -252,11 +261,14 @@ function downloadCsv(fileName: string, headers: string[], rows: Array<Array<stri
 export default function InventoryModulePage() {
   const [role, setRole] = useState<Role>("customer");
   const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [inventoryYards, setInventoryYards] = useState<InventoryYard[]>([]);
+  const [selectedInventoryYardId, setSelectedInventoryYardId] = useState("");
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [tickets, setTickets] = useState<IssueTicket[]>([]);
   const [ticketLines, setTicketLines] = useState<IssueTicketLine[]>([]);
@@ -294,6 +306,7 @@ export default function InventoryModulePage() {
 
   const canUseInventory = inventoryRoles.includes(role);
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
+  const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
 
   useEffect(() => {
     if (!issueOpen) return;
@@ -437,7 +450,9 @@ export default function InventoryModulePage() {
       .single();
 
     const nextRole = normalizeRole(profileData?.role);
+    const nextEmail = user.email || "";
     setRole(nextRole);
+    setUserEmail(nextEmail);
     setUserName(profileData?.full_name || user.email || "TITAN User");
 
     if (!inventoryRoles.includes(nextRole)) {
@@ -446,16 +461,78 @@ export default function InventoryModulePage() {
       return;
     }
 
-    await Promise.all([loadVendors(), loadItems(), loadTransactions(), loadTickets(), loadIssueTicketLines()]);
+    const yards = await loadInventoryYards(user.id, nextEmail);
+    setInventoryYards(yards);
+    const preferredYard = yards.find((yard) => yard.code === defaultInventoryYardCode) || yards[0];
+    const nextYardId = preferredYard?.id || "";
+    setSelectedInventoryYardId(nextYardId);
+
+    await reloadInventoryData(nextYardId);
     setMessage("");
     setLoading(false);
   }
 
-  async function loadVendors() {
+  async function loadInventoryYards(userId: string, email: string) {
     const { data, error } = await supabase
+      .from("yards")
+      .select("id, name, code")
+      .in("code", inventoryYardCodes)
+      .order("name");
+
+    if (error) {
+      setMessage(`Inventory yards failed: ${error.message}`);
+      return [];
+    }
+
+    const yards = (data || []).map((yard) => ({
+      id: yard.id,
+      name: yard.name || yard.code || "Inventory Yard",
+      code: yard.code || "",
+    }));
+
+    const isWade = email.trim().toLowerCase() === wadeInventoryAdminEmail;
+    if (isWade) return yards;
+
+    const defaultYards = yards.filter((yard) => yard.code === defaultInventoryYardCode);
+    const { data: assignments, error: assignmentError } = await supabase
+      .from("inventory_user_yards")
+      .select("yard_id")
+      .eq("user_id", userId);
+
+    if (assignmentError) return defaultYards;
+
+    const assignedYardIds = new Set((assignments || []).map((row) => row.yard_id));
+    const assignedYards = yards.filter((yard) => assignedYardIds.has(yard.id));
+    return [...defaultYards, ...assignedYards.filter((yard) => yard.code !== defaultInventoryYardCode)];
+  }
+
+  async function reloadInventoryData(yardId = selectedInventoryYardId) {
+    setSelectedItemId("");
+    setIssueCart([]);
+    await Promise.all([
+      loadVendors(yardId),
+      loadItems(yardId),
+      loadTransactions(yardId),
+      loadTickets(yardId),
+      loadIssueTicketLines(yardId),
+    ]);
+  }
+
+  async function handleInventoryYardChange(yardId: string) {
+    setSelectedInventoryYardId(yardId);
+    setMessage("Loading selected yard...");
+    await reloadInventoryData(yardId);
+    setMessage("");
+  }
+
+  async function loadVendors(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_vendors")
       .select("id, vendor_name, vendor_code, vendor_type, contact_name, phone, email, terms, active")
       .order("vendor_name");
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Vendors failed: ${error.message}`);
@@ -477,11 +554,14 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadItems() {
-    const { data, error } = await supabase
+  async function loadItems(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_items")
       .select("*, inventory_vendors(vendor_name)")
       .order("item_code");
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Inventory failed: ${error.message}`);
@@ -514,12 +594,15 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadTransactions() {
-    const { data, error } = await supabase
+  async function loadTransactions(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_transactions")
       .select("*")
       .order("transaction_date", { ascending: false })
       .limit(250);
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Transactions failed: ${error.message}`);
@@ -542,12 +625,15 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadTickets() {
-    const { data, error } = await supabase
+  async function loadTickets(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_issue_tickets")
       .select("*")
       .order("issue_date", { ascending: false })
       .limit(50);
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Issue tickets failed: ${error.message}`);
@@ -571,11 +657,14 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadIssueTicketLines() {
-    const { data, error } = await supabase
+  async function loadIssueTicketLines(yardId = selectedInventoryYardId) {
+    let query = supabase
       .from("inventory_issue_ticket_lines")
       .select("*")
       .order("created_at", { ascending: true });
+    if (yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
 
     if (error) {
       setMessage(`Issue ticket lines failed: ${error.message}`);
@@ -635,6 +724,7 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const payload = {
+      yard_id: selectedInventoryYardId || null,
       vendor_name: vendorForm.vendorName.trim(),
       vendor_code: vendorForm.vendorCode.trim() || null,
       vendor_type: vendorForm.vendorType.trim() || null,
@@ -695,6 +785,7 @@ export default function InventoryModulePage() {
     const minQty = numberValue(itemForm.minQuantity);
 
     const payload = {
+      yard_id: selectedInventoryYardId || null,
       item_code: itemForm.itemCode.trim(),
       item_name: itemForm.itemName.trim(),
       category: itemForm.category.trim() || null,
@@ -775,6 +866,7 @@ export default function InventoryModulePage() {
     }
 
     const { error: txError } = await supabase.from("inventory_transactions").insert({
+      yard_id: selectedInventoryYardId || null,
       item_id: item.id,
       item_code: item.itemCode,
       transaction_type: "Manual Receive",
@@ -787,7 +879,7 @@ export default function InventoryModulePage() {
       quantity_direction: "In",
     });
 
-    await Promise.all([loadItems(), loadTransactions()]);
+    await Promise.all([loadItems(selectedInventoryYardId), loadTransactions(selectedInventoryYardId)]);
     setReceiveOpen(false);
     setSaving(false);
     setMessage(txError ? `Received, but history failed: ${txError.message}` : "Inventory received.");
@@ -835,6 +927,7 @@ export default function InventoryModulePage() {
     }
 
     await supabase.from("inventory_transactions").insert({
+      yard_id: selectedInventoryYardId || null,
       item_id: item.id,
       item_code: item.itemCode,
       transaction_type: "Price Update",
@@ -847,7 +940,7 @@ export default function InventoryModulePage() {
       quantity_direction: "Neutral",
     });
 
-    await Promise.all([loadItems(), loadTransactions()]);
+    await Promise.all([loadItems(selectedInventoryYardId), loadTransactions(selectedInventoryYardId)]);
     setPriceOpen(false);
     setSaving(false);
     setMessage("Unit price updated.");
@@ -895,6 +988,7 @@ export default function InventoryModulePage() {
     }
 
     const { error: txError } = await supabase.from("inventory_transactions").insert({
+      yard_id: selectedInventoryYardId || null,
       item_id: selectedItem.id,
       item_code: selectedItem.itemCode,
       transaction_type: "Adjustment",
@@ -914,7 +1008,7 @@ export default function InventoryModulePage() {
       setMessage("Quantity adjusted.");
     }
 
-    await Promise.all([loadItems(), loadTransactions()]);
+    await Promise.all([loadItems(selectedInventoryYardId), loadTransactions(selectedInventoryYardId)]);
     setSaving(false);
   }
 
@@ -1131,6 +1225,7 @@ export default function InventoryModulePage() {
     const { data: ticket, error: ticketError } = await supabase
       .from("inventory_issue_tickets")
       .insert({
+        yard_id: selectedInventoryYardId || null,
         ticket_number: ticketNumber,
         issue_date: new Date().toISOString().slice(0, 10),
         issued_to: issueForm.issuedTo,
@@ -1152,6 +1247,7 @@ export default function InventoryModulePage() {
     }
 
     const linePayload = issueCart.map((line) => ({
+      yard_id: selectedInventoryYardId || null,
       issue_ticket_id: ticket.id,
       ticket_number: ticketNumber,
       item_id: line.itemId,
@@ -1189,6 +1285,7 @@ export default function InventoryModulePage() {
     }
 
     const transactionPayload = issueCart.map((line) => ({
+      yard_id: selectedInventoryYardId || null,
       item_id: line.itemId,
       item_code: line.itemCode,
       transaction_type: "Issue",
@@ -1207,7 +1304,12 @@ export default function InventoryModulePage() {
     setIssueForm({ ...emptyIssueForm, pickedBy: userName });
     setIssueCart([]);
     setScanInput("");
-    await Promise.all([loadItems(), loadTransactions(), loadTickets(), loadIssueTicketLines()]);
+    await Promise.all([
+      loadItems(selectedInventoryYardId),
+      loadTransactions(selectedInventoryYardId),
+      loadTickets(selectedInventoryYardId),
+      loadIssueTicketLines(selectedInventoryYardId),
+    ]);
     setMessage(`Issue ticket ${ticketNumber} created with ${issueCart.length} line items.`);
     setSaving(false);
   }
@@ -1400,10 +1502,24 @@ export default function InventoryModulePage() {
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">TITAN Inventory</div>
-            <div className="brand-subtitle">Standalone warehouse and shop inventory</div>
+            <div className="brand-subtitle">
+              Standalone warehouse and shop inventory / {selectedInventoryYard?.name || "Loading yard"}
+            </div>
           </div>
         </button>
         <div className="module-actions no-print">
+          <select
+            className="field"
+            value={selectedInventoryYardId}
+            onChange={(event) => handleInventoryYardChange(event.target.value)}
+            disabled={loading || inventoryYards.length <= 1}
+          >
+            {inventoryYards.map((yard) => (
+              <option key={yard.id} value={yard.id}>
+                {yard.name}
+              </option>
+            ))}
+          </select>
           <button className="button" onClick={() => (window.location.href = "/home")}>Home</button>
           <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
           <button className="button" onClick={() => window.print()}>Print</button>
