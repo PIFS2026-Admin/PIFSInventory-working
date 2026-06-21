@@ -63,6 +63,8 @@ const launchCards: LaunchCard[] = [
   },
 ];
 
+const inventoryOnlyRoles = ["inventory_specialist", "inventory_manager"];
+
 function normalizeRole(role: unknown) {
   return typeof role === "string" ? role.toLowerCase() : "customer";
 }
@@ -122,7 +124,7 @@ export default function InternalHomePage() {
       return;
     }
 
-    if (role !== "admin" && role !== "employee") {
+    if (role !== "admin" && role !== "employee" && !inventoryOnlyRoles.includes(role)) {
       setMessage("This user does not have internal menu access.");
       setLoading(false);
       return;
@@ -176,7 +178,12 @@ export default function InternalHomePage() {
       {message && <div className="modal-message launch-message">{message}</div>}
 
       <section className="launch-grid">
-        {launchCards.map((card) => {
+        {launchCards
+          .filter((card) => {
+            if (!profile || !inventoryOnlyRoles.includes(profile.role)) return true;
+            return card.href === "/inventory" || card.href === "/purchase-orders";
+          })
+          .map((card) => {
           return (
             <button
               key={card.title}

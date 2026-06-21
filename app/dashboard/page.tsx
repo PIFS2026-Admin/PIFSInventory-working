@@ -119,6 +119,11 @@ export default function DashboardPage() {
       return;
     }
 
+    if (profileData.role === "inventory_specialist" || profileData.role === "inventory_manager") {
+      window.location.href = "/home";
+      return;
+    }
+
     setProfile({
       fullName: profileData.full_name ?? "Team Member",
       role: profileData.role ?? "employee",

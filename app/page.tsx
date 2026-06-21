@@ -1231,6 +1231,11 @@ export default function Home() {
       return;
     }
 
+    if (profile?.role === "inventory_specialist" || profile?.role === "inventory_manager") {
+      window.location.href = "/home";
+      return;
+    }
+
     const { data: yard, error: yardError } = await supabase
       .from("yards")
       .select("id, name, code")

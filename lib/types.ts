@@ -1,4 +1,13 @@
-export type UserRole = "admin" | "employee" | "customer" | "operator" | "sales";
+export type UserRole =
+  | "admin"
+  | "employee"
+  | "customer"
+  | "operator"
+  | "sales"
+  | "dti_superintendent"
+  | "dti_inspector"
+  | "inventory_specialist"
+  | "inventory_manager";
 export type PipeRange = "Range 2" | "Range 3";
 
 export type InventoryStatus =

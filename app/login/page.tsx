@@ -72,6 +72,11 @@ export default function LoginPage() {
       return;
     }
 
+    if (profile.role === "inventory_specialist" || profile.role === "inventory_manager") {
+      window.location.href = "/home";
+      return;
+    }
+
     if (profile.role === "admin" || profile.role === "employee") {
       window.location.href = "/home";
       return;
