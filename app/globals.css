@@ -1527,6 +1527,52 @@ th {
   margin: 0;
 }
 
+.yard-access-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+
+.yard-access-card {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 14px !important;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #101318;
+  color: var(--text) !important;
+  text-transform: none !important;
+}
+
+.yard-access-card input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.yard-access-card span {
+  display: grid;
+  gap: 2px;
+}
+
+.yard-access-card small {
+  color: var(--muted);
+}
+
+.yard-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.yard-access-actions .button {
+  margin: 0;
+}
+
 .company-logo-cell {
   width: 120px;
   min-height: 52px;
