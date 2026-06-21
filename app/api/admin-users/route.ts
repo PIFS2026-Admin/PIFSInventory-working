@@ -32,6 +32,18 @@ function makeTemporaryPassword() {
   return `Titan-${randomBytes(4).toString("hex")}-${randomBytes(3).toString("hex")}!`;
 }
 
+const internalInventoryRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
+
+function isMissingInventoryYardAccessTable(error: any) {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("inventory_user_yards") &&
+    (message.includes("does not exist") ||
+      message.includes("could not find the table") ||
+      message.includes("schema cache"))
+  );
+}
+
 function isMicrosoftMailConfigured() {
   return Boolean(
     process.env.MICROSOFT_TENANT_ID &&
@@ -156,6 +168,9 @@ export async function POST(request: Request) {
     const fullName = String(body.fullName ?? "").trim();
     const role = String(body.role ?? "customer").trim();
     const companyId = body.companyId ? String(body.companyId) : null;
+    const yardIds = Array.isArray(body.yardIds)
+      ? Array.from(new Set(body.yardIds.map((value: unknown) => String(value)).filter(Boolean)))
+      : [];
 
     if (!email || !fullName || !role) {
       return Response.json(
@@ -240,6 +255,25 @@ export async function POST(request: Request) {
       return Response.json({ error: getErrorMessage(profileError) }, { status: 400 });
     }
 
+    let yardAccessWarning = "";
+
+    if (internalInventoryRoles.includes(role) && yardIds.length > 0) {
+      const { error: yardAccessError } = await adminSupabase
+        .from("inventory_user_yards")
+        .insert(
+          yardIds.map((yardId) => ({
+            user_id: userId,
+            yard_id: yardId,
+          }))
+        );
+
+      if (yardAccessError) {
+        yardAccessWarning = isMissingInventoryYardAccessTable(yardAccessError)
+          ? " Yard access was not saved because the database setup is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor."
+          : ` Yard access was not saved: ${getErrorMessage(yardAccessError)}`;
+      }
+    }
+
     if (!isMicrosoftMailConfigured()) {
       return Response.json({
         ok: true,
@@ -249,7 +283,7 @@ export async function POST(request: Request) {
         emailed: false,
         temporaryPassword,
         warning:
-          `User created, but Microsoft 365 email is not configured. Temporary password: ${temporaryPassword}`,
+          `User created, but Microsoft 365 email is not configured. Temporary password: ${temporaryPassword}${yardAccessWarning}`,
       });
     }
 
@@ -271,7 +305,7 @@ export async function POST(request: Request) {
         temporaryPassword,
         warning:
           `User created, but Microsoft 365 email failed: ${getErrorMessage(emailError)}. ` +
-          `Temporary password: ${temporaryPassword}`,
+          `Temporary password: ${temporaryPassword}${yardAccessWarning}`,
       });
     }
 
@@ -281,6 +315,7 @@ export async function POST(request: Request) {
       email,
       role,
       emailed: true,
+      warning: yardAccessWarning ? `User created and login email sent.${yardAccessWarning}` : "",
     });
   } catch (error: any) {
     return Response.json(

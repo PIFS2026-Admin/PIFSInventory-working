@@ -103,6 +103,9 @@ const emptyCompanyForm = {
 const companyLogoBucket = "company-logos";
 
 const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
+const inventoryYardAssignableRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
+const inventoryYardSetupMessage =
+  "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.";
 
 const emptyRackForm = {
   rackCode: "",
@@ -221,6 +224,18 @@ function sortInventoryYards(yards: Yard[]) {
   });
 }
 
+function canAssignInventoryYards(role: AdminUserForm["role"] | Profile["role"]) {
+  return inventoryYardAssignableRoles.includes(role);
+}
+
+function mapInventoryUserYards(rows: any[]): InventoryUserYard[] {
+  return (rows ?? []).map((row: any) => ({
+    id: row.id,
+    userId: row.user_id ?? row.userId ?? "",
+    yardId: row.yard_id ?? row.yardId ?? "",
+  }));
+}
+
 export default function AdminPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -243,6 +258,7 @@ export default function AdminPage() {
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [yardAccessUserId, setYardAccessUserId] = useState("");
   const [yardAccessSelection, setYardAccessSelection] = useState<string[]>([]);
+  const [newUserYardSelection, setNewUserYardSelection] = useState<string[]>([]);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -267,7 +283,7 @@ export default function AdminPage() {
   const yardAccessUsers = useMemo(
     () =>
       profiles.filter((profile) =>
-        ["admin", "employee", "inventory_specialist", "inventory_manager"].includes(profile.role)
+        canAssignInventoryYards(profile.role)
       ),
     [profiles]
   );
@@ -309,12 +325,11 @@ export default function AdminPage() {
       loadCompanies(),
       loadProfiles(),
       loadYards(),
-      loadInventoryUserYards(),
       loadPartNumbers(),
       loadInspectors(),
       loadInventoryOptions(),
     ]);
-    setMessage("");
+    setMessage((current) => (current === "Loading admin tools..." ? "" : current));
   }
 
   async function loadCompanies() {
@@ -366,12 +381,42 @@ export default function AdminPage() {
     const token = sessionData.session?.access_token;
 
     if (token) {
-      await fetch("/api/admin-inventory-yards", {
+      const response = await fetch("/api/admin-inventory-yards", {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify({ action: "list" }),
       }).catch(() => null);
+
+      if (response?.ok) {
+        const result = await response.json();
+        const mapped = sortInventoryYards((result.yards ?? []).map((yard: any) => ({
+          id: yard.id,
+          name: yard.name ?? "",
+          code: yard.code ?? "",
+        })));
+
+        setYards(mapped);
+        setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
+
+        if (result.setupRequired) {
+          setMessage(result.setupMessage || inventoryYardSetupMessage);
+        }
+
+        const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId);
+        const nextYardId = selectedStillExists
+          ? selectedYardId
+          : mapped.find((yard) => yard.code === "PIFS")?.id || mapped[0]?.id || "";
+        setSelectedYardId(nextYardId);
+
+        if (nextYardId) {
+          await Promise.all([loadRacks(nextYardId), loadZones(nextYardId)]);
+        }
+
+        return;
+      }
     }
 
     const { data, error } = await supabase
@@ -403,23 +448,50 @@ export default function AdminPage() {
   }
 
   async function loadInventoryUserYards() {
-    const { data, error } = await supabase
-      .from("inventory_user_yards")
-      .select("id, user_id, yard_id");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
 
-    if (error) {
+    if (!token) {
       setInventoryUserYards([]);
-      setMessage(`Yard access failed: ${error.message}`);
       return;
     }
 
-    const mapped = (data ?? []).map((row: any) => ({
-      id: row.id,
-      userId: row.user_id,
-      yardId: row.yard_id,
-    }));
+    const response = await fetch("/api/admin-inventory-yards", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: "list" }),
+    }).catch(() => null);
 
-    setInventoryUserYards(mapped);
+    if (!response) {
+      setInventoryUserYards([]);
+      setMessage("Yard access failed: Could not reach the yard access service.");
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setInventoryUserYards([]);
+      setMessage(result.error || result.setupMessage || "Yard access failed.");
+      return;
+    }
+
+    if (result.yards) {
+      setYards(sortInventoryYards((result.yards ?? []).map((yard: any) => ({
+        id: yard.id,
+        name: yard.name ?? "",
+        code: yard.code ?? "",
+      }))));
+    }
+
+    if (result.setupRequired) {
+      setMessage(result.setupMessage || inventoryYardSetupMessage);
+    }
+
+    setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
   }
 
   async function loadRacks(yardId = selectedYardId) {
@@ -480,7 +552,6 @@ export default function AdminPage() {
       loadCompanies(),
       loadProfiles(),
       loadYards(),
-      loadInventoryUserYards(),
       loadPartNumbers(),
       loadInspectors(),
       loadInventoryOptions(),
@@ -940,7 +1011,10 @@ export default function AdminPage() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(userForm),
+      body: JSON.stringify({
+        ...userForm,
+        yardIds: canAssignInventoryYards(userForm.role) ? newUserYardSelection : [],
+      }),
     });
 
     const result = await response.json();
@@ -958,8 +1032,9 @@ export default function AdminPage() {
     }
 
     setUserForm(emptyUserForm);
-    await loadProfiles();
-    setMessage(result.warning ?? `User created and login email sent: ${result.email}`);
+    setNewUserYardSelection([]);
+    await Promise.all([loadProfiles(), loadInventoryUserYards()]);
+    setMessage(result.warning || `User created and login email sent: ${result.email}`);
     setLoading(false);
   }
 
@@ -1016,33 +1091,44 @@ export default function AdminPage() {
     setLoading(true);
     setMessage("");
 
-    const { error: deleteError } = await supabase
-      .from("inventory_user_yards")
-      .delete()
-      .eq("user_id", yardAccessUserId);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
 
-    if (deleteError) {
-      setMessage(`Yard access failed: ${deleteError.message}`);
+    if (!token) {
+      setMessage("Yard access failed: Sign in again before saving yard access.");
       setLoading(false);
       return;
     }
 
-    if (yardAccessSelection.length > 0) {
-      const { error: insertError } = await supabase.from("inventory_user_yards").insert(
-        yardAccessSelection.map((yardId) => ({
-          user_id: yardAccessUserId,
-          yard_id: yardId,
-        }))
-      );
+    const response = await fetch("/api/admin-inventory-yards", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        action: "save-user-yards",
+        userId: yardAccessUserId,
+        yardIds: yardAccessSelection,
+      }),
+    }).catch(() => null);
 
-      if (insertError) {
-        setMessage(`Yard access failed: ${insertError.message}`);
-        setLoading(false);
-        return;
-      }
+    if (!response) {
+      setMessage("Yard access failed: Could not reach the yard access service.");
+      setLoading(false);
+      return;
     }
 
-    await loadInventoryUserYards();
+    const result = await response.json();
+
+    if (!response.ok || result.error) {
+      setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
+      setMessage(result.error || result.setupMessage || "Yard access failed.");
+      setLoading(false);
+      return;
+    }
+
+    setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
     setMessage(`Yard access saved for ${selectedYardAccessUser?.fullName || "user"}.`);
     setLoading(false);
   }
@@ -1319,13 +1405,18 @@ export default function AdminPage() {
             Role
             <select
               value={userForm.role}
-              onChange={(event) =>
+              onChange={(event) => {
+                const nextRole = event.target.value as AdminUserForm["role"];
+                if (!canAssignInventoryYards(nextRole)) {
+                  setNewUserYardSelection([]);
+                }
+
                 setUserForm({
                   ...userForm,
-                  role: event.target.value as AdminUserForm["role"],
-                  companyId: event.target.value === "customer" ? userForm.companyId : "",
-                })
-              }
+                  role: nextRole,
+                  companyId: nextRole === "customer" ? userForm.companyId : "",
+                });
+              }}
             >
               <option value="customer">Customer</option>
               <option value="sales">Sales</option>
@@ -1354,6 +1445,56 @@ export default function AdminPage() {
                 ))}
               </select>
             </label>
+          )}
+
+          {canAssignInventoryYards(userForm.role) && (
+            <div className="create-user-yard-box">
+              <div className="admin-section-title compact-title">
+                <div>
+                  <h4>Inventory / PO Yard Access</h4>
+                  <p>Choose the yard or yards this user can work in.</p>
+                </div>
+              </div>
+
+              <div className="yard-access-grid">
+                {yards.map((yard) => (
+                  <label key={yard.id} className="yard-access-card">
+                    <input
+                      type="checkbox"
+                      checked={newUserYardSelection.includes(yard.id)}
+                      onChange={() =>
+                        setNewUserYardSelection((current) =>
+                          current.includes(yard.id)
+                            ? current.filter((id) => id !== yard.id)
+                            : [...current, yard.id]
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>{yard.name}</strong>
+                      <small>{yard.code}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="yard-access-actions">
+                <button
+                  className="button"
+                  onClick={() => setNewUserYardSelection(yards.map((yard) => yard.id))}
+                  disabled={loading || yards.length === 0}
+                >
+                  Select All
+                </button>
+                <button
+                  className="button"
+                  onClick={() => setNewUserYardSelection([])}
+                  disabled={loading}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
           )}
 
           <button className="button primary" onClick={createUser} disabled={loading}>
