@@ -1,6 +1,14 @@
 create extension if not exists pgcrypto;
 
-create type public.user_role as enum ('admin', 'employee', 'customer', 'operator', 'sales');
+create type public.user_role as enum (
+  'admin',
+  'employee',
+  'customer',
+  'operator',
+  'sales',
+  'inventory_specialist',
+  'inventory_manager'
+);
 
 create type public.inventory_status as enum (
   'Received',

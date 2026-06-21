@@ -1,6 +1,9 @@
 -- TITAN Inventory / PO upgrade.
 -- Safe to run more than once in Supabase SQL Editor.
 
+alter type public.user_role add value if not exists 'inventory_specialist';
+alter type public.user_role add value if not exists 'inventory_manager';
+
 do $$
 begin
   if to_regclass('public.inventory_vendors') is not null then
