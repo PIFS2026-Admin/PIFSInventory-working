@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "node scripts/vercel-build-patch.cjs && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "restore:inventory-wtx:dry": "node scripts/import-inventory-po-data.mjs --dry-run",
+    "restore:inventory-wtx": "node scripts/import-inventory-po-data.mjs --live"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
