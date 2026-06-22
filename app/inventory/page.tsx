@@ -182,6 +182,7 @@ const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
+const inventoryYardScopedTablesEnabled = false;
 
 const emptyVendorForm: VendorForm = {
   id: "",
@@ -509,6 +510,15 @@ export default function InventoryModulePage() {
   async function reloadInventoryData(yardId = selectedInventoryYardId) {
     setSelectedItemId("");
     setIssueCart([]);
+    const yard = inventoryYards.find((candidate) => candidate.id === yardId);
+    if (yard && yard.code !== defaultInventoryYardCode && !inventoryYardScopedTablesEnabled) {
+      setVendors([]);
+      setItems([]);
+      setTransactions([]);
+      setTickets([]);
+      setTicketLines([]);
+      return;
+    }
     await Promise.all([
       loadVendors(yardId),
       loadItems(yardId),
@@ -530,7 +540,7 @@ export default function InventoryModulePage() {
       .from("inventory_vendors")
       .select("id, vendor_name, vendor_code, vendor_type, contact_name, phone, email, terms, active")
       .order("vendor_name");
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -559,7 +569,7 @@ export default function InventoryModulePage() {
       .from("inventory_items")
       .select("*, inventory_vendors(vendor_name)")
       .order("item_code");
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -600,7 +610,7 @@ export default function InventoryModulePage() {
       .select("*")
       .order("transaction_date", { ascending: false })
       .limit(250);
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -631,7 +641,7 @@ export default function InventoryModulePage() {
       .select("*")
       .order("issue_date", { ascending: false })
       .limit(50);
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -662,7 +672,7 @@ export default function InventoryModulePage() {
       .from("inventory_issue_ticket_lines")
       .select("*")
       .order("created_at", { ascending: true });
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -724,7 +734,7 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const payload = {
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       vendor_name: vendorForm.vendorName.trim(),
       vendor_code: vendorForm.vendorCode.trim() || null,
       vendor_type: vendorForm.vendorType.trim() || null,
@@ -785,7 +795,7 @@ export default function InventoryModulePage() {
     const minQty = numberValue(itemForm.minQuantity);
 
     const payload = {
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       item_code: itemForm.itemCode.trim(),
       item_name: itemForm.itemName.trim(),
       category: itemForm.category.trim() || null,
@@ -866,7 +876,7 @@ export default function InventoryModulePage() {
     }
 
     const { error: txError } = await supabase.from("inventory_transactions").insert({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       item_id: item.id,
       item_code: item.itemCode,
       transaction_type: "Manual Receive",
@@ -927,7 +937,7 @@ export default function InventoryModulePage() {
     }
 
     await supabase.from("inventory_transactions").insert({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       item_id: item.id,
       item_code: item.itemCode,
       transaction_type: "Price Update",
@@ -988,7 +998,7 @@ export default function InventoryModulePage() {
     }
 
     const { error: txError } = await supabase.from("inventory_transactions").insert({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       item_id: selectedItem.id,
       item_code: selectedItem.itemCode,
       transaction_type: "Adjustment",
@@ -1225,7 +1235,7 @@ export default function InventoryModulePage() {
     const { data: ticket, error: ticketError } = await supabase
       .from("inventory_issue_tickets")
       .insert({
-        yard_id: selectedInventoryYardId || null,
+        ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
         ticket_number: ticketNumber,
         issue_date: new Date().toISOString().slice(0, 10),
         issued_to: issueForm.issuedTo,
@@ -1247,7 +1257,7 @@ export default function InventoryModulePage() {
     }
 
     const linePayload = issueCart.map((line) => ({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       issue_ticket_id: ticket.id,
       ticket_number: ticketNumber,
       item_id: line.itemId,
@@ -1285,7 +1295,7 @@ export default function InventoryModulePage() {
     }
 
     const transactionPayload = issueCart.map((line) => ({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       item_id: line.itemId,
       item_code: line.itemCode,
       transaction_type: "Issue",

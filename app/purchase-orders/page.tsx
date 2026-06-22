@@ -78,6 +78,7 @@ const managementRoles = ["admin", "inventory_manager"];
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
+const inventoryYardScopedTablesEnabled = false;
 
 const emptyPoForm: PoForm = {
   id: "",
@@ -277,6 +278,14 @@ export default function PurchaseOrdersPage() {
 
   async function reloadPurchaseOrderData(yardId = selectedInventoryYardId) {
     setSelectedPoId("");
+    const yard = inventoryYards.find((candidate) => candidate.id === yardId);
+    if (yard && yard.code !== defaultInventoryYardCode && !inventoryYardScopedTablesEnabled) {
+      setVendors([]);
+      setItems([]);
+      setOrders([]);
+      setLines([]);
+      return;
+    }
     await Promise.all([loadVendors(yardId), loadItems(yardId), loadOrders(yardId), loadLines(yardId)]);
   }
 
@@ -292,7 +301,7 @@ export default function PurchaseOrdersPage() {
       .from("inventory_vendors")
       .select("id, vendor_name, email")
       .order("vendor_name");
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -309,7 +318,7 @@ export default function PurchaseOrdersPage() {
       .from("inventory_items")
       .select("id, item_code, item_name, unit_price, qty_on_hand")
       .order("item_code");
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -334,7 +343,7 @@ export default function PurchaseOrdersPage() {
       .from("purchase_orders")
       .select("*")
       .order("order_date", { ascending: false });
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -367,7 +376,7 @@ export default function PurchaseOrdersPage() {
       .from("purchase_order_lines")
       .select("*")
       .order("created_at");
-    if (yardId) query = query.eq("yard_id", yardId);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
 
@@ -430,7 +439,7 @@ export default function PurchaseOrdersPage() {
     }
 
     const payload: Record<string, string | null> = {
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       po_number: poForm.poNumber.trim(),
       vendor_id: poForm.vendorId || null,
       vendor_name: vendor?.vendorName || poForm.vendorName || null,
@@ -507,7 +516,7 @@ export default function PurchaseOrdersPage() {
     setMessage("");
     const lineTotal = qty * unitCost;
     const { error } = await supabase.from("purchase_order_lines").insert({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       purchase_order_id: selectedOrder.id,
       item_id: lineForm.itemId || null,
       item_code: lineForm.itemCode || null,
@@ -573,7 +582,7 @@ export default function PurchaseOrdersPage() {
       const nextQty = item.qtyOnHand + receivedNow;
       await supabase.from("inventory_items").update({ qty_on_hand: nextQty }).eq("id", item.id);
       await supabase.from("inventory_transactions").insert({
-        yard_id: selectedInventoryYardId || null,
+        ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
         item_id: item.id,
         item_code: item.itemCode,
         transaction_type: "PO Receipt",
@@ -630,7 +639,7 @@ export default function PurchaseOrdersPage() {
 
     const { data: publicUrlData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
     const { error: docError } = await supabase.from("inventory_documents").insert({
-      yard_id: selectedInventoryYardId || null,
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       linked_record_type: "purchase_order",
       linked_record_id: selectedOrder.id,
       file_name: file.name,
