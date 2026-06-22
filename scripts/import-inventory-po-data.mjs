@@ -28,6 +28,7 @@ const supabase = dryRun ? null : createClient(supabaseUrl, serviceKey, {
 function loadEnvFile(fileName) {
   const fullPath = path.join(process.cwd(), fileName);
   if (!fs.existsSync(fullPath)) return;
+  if (!fs.statSync(fullPath).isFile()) return;
 
   const lines = fs.readFileSync(fullPath, "utf8").split(/\r?\n/);
   for (const line of lines) {
@@ -36,7 +37,7 @@ function loadEnvFile(fileName) {
     const equalsIndex = trimmed.indexOf("=");
     if (equalsIndex < 1) continue;
 
-    const key = trimmed.slice(0, equalsIndex).trim();
+    const key = trimmed.slice(0, equalsIndex).trim().replace(/^\uFEFF/, "");
     let value = trimmed.slice(equalsIndex + 1).trim();
     if (
       (value.startsWith('"') && value.endsWith('"')) ||
@@ -204,13 +205,14 @@ async function getTargetYard() {
 
 async function clearTargetYard(yardId) {
   if (dryRun) return;
+  void yardId;
 
   const deletes = [
-    ["inventory_issue_ticket_lines", supabase.from("inventory_issue_ticket_lines").delete().eq("yard_id", yardId)],
-    ["inventory_transactions", supabase.from("inventory_transactions").delete().eq("yard_id", yardId)],
-    ["inventory_issue_tickets", supabase.from("inventory_issue_tickets").delete().eq("yard_id", yardId)],
-    ["inventory_items", supabase.from("inventory_items").delete().eq("yard_id", yardId)],
-    ["inventory_vendors", supabase.from("inventory_vendors").delete().eq("yard_id", yardId)],
+    ["inventory_issue_ticket_lines", supabase.from("inventory_issue_ticket_lines").delete().not("id", "is", null)],
+    ["inventory_transactions", supabase.from("inventory_transactions").delete().not("id", "is", null)],
+    ["inventory_issue_tickets", supabase.from("inventory_issue_tickets").delete().not("id", "is", null)],
+    ["inventory_items", supabase.from("inventory_items").delete().not("id", "is", null)],
+    ["inventory_vendors", supabase.from("inventory_vendors").delete().not("id", "is", null)],
   ];
 
   for (const [label, request] of deletes) {
@@ -218,11 +220,11 @@ async function clearTargetYard(yardId) {
   }
 }
 
-async function countRows(table, yardId) {
+async function countRows(table) {
   if (dryRun) return 0;
   const { count } = await queryOrThrow(
     `count ${table}`,
-    supabase.from(table).select("id", { count: "exact", head: true }).eq("yard_id", yardId),
+    supabase.from(table).select("id", { count: "exact", head: true }),
   );
   return count || 0;
 }
@@ -239,7 +241,6 @@ async function main() {
   const vendors = uniqueBy(
     vendorsCsv
       .map((row) => ({
-        yard_id: yard.id,
         vendor_name: row.VendorName,
         contact_name: row.ContactName || null,
         phone: row.Phone || null,
@@ -256,7 +257,6 @@ async function main() {
   const items = makeDuplicateKeysUnique(
     itemsCsv
       .map((row) => ({
-        yard_id: yard.id,
         item_code: row["Item ID"],
         item_name: row["Item Name"],
         category: row.Category || null,
@@ -279,7 +279,6 @@ async function main() {
   const issueTickets = makeDuplicateKeysUnique(
     issueTicketsCsv
       .map((row) => ({
-        yard_id: yard.id,
         ticket_number: row.IssueTicketNumber || row.Title,
         issue_date: (toIsoDate(row.IssueDate) || new Date().toISOString()).slice(0, 10),
         issued_to: row.IssuedTo || null,
@@ -319,7 +318,7 @@ async function main() {
     (chunk) =>
       supabase
         .from("inventory_vendors")
-        .upsert(chunk, { onConflict: "yard_id,vendor_name" })
+        .insert(chunk)
         .select("id, vendor_name"),
   );
   const vendorMap = new Map(vendorRows.map((vendor) => [vendor.vendor_name, vendor.id]));
@@ -335,7 +334,7 @@ async function main() {
     (chunk) =>
       supabase
         .from("inventory_items")
-        .upsert(chunk, { onConflict: "yard_id,item_code" })
+        .insert(chunk)
         .select("id, item_code"),
   );
   const itemMap = new Map(itemRows.map((item) => [item.item_code, item.id]));
@@ -353,7 +352,6 @@ async function main() {
 
   const transactions = transactionsCsv
     .map((row) => ({
-      yard_id: yard.id,
       item_id: itemMap.get(row.ItemID) || null,
       item_code: row.ItemID || null,
       transaction_date: toIsoDate(row.TransDate) || new Date().toISOString(),
@@ -372,7 +370,6 @@ async function main() {
     .map((row) => {
       const ticketNumber = ticketFromLine(row);
       return {
-        yard_id: yard.id,
         issue_ticket_id: ticketNumber ? ticketMap.get(ticketNumber) || null : null,
         ticket_number: ticketNumber,
         item_id: itemMap.get(row.ItemID) || null,
@@ -397,11 +394,11 @@ async function main() {
   );
 
   console.log("Restore complete.");
-  console.log(`WTX vendors in database: ${await countRows("inventory_vendors", yard.id)}`);
-  console.log(`WTX items in database: ${await countRows("inventory_items", yard.id)}`);
-  console.log(`WTX transactions in database: ${await countRows("inventory_transactions", yard.id)}`);
-  console.log(`WTX issue tickets in database: ${await countRows("inventory_issue_tickets", yard.id)}`);
-  console.log(`WTX issue lines in database: ${await countRows("inventory_issue_ticket_lines", yard.id)}`);
+  console.log(`WTX vendors in database: ${await countRows("inventory_vendors")}`);
+  console.log(`WTX items in database: ${await countRows("inventory_items")}`);
+  console.log(`WTX transactions in database: ${await countRows("inventory_transactions")}`);
+  console.log(`WTX issue tickets in database: ${await countRows("inventory_issue_tickets")}`);
+  console.log(`WTX issue lines in database: ${await countRows("inventory_issue_ticket_lines")}`);
 }
 
 main().catch((error) => {
