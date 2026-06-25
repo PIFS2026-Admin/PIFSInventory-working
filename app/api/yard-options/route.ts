@@ -103,9 +103,7 @@ export async function GET(request: Request) {
       return Response.json({ yards: sortYards(yards) });
     }
 
-    const pifsYard = yards.find((yard) => yard.code === "PIFS");
     const allowedYardIds = new Set<string>();
-    if (pifsYard) allowedYardIds.add(pifsYard.id);
 
     const { data: assignments, error: assignmentsError } = await adminSupabase
       .from("inventory_user_yards")
@@ -116,12 +114,21 @@ export async function GET(request: Request) {
       throw assignmentsError;
     }
 
+    if (assignmentsError && missingInventoryYardsTable(assignmentsError)) {
+      return Response.json({
+        yards: [],
+        setupRequired: true,
+        setupMessage:
+          "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.",
+      });
+    }
+
     for (const assignment of assignments ?? []) {
       if (assignment.yard_id) allowedYardIds.add(String(assignment.yard_id));
     }
 
     const visibleYards = yards.filter((yard) => allowedYardIds.has(yard.id));
-    return Response.json({ yards: sortYards(visibleYards.length > 0 ? visibleYards : yards) });
+    return Response.json({ yards: sortYards(visibleYards) });
   } catch (error: any) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }

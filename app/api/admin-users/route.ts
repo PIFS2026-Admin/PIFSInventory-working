@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
+import { cleanModuleKeys, defaultModulesForRole } from "../../../lib/modulePermissions";
 
 function configuredAdminSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,11 +34,23 @@ function makeTemporaryPassword() {
 }
 
 const internalInventoryRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
+const modulePermissionSetupMessage =
+  "User module permissions table is missing. Run supabase/user_module_permissions.sql in Supabase SQL Editor.";
 
 function isMissingInventoryYardAccessTable(error: any) {
   const message = getErrorMessage(error).toLowerCase();
   return (
     message.includes("inventory_user_yards") &&
+    (message.includes("does not exist") ||
+      message.includes("could not find the table") ||
+      message.includes("schema cache"))
+  );
+}
+
+function isMissingModulePermissionsTable(error: any) {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("user_module_permissions") &&
     (message.includes("does not exist") ||
       message.includes("could not find the table") ||
       message.includes("schema cache"))
@@ -171,6 +184,9 @@ export async function POST(request: Request) {
     const yardIds = Array.isArray(body.yardIds)
       ? Array.from(new Set(body.yardIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];
+    const requestedModuleKeys = cleanModuleKeys(
+      Array.isArray(body.moduleKeys) ? body.moduleKeys : []
+    );
 
     if (!email || !fullName || !role) {
       return Response.json(
@@ -204,6 +220,13 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const moduleKeys =
+      role === "customer"
+        ? []
+        : requestedModuleKeys.length > 0
+          ? requestedModuleKeys
+          : defaultModulesForRole(role);
 
     const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ??
@@ -256,6 +279,7 @@ export async function POST(request: Request) {
     }
 
     let yardAccessWarning = "";
+    let moduleAccessWarning = "";
 
     if (internalInventoryRoles.includes(role) && yardIds.length > 0) {
       const { error: yardAccessError } = await adminSupabase
@@ -274,6 +298,24 @@ export async function POST(request: Request) {
       }
     }
 
+    if (moduleKeys.length > 0) {
+      const { error: moduleAccessError } = await adminSupabase
+        .from("user_module_permissions")
+        .insert(
+          moduleKeys.map((moduleKey) => ({
+            user_id: userId,
+            module_key: moduleKey,
+            can_access: true,
+          }))
+        );
+
+      if (moduleAccessError) {
+        moduleAccessWarning = isMissingModulePermissionsTable(moduleAccessError)
+          ? ` ${modulePermissionSetupMessage}`
+          : ` Screen permissions were not saved: ${getErrorMessage(moduleAccessError)}`;
+      }
+    }
+
     if (!isMicrosoftMailConfigured()) {
       return Response.json({
         ok: true,
@@ -283,7 +325,7 @@ export async function POST(request: Request) {
         emailed: false,
         temporaryPassword,
         warning:
-          `User created, but Microsoft 365 email is not configured. Temporary password: ${temporaryPassword}${yardAccessWarning}`,
+          `User created, but Microsoft 365 email is not configured. Temporary password: ${temporaryPassword}${yardAccessWarning}${moduleAccessWarning}`,
       });
     }
 
@@ -305,7 +347,7 @@ export async function POST(request: Request) {
         temporaryPassword,
         warning:
           `User created, but Microsoft 365 email failed: ${getErrorMessage(emailError)}. ` +
-          `Temporary password: ${temporaryPassword}${yardAccessWarning}`,
+          `Temporary password: ${temporaryPassword}${yardAccessWarning}${moduleAccessWarning}`,
       });
     }
 
@@ -315,7 +357,10 @@ export async function POST(request: Request) {
       email,
       role,
       emailed: true,
-      warning: yardAccessWarning ? `User created and login email sent.${yardAccessWarning}` : "",
+      warning:
+        yardAccessWarning || moduleAccessWarning
+          ? `User created and login email sent.${yardAccessWarning}${moduleAccessWarning}`
+          : "",
     });
   } catch (error: any) {
     return Response.json(

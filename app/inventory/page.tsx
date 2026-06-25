@@ -494,17 +494,18 @@ export default function InventoryModulePage() {
     const isWade = email.trim().toLowerCase() === wadeInventoryAdminEmail;
     if (isWade) return yards;
 
-    const defaultYards = yards.filter((yard) => yard.code === defaultInventoryYardCode);
     const { data: assignments, error: assignmentError } = await supabase
       .from("inventory_user_yards")
       .select("yard_id")
       .eq("user_id", userId);
 
-    if (assignmentError) return defaultYards;
+    if (assignmentError) {
+      setMessage(`Inventory yard access failed: ${assignmentError.message}`);
+      return [];
+    }
 
     const assignedYardIds = new Set((assignments || []).map((row) => row.yard_id));
-    const assignedYards = yards.filter((yard) => assignedYardIds.has(yard.id));
-    return [...defaultYards, ...assignedYards.filter((yard) => yard.code !== defaultInventoryYardCode)];
+    return yards.filter((yard) => assignedYardIds.has(yard.id));
   }
 
   async function reloadInventoryData(yardId = selectedInventoryYardId) {

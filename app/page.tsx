@@ -3,6 +3,7 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import ChangePasswordModal from "../components/ChangePasswordModal";
+import { defaultModulesForRole } from "../lib/modulePermissions";
 
 type Role = "admin" | "customer" | "sales";
 type LocationType = "rack" | "zone";
@@ -43,6 +44,26 @@ type YardRecord = {
   name: string;
   code: string;
 };
+
+async function loadYardViewPermission(role: string, token: string) {
+  try {
+    const response = await fetch("/api/my-module-permissions", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(result.moduleKeys)) {
+      return defaultModulesForRole(role).includes("yard_view");
+    }
+
+    return result.moduleKeys.includes("yard_view");
+  } catch {
+    return defaultModulesForRole(role).includes("yard_view");
+  }
+}
 
 type InventoryRow = {
   id: string;
@@ -1214,25 +1235,13 @@ export default function Home() {
       .eq("id", sessionData.session.user.id)
       .single();
 
+    const nextRole = String(profile?.role ?? "admin").toLowerCase();
     setCurrentUserName(profile?.full_name || sessionData.session.user.email || "User");
-    setProfileRole(profile?.role ?? "admin");
-    if (profile?.role === "customer") setRole("customer");
-    if (profile?.role === "sales") setRole("sales");
-    if (profile?.role === "operator") {
-      window.location.href = "/hardband";
-      return;
-    }
-    if (profile?.role === "dti_superintendent") {
-      window.location.href = "/dti";
-      return;
-    }
+    setProfileRole(nextRole);
+    setRole(nextRole === "customer" ? "customer" : nextRole === "sales" ? "sales" : "admin");
 
-    if (profile?.role === "dti_inspector") {
-      window.location.href = "/dti-summary";
-      return;
-    }
-
-    if (profile?.role === "inventory_specialist") {
+    const canUseYardView = await loadYardViewPermission(nextRole, sessionData.session.access_token);
+    if (!canUseYardView) {
       window.location.href = "/home";
       return;
     }

@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
+import {
+  ModuleKey,
+  defaultModulesForRole,
+  moduleAccessOptions,
+} from "../../lib/modulePermissions";
 
 type Company = {
   id: string;
@@ -30,6 +35,13 @@ type InventoryUserYard = {
   id: string;
   userId: string;
   yardId: string;
+};
+
+type UserModulePermission = {
+  id: string;
+  userId: string;
+  moduleKey: ModuleKey;
+  canAccess: boolean;
 };
 
 type Rack = {
@@ -106,6 +118,8 @@ const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const inventoryYardAssignableRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
 const inventoryYardSetupMessage =
   "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.";
+const modulePermissionSetupMessage =
+  "User module permissions table is missing. Run supabase/user_module_permissions.sql in Supabase SQL Editor, then refresh this page.";
 
 const emptyRackForm = {
   rackCode: "",
@@ -236,6 +250,15 @@ function mapInventoryUserYards(rows: any[]): InventoryUserYard[] {
   }));
 }
 
+function mapUserModulePermissions(rows: any[]): UserModulePermission[] {
+  return (rows ?? []).map((row: any) => ({
+    id: row.id,
+    userId: row.user_id ?? row.userId ?? "",
+    moduleKey: row.module_key ?? row.moduleKey,
+    canAccess: row.can_access !== false,
+  }));
+}
+
 export default function AdminPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -259,6 +282,10 @@ export default function AdminPage() {
   const [yardAccessUserId, setYardAccessUserId] = useState("");
   const [yardAccessSelection, setYardAccessSelection] = useState<string[]>([]);
   const [newUserYardSelection, setNewUserYardSelection] = useState<string[]>([]);
+  const [userModulePermissions, setUserModulePermissions] = useState<UserModulePermission[]>([]);
+  const [moduleAccessUserId, setModuleAccessUserId] = useState("");
+  const [moduleAccessSelection, setModuleAccessSelection] = useState<ModuleKey[]>([]);
+  const [newUserModuleSelection, setNewUserModuleSelection] = useState<ModuleKey[]>([]);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -291,6 +318,16 @@ export default function AdminPage() {
   const selectedYardAccessUser = useMemo(
     () => yardAccessUsers.find((profile) => profile.id === yardAccessUserId) || null,
     [yardAccessUsers, yardAccessUserId]
+  );
+
+  const moduleAccessUsers = useMemo(
+    () => profiles.filter((profile) => profile.role !== "customer"),
+    [profiles]
+  );
+
+  const selectedModuleAccessUser = useMemo(
+    () => moduleAccessUsers.find((profile) => profile.id === moduleAccessUserId) || null,
+    [moduleAccessUsers, moduleAccessUserId]
   );
 
   async function signOut() {
@@ -328,6 +365,7 @@ export default function AdminPage() {
       loadPartNumbers(),
       loadInspectors(),
       loadInventoryOptions(),
+      loadModulePermissions(),
     ]);
     setMessage((current) => (current === "Loading admin tools..." ? "" : current));
   }
@@ -494,6 +532,45 @@ export default function AdminPage() {
     setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
   }
 
+  async function loadModulePermissions() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setUserModulePermissions([]);
+      return;
+    }
+
+    const response = await fetch("/api/admin-module-permissions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: "list" }),
+    }).catch(() => null);
+
+    if (!response) {
+      setUserModulePermissions([]);
+      setMessage("Screen permissions failed: Could not reach the permission service.");
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setUserModulePermissions([]);
+      setMessage(result.error || result.setupMessage || "Screen permissions failed.");
+      return;
+    }
+
+    if (result.setupRequired) {
+      setMessage(result.setupMessage || modulePermissionSetupMessage);
+    }
+
+    setUserModulePermissions(mapUserModulePermissions(result.permissions ?? []));
+  }
+
   async function loadRacks(yardId = selectedYardId) {
     if (!yardId) return;
 
@@ -555,6 +632,7 @@ export default function AdminPage() {
       loadPartNumbers(),
       loadInspectors(),
       loadInventoryOptions(),
+      loadModulePermissions(),
     ]);
     setMessage("Admin tools refreshed.");
   }
@@ -1014,6 +1092,7 @@ export default function AdminPage() {
       body: JSON.stringify({
         ...userForm,
         yardIds: canAssignInventoryYards(userForm.role) ? newUserYardSelection : [],
+        moduleKeys: userForm.role === "customer" ? [] : newUserModuleSelection,
       }),
     });
 
@@ -1033,7 +1112,8 @@ export default function AdminPage() {
 
     setUserForm(emptyUserForm);
     setNewUserYardSelection([]);
-    await Promise.all([loadProfiles(), loadInventoryUserYards()]);
+    setNewUserModuleSelection([]);
+    await Promise.all([loadProfiles(), loadInventoryUserYards(), loadModulePermissions()]);
     setMessage(result.warning || `User created and login email sent: ${result.email}`);
     setLoading(false);
   }
@@ -1072,6 +1152,81 @@ export default function AdminPage() {
         .filter((assignment) => assignment.userId === profileId)
         .map((assignment) => assignment.yardId)
     );
+  }
+
+  function permissionsForProfile(profile: Profile) {
+    const explicitPermissions = userModulePermissions
+      .filter((permission) => permission.userId === profile.id && permission.canAccess)
+      .map((permission) => permission.moduleKey);
+
+    return explicitPermissions.length > 0
+      ? explicitPermissions
+      : defaultModulesForRole(profile.role);
+  }
+
+  function openModuleAccess(profileId: string) {
+    const profile = profiles.find((item) => item.id === profileId);
+    setModuleAccessUserId(profileId);
+    setModuleAccessSelection(profile ? permissionsForProfile(profile) : []);
+  }
+
+  function toggleModuleAccess(moduleKey: ModuleKey) {
+    setModuleAccessSelection((current) =>
+      current.includes(moduleKey)
+        ? current.filter((key) => key !== moduleKey)
+        : [...current, moduleKey]
+    );
+  }
+
+  async function saveModuleAccess() {
+    if (!moduleAccessUserId) {
+      setMessage("Select a user before saving screen permissions.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("Screen permissions failed: Sign in again before saving permissions.");
+      setLoading(false);
+      return;
+    }
+
+    const response = await fetch("/api/admin-module-permissions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        action: "save-user-modules",
+        userId: moduleAccessUserId,
+        moduleKeys: moduleAccessSelection,
+      }),
+    }).catch(() => null);
+
+    if (!response) {
+      setMessage("Screen permissions failed: Could not reach the permission service.");
+      setLoading(false);
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!response.ok || result.error) {
+      setUserModulePermissions(mapUserModulePermissions(result.permissions ?? []));
+      setMessage(result.error || result.setupMessage || "Screen permissions failed.");
+      setLoading(false);
+      return;
+    }
+
+    setUserModulePermissions(mapUserModulePermissions(result.permissions ?? []));
+    setMessage(`Screen permissions saved for ${selectedModuleAccessUser?.fullName || "user"}.`);
+    setLoading(false);
   }
 
   function toggleYardAccess(yardId: string) {
@@ -1410,6 +1565,9 @@ export default function AdminPage() {
                 if (!canAssignInventoryYards(nextRole)) {
                   setNewUserYardSelection([]);
                 }
+                setNewUserModuleSelection(
+                  nextRole === "customer" ? [] : defaultModulesForRole(nextRole)
+                );
 
                 setUserForm({
                   ...userForm,
@@ -1489,6 +1647,63 @@ export default function AdminPage() {
                 <button
                   className="button"
                   onClick={() => setNewUserYardSelection([])}
+                  disabled={loading}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          {userForm.role !== "customer" && (
+            <div className="create-user-yard-box">
+              <div className="admin-section-title compact-title">
+                <div>
+                  <h4>Screen Permissions</h4>
+                  <p>Choose which TITAN screens this user can open.</p>
+                </div>
+              </div>
+
+              <div className="yard-access-grid">
+                {moduleAccessOptions.map((option) => (
+                  <label key={option.key} className="yard-access-card">
+                    <input
+                      type="checkbox"
+                      checked={newUserModuleSelection.includes(option.key)}
+                      onChange={() =>
+                        setNewUserModuleSelection((current) =>
+                          current.includes(option.key)
+                            ? current.filter((key) => key !== option.key)
+                            : [...current, option.key]
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="yard-access-actions">
+                <button
+                  className="button"
+                  onClick={() => setNewUserModuleSelection(defaultModulesForRole(userForm.role))}
+                  disabled={loading}
+                >
+                  Default For Role
+                </button>
+                <button
+                  className="button"
+                  onClick={() => setNewUserModuleSelection(moduleAccessOptions.map((option) => option.key))}
+                  disabled={loading}
+                >
+                  Select All
+                </button>
+                <button
+                  className="button"
+                  onClick={() => setNewUserModuleSelection([])}
                   disabled={loading}
                 >
                   Clear
@@ -1906,6 +2121,11 @@ export default function AdminPage() {
                         Yards
                       </button>
                     )}
+                    {profile.role !== "customer" && (
+                      <button className="button" onClick={() => openModuleAccess(profile.id)}>
+                        Permissions
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1981,6 +2201,90 @@ export default function AdminPage() {
 
           {!yardAccessUserId && (
             <p className="muted-text">Choose a user to assign Gillette, Casper, Dickinson, or any other inventory yard.</p>
+          )}
+        </div>
+      </details>
+
+      <details className="ticket-card admin-card admin-collapsible" open>
+        <summary>
+          <div>
+            <h3>Screen Permissions</h3>
+            <p>Assign exactly which TITAN screens each internal user can open. Admins keep full access.</p>
+          </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+          <label>
+            User
+            <select
+              value={moduleAccessUserId}
+              onChange={(event) => openModuleAccess(event.target.value)}
+            >
+              <option value="">Select user</option>
+              {moduleAccessUsers.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.fullName || profile.id} ({profile.role})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {moduleAccessUserId && (
+            <>
+              <div className="yard-access-grid">
+                {moduleAccessOptions.map((option) => (
+                  <label key={option.key} className="yard-access-card">
+                    <input
+                      type="checkbox"
+                      checked={moduleAccessSelection.includes(option.key)}
+                      onChange={() => toggleModuleAccess(option.key)}
+                      disabled={selectedModuleAccessUser?.role === "admin"}
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.description}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="yard-access-actions">
+                <button
+                  className="button"
+                  onClick={() =>
+                    setModuleAccessSelection(
+                      selectedModuleAccessUser
+                        ? defaultModulesForRole(selectedModuleAccessUser.role)
+                        : []
+                    )
+                  }
+                  disabled={loading || selectedModuleAccessUser?.role === "admin"}
+                >
+                  Default For Role
+                </button>
+                <button
+                  className="button"
+                  onClick={() => setModuleAccessSelection(moduleAccessOptions.map((option) => option.key))}
+                  disabled={loading}
+                >
+                  Select All
+                </button>
+                <button
+                  className="button"
+                  onClick={() => setModuleAccessSelection([])}
+                  disabled={loading || selectedModuleAccessUser?.role === "admin"}
+                >
+                  Clear
+                </button>
+                <button className="button primary" onClick={saveModuleAccess} disabled={loading}>
+                  Save Screen Permissions
+                </button>
+              </div>
+            </>
+          )}
+
+          {!moduleAccessUserId && (
+            <p className="muted-text">Choose a user to control Inventory, Yard View, DTI, Hardbanding, Admin, Reports, and Dashboard access.</p>
           )}
         </div>
       </details>

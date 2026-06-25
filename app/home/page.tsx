@@ -3,10 +3,16 @@
 import { useEffect, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
 import { supabase } from "../../lib/supabase";
+import {
+  ModuleKey,
+  defaultModulesForRole,
+  moduleHrefToKey,
+} from "../../lib/modulePermissions";
 
 type Profile = {
   fullName: string;
   role: string;
+  modules: ModuleKey[];
 };
 
 type LaunchCard = {
@@ -63,22 +69,30 @@ const launchCards: LaunchCard[] = [
   },
 ];
 
-const inventoryOnlyRoles = ["inventory_specialist", "inventory_manager"];
-
-function canOpenLaunchCard(role: string, card: LaunchCard) {
-  if (role === "inventory_specialist") {
-    return card.href === "/inventory" || card.href === "/purchase-orders";
-  }
-
-  if (role === "inventory_manager") {
-    return card.href === "/" || card.href === "/inventory" || card.href === "/purchase-orders";
-  }
-
-  return true;
+function canOpenLaunchCard(modules: ModuleKey[], card: LaunchCard) {
+  const moduleKey = moduleHrefToKey(card.href);
+  return !moduleKey || modules.includes(moduleKey);
 }
 
 function normalizeRole(role: unknown) {
   return typeof role === "string" ? role.toLowerCase() : "customer";
+}
+
+async function loadModuleAccess(role: string, token: string | undefined) {
+  if (!token) return defaultModulesForRole(role);
+
+  const response = await fetch("/api/my-module-permissions", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  }).catch(() => null);
+
+  if (!response?.ok) return defaultModulesForRole(role);
+
+  const result = await response.json();
+  return Array.isArray(result.moduleKeys)
+    ? result.moduleKeys.map(String) as ModuleKey[]
+    : defaultModulesForRole(role);
 }
 
 export default function InternalHomePage() {
@@ -121,23 +135,10 @@ export default function InternalHomePage() {
       return;
     }
 
-    if (role === "operator") {
-      window.location.href = "/hardband";
-      return;
-    }
+    const modules = await loadModuleAccess(role, sessionData.session?.access_token);
 
-    if (role === "dti_superintendent") {
-      window.location.href = "/dti";
-      return;
-    }
-
-    if (role === "dti_inspector") {
-      window.location.href = "/dti-summary";
-      return;
-    }
-
-    if (role !== "admin" && role !== "employee" && !inventoryOnlyRoles.includes(role)) {
-      setMessage("This user does not have internal menu access.");
+    if (modules.length === 0) {
+      setMessage("This user does not have any TITAN screen permissions assigned.");
       setLoading(false);
       return;
     }
@@ -145,6 +146,7 @@ export default function InternalHomePage() {
     setProfile({
       fullName: profileData.full_name ?? user.email ?? "Team Member",
       role,
+      modules,
     });
     setMessage("");
     setLoading(false);
@@ -193,7 +195,7 @@ export default function InternalHomePage() {
         {launchCards
           .filter((card) => {
             if (!profile) return true;
-            return canOpenLaunchCard(profile.role, card);
+            return canOpenLaunchCard(profile.modules, card);
           })
           .map((card) => {
           return (
