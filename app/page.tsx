@@ -811,6 +811,7 @@ export default function Home() {
   const [profileRole, setProfileRole] = useState<string>("admin");
   const [currentUserName, setCurrentUserName] = useState("User");
   const [selectedYard, setSelectedYard] = useState<YardRecord | null>(null);
+  const [yardOptions, setYardOptions] = useState<YardRecord[]>([]);
   const [rackLayout, setRackLayout] = useState<RackConfig[]>(makeDefaultRacks());
   const [zones, setZones] = useState<ZoneConfig[]>(defaultZones);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
@@ -1196,7 +1197,7 @@ export default function Home() {
     setInventory(mapped);
   }
 
-  async function loadYardSetup() {
+  async function loadYardSetup(requestedYardId?: string) {
     setLoadingSetup(true);
     setMessage("");
 
@@ -1236,17 +1237,33 @@ export default function Home() {
       return;
     }
 
-    const { data: yard, error: yardError } = await supabase
-      .from("yards")
-      .select("id, name, code")
-      .eq("code", "PIFS")
-      .single();
+    const yardResponse = await fetch("/api/yard-options", {
+      headers: {
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+      },
+      cache: "no-store",
+    });
 
-    if (yardError || !yard) {
-      setMessage("Could not load the PIFS yard from Supabase.");
+    const yardResult = await yardResponse.json().catch(() => ({}));
+
+    if (!yardResponse.ok || !Array.isArray(yardResult.yards) || yardResult.yards.length === 0) {
+      setMessage(yardResult.error || "Could not load yards from Supabase.");
       setLoadingSetup(false);
       return;
     }
+
+    const availableYards: YardRecord[] = yardResult.yards.map((yard: YardRecord) => ({
+      id: yard.id,
+      name: yard.name,
+      code: yard.code,
+    }));
+    setYardOptions(availableYards);
+
+    const yard =
+      availableYards.find((option) => option.id === requestedYardId) ??
+      availableYards.find((option) => option.id === selectedYard?.id) ??
+      availableYards.find((option) => option.code === "PIFS") ??
+      availableYards[0];
 
     setSelectedYard(yard);
 
@@ -1297,12 +1314,16 @@ export default function Home() {
       });
     }
 
-    const defaultRacks = makeDefaultRacks().map((rack) => savedRackMap.get(rack.label) ?? rack);
+    const isDefaultYardLayout = yard.code === "PIFS";
+    const defaultRacks = isDefaultYardLayout ? makeDefaultRacks().map((rack) => savedRackMap.get(rack.label) ?? rack) : [];
     const customRacks = Array.from(savedRackMap.values())
-      .filter((rack) => !yardRackCodes.includes(rack.label))
+      .filter((rack) => !isDefaultYardLayout || !yardRackCodes.includes(rack.label))
       .sort((left, right) => left.sort_order - right.sort_order || left.label.localeCompare(right.label));
     const mappedRacks = [...defaultRacks, ...customRacks];
     setRackLayout(mappedRacks);
+    if (!mappedRacks.some((rack) => rack.label === selectedLayoutRackLabel)) {
+      setSelectedLayoutRackLabel(mappedRacks[0]?.label ?? "");
+    }
 
     const { data: dbZones } = await supabase
       .from("workflow_zones")
@@ -3881,8 +3902,22 @@ export default function Home() {
           </div>
         </button>
 
-        <select className="field" value={selectedYard?.id ?? ""} disabled>
-          <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>
+        <select
+          className="field"
+          value={selectedYard?.id ?? ""}
+          onChange={(event) => {
+            setSelectedRows([]);
+            setSelectedLocation("all");
+            loadYardSetup(event.target.value);
+          }}
+          disabled={loadingSetup || yardOptions.length < 2}
+        >
+          {yardOptions.length === 0 && <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>}
+          {yardOptions.map((yard) => (
+            <option key={yard.id} value={yard.id}>
+              {yard.name}
+            </option>
+          ))}
         </select>
 
         <div className="button-grid">
@@ -4007,7 +4042,10 @@ export default function Home() {
                 overflow: "hidden",
                 border: "1px solid #303846",
                 borderRadius: "10px",
-                backgroundImage: "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')",
+                backgroundImage:
+                  selectedYard?.code === "PIFS"
+                    ? "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')"
+                    : "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(135deg, rgba(249,115,22,0.08), rgba(15,23,42,0.94))",
                 backgroundSize: "74px 74px, 74px 74px, 100% 100%",
                 backgroundPosition: "26px 70px, 26px 70px, center",
                 backgroundRepeat: "repeat, repeat, no-repeat",
