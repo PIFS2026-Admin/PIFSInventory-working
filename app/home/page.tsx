@@ -65,6 +65,18 @@ const launchCards: LaunchCard[] = [
 
 const inventoryOnlyRoles = ["inventory_specialist", "inventory_manager"];
 
+function canOpenLaunchCard(role: string, card: LaunchCard) {
+  if (role === "inventory_specialist") {
+    return card.href === "/inventory" || card.href === "/purchase-orders";
+  }
+
+  if (role === "inventory_manager") {
+    return card.href === "/" || card.href === "/inventory" || card.href === "/purchase-orders";
+  }
+
+  return true;
+}
+
 function normalizeRole(role: unknown) {
   return typeof role === "string" ? role.toLowerCase() : "customer";
 }
@@ -180,8 +192,8 @@ export default function InternalHomePage() {
       <section className="launch-grid">
         {launchCards
           .filter((card) => {
-            if (!profile || !inventoryOnlyRoles.includes(profile.role)) return true;
-            return card.href === "/inventory" || card.href === "/purchase-orders";
+            if (!profile) return true;
+            return canOpenLaunchCard(profile.role, card);
           })
           .map((card) => {
           return (

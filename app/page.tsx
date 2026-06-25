@@ -1232,7 +1232,7 @@ export default function Home() {
       return;
     }
 
-    if (profile?.role === "inventory_specialist" || profile?.role === "inventory_manager") {
+    if (profile?.role === "inventory_specialist") {
       window.location.href = "/home";
       return;
     }
