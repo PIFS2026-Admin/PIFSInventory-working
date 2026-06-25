@@ -17,6 +17,8 @@ type CustomerProfile = {
 type CustomerInventory = {
   id: string;
   createdAt: string;
+  yardId: string;
+  rackId: string;
   afe: string;
   operator: string;
   rig: string;
@@ -43,6 +45,25 @@ type CustomerTicket = {
   truckNumber: string;
   destination: string;
   createdAt: string;
+};
+
+type CustomerReleaseRequest = {
+  id: string;
+  requestNumber: string;
+  rackLabel: string;
+  yardName: string;
+  quantityJoints: number;
+  status: string;
+  signatureName: string;
+  notes: string;
+  createdAt: string;
+};
+
+type ReleaseForm = {
+  rackId: string;
+  quantityJoints: string;
+  signatureName: string;
+  notes: string;
 };
 
 type LocationSummary = {
@@ -74,6 +95,14 @@ export default function CustomerPage() {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [inventory, setInventory] = useState<CustomerInventory[]>([]);
   const [tickets, setTickets] = useState<CustomerTicket[]>([]);
+  const [releaseRequests, setReleaseRequests] = useState<CustomerReleaseRequest[]>([]);
+  const [releaseForm, setReleaseForm] = useState<ReleaseForm>({
+    rackId: "",
+    quantityJoints: "",
+    signatureName: "",
+    notes: "",
+  });
+  const [submittingRelease, setSubmittingRelease] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState("all");
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading customer portal...");
@@ -140,7 +169,7 @@ export default function CustomerPage() {
         status,
         condition,
         bulk_joints,
-        racks(rack_code),
+        racks(id, rack_code, yard_id),
         workflow_zones(name, code)
       `)
       .eq("company_id", profileData.company_id)
@@ -168,6 +197,8 @@ export default function CustomerPage() {
           return {
             id: row.id,
             createdAt: formatDate(row.created_at),
+            yardId: rack?.yard_id ?? "",
+            rackId: rack?.id ?? "",
             afe: row.afe ?? "",
             operator: row.operator ?? "",
             rig: row.rig ?? "",
@@ -225,6 +256,31 @@ export default function CustomerPage() {
     }));
 
     setTickets([...mappedReceive, ...mappedShip].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+
+    const accessToken = sessionData.session?.access_token;
+    if (accessToken) {
+      const response = await fetch("/api/tubular-release-requests", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await response.json().catch(() => null);
+
+      if (response.ok) {
+        setReleaseRequests(
+          (result?.requests ?? []).map((request: any) => ({
+            id: request.id,
+            requestNumber: request.request_number ?? "",
+            rackLabel: request.rack_label ?? "",
+            yardName: request.yard_name ?? "",
+            quantityJoints: Number(request.quantity_joints ?? 0),
+            status: request.status ?? "Submitted",
+            signatureName: request.signature_name ?? "",
+            notes: request.notes ?? "",
+            createdAt: formatDate(request.created_at),
+          }))
+        );
+      }
+    }
+
     setMessage("");
   }
 
@@ -251,6 +307,26 @@ export default function CustomerPage() {
     }
 
     return Array.from(summaries.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [inventory]);
+
+  const releaseRackOptions = useMemo(() => {
+    const racks = new Map<string, { rackId: string; yardId: string; label: string; joints: number }>();
+
+    for (const row of inventory) {
+      if (!row.rackId || !row.yardId) continue;
+
+      const current = racks.get(row.rackId) ?? {
+        rackId: row.rackId,
+        yardId: row.yardId,
+        label: row.rack || row.location,
+        joints: 0,
+      };
+
+      current.joints += row.joints;
+      racks.set(row.rackId, current);
+    }
+
+    return Array.from(racks.values()).sort((a, b) => a.label.localeCompare(b.label));
   }, [inventory]);
 
   const filteredInventory = useMemo(() => {
@@ -338,6 +414,76 @@ export default function CustomerPage() {
   function openTicketPrint(ticket: CustomerTicket) {
     const type = ticket.type === "Receiving" ? "receiving" : "shipping";
     window.location.href = `/ticket-print?type=${type}&id=${ticket.id}`;
+  }
+
+  async function submitReleaseRequest(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+
+    const rack = releaseRackOptions.find((option) => option.rackId === releaseForm.rackId);
+    const quantityJoints = Number(releaseForm.quantityJoints || 0);
+
+    if (!rack) {
+      setMessage("Select a rack before submitting the release request.");
+      return;
+    }
+
+    if (!Number.isFinite(quantityJoints) || quantityJoints <= 0) {
+      setMessage("Enter a release quantity greater than zero.");
+      return;
+    }
+
+    if (quantityJoints > rack.joints) {
+      setMessage(`This rack only shows ${rack.joints} available joints for your inventory.`);
+      return;
+    }
+
+    if (!releaseForm.signatureName.trim()) {
+      setMessage("Type your name to sign the release request.");
+      return;
+    }
+
+    setSubmittingRelease(true);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const response = await fetch("/api/tubular-release-requests", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          yardId: rack.yardId,
+          rackId: rack.rackId,
+          rackLabel: rack.label,
+          quantityJoints,
+          notes: releaseForm.notes,
+          signatureName: releaseForm.signatureName,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? "Release request could not be submitted.");
+      }
+
+      setReleaseForm({ rackId: "", quantityJoints: "", signatureName: "", notes: "" });
+      await loadCustomerPortal();
+      setMessage(result?.warning ?? `Release request ${result?.request?.request_number ?? ""} submitted.`);
+    } catch (error: any) {
+      setMessage(`Release request failed: ${error.message}`);
+    } finally {
+      setSubmittingRelease(false);
+    }
   }
 
   return (
@@ -492,6 +638,108 @@ export default function CustomerPage() {
               )}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="customer-section">
+        <div className="section-heading">
+          <div>
+            <h2>Tubular Release Request</h2>
+            <p>Select a rack and quantity to request release from Pathfinder.</p>
+          </div>
+        </div>
+
+        <form className="form-grid" onSubmit={submitReleaseRequest}>
+          <label>
+            Rack / Location
+            <select
+              value={releaseForm.rackId}
+              onChange={(event) => setReleaseForm({ ...releaseForm, rackId: event.target.value })}
+            >
+              <option value="">Select rack</option>
+              {releaseRackOptions.map((rack) => (
+                <option key={rack.rackId} value={rack.rackId}>
+                  {rack.label} / {rack.joints} joints available
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Quantity to Release
+            <input
+              type="number"
+              min="1"
+              value={releaseForm.quantityJoints}
+              onChange={(event) => setReleaseForm({ ...releaseForm, quantityJoints: event.target.value })}
+            />
+          </label>
+
+          <label>
+            Signature Name
+            <input
+              value={releaseForm.signatureName}
+              onChange={(event) => setReleaseForm({ ...releaseForm, signatureName: event.target.value })}
+              placeholder="Type your name to sign"
+            />
+          </label>
+
+          <label className="full">
+            Notes
+            <textarea
+              value={releaseForm.notes}
+              onChange={(event) => setReleaseForm({ ...releaseForm, notes: event.target.value })}
+              placeholder="Release notes, pickup timing, or special instructions"
+            />
+          </label>
+
+          <div className="slide-actions full">
+            <button className="button primary" disabled={submittingRelease || releaseRackOptions.length === 0}>
+              {submittingRelease ? "Submitting..." : "Submit Release Request"}
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section className="customer-section">
+        <div className="section-heading">
+          <div>
+            <h2>Release Requests</h2>
+            <p>Submitted tubular release forms.</p>
+          </div>
+        </div>
+
+        <div className="tickets-grid">
+          {releaseRequests.map((request) => (
+            <article key={request.id} className="ticket-card customer-ticket">
+              <h3>{request.requestNumber}</h3>
+              <div className="ticket-row stacked">
+                <div>
+                  <strong>{request.rackLabel}</strong>
+                  <span>{request.quantityJoints} joints requested</span>
+                </div>
+                <div>
+                  <span>{request.yardName}</span>
+                  <span>{request.createdAt}</span>
+                </div>
+                <div>
+                  <span>Status: {request.status}</span>
+                  <span>Signed by {request.signatureName}</span>
+                </div>
+                {request.notes && (
+                  <div>
+                    <span>{request.notes}</span>
+                  </div>
+                )}
+              </div>
+            </article>
+          ))}
+
+          {releaseRequests.length === 0 && (
+            <div className="ticket-card">
+              <p className="muted-text">No release requests submitted.</p>
+            </div>
+          )}
         </div>
       </section>
 

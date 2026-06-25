@@ -1490,7 +1490,7 @@ export default function AdminPage() {
       </section>
 
       <section className="admin-grid">
-        <details className="ticket-card admin-card admin-collapsible" open>
+        <details className="ticket-card admin-card admin-collapsible">
           <summary>
             <h3>Create Company</h3>
             <span>Open / close</span>
@@ -1521,7 +1521,7 @@ export default function AdminPage() {
           </div>
         </details>
 
-        <details className="ticket-card admin-card admin-collapsible" open>
+        <details className="ticket-card admin-card admin-collapsible">
           <summary>
             <h3>Create User</h3>
             <span>Open / close</span>
@@ -1719,7 +1719,7 @@ export default function AdminPage() {
         </details>
       </section>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Inspector Manager</h3>
@@ -1788,7 +1788,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Part Number Manager</h3>
@@ -1905,7 +1905,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Status & Condition Manager</h3>
@@ -2135,7 +2135,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Inventory / PO Yard Access</h3>
@@ -2205,7 +2205,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Screen Permissions</h3>
@@ -2289,7 +2289,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <h3>Yard Setup</h3>
           <span>Open / close</span>

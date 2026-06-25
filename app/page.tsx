@@ -193,6 +193,21 @@ type ShippingTicket = {
   createdAt: string;
 };
 
+type TubularReleaseRequest = {
+  id: string;
+  requestNumber: string;
+  companyName: string;
+  customerName: string;
+  customerEmail: string;
+  yardName: string;
+  rackLabel: string;
+  quantityJoints: number;
+  status: string;
+  notes: string;
+  signatureName: string;
+  createdAt: string;
+};
+
 type TransferDocument = {
   id: string;
   documentNumber: string;
@@ -861,7 +876,7 @@ export default function Home() {
   const [activityOpen, setActivityOpen] = useState(false);
   const [hardbandOpen, setHardbandOpen] = useState(false);
   const [ticketSearch, setTicketSearch] = useState("");
-  const [ticketFilter, setTicketFilter] = useState<"all" | "receiving" | "shipping">("all");
+  const [ticketFilter, setTicketFilter] = useState<"all" | "receiving" | "shipping" | "release">("all");
   const [ticketDate, setTicketDate] = useState("");
   const [activitySearch, setActivitySearch] = useState("");
   const [activityType, setActivityType] = useState("all");
@@ -885,6 +900,7 @@ export default function Home() {
 
   const [receivingTickets, setReceivingTickets] = useState<ReceivingTicket[]>([]);
   const [shippingTickets, setShippingTickets] = useState<ShippingTicket[]>([]);
+  const [releaseRequests, setReleaseRequests] = useState<TubularReleaseRequest[]>([]);
   const [transferDocuments, setTransferDocuments] = useState<TransferDocument[]>([]);
   const [ticketLines, setTicketLines] = useState<TicketLine[]>([]);
   const [ticketAttachments, setTicketAttachments] = useState<TicketAttachment[]>([]);
@@ -955,7 +971,7 @@ export default function Home() {
     const searchText = ticketSearch.toLowerCase().trim();
 
     return receivingTickets.filter((ticket) => {
-      if (ticketFilter === "shipping") return false;
+      if (ticketFilter === "shipping" || ticketFilter === "release") return false;
       if (ticketDate && ticket.createdAt !== ticketDate) return false;
       if (!searchText) return true;
 
@@ -978,7 +994,7 @@ export default function Home() {
     const searchText = ticketSearch.toLowerCase().trim();
 
     return shippingTickets.filter((ticket) => {
-      if (ticketFilter === "receiving") return false;
+      if (ticketFilter === "receiving" || ticketFilter === "release") return false;
       if (ticketDate && ticket.createdAt !== ticketDate) return false;
 
       const lines = ticketLines.filter((line) => line.ticketId === ticket.id);
@@ -1006,6 +1022,32 @@ export default function Home() {
         .includes(searchText);
     });
   }, [shippingTickets, ticketDate, ticketFilter, ticketLines, ticketSearch]);
+
+  const filteredReleaseRequests = useMemo(() => {
+    const searchText = ticketSearch.toLowerCase().trim();
+
+    return releaseRequests.filter((request) => {
+      if (ticketFilter !== "all" && ticketFilter !== "release") return false;
+      if (ticketDate && request.createdAt !== ticketDate) return false;
+      if (!searchText) return true;
+
+      return [
+        request.requestNumber,
+        request.companyName,
+        request.customerName,
+        request.customerEmail,
+        request.yardName,
+        request.rackLabel,
+        request.status,
+        request.notes,
+        request.signatureName,
+        request.createdAt,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+    });
+  }, [releaseRequests, ticketDate, ticketFilter, ticketSearch]);
 
   const filteredTransferDocuments = useMemo(() => {
     const searchText = ticketSearch.toLowerCase().trim();
@@ -1898,6 +1940,36 @@ export default function Home() {
       setMessage(`Ticket attachments failed: ${attachmentError.message}`);
       setLoadingTickets(false);
       return;
+    }
+
+    const { data: releaseData, error: releaseError } = await supabase
+      .from("tubular_release_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (releaseError) {
+      setReleaseRequests([]);
+      if (!String(releaseError.message).includes("tubular_release_requests")) {
+        setMessage(`Release requests failed: ${releaseError.message}`);
+      }
+    } else {
+      setReleaseRequests(
+        (releaseData ?? []).map((row: any) => ({
+          id: row.id,
+          requestNumber: row.request_number ?? "",
+          companyName: row.company_name ?? "",
+          customerName: row.customer_name ?? "",
+          customerEmail: row.customer_email ?? "",
+          yardName: row.yard_name ?? "",
+          rackLabel: row.rack_label ?? "",
+          quantityJoints: Number(row.quantity_joints ?? 0),
+          status: row.status ?? "Submitted",
+          notes: row.notes ?? "",
+          signatureName: row.signature_name ?? "",
+          createdAt: formatDate(row.created_at),
+        }))
+      );
     }
 
     setReceivingTickets(
@@ -5280,10 +5352,11 @@ export default function Home() {
 
               <label>
                 Ticket Type
-                <select value={ticketFilter} onChange={(event) => setTicketFilter(event.target.value as "all" | "receiving" | "shipping")}>
+                <select value={ticketFilter} onChange={(event) => setTicketFilter(event.target.value as "all" | "receiving" | "shipping" | "release")}>
                   <option value="all">All Tickets</option>
                   <option value="receiving">Receiving Only</option>
                   <option value="shipping">Shipping / BOL Only</option>
+                  <option value="release">Release Requests</option>
                 </select>
               </label>
 
@@ -5298,7 +5371,7 @@ export default function Home() {
             </div>
 
             <div className="ticket-filter-summary">
-              Showing {filteredReceivingTickets.length} receiving tickets, {filteredShippingTickets.length} shipping/BOL tickets, and {filteredTransferDocuments.length} transfer documents
+              Showing {filteredReceivingTickets.length} receiving tickets, {filteredShippingTickets.length} shipping/BOL tickets, {filteredReleaseRequests.length} release requests, and {filteredTransferDocuments.length} transfer documents
             </div>
             <div className="tickets-grid">
               <section className="ticket-card">
@@ -5421,6 +5494,36 @@ export default function Home() {
                     </article>
                   );
                 })}
+              </section>
+
+              <section className="ticket-card">
+                <h3>Tubular Release Requests</h3>
+                {filteredReleaseRequests.length === 0 && <p className="muted-text">No release requests found.</p>}
+
+                {filteredReleaseRequests.map((request) => (
+                  <article key={request.id} className="ticket-row stacked">
+                    <div>
+                      <strong>{request.requestNumber}</strong>
+                      <span>{request.companyName || "Customer"}</span>
+                    </div>
+                    <div>
+                      <span>{request.customerName || request.customerEmail || "Customer user"}</span>
+                      <span>{request.createdAt}</span>
+                    </div>
+                    <div>
+                      <span>{request.yardName || "Yard"}</span>
+                      <span>Rack {request.rackLabel || "-"}</span>
+                    </div>
+                    <div>
+                      <span>{request.quantityJoints} joints requested</span>
+                      <span>Status: {request.status}</span>
+                    </div>
+                    <div>
+                      <span>Signed: {request.signatureName || "-"}</span>
+                    </div>
+                    {request.notes && <p className="muted-text">{request.notes}</p>}
+                  </article>
+                ))}
               </section>
 
               <section className="ticket-card">
