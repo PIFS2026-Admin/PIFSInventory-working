@@ -182,7 +182,7 @@ const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
-const inventoryYardScopedTablesEnabled = false;
+const inventoryYardScopedTablesEnabled = true;
 
 const emptyVendorForm: VendorForm = {
   id: "",
