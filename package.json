@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "restore:inventory-wtx:dry": "node scripts/import-inventory-po-data.mjs --dry-run",
-    "restore:inventory-wtx": "node scripts/import-inventory-po-data.mjs --live"
+    "restore:inventory-wtx": "node scripts/import-inventory-po-data.mjs --live",
+    "setup:yard-gillette": "node scripts/setup-gillette-yard.mjs",
+    "import:inventory-gillette:dry": "node scripts/import-gillette-inventory.mjs --dry-run",
+    "import:inventory-gillette": "node scripts/import-gillette-inventory.mjs --live --replace"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
