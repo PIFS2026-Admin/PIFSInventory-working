@@ -1905,6 +1905,10 @@ th {
   margin-top: 60px;
 }
 
+.signature-grid.signature-grid-single {
+  grid-template-columns: minmax(260px, 420px);
+}
+
 .signature-grid div {
   min-height: 92px;
   position: relative;

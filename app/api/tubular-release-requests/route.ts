@@ -8,6 +8,8 @@ type ReleaseRequestBody = {
   rackId?: string;
   rackLabel?: string;
   quantityJoints?: number | string;
+  partSummary?: string;
+  partLines?: unknown;
   notes?: string;
   signatureName?: string;
   signatureData?: string;
@@ -177,6 +179,7 @@ async function generateRequestNumber(adminSupabase: ReturnType<typeof configured
 
 function buildReleaseEmailHtml(request: any) {
   const actionUrl = `${getSiteUrl()}/`;
+  const partRows = Array.isArray(request.part_lines) ? request.part_lines : [];
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
       <h2 style="margin:0 0 6px">TITAN Tubular Release Request</h2>
@@ -186,10 +189,36 @@ function buildReleaseEmailHtml(request: any) {
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Customer</td><td style="border:1px solid #d1d5db;padding:8px">${request.company_name}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Yard</td><td style="border:1px solid #d1d5db;padding:8px">${request.yard_name}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Rack</td><td style="border:1px solid #d1d5db;padding:8px">${request.rack_label}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Part Numbers</td><td style="border:1px solid #d1d5db;padding:8px">${request.part_summary || "-"}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Quantity</td><td style="border:1px solid #d1d5db;padding:8px">${request.quantity_joints} joints</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Signed By</td><td style="border:1px solid #d1d5db;padding:8px">${request.signature_name}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Notes</td><td style="border:1px solid #d1d5db;padding:8px">${request.notes || "-"}</td></tr>
       </table>
+      ${
+        partRows.length > 0
+          ? `<h3 style="margin:18px 0 8px">Rack Part Details</h3>
+             <table style="border-collapse:collapse;width:100%;max-width:680px">
+               <tr>
+                 <th style="border:1px solid #d1d5db;padding:8px;text-align:left">TU#</th>
+                 <th style="border:1px solid #d1d5db;padding:8px;text-align:left">Part Number</th>
+                 <th style="border:1px solid #d1d5db;padding:8px;text-align:left">Range</th>
+                 <th style="border:1px solid #d1d5db;padding:8px;text-align:left">Condition</th>
+                 <th style="border:1px solid #d1d5db;padding:8px;text-align:left">Joints</th>
+               </tr>
+               ${partRows
+                 .map(
+                   (line: any) => `<tr>
+                     <td style="border:1px solid #d1d5db;padding:8px">${line.afe || "-"}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${line.partNumber || "-"}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${line.pipeRange || "-"}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${line.condition || "-"}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${line.joints || 0}</td>
+                   </tr>`
+                 )
+                 .join("")}
+             </table>`
+          : ""
+      }
       <p><a href="${actionUrl}" style="display:inline-block;background:#f97316;color:#111827;text-decoration:none;font-weight:700;padding:12px 16px;border-radius:6px">Open TITAN</a></p>
       <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
         <strong>Pathfinder Inspections &amp; Field Services</strong><br />
@@ -240,6 +269,8 @@ export async function POST(request: Request) {
     const quantityJoints = Number(body.quantityJoints ?? 0);
     const signatureName = String(body.signatureName ?? "").trim();
     const notes = String(body.notes ?? "").trim();
+    const partSummary = String(body.partSummary ?? "").trim();
+    const partLines = Array.isArray(body.partLines) ? body.partLines : [];
 
     if (!access.profile.company_id) {
       return Response.json({ error: "Your login is not assigned to a customer company." }, { status: 400 });
@@ -284,6 +315,8 @@ export async function POST(request: Request) {
       company_name: company?.name ?? "Customer",
       yard_name: yard?.name ?? "Yard",
       rack_label: rack?.rack_code ?? body.rackLabel ?? "Rack",
+      part_summary: partSummary || null,
+      part_lines: partLines,
       quantity_joints: quantityJoints,
       notes: notes || null,
       signature_name: signatureName,
@@ -291,11 +324,23 @@ export async function POST(request: Request) {
       status: "Submitted",
     };
 
-    const { data: created, error: insertError } = await adminSupabase
+    let { data: created, error: insertError } = await adminSupabase
       .from("tubular_release_requests")
       .insert(releaseRecord)
       .select("*")
       .single();
+
+    if (insertError && /part_(summary|lines)/i.test(insertError.message ?? "")) {
+      const { part_summary, part_lines, ...legacyReleaseRecord } = releaseRecord;
+      const legacyResult = await adminSupabase
+        .from("tubular_release_requests")
+        .insert(legacyReleaseRecord)
+        .select("*")
+        .single();
+
+      created = legacyResult.data;
+      insertError = legacyResult.error;
+    }
 
     if (insertError || !created) {
       throw insertError ?? new Error("Release request could not be created.");

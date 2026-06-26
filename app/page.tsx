@@ -202,6 +202,8 @@ type TubularReleaseRequest = {
   yardName: string;
   rackLabel: string;
   quantityJoints: number;
+  partSummary: string;
+  partLines: any[];
   status: string;
   notes: string;
   signatureName: string;
@@ -1964,6 +1966,8 @@ export default function Home() {
           yardName: row.yard_name ?? "",
           rackLabel: row.rack_label ?? "",
           quantityJoints: Number(row.quantity_joints ?? 0),
+          partSummary: row.part_summary ?? "",
+          partLines: Array.isArray(row.part_lines) ? row.part_lines : [],
           status: row.status ?? "Submitted",
           notes: row.notes ?? "",
           signatureName: row.signature_name ?? "",
@@ -5521,7 +5525,17 @@ export default function Home() {
                     <div>
                       <span>Signed: {request.signatureName || "-"}</span>
                     </div>
+                    {request.partSummary && (
+                      <div>
+                        <span>Parts: {request.partSummary}</span>
+                      </div>
+                    )}
                     {request.notes && <p className="muted-text">{request.notes}</p>}
+                    <div className="customer-ticket-actions">
+                      <button className="button" onClick={() => (window.location.href = `/ticket-print?type=release&id=${request.id}`)}>
+                        Print / PDF
+                      </button>
+                    </div>
                   </article>
                 ))}
               </section>

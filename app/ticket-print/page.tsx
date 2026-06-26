@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type TicketType = "receiving" | "shipping" | "transfer";
+type TicketType = "receiving" | "shipping" | "transfer" | "release";
 
 type Ticket = {
   id: string;
@@ -32,6 +32,9 @@ type TicketLine = {
   id: string;
   afe: string;
   partNumber: string;
+  size?: string;
+  grade?: string;
+  connection?: string;
   pipeRange: "Range 2" | "Range 3";
   condition: string;
   joints: number;
@@ -175,6 +178,99 @@ export default function TicketPrintPage() {
 
       if (!id) {
         setError("Missing ticket id.");
+        return;
+      }
+
+      if (type === "release") {
+        let query = supabase
+          .from("tubular_release_requests")
+          .select("*");
+
+        query = isUuid(id) ? query.eq("id", id) : query.eq("request_number", id);
+
+        const { data, error } = await query.single();
+
+        if (error) {
+          setError(error.message);
+          return;
+        }
+
+        let partLines = Array.isArray(data.part_lines) ? data.part_lines : [];
+
+        if (partLines.length === 0 && data.company_id && data.rack_id) {
+          const { data: inventoryRows } = await supabase
+            .from("pipe_inventory")
+            .select("afe, part_number, size, grade, connection, pipe_range, condition, bulk_joints, total_joints, bulk_footage, total_footage")
+            .eq("company_id", data.company_id)
+            .eq("rack_id", data.rack_id);
+
+          partLines = (inventoryRows ?? []).map((row: any) => {
+            const pipeRange = normalizePipeRange(row.pipe_range);
+            const joints = Number(row.total_joints ?? row.bulk_joints ?? 0);
+            const storedFootage = row.total_footage ?? row.bulk_footage;
+
+            return {
+              afe: row.afe ?? "",
+              partNumber: row.part_number ?? "",
+              size: row.size ?? "",
+              grade: row.grade ?? "",
+              connection: row.connection ?? "",
+              pipeRange,
+              condition: row.condition ?? "",
+              joints,
+              footage: storedFootage === null || storedFootage === undefined
+                ? calculateRangeFootage(joints, pipeRange)
+                : Number(storedFootage),
+            };
+          });
+        }
+
+        setTicket({
+          id: data.id,
+          type: "release",
+          ticketNumber: data.request_number ?? "",
+          bolNumber: "",
+          documentType: "",
+          company: data.company_name ?? "",
+          carrier: "",
+          poNumber: "",
+          truckNumber: "",
+          shipTo: "",
+          receivedFrom: data.yard_name ?? "",
+          destination: data.rack_label ?? "",
+          missingBoxProtectors: 0,
+          missingPinProtectors: 0,
+          pathfinderName: "",
+          pathfinderSignature: "",
+          carrierName: data.signature_name ?? "",
+          carrierSignature: data.signature_data ?? "",
+          notes: data.notes ?? "",
+          createdAt: data.created_at ?? "",
+        });
+
+        setLines(
+          partLines.map((line: any, index: number) => {
+            const pipeRange = normalizePipeRange(line.pipeRange ?? line.pipe_range);
+            const joints = Number(line.joints ?? line.total_joints ?? line.bulk_joints ?? 0);
+            const storedFootage = line.footage ?? line.total_footage ?? line.bulk_footage;
+
+            return {
+              id: `${data.id}-${index}`,
+              afe: line.afe ?? "",
+              partNumber: line.partNumber ?? line.part_number ?? "",
+              size: line.size ?? "",
+              grade: line.grade ?? "",
+              connection: line.connection ?? "",
+              pipeRange,
+              condition: line.condition ?? "",
+              joints,
+              footage: storedFootage === null || storedFootage === undefined
+                ? calculateRangeFootage(joints, pipeRange)
+                : Number(storedFootage),
+            };
+          })
+        );
+
         return;
       }
 
@@ -502,7 +598,9 @@ export default function TicketPrintPage() {
                 ? "Shipping Ticket / Bill of Lading"
                 : ticket.type === "transfer"
                   ? "Transfer Document"
-                  : "Receiving Ticket"}
+                  : ticket.type === "release"
+                    ? "Tubular Release Request"
+                    : "Receiving Ticket"}
             </h2>
             <p>{ticket.ticketNumber}</p>
             {ticket.type === "transfer" && (
@@ -522,30 +620,61 @@ export default function TicketPrintPage() {
         </div>
 
         <section className="ticket-info-grid">
-          <div>
-            <span>Company</span>
-            <strong>{ticket.company}</strong>
-          </div>
-          <div>
-            <span>Carrier</span>
-            <strong>{ticket.carrier || "-"}</strong>
-          </div>
-          <div>
-            <span>PO Number</span>
-            <strong>{ticket.poNumber || "-"}</strong>
-          </div>
-          <div>
-            <span>Truck Number</span>
-            <strong>{ticket.truckNumber || "-"}</strong>
-          </div>
-          <div>
-            <span>{ticket.type === "shipping" ? "Ship To" : ticket.type === "transfer" ? "From" : "Received From"}</span>
-            <strong>{ticket.type === "shipping" ? ticket.shipTo || "-" : ticket.receivedFrom || "-"}</strong>
-          </div>
-          <div>
-            <span>{ticket.type === "transfer" ? "To" : "Destination"}</span>
-            <strong>{ticket.destination || "-"}</strong>
-          </div>
+          {ticket.type === "release" ? (
+            <>
+              <div>
+                <span>Company</span>
+                <strong>{ticket.company}</strong>
+              </div>
+              <div>
+                <span>Yard</span>
+                <strong>{ticket.receivedFrom || "-"}</strong>
+              </div>
+              <div>
+                <span>Rack / Location</span>
+                <strong>{ticket.destination || "-"}</strong>
+              </div>
+              <div>
+                <span>Quantity Requested</span>
+                <strong>{formatNumber(totals.joints)} joints</strong>
+              </div>
+              <div>
+                <span>Signed By</span>
+                <strong>{ticket.carrierName || "-"}</strong>
+              </div>
+              <div>
+                <span>Status</span>
+                <strong>Submitted</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span>Company</span>
+                <strong>{ticket.company}</strong>
+              </div>
+              <div>
+                <span>Carrier</span>
+                <strong>{ticket.carrier || "-"}</strong>
+              </div>
+              <div>
+                <span>PO Number</span>
+                <strong>{ticket.poNumber || "-"}</strong>
+              </div>
+              <div>
+                <span>Truck Number</span>
+                <strong>{ticket.truckNumber || "-"}</strong>
+              </div>
+              <div>
+                <span>{ticket.type === "shipping" ? "Ship To" : ticket.type === "transfer" ? "From" : "Received From"}</span>
+                <strong>{ticket.type === "shipping" ? ticket.shipTo || "-" : ticket.receivedFrom || "-"}</strong>
+              </div>
+              <div>
+                <span>{ticket.type === "transfer" ? "To" : "Destination"}</span>
+                <strong>{ticket.destination || "-"}</strong>
+              </div>
+            </>
+          )}
         </section>
 
         {ticket.type === "receiving" && (
@@ -566,6 +695,13 @@ export default function TicketPrintPage() {
             <tr>
               <th>TU#</th>
               <th>Part Number</th>
+              {ticket.type === "release" && (
+                <>
+                  <th>Size</th>
+                  <th>Grade</th>
+                  <th>Connection</th>
+                </>
+              )}
               <th>Range</th>
               <th>Condition</th>
               <th>Joints</th>
@@ -577,6 +713,13 @@ export default function TicketPrintPage() {
               <tr key={line.id}>
                 <td>{line.afe}</td>
                 <td>{line.partNumber}</td>
+                {ticket.type === "release" && (
+                  <>
+                    <td>{line.size || "-"}</td>
+                    <td>{line.grade || "-"}</td>
+                    <td>{line.connection || "-"}</td>
+                  </>
+                )}
                 <td>{line.pipeRange}</td>
                 <td>{line.condition}</td>
                 <td>{formatNumber(line.joints)}</td>
@@ -584,7 +727,7 @@ export default function TicketPrintPage() {
               </tr>
             ))}
             <tr>
-              <td colSpan={4}>
+              <td colSpan={ticket.type === "release" ? 7 : 4}>
                 <strong>Totals</strong>
               </td>
               <td>
@@ -615,24 +758,26 @@ export default function TicketPrintPage() {
           </section>
         )}
 
-        <section className="signature-grid">
-          <div>
-            <span>
-              {ticket.pathfinderName && <strong className="printed-signer-name">{ticket.pathfinderName}</strong>}
-              {printSignatures.pathfinderSignature && (
-                <img src={printSignatures.pathfinderSignature} alt="Pathfinder Representative Signature" />
-              )}
-            </span>
-            <p>Pathfinder Representative</p>
-          </div>
+        <section className={`signature-grid ${ticket.type === "release" ? "signature-grid-single" : ""}`}>
+          {ticket.type !== "release" && (
+            <div>
+              <span>
+                {ticket.pathfinderName && <strong className="printed-signer-name">{ticket.pathfinderName}</strong>}
+                {printSignatures.pathfinderSignature && (
+                  <img src={printSignatures.pathfinderSignature} alt="Pathfinder Representative Signature" />
+                )}
+              </span>
+              <p>Pathfinder Representative</p>
+            </div>
+          )}
           <div>
             <span>
               {ticket.carrierName && <strong className="printed-signer-name">{ticket.carrierName}</strong>}
               {printSignatures.carrierSignature && (
-                <img src={printSignatures.carrierSignature} alt="Carrier / Driver Signature" />
+                <img src={printSignatures.carrierSignature} alt={ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"} />
               )}
             </span>
-            <p>Carrier / Driver Signature</p>
+            <p>{ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"}</p>
           </div>
         </section>
       </section>

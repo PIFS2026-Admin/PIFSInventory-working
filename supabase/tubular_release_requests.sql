@@ -10,6 +10,8 @@ create table if not exists public.tubular_release_requests (
   company_name text,
   yard_name text,
   rack_label text,
+  part_summary text,
+  part_lines jsonb not null default '[]'::jsonb,
   quantity_joints integer not null default 0 check (quantity_joints >= 0),
   notes text,
   signature_name text not null,
@@ -76,3 +78,9 @@ using (public.is_internal_user())
 with check (public.is_internal_user());
 
 grant select, insert, update on public.tubular_release_requests to authenticated;
+
+alter table public.tubular_release_requests
+  add column if not exists part_summary text;
+
+alter table public.tubular_release_requests
+  add column if not exists part_lines jsonb not null default '[]'::jsonb;

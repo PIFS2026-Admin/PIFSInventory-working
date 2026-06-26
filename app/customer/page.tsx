@@ -53,10 +53,32 @@ type CustomerReleaseRequest = {
   rackLabel: string;
   yardName: string;
   quantityJoints: number;
+  partSummary: string;
+  partLines: ReleasePartLine[];
   status: string;
   signatureName: string;
   notes: string;
   createdAt: string;
+};
+
+type ReleasePartLine = {
+  afe: string;
+  partNumber: string;
+  size: string;
+  grade: string;
+  connection: string;
+  pipeRange: "Range 2" | "Range 3";
+  condition: string;
+  joints: number;
+  footage: number;
+};
+
+type ReleaseRackOption = {
+  rackId: string;
+  yardId: string;
+  label: string;
+  joints: number;
+  partLines: ReleasePartLine[];
 };
 
 type ReleaseForm = {
@@ -89,6 +111,34 @@ function calculateRangeFootage(joints: number, pipeRange: string) {
 function csvValue(value: string | number) {
   const text = String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function summarizeReleasePartLines(lines: ReleasePartLine[]) {
+  const summaries = new Map<string, ReleasePartLine>();
+
+  for (const line of lines) {
+    const key = [
+      line.afe,
+      line.partNumber,
+      line.size,
+      line.grade,
+      line.connection,
+      line.pipeRange,
+      line.condition,
+    ].join("|");
+    const current = summaries.get(key);
+
+    if (current) {
+      current.joints += line.joints;
+      current.footage += line.footage;
+    } else {
+      summaries.set(key, { ...line });
+    }
+  }
+
+  return Array.from(summaries.values()).sort((a, b) =>
+    `${a.partNumber} ${a.afe}`.localeCompare(`${b.partNumber} ${b.afe}`)
+  );
 }
 
 export default function CustomerPage() {
@@ -272,6 +322,8 @@ export default function CustomerPage() {
             rackLabel: request.rack_label ?? "",
             yardName: request.yard_name ?? "",
             quantityJoints: Number(request.quantity_joints ?? 0),
+            partSummary: request.part_summary ?? "",
+            partLines: Array.isArray(request.part_lines) ? request.part_lines : [],
             status: request.status ?? "Submitted",
             signatureName: request.signature_name ?? "",
             notes: request.notes ?? "",
@@ -310,7 +362,7 @@ export default function CustomerPage() {
   }, [inventory]);
 
   const releaseRackOptions = useMemo(() => {
-    const racks = new Map<string, { rackId: string; yardId: string; label: string; joints: number }>();
+    const racks = new Map<string, ReleaseRackOption>();
 
     for (const row of inventory) {
       if (!row.rackId || !row.yardId) continue;
@@ -320,14 +372,37 @@ export default function CustomerPage() {
         yardId: row.yardId,
         label: row.rack || row.location,
         joints: 0,
+        partLines: [],
       };
 
       current.joints += row.joints;
+      current.partLines.push({
+        afe: row.afe,
+        partNumber: row.partNumber,
+        size: row.size,
+        grade: row.grade,
+        connection: row.connection,
+        pipeRange: row.pipeRange,
+        condition: row.condition,
+        joints: row.joints,
+        footage: row.footage,
+      });
       racks.set(row.rackId, current);
     }
 
-    return Array.from(racks.values()).sort((a, b) => a.label.localeCompare(b.label));
+    return Array.from(racks.values())
+      .map((rack) => ({
+        ...rack,
+        partLines: summarizeReleasePartLines(rack.partLines),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [inventory]);
+
+  const selectedReleaseRack = useMemo(() => {
+    return releaseRackOptions.find((option) => option.rackId === releaseForm.rackId) ?? null;
+  }, [releaseForm.rackId, releaseRackOptions]);
+
+  const selectedReleasePartLines = selectedReleaseRack?.partLines ?? [];
 
   const filteredInventory = useMemo(() => {
     const searchText = search.toLowerCase().trim();
@@ -465,6 +540,8 @@ export default function CustomerPage() {
           rackId: rack.rackId,
           rackLabel: rack.label,
           quantityJoints,
+          partSummary: rack.partLines.map((line) => line.partNumber).filter(Boolean).join(", "),
+          partLines: rack.partLines,
           notes: releaseForm.notes,
           signatureName: releaseForm.signatureName,
         }),
@@ -513,6 +590,7 @@ export default function CustomerPage() {
 
         <div className="customer-actions">
           {profile && <NotificationCenter />}
+          <a className="button primary" href="#release-request">Release Request</a>
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>
           <button className="button" onClick={signOut}>Sign Out</button>
@@ -641,7 +719,7 @@ export default function CustomerPage() {
         </div>
       </section>
 
-      <section className="customer-section">
+      <section className="customer-section" id="release-request">
         <div className="section-heading">
           <div>
             <h2>Tubular Release Request</h2>
@@ -674,6 +752,47 @@ export default function CustomerPage() {
               onChange={(event) => setReleaseForm({ ...releaseForm, quantityJoints: event.target.value })}
             />
           </label>
+
+          {selectedReleaseRack && (
+            <div className="release-part-preview full">
+              <h3>Part Number Information</h3>
+              <p>
+                {selectedReleaseRack.label} / {selectedReleaseRack.joints} joints available
+              </p>
+              <div className="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>TU#</th>
+                      <th>Part Number</th>
+                      <th>Size</th>
+                      <th>Grade</th>
+                      <th>Connection</th>
+                      <th>Range</th>
+                      <th>Condition</th>
+                      <th>Joints</th>
+                      <th>Footage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedReleasePartLines.map((line, index) => (
+                      <tr key={`${line.afe}-${line.partNumber}-${index}`}>
+                        <td>{line.afe || "-"}</td>
+                        <td>{line.partNumber || "-"}</td>
+                        <td>{line.size || "-"}</td>
+                        <td>{line.grade || "-"}</td>
+                        <td>{line.connection || "-"}</td>
+                        <td>{line.pipeRange}</td>
+                        <td>{line.condition || "-"}</td>
+                        <td>{line.joints}</td>
+                        <td>{line.footage.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <label>
             Signature Name
@@ -726,11 +845,21 @@ export default function CustomerPage() {
                   <span>Status: {request.status}</span>
                   <span>Signed by {request.signatureName}</span>
                 </div>
+                {request.partSummary && (
+                  <div>
+                    <span>Parts: {request.partSummary}</span>
+                  </div>
+                )}
                 {request.notes && (
                   <div>
                     <span>{request.notes}</span>
                   </div>
                 )}
+              </div>
+              <div className="customer-ticket-actions">
+                <button className="button" onClick={() => (window.location.href = `/ticket-print?type=release&id=${request.id}`)}>
+                  Print / PDF
+                </button>
               </div>
             </article>
           ))}
