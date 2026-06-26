@@ -575,6 +575,31 @@ export default function CustomerPage() {
       return;
     }
 
+    if (!releaseForm.releaseDate) {
+      setMessage("Release date is required.");
+      return;
+    }
+
+    if (!releaseForm.releasedTo.trim()) {
+      setMessage("Released to is required.");
+      return;
+    }
+
+    if (!releaseForm.shipDate) {
+      setMessage("Ship date is required.");
+      return;
+    }
+
+    if (!releaseForm.carrier.trim()) {
+      setMessage("Carrier is required.");
+      return;
+    }
+
+    if (!releaseForm.destination.trim()) {
+      setMessage("Destination is required.");
+      return;
+    }
+
     if (!releaseForm.signatureName.trim()) {
       setMessage("Type your name to sign the release request.");
       return;

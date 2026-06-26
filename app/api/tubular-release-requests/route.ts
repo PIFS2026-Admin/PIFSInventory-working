@@ -355,6 +355,13 @@ export async function POST(request: Request) {
       return Response.json({ error: "Printed signature name is required." }, { status: 400 });
     }
 
+    if (!releaseDate || !releasedTo || !shipDate || !carrier || !destination) {
+      return Response.json(
+        { error: "Release date, released to, ship date, carrier, and destination are required." },
+        { status: 400 }
+      );
+    }
+
     if (partLines.length === 0) {
       return Response.json({ error: "No pipe details were included for this release request." }, { status: 400 });
     }
@@ -407,33 +414,36 @@ export async function POST(request: Request) {
       .single();
 
     if (insertError && /(part_(summary|lines)|release_date|released_to|ship_date|carrier|destination)/i.test(insertError.message ?? "")) {
-      const {
-        part_summary,
-        part_lines,
-        release_date,
-        released_to,
-        ship_date,
-        carrier: releaseCarrier,
-        destination: releaseDestination,
-        ...legacyReleaseRecord
-      } = releaseRecord;
-      const legacyResult = await adminSupabase
-        .from("tubular_release_requests")
-        .insert(legacyReleaseRecord)
-        .select("*")
-        .single();
-
-      created = legacyResult.data;
-      insertError = legacyResult.error;
+      return Response.json(
+        {
+          error:
+            "Tubular release request detail columns are missing. Run supabase/tubular_release_requests.sql in Supabase SQL Editor, then submit again.",
+        },
+        { status: 500 }
+      );
     }
 
     if (insertError || !created) {
       throw insertError ?? new Error("Release request could not be created.");
     }
 
-    const title = `Tubular release request ${created.request_number}`;
-    const releaseDestinationText = created.destination || created.released_to;
-    const notificationBody = `${created.company_name} requested release of ${created.quantity_joints} joints from ${created.rack_label}${releaseDestinationText ? ` to ${releaseDestinationText}` : ""}.`;
+    const displayRequest = {
+      ...created,
+      part_summary: created.part_summary ?? releaseRecord.part_summary,
+      part_lines:
+        Array.isArray(created.part_lines) && created.part_lines.length > 0
+          ? created.part_lines
+          : releaseRecord.part_lines,
+      release_date: created.release_date ?? releaseRecord.release_date,
+      released_to: created.released_to ?? releaseRecord.released_to,
+      ship_date: created.ship_date ?? releaseRecord.ship_date,
+      carrier: created.carrier ?? releaseRecord.carrier,
+      destination: created.destination ?? releaseRecord.destination,
+    };
+
+    const title = `Tubular release request ${displayRequest.request_number}`;
+    const releaseDestinationText = displayRequest.destination || displayRequest.released_to;
+    const notificationBody = `${displayRequest.company_name} requested release of ${displayRequest.quantity_joints} joints from ${displayRequest.rack_label}${releaseDestinationText ? ` to ${releaseDestinationText}` : ""}.`;
 
     await adminSupabase.from("notifications").insert({
       audience: "internal",
@@ -461,18 +471,18 @@ export async function POST(request: Request) {
     try {
       emailSent = await sendMicrosoftEmail({
         to: userEmails,
-        subject: `TITAN ${created.request_number}: Tubular Release Request`,
-        html: buildReleaseEmailHtml(created),
+        subject: `TITAN ${displayRequest.request_number}: Tubular Release Request`,
+        html: buildReleaseEmailHtml(displayRequest),
       });
     } catch (emailError: any) {
       return Response.json({
-        request: created,
+        request: displayRequest,
         emailSent: false,
         warning: `Release request saved, but email failed: ${getErrorMessage(emailError)}`,
       });
     }
 
-    return Response.json({ request: created, emailSent });
+    return Response.json({ request: displayRequest, emailSent });
   } catch (error: any) {
     return Response.json({ error: getErrorMessage(error) }, { status: 500 });
   }
