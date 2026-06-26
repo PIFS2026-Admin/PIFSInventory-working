@@ -3267,41 +3267,102 @@ export default function Home() {
       const createdInventoryIds: string[] = [];
       const ticketLineItems = [];
 
-      for (const line of cleanTruckLines) {
-        const { data: inventoryLine, error: inventoryError } = await supabase
-          .from("pipe_inventory")
-          .insert({
-            company_id: companyId,
-            yard_id: selectedYard.id,
-            rack_id: rack?.id ?? null,
-            workflow_zone_id: zone?.id ?? null,
-            afe: receiveForm.afe || null,
-            operator: receiveForm.operator || null,
-            rig: receiveForm.rig || null,
-            part_number: receiveForm.partNumber,
-            size: receiveForm.size || null,
-            grade: receiveForm.grade || null,
-            connection: receiveForm.connection || null,
-            pipe_range: receiveForm.pipeRange,
-            condition: receiveForm.condition || "New",
-            status: receiveForm.status || "Received",
-            inspection_color: "None",
-            inspection_due_date: receiveForm.inspectionDue || null,
-            bulk_joints: line.joints,
-            bulk_footage: line.footage,
-            tallied_joints: 0,
-            tallied_footage: 0,
-          })
-          .select("id")
-          .single();
+      const applyNullableFilter = (query: any, column: string, value: string | null | undefined) => {
+        const cleaned = (value || "").trim();
+        return cleaned ? query.eq(column, cleaned) : query.is(column, null);
+      };
 
-        if (inventoryError) throw inventoryError;
-        if (!inventoryLine?.id) throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
-        createdInventoryIds.push(inventoryLine.id);
+      for (const line of cleanTruckLines) {
+        let existingInventoryQuery: any = supabase
+          .from("pipe_inventory")
+          .select("id, bulk_joints, bulk_footage")
+          .eq("company_id", companyId)
+          .eq("yard_id", selectedYard.id)
+          .eq("part_number", receiveForm.partNumber)
+          .eq("pipe_range", receiveForm.pipeRange)
+          .eq("condition", receiveForm.condition || "New")
+          .eq("status", receiveForm.status || "Received")
+          .order("created_at", { ascending: true })
+          .limit(1);
+
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "afe", receiveForm.afe);
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "operator", receiveForm.operator);
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "rig", receiveForm.rig);
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "size", receiveForm.size);
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "grade", receiveForm.grade);
+        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "connection", receiveForm.connection);
+
+        if (rack?.id) {
+          existingInventoryQuery = existingInventoryQuery.eq("rack_id", rack.id).is("workflow_zone_id", null);
+        } else if (zone?.id) {
+          existingInventoryQuery = existingInventoryQuery.eq("workflow_zone_id", zone.id).is("rack_id", null);
+        } else {
+          existingInventoryQuery = existingInventoryQuery.is("rack_id", null).is("workflow_zone_id", null);
+        }
+
+        const { data: existingInventory, error: existingInventoryError } = await existingInventoryQuery;
+        if (existingInventoryError) throw existingInventoryError;
+
+        const existingLine = Array.isArray(existingInventory) ? existingInventory[0] : null;
+        let inventoryLineId = existingLine?.id as string | undefined;
+
+        if (inventoryLineId) {
+          const nextJoints = Number(existingLine?.bulk_joints || 0) + line.joints;
+          const nextFootage = Number(existingLine?.bulk_footage || 0) + line.footage;
+          const { error: mergeError } = await supabase
+            .from("pipe_inventory")
+            .update({
+              bulk_joints: nextJoints,
+              bulk_footage: nextFootage,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", inventoryLineId);
+
+          if (mergeError) throw mergeError;
+        } else {
+          const { data: inventoryLine, error: inventoryError } = await supabase
+            .from("pipe_inventory")
+            .insert({
+              company_id: companyId,
+              yard_id: selectedYard.id,
+              rack_id: rack?.id ?? null,
+              workflow_zone_id: zone?.id ?? null,
+              afe: receiveForm.afe || null,
+              operator: receiveForm.operator || null,
+              rig: receiveForm.rig || null,
+              part_number: receiveForm.partNumber,
+              size: receiveForm.size || null,
+              grade: receiveForm.grade || null,
+              connection: receiveForm.connection || null,
+              pipe_range: receiveForm.pipeRange,
+              condition: receiveForm.condition || "New",
+              status: receiveForm.status || "Received",
+              inspection_color: "None",
+              inspection_due_date: receiveForm.inspectionDue || null,
+              bulk_joints: line.joints,
+              bulk_footage: line.footage,
+              tallied_joints: 0,
+              tallied_footage: 0,
+            })
+            .select("id")
+            .single();
+
+          if (inventoryError) throw inventoryError;
+          if (!inventoryLine?.id) throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
+          inventoryLineId = inventoryLine.id;
+        }
+
+        if (!inventoryLineId) {
+          throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
+        }
+
+        const savedInventoryLineId = inventoryLineId;
+
+        createdInventoryIds.push(savedInventoryLineId);
 
         ticketLineItems.push({
           receiving_ticket_id: receivingTicketId,
-          pipe_inventory_id: inventoryLine.id,
+          pipe_inventory_id: savedInventoryLineId,
           company_id: companyId,
           part_number: receiveForm.partNumber,
           afe: receiveForm.afe || null,
@@ -3315,7 +3376,7 @@ export default function Home() {
         });
 
         await supabase.from("pipe_transactions").insert({
-          pipe_inventory_id: inventoryLine.id,
+          pipe_inventory_id: savedInventoryLineId,
           company_id: companyId,
           yard_id: selectedYard.id,
           transaction_type: "receive",

@@ -40,6 +40,12 @@ type SummaryLine = {
   lines: number;
 };
 
+type YardOption = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 const today = new Date();
 
 function formatDate(value: string) {
@@ -79,6 +85,8 @@ function addToSummary(map: Map<string, SummaryLine>, label: string, joints: numb
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [yardOptions, setYardOptions] = useState<YardOption[]>([]);
+  const [selectedYardId, setSelectedYardId] = useState("");
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +98,45 @@ export default function DashboardPage() {
     window.location.href = "/login";
   }
 
+  async function loadYardOptions() {
+    setLoading(true);
+    setMessage("Loading employee dashboard...");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const response = await fetch("/api/yard-options", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setMessage(result?.error || "Yard access could not be loaded.");
+      setLoading(false);
+      return;
+    }
+
+    const yards = (result?.yards ?? []) as YardOption[];
+    setYardOptions(yards);
+
+    const savedYardId = window.localStorage.getItem("titan_dashboard_yard_id") || "";
+    const nextYardId = yards.some((yard) => yard.id === savedYardId) ? savedYardId : yards[0]?.id || "";
+    setSelectedYardId(nextYardId);
+
+    if (!nextYardId) {
+      setMessage("No dashboard yard access was found for this user.");
+      setLoading(false);
+    }
+  }
+
   async function loadDashboard() {
+    if (!selectedYardId) return;
+
     setLoading(true);
     setMessage("Loading employee dashboard...");
 
@@ -119,11 +165,6 @@ export default function DashboardPage() {
       return;
     }
 
-    if (profileData.role === "inventory_specialist" || profileData.role === "inventory_manager") {
-      window.location.href = "/home";
-      return;
-    }
-
     setProfile({
       fullName: profileData.full_name ?? "Team Member",
       role: profileData.role ?? "employee",
@@ -131,7 +172,7 @@ export default function DashboardPage() {
 
     const start = weekStart().toISOString();
 
-    const { data: transactionData, error: transactionError } = await supabase
+    const transactionQuery = supabase
       .from("pipe_transactions")
       .select(`
         id,
@@ -144,9 +185,12 @@ export default function DashboardPage() {
         created_at,
         companies(name)
       `)
+      .eq("yard_id", selectedYardId)
       .gte("created_at", start)
       .order("created_at", { ascending: false })
       .limit(300);
+
+    const { data: transactionData, error: transactionError } = await transactionQuery;
 
     if (transactionError) {
       setMessage(`Weekly transactions failed: ${transactionError.message}`);
@@ -154,7 +198,7 @@ export default function DashboardPage() {
       return;
     }
 
-    const { data: inventoryData, error: inventoryError } = await supabase
+    const inventoryQuery = supabase
       .from("pipe_inventory")
       .select(`
         id,
@@ -167,9 +211,12 @@ export default function DashboardPage() {
         racks(rack_code),
         workflow_zones(name, code)
       `)
+      .eq("yard_id", selectedYardId)
       .neq("status", "Shipped")
       .order("created_at", { ascending: false })
       .limit(1000);
+
+    const { data: inventoryData, error: inventoryError } = await inventoryQuery;
 
     if (inventoryError) {
       setMessage(`Inventory dashboard failed: ${inventoryError.message}`);
@@ -222,8 +269,12 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    loadDashboard();
+    loadYardOptions();
   }, []);
+
+  useEffect(() => {
+    if (selectedYardId) loadDashboard();
+  }, [selectedYardId]);
 
   const metrics = useMemo(() => {
     const received = transactions.filter((item) => item.type === "receive");
@@ -284,6 +335,22 @@ export default function DashboardPage() {
           </div>
         </button>
         <div className="dashboard-actions">
+          {yardOptions.length > 0 && (
+            <select
+              className="filter-select dashboard-yard-select"
+              value={selectedYardId}
+              onChange={(event) => {
+                setSelectedYardId(event.target.value);
+                window.localStorage.setItem("titan_dashboard_yard_id", event.target.value);
+              }}
+            >
+              {yardOptions.map((yard) => (
+                <option key={yard.id} value={yard.id}>
+                  {yard.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
           {(profile?.role === "admin" || profile?.role === "employee") && (
             <button className="button" onClick={() => (window.location.href = "/admin")}>Admin</button>

@@ -20,7 +20,7 @@ type Company = {
 type Profile = {
   id: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector" | "inventory_specialist" | "inventory_manager";
+  role: UserRole;
   companyId: string;
   companyName: string;
 };
@@ -95,9 +95,25 @@ type AdminUserForm = {
   email: string;
   password: string;
   fullName: string;
-  role: "admin" | "employee" | "customer" | "operator" | "sales" | "dti_superintendent" | "dti_inspector" | "inventory_specialist" | "inventory_manager";
+  role: UserRole;
   companyId: string;
 };
+
+type UserRole =
+  | "admin"
+  | "employee"
+  | "customer"
+  | "operator"
+  | "sales"
+  | "service_line_manager"
+  | "dti_superintendent"
+  | "dti_lead"
+  | "dti_inspector"
+  | "level_2_inspector"
+  | "hardband_lead"
+  | "cdt_lead"
+  | "inventory_specialist"
+  | "inventory_manager";
 
 const emptyUserForm: AdminUserForm = {
   email: "",
@@ -115,7 +131,18 @@ const emptyCompanyForm = {
 const companyLogoBucket = "company-logos";
 
 const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
-const inventoryYardAssignableRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
+const inventoryYardAssignableRoles: UserRole[] = [
+  "admin",
+  "employee",
+  "service_line_manager",
+  "dti_superintendent",
+  "dti_lead",
+  "level_2_inspector",
+  "hardband_lead",
+  "cdt_lead",
+  "inventory_specialist",
+  "inventory_manager",
+];
 const inventoryYardSetupMessage =
   "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.";
 const modulePermissionSetupMessage =
@@ -1578,8 +1605,13 @@ export default function AdminPage() {
             >
               <option value="customer">Customer</option>
               <option value="sales">Sales</option>
+              <option value="service_line_manager">Service Line Manager</option>
               <option value="dti_superintendent">DTI Superintendent</option>
+              <option value="dti_lead">DTI Lead</option>
               <option value="dti_inspector">DTI Inspector</option>
+              <option value="level_2_inspector">Level 2 Inspector</option>
+              <option value="hardband_lead">Hardband Lead</option>
+              <option value="cdt_lead">CDT Lead</option>
               <option value="inventory_specialist">Inventory Specialist</option>
               <option value="inventory_manager">Inventory Manager</option>
               <option value="operator">Hardband Operator</option>
@@ -2095,8 +2127,13 @@ export default function AdminPage() {
                     >
                       <option value="customer">Customer</option>
                       <option value="sales">Sales</option>
+                      <option value="service_line_manager">Service Line Manager</option>
                       <option value="dti_superintendent">DTI Superintendent</option>
+                      <option value="dti_lead">DTI Lead</option>
                       <option value="dti_inspector">DTI Inspector</option>
+                      <option value="level_2_inspector">Level 2 Inspector</option>
+                      <option value="hardband_lead">Hardband Lead</option>
+                      <option value="cdt_lead">CDT Lead</option>
                       <option value="inventory_specialist">Inventory Specialist</option>
                       <option value="inventory_manager">Inventory Manager</option>
                       <option value="operator">Hardband Operator</option>
@@ -2116,7 +2153,7 @@ export default function AdminPage() {
                         ))}
                       </select>
                     )}
-                    {["admin", "employee", "inventory_specialist", "inventory_manager"].includes(profile.role) && (
+                    {canAssignInventoryYards(profile.role) && (
                       <button className="button" onClick={() => openYardAccess(profile.id)}>
                         Yards
                       </button>

@@ -97,6 +97,32 @@ type IssueCartLine = {
   lineValue: number;
 };
 
+type InventoryOrder = {
+  id: string;
+  orderNumber: string;
+  orderDate: string;
+  requestedBy: string;
+  department: string;
+  unitTruck: string;
+  jobNumber: string;
+  totalValue: number;
+  status: string;
+  notes: string;
+};
+
+type InventoryOrderLine = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  qtyRequested: number;
+  qtyFulfilled: number;
+  unitCost: number;
+  lineValue: number;
+};
+
 type ItemForm = {
   id: string;
   itemCode: string;
@@ -123,7 +149,16 @@ type IssueForm = {
   notes: string;
 };
 
-type InventoryModuleView = "dashboard" | "counter" | "items" | "tickets" | "vendors";
+type OrderForm = {
+  requestedBy: string;
+  department: string;
+  unitTruck: string;
+  jobNumber: string;
+  notes: string;
+  emailTo: string;
+};
+
+type InventoryModuleView = "dashboard" | "counter" | "orders" | "items" | "tickets" | "vendors";
 
 type VendorForm = {
   id: string;
@@ -178,7 +213,29 @@ const emptyIssueForm: IssueForm = {
   notes: "",
 };
 
-const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
+const emptyOrderForm: OrderForm = {
+  requestedBy: "",
+  department: "",
+  unitTruck: "",
+  jobNumber: "",
+  notes: "",
+  emailTo: "",
+};
+
+const inventoryFullRoles = ["admin", "inventory_specialist", "inventory_manager"];
+const inventoryOrderRoles = [
+  "admin",
+  "inventory_specialist",
+  "inventory_manager",
+  "service_line_manager",
+  "dti_superintendent",
+  "dti_lead",
+  "level_2_inspector",
+  "hardband_lead",
+  "cdt_lead",
+  "employee",
+];
+const inventoryRoles = inventoryOrderRoles;
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
@@ -273,6 +330,8 @@ export default function InventoryModulePage() {
   const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
   const [tickets, setTickets] = useState<IssueTicket[]>([]);
   const [ticketLines, setTicketLines] = useState<IssueTicketLine[]>([]);
+  const [orders, setOrders] = useState<InventoryOrder[]>([]);
+  const [orderLines, setOrderLines] = useState<InventoryOrderLine[]>([]);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -295,8 +354,12 @@ export default function InventoryModulePage() {
   const [issueForm, setIssueForm] = useState<IssueForm>(emptyIssueForm);
   const [scanInput, setScanInput] = useState("");
   const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
+  const [orderCart, setOrderCart] = useState<IssueCartLine[]>([]);
+  const [orderForm, setOrderForm] = useState<OrderForm>(emptyOrderForm);
   const [expandedTicketId, setExpandedTicketId] = useState("");
+  const [expandedOrderId, setExpandedOrderId] = useState("");
   const [emailingTicketId, setEmailingTicketId] = useState("");
+  const [emailingOrderId, setEmailingOrderId] = useState("");
   const [cameraScanMessage, setCameraScanMessage] = useState("");
   const [cameraScanning, setCameraScanning] = useState(false);
   const scanFieldRef = useRef<HTMLInputElement | null>(null);
@@ -306,6 +369,8 @@ export default function InventoryModulePage() {
   const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
 
   const canUseInventory = inventoryRoles.includes(role);
+  const canManageInventory = inventoryFullRoles.includes(role);
+  const canPlaceInventoryOrders = inventoryOrderRoles.includes(role);
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
   const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
 
@@ -377,6 +442,14 @@ export default function InventoryModulePage() {
   const cartValue = useMemo(
     () => issueCart.reduce((sum, line) => sum + line.lineValue, 0),
     [issueCart],
+  );
+  const orderQuantity = useMemo(
+    () => orderCart.reduce((sum, line) => sum + line.quantity, 0),
+    [orderCart],
+  );
+  const orderValue = useMemo(
+    () => orderCart.reduce((sum, line) => sum + line.lineValue, 0),
+    [orderCart],
   );
   const weekStart = useMemo(() => {
     const start = new Date();
@@ -511,6 +584,7 @@ export default function InventoryModulePage() {
   async function reloadInventoryData(yardId = selectedInventoryYardId) {
     setSelectedItemId("");
     setIssueCart([]);
+    setOrderCart([]);
     const yard = inventoryYards.find((candidate) => candidate.id === yardId);
     if (yard && yard.code !== defaultInventoryYardCode && !inventoryYardScopedTablesEnabled) {
       setVendors([]);
@@ -518,6 +592,8 @@ export default function InventoryModulePage() {
       setTransactions([]);
       setTickets([]);
       setTicketLines([]);
+      setOrders([]);
+      setOrderLines([]);
       return;
     }
     await Promise.all([
@@ -526,6 +602,8 @@ export default function InventoryModulePage() {
       loadTransactions(yardId),
       loadTickets(yardId),
       loadIssueTicketLines(yardId),
+      loadOrders(yardId),
+      loadOrderLines(yardId),
     ]);
   }
 
@@ -696,6 +774,73 @@ export default function InventoryModulePage() {
         lineValue: Number(row.line_value || 0),
         unitTruck: row.unit_truck || "",
         pickedBy: row.picked_by || "",
+      })),
+    );
+  }
+
+  async function loadOrders(yardId = selectedInventoryYardId) {
+    let query = supabase
+      .from("inventory_orders")
+      .select("*")
+      .order("order_date", { ascending: false })
+      .limit(75);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
+
+    if (error) {
+      setOrders([]);
+      if (!String(error.message || "").includes("schema cache")) {
+        setMessage(`Consumable orders failed: ${error.message}`);
+      }
+      return;
+    }
+
+    setOrders(
+      (data || []).map((row) => ({
+        id: row.id,
+        orderNumber: row.order_number || "",
+        orderDate: String(row.order_date || "").slice(0, 10),
+        requestedBy: row.requested_by || "",
+        department: row.department || "",
+        unitTruck: row.unit_truck || "",
+        jobNumber: row.job_number || "",
+        totalValue: Number(row.total_value || 0),
+        status: row.status || "Submitted",
+        notes: row.notes || "",
+      })),
+    );
+  }
+
+  async function loadOrderLines(yardId = selectedInventoryYardId) {
+    let query = supabase
+      .from("inventory_order_lines")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
+
+    if (error) {
+      setOrderLines([]);
+      if (!String(error.message || "").includes("schema cache")) {
+        setMessage(`Consumable order lines failed: ${error.message}`);
+      }
+      return;
+    }
+
+    setOrderLines(
+      (data || []).map((row) => ({
+        id: row.id,
+        orderId: row.order_id || "",
+        orderNumber: row.order_number || "",
+        itemId: row.item_id || "",
+        itemCode: row.item_code || "",
+        itemName: row.item_name || "",
+        qtyRequested: Number(row.qty_requested || 0),
+        qtyFulfilled: Number(row.qty_fulfilled || 0),
+        unitCost: Number(row.unit_cost || 0),
+        lineValue: Number(row.line_value || 0),
       })),
     );
   }
@@ -1211,6 +1356,368 @@ export default function InventoryModulePage() {
     setMessage("");
   }
 
+  function openOrder(item?: InventoryItem) {
+    const target = item || selectedItem;
+    setOrderForm((current) => ({ ...current, requestedBy: current.requestedBy || userName }));
+    if (target) addItemToOrderCart(target);
+    setActiveView("orders");
+  }
+
+  function addItemToOrderCart(item: InventoryItem, quantity = 1) {
+    if (!item.active) {
+      setMessage(`${item.itemCode} is inactive.`);
+      return;
+    }
+
+    setMessage("");
+    setOrderCart((current) => {
+      const existing = current.find((line) => line.itemId === item.id);
+      const nextQty = (existing?.quantity || 0) + quantity;
+      if (existing) {
+        return current.map((line) =>
+          line.itemId === item.id
+            ? { ...line, quantity: nextQty, lineValue: nextQty * line.unitPrice }
+            : line,
+        );
+      }
+      return current.concat({
+        itemId: item.id,
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        barcode: item.barcode,
+        location: item.location,
+        quantity,
+        qtyOnHand: item.qtyOnHand,
+        minQuantity: item.minQuantity,
+        unitPrice: item.unitPrice,
+        lineValue: quantity * item.unitPrice,
+      });
+    });
+  }
+
+  function addScannedItemToOrder() {
+    const item = findItemForCounter(scanInput);
+    if (!item) {
+      setMessage("No item matched that barcode, item ID, or search text.");
+      scanFieldRef.current?.focus();
+      return;
+    }
+    addItemToOrderCart(item);
+    setScanInput("");
+    setCameraScanMessage("");
+    window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+  }
+
+  function updateOrderCartQuantity(itemId: string, value: string) {
+    const qty = Math.max(0, Math.floor(numberValue(value)));
+    setOrderCart((current) =>
+      current
+        .map((line) => {
+          if (line.itemId !== itemId) return line;
+          return { ...line, quantity: qty, lineValue: qty * line.unitPrice };
+        })
+        .filter((line) => line.quantity > 0),
+    );
+  }
+
+  function removeOrderCartLine(itemId: string) {
+    setOrderCart((current) => current.filter((line) => line.itemId !== itemId));
+  }
+
+  function clearOrderCart() {
+    setOrderCart([]);
+    setScanInput("");
+    setMessage("");
+  }
+
+  async function saveInventoryOrder() {
+    if (orderCart.length === 0) {
+      setMessage("Add at least one item to the order cart.");
+      return;
+    }
+    if (!orderForm.requestedBy.trim()) {
+      setMessage("Requested By is required.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const orderNumber = `ORD-${todayStamp()}`;
+    const { data: order, error: orderError } = await supabase
+      .from("inventory_orders")
+      .insert({
+        ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+        order_number: orderNumber,
+        order_date: new Date().toISOString().slice(0, 10),
+        requested_by: orderForm.requestedBy,
+        department: orderForm.department || null,
+        unit_truck: orderForm.unitTruck || null,
+        job_number: orderForm.jobNumber || null,
+        total_value: orderValue,
+        status: "Submitted",
+        notes: orderForm.notes || null,
+      })
+      .select("id")
+      .single();
+
+    if (orderError || !order) {
+      setMessage(`Order failed: ${orderError?.message || "order was not created"}`);
+      setSaving(false);
+      return;
+    }
+
+    const linePayload = orderCart.map((line) => ({
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+      order_id: order.id,
+      order_number: orderNumber,
+      item_id: line.itemId,
+      item_code: line.itemCode,
+      item_name: line.itemName,
+      qty_requested: line.quantity,
+      qty_fulfilled: 0,
+      unit_cost: line.unitPrice,
+      line_value: line.lineValue,
+    }));
+
+    const { error: lineError } = await supabase.from("inventory_order_lines").insert(linePayload);
+    if (lineError) {
+      setMessage(`Order created, line items failed: ${lineError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (token) {
+      await fetch("/api/inventory-order-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ orderId: order.id, recipientEmail: orderForm.emailTo || undefined }),
+      }).catch(() => null);
+    }
+
+    setOrderForm({ ...emptyOrderForm, requestedBy: userName });
+    setOrderCart([]);
+    await Promise.all([loadOrders(selectedInventoryYardId), loadOrderLines(selectedInventoryYardId)]);
+    setExpandedOrderId(order.id);
+    setMessage(`Consumable order ${orderNumber} submitted.`);
+    setSaving(false);
+  }
+
+  function linesForOrder(order: InventoryOrder) {
+    return orderLines.filter((line) => line.orderId === order.id || line.orderNumber === order.orderNumber);
+  }
+
+  function orderHtml(order: InventoryOrder, lines: InventoryOrderLine[]) {
+    const totalQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
+    const totalValue = lines.reduce((sum, line) => sum + line.lineValue, 0);
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <title>${order.orderNumber}</title>
+          <style>
+            @page { size: letter; margin: 0.45in; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; background: #fff; }
+            .sheet { max-width: 980px; margin: 0 auto; }
+            .top { display: flex; justify-content: space-between; gap: 24px; border-bottom: 3px solid #f97316; padding-bottom: 18px; margin-bottom: 22px; }
+            .brand { display: flex; align-items: center; gap: 14px; }
+            .brand img { width: 150px; max-height: 80px; object-fit: contain; }
+            h1 { margin: 0 0 6px; font-size: 26px; }
+            h2 { margin: 0; font-size: 20px; }
+            .company { text-align: right; font-size: 13px; line-height: 1.35; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #cbd5e1; margin: 18px 0; }
+            .cell { border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; padding: 10px; min-height: 54px; }
+            .cell:nth-child(4n) { border-right: 0; }
+            .label { display: block; color: #64748b; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+            .value { font-size: 14px; font-weight: 800; }
+            table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 12px; }
+            th { background: #111827; color: #fff; text-align: left; padding: 8px; }
+            td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; }
+            .total td { font-weight: 800; }
+            .notes { border: 1px solid #cbd5e1; padding: 12px; margin-top: 18px; min-height: 80px; white-space: pre-wrap; }
+            .print-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 12px auto; max-width: 980px; }
+            .print-actions button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+            .primary { background: #f97316; color: #111827; }
+            .secondary { background: #111827; color: #fff; }
+            @media print { .print-actions { display: none; } body { background: #fff; } }
+          </style>
+        </head>
+        <body>
+          <div class="print-actions">
+            <button class="secondary" onclick="window.close()">Close</button>
+            <button class="primary" onclick="window.print()">Print / Save PDF</button>
+          </div>
+          <main class="sheet">
+            <section class="top">
+              <div class="brand">
+                <img src="/titan_logo.jpg" alt="TITAN" />
+                <div>
+                  <h1>Consumable Order</h1>
+                  <h2>${order.orderNumber}</h2>
+                </div>
+              </div>
+              <div class="company">
+                <strong>Pathfinder Inspections &amp; Field Services</strong><br />
+                7501 Groening St.<br />
+                Odessa, TX 79765<br />
+                (432) 233-3600<br />
+                pifstitan.com
+              </div>
+            </section>
+            <section class="grid">
+              <div class="cell"><span class="label">Date</span><span class="value">${order.orderDate || "-"}</span></div>
+              <div class="cell"><span class="label">Requested By</span><span class="value">${order.requestedBy || "-"}</span></div>
+              <div class="cell"><span class="label">Department</span><span class="value">${order.department || "-"}</span></div>
+              <div class="cell"><span class="label">Status</span><span class="value">${order.status || "Submitted"}</span></div>
+              <div class="cell"><span class="label">Unit / Truck</span><span class="value">${order.unitTruck || "-"}</span></div>
+              <div class="cell"><span class="label">Job Number</span><span class="value">${order.jobNumber || "-"}</span></div>
+              <div class="cell"><span class="label">Total Qty</span><span class="value">${totalQty.toLocaleString()}</span></div>
+              <div class="cell"><span class="label">Estimated Value</span><span class="value">${money(totalValue || order.totalValue)}</span></div>
+            </section>
+            <table>
+              <thead>
+                <tr><th>Item ID</th><th>Item Name</th><th>Qty Requested</th><th>Qty Fulfilled</th><th>Unit Cost</th><th>Line Value</th></tr>
+              </thead>
+              <tbody>
+                ${lines
+                  .map(
+                    (line) => `<tr>
+                      <td>${line.itemCode || "-"}</td>
+                      <td>${line.itemName || "-"}</td>
+                      <td>${line.qtyRequested.toLocaleString()}</td>
+                      <td>${line.qtyFulfilled.toLocaleString()}</td>
+                      <td>${money(line.unitCost)}</td>
+                      <td>${money(line.lineValue)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+                <tr class="total"><td colspan="2">Totals</td><td>${totalQty.toLocaleString()}</td><td></td><td></td><td>${money(totalValue || order.totalValue)}</td></tr>
+              </tbody>
+            </table>
+            <section class="notes"><strong>Notes</strong><br />${order.notes || "No notes."}</section>
+          </main>
+        </body>
+      </html>`;
+  }
+
+  function printOrder(order: InventoryOrder) {
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the order.");
+      return;
+    }
+    printWindow.document.write(orderHtml(order, linesForOrder(order)));
+    printWindow.document.close();
+  }
+
+  async function emailOrder(order: InventoryOrder) {
+    const recipientEmail = window.prompt("Email this consumable order to:", orderForm.emailTo || "");
+    if (!recipientEmail) return;
+
+    setEmailingOrderId(order.id);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Your login session expired. Sign in again before emailing.");
+      setEmailingOrderId("");
+      return;
+    }
+
+    const response = await fetch("/api/inventory-order-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ orderId: order.id, recipientEmail }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setMessage(`Email failed: ${result?.error || "Unknown error."}`);
+    } else {
+      setMessage(`Consumable order ${order.orderNumber} emailed to ${recipientEmail}.`);
+    }
+
+    setEmailingOrderId("");
+  }
+
+  async function fulfillOrder(order: InventoryOrder) {
+    if (!canManageInventory) return;
+    const lines = linesForOrder(order);
+    if (lines.length === 0) {
+      setMessage("No line items found for this order.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    for (const line of lines) {
+      const item = items.find((candidate) => candidate.id === line.itemId);
+      const qtyToFulfill = Math.max(0, line.qtyRequested - line.qtyFulfilled);
+      if (!item || qtyToFulfill <= 0) continue;
+      if (item.qtyOnHand < qtyToFulfill) {
+        setMessage(`${item.itemCode} does not have enough quantity to fulfill this order.`);
+        setSaving(false);
+        return;
+      }
+
+      const nextQty = item.qtyOnHand - qtyToFulfill;
+      const { error: itemError } = await supabase
+        .from("inventory_items")
+        .update({ qty_on_hand: nextQty, low_stock: nextQty <= item.minQuantity })
+        .eq("id", item.id);
+
+      if (itemError) {
+        setMessage(`Fulfillment failed for ${item.itemCode}: ${itemError.message}`);
+        setSaving(false);
+        return;
+      }
+
+      await supabase
+        .from("inventory_order_lines")
+        .update({ qty_fulfilled: line.qtyRequested, fulfilled_at: new Date().toISOString(), fulfilled_by: userName })
+        .eq("id", line.id);
+
+      await supabase.from("inventory_transactions").insert({
+        ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+        item_id: item.id,
+        item_code: item.itemCode,
+        transaction_type: "Order Fulfillment",
+        quantity: qtyToFulfill,
+        reference_type: "Consumable Order",
+        reference_number: order.orderNumber,
+        entered_by: userName,
+        notes: order.notes || null,
+        transaction_source: "TITAN Inventory",
+        quantity_direction: "Out",
+      });
+    }
+
+    await supabase
+      .from("inventory_orders")
+      .update({ status: "Fulfilled", fulfilled_at: new Date().toISOString(), fulfilled_by: userName })
+      .eq("id", order.id);
+
+    await Promise.all([
+      loadItems(selectedInventoryYardId),
+      loadTransactions(selectedInventoryYardId),
+      loadOrders(selectedInventoryYardId),
+      loadOrderLines(selectedInventoryYardId),
+    ]);
+    setMessage(`Consumable order ${order.orderNumber} fulfilled.`);
+    setSaving(false);
+  }
+
   async function saveIssueTicket() {
     if (issueCart.length === 0) {
       setMessage("Add at least one item to the issue cart.");
@@ -1535,11 +2042,18 @@ export default function InventoryModulePage() {
           <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
           <button className="button" onClick={() => window.print()}>Print</button>
           <button className="button" onClick={exportInventory}>Export CSV</button>
-          <button className="button" onClick={() => openManualReceive()}>Receive Stock</button>
-          <button className="button" onClick={() => openPriceAdjust()}>Adjust Price</button>
-          <button className="button" onClick={() => openIssue()}>Issue Inventory</button>
-          <button className="button" onClick={openNewVendor}>Add Vendor</button>
-          <button className="button primary" onClick={openNewItem}>Add Item</button>
+          {canPlaceInventoryOrders && (
+            <button className="button primary" onClick={() => openOrder()}>Order Consumables</button>
+          )}
+          {canManageInventory && (
+            <>
+              <button className="button" onClick={() => openManualReceive()}>Receive Stock</button>
+              <button className="button" onClick={() => openPriceAdjust()}>Adjust Price</button>
+              <button className="button" onClick={() => openIssue()}>Issue Inventory</button>
+              <button className="button" onClick={openNewVendor}>Add Vendor</button>
+              <button className="button primary" onClick={openNewItem}>Add Item</button>
+            </>
+          )}
         </div>
       </section>
 
@@ -1569,18 +2083,18 @@ export default function InventoryModulePage() {
       </section>
 
       <section className="module-tabs no-print">
-        {[
+        {([
           ["dashboard", "Dashboard"],
-          ["counter", "Issue Counter"],
+          ...(canPlaceInventoryOrders ? [["orders", "Orders"]] : []),
+          ...(canManageInventory ? [["counter", "Pick List"]] : []),
           ["items", "Items"],
-          ["tickets", "Issue Tickets"],
-          ["vendors", "Vendors"],
-        ].map(([view, label]) => (
+          ...(canManageInventory ? [["tickets", "Issue Tickets"], ["vendors", "Vendors"]] : []),
+        ] as Array<[InventoryModuleView, string]>).map(([view, label]) => (
           <button
             key={view}
             className={`button ${activeView === view ? "primary" : ""}`}
             type="button"
-            onClick={() => setActiveView(view as InventoryModuleView)}
+            onClick={() => setActiveView(view)}
           >
             {label}
           </button>
@@ -1623,12 +2137,173 @@ export default function InventoryModulePage() {
         </section>
       )}
 
+      {activeView === "orders" && (
+        <section className="inventory-dashboard no-print">
+          <article className="ticket-card pos-card">
+            <div className="detail-title-row">
+              <div>
+                <h3>Consumable Order Cart</h3>
+                <p className="muted-text">Scan a barcode, enter an item ID, or search by item name. Inventory is not reduced until an inventory manager or specialist fulfills the order.</p>
+              </div>
+              <div className="pos-total">
+                <strong>{orderQuantity.toLocaleString()}</strong>
+                <span>items requested / {money(orderValue)}</span>
+              </div>
+            </div>
+
+            <div className="pos-scan-row">
+              <input
+                ref={scanFieldRef}
+                className="field scan-field"
+                value={scanInput}
+                onChange={(event) => setScanInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addScannedItemToOrder();
+                  }
+                }}
+                placeholder="Scan barcode or type item ID"
+                autoComplete="off"
+              />
+              <button className="button primary" onClick={addScannedItemToOrder}>Add to Order</button>
+              <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear</button>
+            </div>
+
+            {orderCart.length === 0 ? (
+              <div className="empty-pos-cart">
+                <strong>No items in order cart.</strong>
+                <span>Select Order from the item table or scan an item to begin.</span>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Description</th>
+                      <th>Barcode</th>
+                      <th>Location</th>
+                      <th>On Hand</th>
+                      <th>Request Qty</th>
+                      <th>Est. Value</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderCart.map((line) => (
+                      <tr key={line.itemId}>
+                        <td>{line.itemCode}</td>
+                        <td>{line.itemName}</td>
+                        <td>{line.barcode || "-"}</td>
+                        <td>{line.location || "-"}</td>
+                        <td>{line.qtyOnHand.toLocaleString()}</td>
+                        <td>
+                          <input
+                            className="qty-input"
+                            type="number"
+                            min="1"
+                            value={line.quantity}
+                            onChange={(event) => updateOrderCartQuantity(line.itemId, event.target.value)}
+                          />
+                        </td>
+                        <td>{money(line.lineValue)}</td>
+                        <td><button className="mini-button" onClick={() => removeOrderCartLine(line.itemId)}>Remove</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="form-grid">
+              <label>Requested By<input value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} /></label>
+              <label>Department<input value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="DTI, Hardband, CDT..." /></label>
+              <label>Unit / Truck<input value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} /></label>
+              <label>Job Number<input value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} /></label>
+              <label>Email To<input value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional extra recipient" /></label>
+              <label className="full">Notes<textarea value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} /></label>
+            </div>
+
+            <div className="slide-actions">
+              <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear Cart</button>
+              <button className="button primary" onClick={saveInventoryOrder} disabled={saving || orderCart.length === 0}>
+                {saving ? "Submitting..." : "Submit Consumable Order"}
+              </button>
+            </div>
+          </article>
+
+          <aside className="ticket-card stock-watch-card">
+            <h3>Consumable Orders</h3>
+            {orders.length === 0 && <p className="muted-text">No consumable orders found for this yard.</p>}
+            {orders.map((order) => {
+              const lines = linesForOrder(order);
+              const expanded = expandedOrderId === order.id;
+              const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
+              const fulfilledQty = lines.reduce((sum, line) => sum + line.qtyFulfilled, 0);
+
+              return (
+                <article className={`document-card ${expanded ? "open" : ""}`} key={order.id}>
+                  <button className="document-card-summary" type="button" onClick={() => setExpandedOrderId(expanded ? "" : order.id)}>
+                    <div>
+                      <strong>{order.orderNumber}</strong>
+                      <span>{order.requestedBy || "-"} / {order.department || "-"}</span>
+                      <small>{lines.length} lines / {requestedQty.toLocaleString()} requested / {money(order.totalValue)}</small>
+                    </div>
+                    <span className="document-status">{order.status || "Submitted"}</span>
+                  </button>
+                  {expanded && (
+                    <div className="document-card-detail">
+                      <div className="document-detail-grid">
+                        <span><strong>Order Date:</strong> {order.orderDate || "-"}</span>
+                        <span><strong>Unit / Truck:</strong> {order.unitTruck || "-"}</span>
+                        <span><strong>Job Number:</strong> {order.jobNumber || "-"}</span>
+                        <span><strong>Fulfilled:</strong> {fulfilledQty.toLocaleString()} / {requestedQty.toLocaleString()}</span>
+                      </div>
+                      <div className="table-wrap">
+                        <table className="document-line-table">
+                          <thead><tr><th>Item ID</th><th>Item Name</th><th>Requested</th><th>Fulfilled</th><th>Value</th></tr></thead>
+                          <tbody>
+                            {lines.length === 0 && <tr><td colSpan={5}>No line items found for this order.</td></tr>}
+                            {lines.map((line) => (
+                              <tr key={line.id}>
+                                <td>{line.itemCode || "-"}</td>
+                                <td>{line.itemName || "-"}</td>
+                                <td>{line.qtyRequested.toLocaleString()}</td>
+                                <td>{line.qtyFulfilled.toLocaleString()}</td>
+                                <td>{money(line.lineValue)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {order.notes && <p className="muted-text">{order.notes}</p>}
+                      <div className="document-actions">
+                        <button className="mini-button" type="button" onClick={() => printOrder(order)}>Print / PDF</button>
+                        <button className="mini-button" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
+                          {emailingOrderId === order.id ? "Emailing..." : "Email"}
+                        </button>
+                        {canManageInventory && (order.status || "").toLowerCase() !== "fulfilled" && (
+                          <button className="mini-button" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>
+                            Fulfill Order
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </aside>
+        </section>
+      )}
+
       {activeView === "counter" && (
       <section className="inventory-dashboard no-print">
         <article className="ticket-card pos-card">
           <div className="detail-title-row">
             <div>
-              <h3>Inventory Counter</h3>
+              <h3>Pick List</h3>
               <p className="muted-text">Scan a barcode, enter an item ID, or search by item name. Add several items, then create one issue ticket.</p>
             </div>
             <div className="pos-total">
@@ -1805,11 +2480,16 @@ export default function InventoryModulePage() {
                     </td>
                     <td className="row-actions no-print">
                       <button className="mini-button" onClick={() => setSelectedItemId(item.id)}>History</button>
-                      <button className="mini-button" onClick={() => openEditItem(item)}>Edit</button>
-                      <button className="mini-button" onClick={() => openAdjust(item)}>Adjust</button>
-                      <button className="mini-button" onClick={() => openManualReceive(item)}>Receive</button>
-                      <button className="mini-button" onClick={() => openPriceAdjust(item)}>Price</button>
-                      <button className="mini-button" onClick={() => openIssue(item)}>Issue</button>
+                      {canPlaceInventoryOrders && <button className="mini-button" onClick={() => openOrder(item)}>Order</button>}
+                      {canManageInventory && (
+                        <>
+                          <button className="mini-button" onClick={() => openEditItem(item)}>Edit</button>
+                          <button className="mini-button" onClick={() => openAdjust(item)}>Adjust</button>
+                          <button className="mini-button" onClick={() => openManualReceive(item)}>Receive</button>
+                          <button className="mini-button" onClick={() => openPriceAdjust(item)}>Price</button>
+                          <button className="mini-button" onClick={() => openIssue(item)}>Issue</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}

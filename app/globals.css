@@ -119,13 +119,17 @@ button {
 .button,
 .icon-button,
 .mini-button {
+  align-items: center;
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--text);
+  display: inline-flex;
+  justify-content: center;
   border-radius: 7px;
   min-height: 42px;
   padding: 0 12px;
   font-weight: 800;
+  text-align: center;
 }
 
 .button:hover,
