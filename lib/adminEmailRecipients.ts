@@ -16,15 +16,11 @@ export async function getProfileEmailsForRoles(adminClient: any, roles: string[]
 
   const { data: profiles } = await adminClient
     .from("profiles")
-    .select("id, email, role");
+    .select("id, role");
 
   for (const profile of profiles ?? []) {
     if (!roleSet.has(String(profile.role ?? "").toLowerCase())) continue;
-
-    const email = String(profile.email ?? "").trim();
-    if (email.includes("@")) {
-      emails.add(email);
-    } else if (profile.id) {
+    if (profile.id) {
       missingUserIds.push(profile.id);
     }
   }
@@ -81,15 +77,12 @@ export async function listNotificationRecipientsWithFallback(
       if (recipientIds.length > 0) {
         const { data: profiles } = await adminClient
           .from("profiles")
-          .select("id, email")
+          .select("id")
           .in("id", recipientIds);
 
         const missingUserIds: string[] = [];
         for (const profile of profiles ?? []) {
-          const email = String(profile.email ?? "").trim();
-          if (email.includes("@")) {
-            configuredEmails.push(email);
-          } else if (profile.id) {
+          if (profile.id) {
             missingUserIds.push(profile.id);
           }
         }

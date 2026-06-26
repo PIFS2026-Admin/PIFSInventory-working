@@ -84,15 +84,32 @@ async function listSettings(adminSupabase: ReturnType<typeof configuredSupabase>
 
   const { data: profiles, error: profileError } = await adminSupabase
     .from("profiles")
-    .select("id, full_name, email, role")
+    .select("id, full_name, role")
     .order("full_name", { ascending: true });
 
   if (profileError) throw profileError;
 
+  const emailById = new Map<string, string>();
+
+  for (let page = 1; page <= 10; page += 1) {
+    const { data: authUsers, error: authError } = await adminSupabase.auth.admin.listUsers({
+      page,
+      perPage: 1000,
+    });
+
+    if (authError) break;
+
+    for (const user of authUsers.users ?? []) {
+      if (user.id && user.email) emailById.set(user.id, user.email);
+    }
+
+    if ((authUsers.users ?? []).length < 1000) break;
+  }
+
   const users = (profiles ?? []).map((profile: any) => ({
     id: profile.id,
     full_name: profile.full_name ?? "",
-    email: profile.email ?? "",
+    email: emailById.get(profile.id) ?? "",
     role: profile.role ?? "",
   }));
 
