@@ -53,6 +53,11 @@ type CustomerReleaseRequest = {
   rackLabel: string;
   yardName: string;
   quantityJoints: number;
+  releaseDate: string;
+  releasedTo: string;
+  shipDate: string;
+  carrier: string;
+  destination: string;
   partSummary: string;
   partLines: ReleasePartLine[];
   status: string;
@@ -84,6 +89,11 @@ type ReleaseRackOption = {
 type ReleaseForm = {
   rackId: string;
   quantityJoints: string;
+  releaseDate: string;
+  releasedTo: string;
+  shipDate: string;
+  carrier: string;
+  destination: string;
   signatureName: string;
   notes: string;
 };
@@ -149,6 +159,11 @@ export default function CustomerPage() {
   const [releaseForm, setReleaseForm] = useState<ReleaseForm>({
     rackId: "",
     quantityJoints: "",
+    releaseDate: new Date().toISOString().slice(0, 10),
+    releasedTo: "",
+    shipDate: "",
+    carrier: "",
+    destination: "",
     signatureName: "",
     notes: "",
   });
@@ -322,6 +337,11 @@ export default function CustomerPage() {
             rackLabel: request.rack_label ?? "",
             yardName: request.yard_name ?? "",
             quantityJoints: Number(request.quantity_joints ?? 0),
+            releaseDate: formatDate(request.release_date ?? ""),
+            releasedTo: request.released_to ?? "",
+            shipDate: formatDate(request.ship_date ?? ""),
+            carrier: request.carrier ?? "",
+            destination: request.destination ?? "",
             partSummary: request.part_summary ?? "",
             partLines: Array.isArray(request.part_lines) ? request.part_lines : [],
             status: request.status ?? "Submitted",
@@ -540,6 +560,11 @@ export default function CustomerPage() {
           rackId: rack.rackId,
           rackLabel: rack.label,
           quantityJoints,
+          releaseDate: releaseForm.releaseDate,
+          releasedTo: releaseForm.releasedTo,
+          shipDate: releaseForm.shipDate,
+          carrier: releaseForm.carrier,
+          destination: releaseForm.destination,
           partSummary: rack.partLines.map((line) => line.partNumber).filter(Boolean).join(", "),
           partLines: rack.partLines,
           notes: releaseForm.notes,
@@ -553,7 +578,17 @@ export default function CustomerPage() {
         throw new Error(result?.error ?? "Release request could not be submitted.");
       }
 
-      setReleaseForm({ rackId: "", quantityJoints: "", signatureName: "", notes: "" });
+      setReleaseForm({
+        rackId: "",
+        quantityJoints: "",
+        releaseDate: new Date().toISOString().slice(0, 10),
+        releasedTo: "",
+        shipDate: "",
+        carrier: "",
+        destination: "",
+        signatureName: "",
+        notes: "",
+      });
       await loadCustomerPortal();
       setMessage(result?.warning ?? `Release request ${result?.request?.request_number ?? ""} submitted.`);
     } catch (error: any) {
@@ -590,7 +625,7 @@ export default function CustomerPage() {
 
         <div className="customer-actions">
           {profile && <NotificationCenter />}
-          <a className="button primary" href="#release-request">Release Request</a>
+          <a className="button primary customer-release-button" href="#release-request">Release Request</a>
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>
           <button className="button" onClick={signOut}>Sign Out</button>
@@ -753,6 +788,51 @@ export default function CustomerPage() {
             />
           </label>
 
+          <label>
+            Release Date
+            <input
+              type="date"
+              value={releaseForm.releaseDate}
+              onChange={(event) => setReleaseForm({ ...releaseForm, releaseDate: event.target.value })}
+            />
+          </label>
+
+          <label>
+            Released To
+            <input
+              value={releaseForm.releasedTo}
+              onChange={(event) => setReleaseForm({ ...releaseForm, releasedTo: event.target.value })}
+              placeholder="Person, company, or representative"
+            />
+          </label>
+
+          <label>
+            Ship Date
+            <input
+              type="date"
+              value={releaseForm.shipDate}
+              onChange={(event) => setReleaseForm({ ...releaseForm, shipDate: event.target.value })}
+            />
+          </label>
+
+          <label>
+            Carrier
+            <input
+              value={releaseForm.carrier}
+              onChange={(event) => setReleaseForm({ ...releaseForm, carrier: event.target.value })}
+              placeholder="Carrier name"
+            />
+          </label>
+
+          <label className="full">
+            Destination
+            <input
+              value={releaseForm.destination}
+              onChange={(event) => setReleaseForm({ ...releaseForm, destination: event.target.value })}
+              placeholder="Destination yard, rig, or delivery location"
+            />
+          </label>
+
           {selectedReleaseRack && (
             <div className="release-part-preview full">
               <h3>Part Number Information</h3>
@@ -844,6 +924,17 @@ export default function CustomerPage() {
                 <div>
                   <span>Status: {request.status}</span>
                   <span>Signed by {request.signatureName}</span>
+                </div>
+                <div>
+                  <span>Release Date: {request.releaseDate || "-"}</span>
+                  <span>Ship Date: {request.shipDate || "-"}</span>
+                </div>
+                <div>
+                  <span>Released To: {request.releasedTo || "-"}</span>
+                  <span>Carrier: {request.carrier || "-"}</span>
+                </div>
+                <div>
+                  <span>Destination: {request.destination || "-"}</span>
                 </div>
                 {request.partSummary && (
                   <div>

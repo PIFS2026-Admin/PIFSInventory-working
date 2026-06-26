@@ -13,6 +13,11 @@ create table if not exists public.tubular_release_requests (
   part_summary text,
   part_lines jsonb not null default '[]'::jsonb,
   quantity_joints integer not null default 0 check (quantity_joints >= 0),
+  release_date date,
+  released_to text,
+  ship_date date,
+  carrier text,
+  destination text,
   notes text,
   signature_name text not null,
   signature_data text,
@@ -84,3 +89,18 @@ alter table public.tubular_release_requests
 
 alter table public.tubular_release_requests
   add column if not exists part_lines jsonb not null default '[]'::jsonb;
+
+alter table public.tubular_release_requests
+  add column if not exists release_date date;
+
+alter table public.tubular_release_requests
+  add column if not exists released_to text;
+
+alter table public.tubular_release_requests
+  add column if not exists ship_date date;
+
+alter table public.tubular_release_requests
+  add column if not exists carrier text;
+
+alter table public.tubular_release_requests
+  add column if not exists destination text;

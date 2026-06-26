@@ -8,6 +8,11 @@ type ReleaseRequestBody = {
   rackId?: string;
   rackLabel?: string;
   quantityJoints?: number | string;
+  releaseDate?: string;
+  releasedTo?: string;
+  shipDate?: string;
+  carrier?: string;
+  destination?: string;
   partSummary?: string;
   partLines?: unknown;
   notes?: string;
@@ -191,6 +196,11 @@ function buildReleaseEmailHtml(request: any) {
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Rack</td><td style="border:1px solid #d1d5db;padding:8px">${request.rack_label}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Part Numbers</td><td style="border:1px solid #d1d5db;padding:8px">${request.part_summary || "-"}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Quantity</td><td style="border:1px solid #d1d5db;padding:8px">${request.quantity_joints} joints</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Release Date</td><td style="border:1px solid #d1d5db;padding:8px">${request.release_date || "-"}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Released To</td><td style="border:1px solid #d1d5db;padding:8px">${request.released_to || "-"}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Ship Date</td><td style="border:1px solid #d1d5db;padding:8px">${request.ship_date || "-"}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Carrier</td><td style="border:1px solid #d1d5db;padding:8px">${request.carrier || "-"}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Destination</td><td style="border:1px solid #d1d5db;padding:8px">${request.destination || "-"}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Signed By</td><td style="border:1px solid #d1d5db;padding:8px">${request.signature_name}</td></tr>
         <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Notes</td><td style="border:1px solid #d1d5db;padding:8px">${request.notes || "-"}</td></tr>
       </table>
@@ -269,6 +279,11 @@ export async function POST(request: Request) {
     const quantityJoints = Number(body.quantityJoints ?? 0);
     const signatureName = String(body.signatureName ?? "").trim();
     const notes = String(body.notes ?? "").trim();
+    const releaseDate = String(body.releaseDate ?? "").trim();
+    const releasedTo = String(body.releasedTo ?? "").trim();
+    const shipDate = String(body.shipDate ?? "").trim();
+    const carrier = String(body.carrier ?? "").trim();
+    const destination = String(body.destination ?? "").trim();
     const partSummary = String(body.partSummary ?? "").trim();
     const partLines = Array.isArray(body.partLines) ? body.partLines : [];
 
@@ -318,6 +333,11 @@ export async function POST(request: Request) {
       part_summary: partSummary || null,
       part_lines: partLines,
       quantity_joints: quantityJoints,
+      release_date: releaseDate || null,
+      released_to: releasedTo || null,
+      ship_date: shipDate || null,
+      carrier: carrier || null,
+      destination: destination || null,
       notes: notes || null,
       signature_name: signatureName,
       signature_data: body.signatureData ? String(body.signatureData) : null,
@@ -330,8 +350,17 @@ export async function POST(request: Request) {
       .select("*")
       .single();
 
-    if (insertError && /part_(summary|lines)/i.test(insertError.message ?? "")) {
-      const { part_summary, part_lines, ...legacyReleaseRecord } = releaseRecord;
+    if (insertError && /(part_(summary|lines)|release_date|released_to|ship_date|carrier|destination)/i.test(insertError.message ?? "")) {
+      const {
+        part_summary,
+        part_lines,
+        release_date,
+        released_to,
+        ship_date,
+        carrier: releaseCarrier,
+        destination: releaseDestination,
+        ...legacyReleaseRecord
+      } = releaseRecord;
       const legacyResult = await adminSupabase
         .from("tubular_release_requests")
         .insert(legacyReleaseRecord)
@@ -347,7 +376,8 @@ export async function POST(request: Request) {
     }
 
     const title = `Tubular release request ${created.request_number}`;
-    const notificationBody = `${created.company_name} requested release of ${created.quantity_joints} joints from ${created.rack_label}.`;
+    const releaseDestinationText = created.destination || created.released_to;
+    const notificationBody = `${created.company_name} requested release of ${created.quantity_joints} joints from ${created.rack_label}${releaseDestinationText ? ` to ${releaseDestinationText}` : ""}.`;
 
     await adminSupabase.from("notifications").insert({
       audience: "internal",

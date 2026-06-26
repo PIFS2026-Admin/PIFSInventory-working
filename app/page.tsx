@@ -202,6 +202,11 @@ type TubularReleaseRequest = {
   yardName: string;
   rackLabel: string;
   quantityJoints: number;
+  releaseDate: string;
+  releasedTo: string;
+  shipDate: string;
+  carrier: string;
+  destination: string;
   partSummary: string;
   partLines: any[];
   status: string;
@@ -1966,6 +1971,11 @@ export default function Home() {
           yardName: row.yard_name ?? "",
           rackLabel: row.rack_label ?? "",
           quantityJoints: Number(row.quantity_joints ?? 0),
+          releaseDate: formatDate(row.release_date ?? ""),
+          releasedTo: row.released_to ?? "",
+          shipDate: formatDate(row.ship_date ?? ""),
+          carrier: row.carrier ?? "",
+          destination: row.destination ?? "",
           partSummary: row.part_summary ?? "",
           partLines: Array.isArray(row.part_lines) ? row.part_lines : [],
           status: row.status ?? "Submitted",
@@ -5582,6 +5592,17 @@ export default function Home() {
                     <div>
                       <span>{request.quantityJoints} joints requested</span>
                       <span>Status: {request.status}</span>
+                    </div>
+                    <div>
+                      <span>Release Date: {request.releaseDate || "-"}</span>
+                      <span>Ship Date: {request.shipDate || "-"}</span>
+                    </div>
+                    <div>
+                      <span>Released To: {request.releasedTo || "-"}</span>
+                      <span>Carrier: {request.carrier || "-"}</span>
+                    </div>
+                    <div>
+                      <span>Destination: {request.destination || "-"}</span>
                     </div>
                     <div>
                       <span>Signed: {request.signatureName || "-"}</span>

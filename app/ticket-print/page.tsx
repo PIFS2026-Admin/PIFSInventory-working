@@ -18,6 +18,10 @@ type Ticket = {
   shipTo: string;
   receivedFrom: string;
   destination: string;
+  releaseDate: string;
+  releasedTo: string;
+  shipDate: string;
+  rackLabel: string;
   missingBoxProtectors: number;
   missingPinProtectors: number;
   pathfinderName: string;
@@ -61,6 +65,10 @@ const emptyTicket: Ticket = {
   shipTo: "",
   receivedFrom: "",
   destination: "",
+  releaseDate: "",
+  releasedTo: "",
+  shipDate: "",
+  rackLabel: "",
   missingBoxProtectors: 0,
   missingPinProtectors: 0,
   pathfinderName: "",
@@ -232,12 +240,16 @@ export default function TicketPrintPage() {
           bolNumber: "",
           documentType: "",
           company: data.company_name ?? "",
-          carrier: "",
+          carrier: data.carrier ?? "",
           poNumber: "",
           truckNumber: "",
-          shipTo: "",
+          shipTo: data.released_to ?? "",
           receivedFrom: data.yard_name ?? "",
-          destination: data.rack_label ?? "",
+          destination: data.destination ?? "",
+          releaseDate: data.release_date ?? "",
+          releasedTo: data.released_to ?? "",
+          shipDate: data.ship_date ?? "",
+          rackLabel: data.rack_label ?? "",
           missingBoxProtectors: 0,
           missingPinProtectors: 0,
           pathfinderName: "",
@@ -311,6 +323,10 @@ export default function TicketPrintPage() {
           shipTo: "",
           receivedFrom: details.fromLocation ?? "",
           destination: details.toLocation ?? "",
+          releaseDate: "",
+          releasedTo: "",
+          shipDate: "",
+          rackLabel: "",
           missingBoxProtectors: 0,
           missingPinProtectors: 0,
           pathfinderName: details.pathfinderName ?? "",
@@ -367,6 +383,10 @@ export default function TicketPrintPage() {
           shipTo: data.ship_to ?? "",
           receivedFrom: "",
           destination: data.destination ?? "",
+          releaseDate: "",
+          releasedTo: "",
+          shipDate: "",
+          rackLabel: "",
           missingBoxProtectors: 0,
           missingPinProtectors: 0,
           pathfinderName: data.pathfinder_name ?? "",
@@ -459,6 +479,10 @@ export default function TicketPrintPage() {
         shipTo: "",
         receivedFrom: companyName,
         destination: data.destination ?? "-",
+        releaseDate: "",
+        releasedTo: "",
+        shipDate: "",
+        rackLabel: "",
         missingBoxProtectors: Number(data.missing_box_protectors ?? 0),
         missingPinProtectors: Number(data.missing_pin_protectors ?? 0),
         pathfinderName: data.pathfinder_name ?? "",
@@ -609,7 +633,7 @@ export default function TicketPrintPage() {
           </div>
           <div className="ticket-date-box">
             <span>Date</span>
-            <strong>{formatDate(ticket.createdAt)}</strong>
+            <strong>{formatDate(ticket.type === "release" ? ticket.releaseDate || ticket.createdAt : ticket.createdAt)}</strong>
             {ticket.type === "shipping" && (
               <>
                 <span>BOL</span>
@@ -632,11 +656,31 @@ export default function TicketPrintPage() {
               </div>
               <div>
                 <span>Rack / Location</span>
-                <strong>{ticket.destination || "-"}</strong>
+                <strong>{ticket.rackLabel || "-"}</strong>
               </div>
               <div>
                 <span>Quantity Requested</span>
                 <strong>{formatNumber(totals.joints)} joints</strong>
+              </div>
+              <div>
+                <span>Release Date</span>
+                <strong>{formatDate(ticket.releaseDate) || "-"}</strong>
+              </div>
+              <div>
+                <span>Released To</span>
+                <strong>{ticket.releasedTo || ticket.shipTo || "-"}</strong>
+              </div>
+              <div>
+                <span>Ship Date</span>
+                <strong>{formatDate(ticket.shipDate) || "-"}</strong>
+              </div>
+              <div>
+                <span>Carrier</span>
+                <strong>{ticket.carrier || "-"}</strong>
+              </div>
+              <div>
+                <span>Destination</span>
+                <strong>{ticket.destination || "-"}</strong>
               </div>
               <div>
                 <span>Signed By</span>

@@ -355,6 +355,7 @@ export default function InventoryModulePage() {
   const [scanInput, setScanInput] = useState("");
   const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
   const [orderCart, setOrderCart] = useState<IssueCartLine[]>([]);
+  const [orderSearchOpen, setOrderSearchOpen] = useState(false);
   const [orderForm, setOrderForm] = useState<OrderForm>(emptyOrderForm);
   const [expandedTicketId, setExpandedTicketId] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState("");
@@ -411,6 +412,48 @@ export default function InventoryModulePage() {
       return matchesSearch && matchesCategory && matchesLocation && matchesVendor && matchesStock;
     });
   }, [items, search, categoryFilter, locationFilter, vendorFilter, stockFilter]);
+
+  const orderSearchMatches = useMemo(() => {
+    const term = scanInput.trim().toLowerCase();
+    if (!term || activeView !== "orders") return [];
+
+    return items
+      .filter((item) => {
+        if (!item.active) return false;
+        return (
+          item.itemCode.toLowerCase().includes(term) ||
+          item.itemName.toLowerCase().includes(term) ||
+          item.category.toLowerCase().includes(term) ||
+          item.location.toLowerCase().includes(term) ||
+          item.vendorName.toLowerCase().includes(term) ||
+          item.barcode.toLowerCase().includes(term)
+        );
+      })
+      .sort((left, right) => {
+        const leftCode = left.itemCode.toLowerCase();
+        const rightCode = right.itemCode.toLowerCase();
+        const leftBarcode = left.barcode.toLowerCase();
+        const rightBarcode = right.barcode.toLowerCase();
+        const leftName = left.itemName.toLowerCase();
+        const rightName = right.itemName.toLowerCase();
+        const leftScore =
+          leftBarcode === term || leftCode === term ? 0 :
+          leftName === term ? 1 :
+          leftName.startsWith(term) ? 2 :
+          leftCode.startsWith(term) ? 3 :
+          4;
+        const rightScore =
+          rightBarcode === term || rightCode === term ? 0 :
+          rightName === term ? 1 :
+          rightName.startsWith(term) ? 2 :
+          rightCode.startsWith(term) ? 3 :
+          4;
+
+        if (leftScore !== rightScore) return leftScore - rightScore;
+        return left.itemName.localeCompare(right.itemName);
+      })
+      .slice(0, 12);
+  }, [activeView, items, scanInput]);
 
   const itemTransactions = useMemo(() => {
     if (!selectedItem) return transactions.slice(0, 25);
@@ -1404,6 +1447,15 @@ export default function InventoryModulePage() {
     }
     addItemToOrderCart(item);
     setScanInput("");
+    setOrderSearchOpen(false);
+    setCameraScanMessage("");
+    window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+  }
+
+  function chooseOrderSearchItem(item: InventoryItem) {
+    addItemToOrderCart(item);
+    setScanInput("");
+    setOrderSearchOpen(false);
     setCameraScanMessage("");
     window.setTimeout(() => scanFieldRef.current?.focus(), 25);
   }
@@ -1427,6 +1479,7 @@ export default function InventoryModulePage() {
   function clearOrderCart() {
     setOrderCart([]);
     setScanInput("");
+    setOrderSearchOpen(false);
     setMessage("");
   }
 
@@ -2152,20 +2205,51 @@ export default function InventoryModulePage() {
             </div>
 
             <div className="pos-scan-row">
-              <input
-                ref={scanFieldRef}
-                className="field scan-field"
-                value={scanInput}
-                onChange={(event) => setScanInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addScannedItemToOrder();
-                  }
-                }}
-                placeholder="Scan barcode or type item ID"
-                autoComplete="off"
-              />
+              <div className="order-search-picker">
+                <input
+                  ref={scanFieldRef}
+                  className="field scan-field"
+                  value={scanInput}
+                  onChange={(event) => {
+                    setScanInput(event.target.value);
+                    setOrderSearchOpen(true);
+                  }}
+                  onFocus={() => setOrderSearchOpen(true)}
+                  onBlur={() => window.setTimeout(() => setOrderSearchOpen(false), 180)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addScannedItemToOrder();
+                    }
+                    if (event.key === "Escape") {
+                      setOrderSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Scan barcode or type item ID, barcode, or item name"
+                  autoComplete="off"
+                />
+                {orderSearchOpen && orderSearchMatches.length > 0 && (
+                  <div className="order-search-menu">
+                    {orderSearchMatches.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className="order-search-option"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          chooseOrderSearchItem(item);
+                        }}
+                      >
+                        <strong>{item.itemCode}</strong>
+                        <span>{item.itemName}</span>
+                        <small>
+                          {item.barcode || "No barcode"} / {item.location || "No location"} / {item.qtyOnHand.toLocaleString()} on hand
+                        </small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button className="button primary" onClick={addScannedItemToOrder}>Add to Order</button>
               <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear</button>
             </div>
