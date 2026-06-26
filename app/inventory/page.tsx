@@ -400,6 +400,7 @@ export default function InventoryModulePage() {
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [emailingTicketId, setEmailingTicketId] = useState("");
   const [emailingOrderId, setEmailingOrderId] = useState("");
+  const [orderFulfillmentDrafts, setOrderFulfillmentDrafts] = useState<Record<string, string>>({});
   const [cameraScanMessage, setCameraScanMessage] = useState("");
   const [cameraScanning, setCameraScanning] = useState(false);
   const scanFieldRef = useRef<HTMLInputElement | null>(null);
@@ -1714,8 +1715,32 @@ export default function InventoryModulePage() {
     setEmailingOrderId("");
   }
 
-  async function fulfillOrder(order: InventoryOrder) {
-    if (!canManageInventory) return;
+  function orderIsFulfilled(order: InventoryOrder) {
+    return (order.status || "").toLowerCase() === "fulfilled";
+  }
+
+  function orderIsCancelled(order: InventoryOrder) {
+    const status = (order.status || "").toLowerCase();
+    return status === "cancelled" || status === "canceled";
+  }
+
+  function orderIsClosed(order: InventoryOrder) {
+    return orderIsFulfilled(order) || orderIsCancelled(order);
+  }
+
+  function fulfillmentQtyForLine(line: InventoryOrderLine) {
+    const draftValue = orderFulfillmentDrafts[line.id];
+    const sourceValue = draftValue ?? String(line.qtyFulfilled || line.qtyRequested || 0);
+    return Math.max(0, Math.min(line.qtyRequested, numberValue(sourceValue)));
+  }
+
+  function updateFulfillmentDraft(line: InventoryOrderLine, value: string) {
+    const numericValue = Math.max(0, Math.min(line.qtyRequested, numberValue(value)));
+    setOrderFulfillmentDrafts((current) => ({ ...current, [line.id]: String(numericValue) }));
+  }
+
+  async function saveFulfillmentAmounts(order: InventoryOrder) {
+    if (!canManageInventory || orderIsClosed(order)) return;
     const lines = linesForOrder(order);
     if (lines.length === 0) {
       setMessage("No line items found for this order.");
@@ -1726,8 +1751,85 @@ export default function InventoryModulePage() {
     setMessage("");
 
     for (const line of lines) {
+      const qtyToFulfill = fulfillmentQtyForLine(line);
+      const { error } = await supabase
+        .from("inventory_order_lines")
+        .update({ qty_fulfilled: qtyToFulfill })
+        .eq("id", line.id);
+
+      if (error) {
+        setMessage(`Could not save fulfilled amount for ${line.itemCode}: ${error.message}`);
+        setSaving(false);
+        return;
+      }
+    }
+
+    await loadOrderLines(selectedInventoryYardId);
+    setMessage(`Fulfilled amounts saved for ${order.orderNumber}.`);
+    setSaving(false);
+  }
+
+  async function cancelOrder(order: InventoryOrder) {
+    if (!canManageInventory || orderIsFulfilled(order)) return;
+
+    const reason = window.prompt("Optional cancellation reason:", "");
+    if (reason === null) return;
+
+    setSaving(true);
+    setMessage("");
+
+    const cancellationNote = reason.trim();
+    const nextNotes = cancellationNote
+      ? `${order.notes ? `${order.notes}\n` : ""}Cancelled: ${cancellationNote}`
+      : order.notes || null;
+
+    const { error } = await supabase
+      .from("inventory_orders")
+      .update({
+        status: "Cancelled",
+        notes: nextNotes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id);
+
+    if (error) {
+      setMessage(`Cancel failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+
+    await loadOrders(selectedInventoryYardId);
+    setMessage(`Consumable order ${order.orderNumber} cancelled.`);
+    setSaving(false);
+  }
+
+  async function fulfillOrder(order: InventoryOrder) {
+    if (!canManageInventory) return;
+    if (orderIsCancelled(order)) {
+      setMessage("Cancelled orders cannot be fulfilled.");
+      return;
+    }
+
+    const lines = linesForOrder(order);
+    if (lines.length === 0) {
+      setMessage("No line items found for this order.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const targetLines = lines.map((line) => ({ line, qtyToFulfill: fulfillmentQtyForLine(line) }));
+    const totalToFulfill = targetLines.reduce((sum, entry) => sum + entry.qtyToFulfill, 0);
+
+    if (totalToFulfill <= 0) {
+      setMessage("Enter at least one fulfilled quantity before marking the order fulfilled.");
+      setSaving(false);
+      return;
+    }
+
+    for (const { line, qtyToFulfill } of targetLines) {
       const item = items.find((candidate) => candidate.id === line.itemId);
-      const qtyToFulfill = Math.max(0, line.qtyRequested - line.qtyFulfilled);
       if (!item || qtyToFulfill <= 0) continue;
       if (item.qtyOnHand < qtyToFulfill) {
         setMessage(`${item.itemCode} does not have enough quantity to fulfill this order.`);
@@ -1749,7 +1851,7 @@ export default function InventoryModulePage() {
 
       await supabase
         .from("inventory_order_lines")
-        .update({ qty_fulfilled: line.qtyRequested, fulfilled_at: new Date().toISOString(), fulfilled_by: userName })
+        .update({ qty_fulfilled: qtyToFulfill, fulfilled_at: new Date().toISOString(), fulfilled_by: userName })
         .eq("id", line.id);
 
       await supabase.from("inventory_transactions").insert({
@@ -1778,6 +1880,7 @@ export default function InventoryModulePage() {
       loadOrders(selectedInventoryYardId),
       loadOrderLines(selectedInventoryYardId),
     ]);
+    setOrderFulfillmentDrafts({});
     setMessage(`Consumable order ${order.orderNumber} fulfilled.`);
     setSaving(false);
   }
@@ -2358,7 +2461,8 @@ export default function InventoryModulePage() {
               const lines = linesForOrder(order);
               const expanded = expandedOrderId === order.id;
               const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
-              const fulfilledQty = lines.reduce((sum, line) => sum + line.qtyFulfilled, 0);
+              const fulfilledQty = lines.reduce((sum, line) => sum + (expanded ? fulfillmentQtyForLine(line) : line.qtyFulfilled), 0);
+              const closedOrder = orderIsClosed(order);
 
               return (
                 <article className={`document-card ${expanded ? "open" : ""}`} key={order.id}>
@@ -2388,7 +2492,23 @@ export default function InventoryModulePage() {
                                 <td>{line.itemCode || "-"}</td>
                                 <td>{line.itemName || "-"}</td>
                                 <td>{line.qtyRequested.toLocaleString()}</td>
-                                <td>{line.qtyFulfilled.toLocaleString()}</td>
+                                <td>
+                                  {canManageInventory && !closedOrder ? (
+                                    <div className="fulfillment-qty-cell">
+                                      <input
+                                        className="qty-input fulfillment-qty-input"
+                                        type="number"
+                                        min="0"
+                                        max={line.qtyRequested}
+                                        value={orderFulfillmentDrafts[line.id] ?? String(line.qtyFulfilled || line.qtyRequested || 0)}
+                                        onChange={(event) => updateFulfillmentDraft(line, event.target.value)}
+                                      />
+                                      <small>of {line.qtyRequested.toLocaleString()}</small>
+                                    </div>
+                                  ) : (
+                                    line.qtyFulfilled.toLocaleString()
+                                  )}
+                                </td>
                                 <td>{money(line.lineValue)}</td>
                               </tr>
                             ))}
@@ -2401,10 +2521,18 @@ export default function InventoryModulePage() {
                         <button className="mini-button" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
                           {emailingOrderId === order.id ? "Emailing..." : "Email"}
                         </button>
-                        {canManageInventory && (order.status || "").toLowerCase() !== "fulfilled" && (
-                          <button className="mini-button" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>
-                            Fulfill Order
-                          </button>
+                        {canManageInventory && !closedOrder && (
+                          <>
+                            <button className="mini-button" type="button" onClick={() => saveFulfillmentAmounts(order)} disabled={saving}>
+                              Save Amounts
+                            </button>
+                            <button className="mini-button" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>
+                              Mark Fulfilled
+                            </button>
+                            <button className="mini-button danger" type="button" onClick={() => cancelOrder(order)} disabled={saving}>
+                              Cancel Order
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

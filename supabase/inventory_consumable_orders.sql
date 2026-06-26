@@ -48,6 +48,16 @@ create table if not exists public.inventory_order_lines (
   created_at timestamptz not null default now()
 );
 
+alter table public.inventory_orders
+  add column if not exists cancelled_by text,
+  add column if not exists cancelled_at timestamptz,
+  add column if not exists cancel_reason text;
+
+alter table public.inventory_order_lines
+  add column if not exists qty_fulfilled numeric not null default 0,
+  add column if not exists fulfilled_by text,
+  add column if not exists fulfilled_at timestamptz;
+
 create index if not exists inventory_orders_yard_id_idx on public.inventory_orders(yard_id);
 create index if not exists inventory_orders_status_idx on public.inventory_orders(status);
 create index if not exists inventory_order_lines_order_id_idx on public.inventory_order_lines(order_id);

@@ -4469,6 +4469,21 @@ th {
   padding: 6px 8px;
 }
 
+.fulfillment-qty-cell {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.fulfillment-qty-cell small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fulfillment-qty-input {
+  width: 76px;
+}
+
 .stock-watch-card {
   min-width: 0;
 }
