@@ -947,6 +947,10 @@ export default function Home() {
     return inventory.find((row) => row.id === selectedRows[0]) ?? null;
   }, [inventory, selectedRows]);
 
+  const selectedInventoryRows = useMemo(() => {
+    return inventory.filter((row) => selectedRows.includes(row.id));
+  }, [inventory, selectedRows]);
+
   const editBeforeTotals = useMemo(() => {
     if (!selectedEditRow) return { joints: 0, footage: 0 };
 
@@ -1216,6 +1220,7 @@ export default function Home() {
         workflow_zones(code, name)
       `)
       .eq("yard_id", yardId)
+      .gt("bulk_joints", 0)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -2314,8 +2319,8 @@ export default function Home() {
                 </button>
               </>
             ) : (
-              <button className="button" onClick={() => startTicketCountEdit(ticketId, lines)}>
-                Edit Counts
+              <button className="button primary" onClick={() => startTicketCountEdit(ticketId, lines)}>
+                Edit Ticket Counts
               </button>
             )}
           </div>
@@ -2650,6 +2655,178 @@ export default function Home() {
           .filter(Boolean)
       )
     ).join(", ");
+  }
+
+  function cleanInventoryValue(value: string | null | undefined) {
+    const cleaned = (value || "").trim();
+    return cleaned || null;
+  }
+
+  function sameInventoryBucket(left: InventoryRow, right: InventoryRow) {
+    return (
+      left.companyId === right.companyId &&
+      left.yardId === right.yardId &&
+      left.locationType === right.locationType &&
+      left.rackDbId === right.rackDbId &&
+      left.zoneDbId === right.zoneDbId &&
+      (left.afe || "") === (right.afe || "") &&
+      (left.operator || "") === (right.operator || "") &&
+      (left.rig || "") === (right.rig || "") &&
+      left.partNumber === right.partNumber &&
+      (left.size || "") === (right.size || "") &&
+      (left.grade || "") === (right.grade || "") &&
+      (left.connection || "") === (right.connection || "") &&
+      left.pipeRange === right.pipeRange &&
+      (left.condition || "") === (right.condition || "") &&
+      (left.status || "") === (right.status || "")
+    );
+  }
+
+  async function findMatchingInventoryLine(options: {
+    companyId: string | null;
+    yardId: string;
+    rackId?: string | null;
+    zoneId?: string | null;
+    excludeId?: string;
+    afe?: string | null;
+    operator?: string | null;
+    rig?: string | null;
+    partNumber: string;
+    size?: string | null;
+    grade?: string | null;
+    connection?: string | null;
+    pipeRange: PipeRange;
+    condition?: string | null;
+    status?: string | null;
+  }) {
+    if (!options.companyId) return null;
+
+    const nullableFilter = (query: any, column: string, value: string | null | undefined) => {
+      const cleaned = cleanInventoryValue(value);
+      return cleaned ? query.eq(column, cleaned) : query.is(column, null);
+    };
+
+    let query: any = supabase
+      .from("pipe_inventory")
+      .select("id, bulk_joints, bulk_footage")
+      .eq("company_id", options.companyId)
+      .eq("yard_id", options.yardId)
+      .eq("part_number", options.partNumber)
+      .eq("pipe_range", options.pipeRange)
+      .gt("bulk_joints", 0)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (options.excludeId) {
+      query = query.neq("id", options.excludeId);
+    }
+
+    query = nullableFilter(query, "afe", options.afe);
+    query = nullableFilter(query, "operator", options.operator);
+    query = nullableFilter(query, "rig", options.rig);
+    query = nullableFilter(query, "size", options.size);
+    query = nullableFilter(query, "grade", options.grade);
+    query = nullableFilter(query, "connection", options.connection);
+    query = nullableFilter(query, "condition", options.condition);
+    query = nullableFilter(query, "status", options.status);
+
+    if (options.rackId) {
+      query = query.eq("rack_id", options.rackId).is("workflow_zone_id", null);
+    } else if (options.zoneId) {
+      query = query.eq("workflow_zone_id", options.zoneId).is("rack_id", null);
+    } else {
+      query = query.is("rack_id", null).is("workflow_zone_id", null);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return Array.isArray(data) ? data[0] ?? null : null;
+  }
+
+  async function addToInventoryLine(options: {
+    companyId: string | null;
+    yardId: string;
+    rackId?: string | null;
+    zoneId?: string | null;
+    excludeId?: string;
+    afe?: string | null;
+    operator?: string | null;
+    rig?: string | null;
+    partNumber: string;
+    size?: string | null;
+    grade?: string | null;
+    connection?: string | null;
+    pipeRange: PipeRange;
+    condition?: string | null;
+    status?: string | null;
+    inspectionDue?: string | null;
+    joints: number;
+    footage: number;
+  }) {
+    const existingLine = await findMatchingInventoryLine(options);
+
+    if (existingLine?.id) {
+      const nextJoints = Number(existingLine.bulk_joints || 0) + options.joints;
+      const nextFootage = calculateRangeFootage(nextJoints, options.pipeRange);
+      const { error } = await supabase
+        .from("pipe_inventory")
+        .update({
+          bulk_joints: nextJoints,
+          bulk_footage: nextFootage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingLine.id);
+
+      if (error) throw error;
+      return existingLine.id as string;
+    }
+
+    const { data, error } = await supabase
+      .from("pipe_inventory")
+      .insert({
+        company_id: options.companyId,
+        yard_id: options.yardId,
+        rack_id: options.rackId ?? null,
+        workflow_zone_id: options.zoneId ?? null,
+        afe: cleanInventoryValue(options.afe),
+        operator: cleanInventoryValue(options.operator),
+        rig: cleanInventoryValue(options.rig),
+        part_number: options.partNumber,
+        size: cleanInventoryValue(options.size),
+        grade: cleanInventoryValue(options.grade),
+        connection: cleanInventoryValue(options.connection),
+        pipe_range: options.pipeRange,
+        condition: cleanInventoryValue(options.condition),
+        status: cleanInventoryValue(options.status),
+        inspection_color: "None",
+        inspection_due_date: options.inspectionDue || null,
+        bulk_joints: options.joints,
+        bulk_footage: options.footage,
+        tallied_joints: 0,
+        tallied_footage: 0,
+      })
+      .select("id")
+      .single();
+
+    if (error) throw error;
+    if (!data?.id) throw new Error("Inventory was saved but did not return an inventory id.");
+    return data.id as string;
+  }
+
+  async function retireInventoryLine(rowId: string) {
+    const { error } = await supabase
+      .from("pipe_inventory")
+      .update({
+        status: "Removed",
+        bulk_joints: 0,
+        bulk_footage: 0,
+        tallied_joints: 0,
+        tallied_footage: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", rowId);
+
+    if (error) throw error;
   }
 
   function destinationValueFromName(name: string) {
@@ -3273,31 +3450,35 @@ export default function Home() {
           ? selectedEditRow.rackId
           : selectedEditRow.zoneId;
 
-      const { error: updateError } = await supabase
-        .from("pipe_inventory")
-        .update({
-          company_id: companyId,
-          rack_id: rack?.id ?? null,
-          workflow_zone_id: zone?.id ?? null,
-          afe: editForm.afe || null,
-          operator: editForm.operator || null,
-          rig: editForm.rig || null,
-          part_number: editForm.partNumber,
-          size: editForm.size || null,
-          grade: editForm.grade || null,
-          connection: editForm.connection || null,
-          pipe_range: editForm.pipeRange,
-          condition: editForm.condition || null,
-          status: editForm.status || null,
-          inspection_due_date: editForm.inspectionDue || null,
-          bulk_joints: newTotalJoints,
-          bulk_footage: newTotalFootage,
-          tallied_joints: 0,
-          tallied_footage: 0,
-        })
-        .eq("id", selectedEditRow.id);
+      if (newTotalJoints === 0) {
+        await retireInventoryLine(selectedEditRow.id);
+      } else {
+        const { error: updateError } = await supabase
+          .from("pipe_inventory")
+          .update({
+            company_id: companyId,
+            rack_id: rack?.id ?? null,
+            workflow_zone_id: zone?.id ?? null,
+            afe: editForm.afe || null,
+            operator: editForm.operator || null,
+            rig: editForm.rig || null,
+            part_number: editForm.partNumber,
+            size: editForm.size || null,
+            grade: editForm.grade || null,
+            connection: editForm.connection || null,
+            pipe_range: editForm.pipeRange,
+            condition: editForm.condition || null,
+            status: editForm.status || null,
+            inspection_due_date: editForm.inspectionDue || null,
+            bulk_joints: newTotalJoints,
+            bulk_footage: newTotalFootage,
+            tallied_joints: 0,
+            tallied_footage: 0,
+          })
+          .eq("id", selectedEditRow.id);
 
-      if (updateError) throw updateError;
+        if (updateError) throw updateError;
+      }
 
       await supabase.from("pipe_transactions").insert({
         pipe_inventory_id: selectedEditRow.id,
@@ -3317,11 +3498,80 @@ export default function Home() {
       setEditOpen(false);
       setSelectedRows([]);
       setEditForm(emptyEditForm);
-      setMessage("Inventory line updated.");
+      setMessage(newTotalJoints === 0 ? "Inventory line removed because its count is zero." : "Inventory line updated.");
     } catch (error: any) {
       setMessage(`Edit failed: ${error.message}`);
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  async function combineSelectedInventoryLines() {
+    if (!selectedYard) return;
+
+    setMessage("");
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot combine inventory.");
+      return;
+    }
+
+    if (selectedInventoryRows.length < 2) {
+      setMessage("Select two or more matching inventory lines before combining.");
+      return;
+    }
+
+    const target = selectedInventoryRows[0];
+    const mismatched = selectedInventoryRows.some((row) => !sameInventoryBucket(target, row));
+
+    if (mismatched) {
+      setMessage("Only matching lines in the same rack/location can be combined. Customer, TU#, part, range, condition, and status must match.");
+      return;
+    }
+
+    const totalJoints = selectedInventoryRows.reduce((sum, row) => sum + row.joints, 0);
+    const totalFootage = calculateRangeFootage(totalJoints, target.pipeRange);
+
+    if (totalJoints <= 0) {
+      setMessage("Selected lines do not have inventory to combine.");
+      return;
+    }
+
+    try {
+      const { error: updateError } = await supabase
+        .from("pipe_inventory")
+        .update({
+          bulk_joints: totalJoints,
+          bulk_footage: totalFootage,
+          tallied_joints: 0,
+          tallied_footage: 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", target.id);
+
+      if (updateError) throw updateError;
+
+      for (const row of selectedInventoryRows.slice(1)) {
+        await retireInventoryLine(row.id);
+      }
+
+      await supabase.from("pipe_transactions").insert({
+        pipe_inventory_id: target.id,
+        company_id: target.companyId,
+        yard_id: selectedYard.id,
+        transaction_type: "combine_inventory",
+        quantity_joints: totalJoints,
+        quantity_footage: totalFootage,
+        from_location: target.rackId ?? target.zoneId,
+        to_location: target.rackId ?? target.zoneId,
+        comment: `Combined ${selectedInventoryRows.length} matching inventory lines into one rack/location line.`,
+      });
+
+      await loadInventory(selectedYard.id, rackLayout, zones);
+      await loadReports();
+      setSelectedRows([target.id]);
+      setMessage(`Combined ${selectedInventoryRows.length} matching inventory lines.`);
+    } catch (error: any) {
+      setMessage(`Combine failed: ${error.message}`);
     }
   }
   async function saveReceive() {
@@ -3479,96 +3729,26 @@ export default function Home() {
       const createdInventoryIds: string[] = [];
       const ticketLineItems = [];
 
-      const applyNullableFilter = (query: any, column: string, value: string | null | undefined) => {
-        const cleaned = (value || "").trim();
-        return cleaned ? query.eq(column, cleaned) : query.is(column, null);
-      };
-
       for (const line of cleanTruckLines) {
-        let existingInventoryQuery: any = supabase
-          .from("pipe_inventory")
-          .select("id, bulk_joints, bulk_footage")
-          .eq("company_id", companyId)
-          .eq("yard_id", selectedYard.id)
-          .eq("part_number", receiveForm.partNumber)
-          .eq("pipe_range", receiveForm.pipeRange)
-          .eq("condition", receiveForm.condition || "New")
-          .eq("status", receiveForm.status || "Received")
-          .order("created_at", { ascending: true })
-          .limit(1);
-
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "afe", receiveForm.afe);
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "operator", receiveForm.operator);
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "rig", receiveForm.rig);
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "size", receiveForm.size);
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "grade", receiveForm.grade);
-        existingInventoryQuery = applyNullableFilter(existingInventoryQuery, "connection", receiveForm.connection);
-
-        if (rack?.id) {
-          existingInventoryQuery = existingInventoryQuery.eq("rack_id", rack.id).is("workflow_zone_id", null);
-        } else if (zone?.id) {
-          existingInventoryQuery = existingInventoryQuery.eq("workflow_zone_id", zone.id).is("rack_id", null);
-        } else {
-          existingInventoryQuery = existingInventoryQuery.is("rack_id", null).is("workflow_zone_id", null);
-        }
-
-        const { data: existingInventory, error: existingInventoryError } = await existingInventoryQuery;
-        if (existingInventoryError) throw existingInventoryError;
-
-        const existingLine = Array.isArray(existingInventory) ? existingInventory[0] : null;
-        let inventoryLineId = existingLine?.id as string | undefined;
-
-        if (inventoryLineId) {
-          const nextJoints = Number(existingLine?.bulk_joints || 0) + line.joints;
-          const nextFootage = Number(existingLine?.bulk_footage || 0) + line.footage;
-          const { error: mergeError } = await supabase
-            .from("pipe_inventory")
-            .update({
-              bulk_joints: nextJoints,
-              bulk_footage: nextFootage,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", inventoryLineId);
-
-          if (mergeError) throw mergeError;
-        } else {
-          const { data: inventoryLine, error: inventoryError } = await supabase
-            .from("pipe_inventory")
-            .insert({
-              company_id: companyId,
-              yard_id: selectedYard.id,
-              rack_id: rack?.id ?? null,
-              workflow_zone_id: zone?.id ?? null,
-              afe: receiveForm.afe || null,
-              operator: receiveForm.operator || null,
-              rig: receiveForm.rig || null,
-              part_number: receiveForm.partNumber,
-              size: receiveForm.size || null,
-              grade: receiveForm.grade || null,
-              connection: receiveForm.connection || null,
-              pipe_range: receiveForm.pipeRange,
-              condition: receiveForm.condition || "New",
-              status: receiveForm.status || "Received",
-              inspection_color: "None",
-              inspection_due_date: receiveForm.inspectionDue || null,
-              bulk_joints: line.joints,
-              bulk_footage: line.footage,
-              tallied_joints: 0,
-              tallied_footage: 0,
-            })
-            .select("id")
-            .single();
-
-          if (inventoryError) throw inventoryError;
-          if (!inventoryLine?.id) throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
-          inventoryLineId = inventoryLine.id;
-        }
-
-        if (!inventoryLineId) {
-          throw new Error(`${line.label} saved inventory but did not return an inventory id.`);
-        }
-
-        const savedInventoryLineId = inventoryLineId;
+        const savedInventoryLineId = await addToInventoryLine({
+          companyId,
+          yardId: selectedYard.id,
+          rackId: rack?.id ?? null,
+          zoneId: zone?.id ?? null,
+          afe: receiveForm.afe,
+          operator: receiveForm.operator,
+          rig: receiveForm.rig,
+          partNumber: receiveForm.partNumber,
+          size: receiveForm.size,
+          grade: receiveForm.grade,
+          connection: receiveForm.connection,
+          pipeRange: receiveForm.pipeRange,
+          condition: receiveForm.condition || "New",
+          status: receiveForm.status || "Received",
+          inspectionDue: receiveForm.inspectionDue || null,
+          joints: line.joints,
+          footage: line.footage,
+        });
 
         createdInventoryIds.push(savedInventoryLineId);
 
@@ -3668,38 +3848,28 @@ export default function Home() {
       const { rack, zone } = getDestination(receiveForm.destination);
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
 
-      const { data: inventoryLine, error: inventoryError } = await supabase
-        .from("pipe_inventory")
-        .insert({
-          company_id: companyId,
-          yard_id: selectedYard.id,
-          rack_id: rack?.id ?? null,
-          workflow_zone_id: zone?.id ?? null,
-          afe: receiveForm.afe || null,
-          operator: receiveForm.operator || null,
-          rig: receiveForm.rig || null,
-          part_number: receiveForm.partNumber,
-          size: receiveForm.size || null,
-          grade: receiveForm.grade || null,
-          connection: receiveForm.connection || null,
-          pipe_range: receiveForm.pipeRange,
-          condition: receiveForm.condition || "Used",
-          status: receiveForm.status || "Available",
-          inspection_color: "None",
-          inspection_due_date: null,
-          bulk_joints: joints,
-          bulk_footage: footage,
-          tallied_joints: 0,
-          tallied_footage: 0,
-        })
-        .select("id")
-        .single();
-
-      if (inventoryError) throw inventoryError;
-      if (!inventoryLine?.id) throw new Error("Inventory was saved but did not return an inventory id.");
+      const inventoryLineId = await addToInventoryLine({
+        companyId,
+        yardId: selectedYard.id,
+        rackId: rack?.id ?? null,
+        zoneId: zone?.id ?? null,
+        afe: receiveForm.afe,
+        operator: receiveForm.operator,
+        rig: receiveForm.rig,
+        partNumber: receiveForm.partNumber,
+        size: receiveForm.size,
+        grade: receiveForm.grade,
+        connection: receiveForm.connection,
+        pipeRange: receiveForm.pipeRange,
+        condition: receiveForm.condition || "Used",
+        status: receiveForm.status || "Available",
+        inspectionDue: null,
+        joints,
+        footage,
+      });
 
       const { error: transactionError } = await supabase.from("pipe_transactions").insert({
-        pipe_inventory_id: inventoryLine.id,
+        pipe_inventory_id: inventoryLineId,
         company_id: companyId,
         yard_id: selectedYard.id,
         transaction_type: "initial_inventory",
@@ -3717,7 +3887,7 @@ export default function Home() {
 
       setInitialInventoryOpen(false);
       setReceiveForm(emptyReceiveForm);
-      setMessage(`Initial inventory added to ${destinationName}. No receiving ticket was created.`);
+      setMessage(`Initial inventory saved to ${destinationName}. Matching rack inventory was combined automatically.`);
     } catch (error: any) {
       setMessage(`Initial inventory failed: ${error.message}`);
     } finally {
@@ -3772,66 +3942,108 @@ export default function Home() {
     setSavingTransfer(true);
 
     try {
-      if (movingAll) {
-        const { error: moveError } = await supabase
-          .from("pipe_inventory")
-          .update({
-            rack_id: rack?.id ?? null,
-            workflow_zone_id: zone?.id ?? null,
-            status:
-              zone?.code === "inspection"
-                ? "Awaiting Inspection"
-                : zone?.code === "hardband"
-                  ? "WIP"
-                  : selectedTransferRow.status,
-          })
-          .eq("id", selectedTransferRow.id);
+      const destinationStatus =
+        zone?.code === "inspection"
+          ? "Awaiting Inspection"
+          : zone?.code === "hardband"
+            ? "WIP"
+            : zone?.code === "shipping"
+              ? "Awaiting Ship"
+              : selectedTransferRow.status;
 
-        if (moveError) throw moveError;
+      if (movingAll) {
+        const matchingDestination = await findMatchingInventoryLine({
+          companyId: selectedTransferRow.companyId,
+          yardId: selectedYard.id,
+          rackId: rack?.id ?? null,
+          zoneId: zone?.id ?? null,
+          excludeId: selectedTransferRow.id,
+          afe: selectedTransferRow.afe,
+          operator: selectedTransferRow.operator,
+          rig: selectedTransferRow.rig,
+          partNumber: selectedTransferRow.partNumber,
+          size: selectedTransferRow.size,
+          grade: selectedTransferRow.grade,
+          connection: selectedTransferRow.connection,
+          pipeRange: selectedTransferRow.pipeRange,
+          condition: selectedTransferRow.condition,
+          status: destinationStatus,
+        });
+
+        if (matchingDestination?.id) {
+          await addToInventoryLine({
+            companyId: selectedTransferRow.companyId,
+            yardId: selectedYard.id,
+            rackId: rack?.id ?? null,
+            zoneId: zone?.id ?? null,
+            excludeId: selectedTransferRow.id,
+            afe: selectedTransferRow.afe,
+            operator: selectedTransferRow.operator,
+            rig: selectedTransferRow.rig,
+            partNumber: selectedTransferRow.partNumber,
+            size: selectedTransferRow.size,
+            grade: selectedTransferRow.grade,
+            connection: selectedTransferRow.connection,
+            pipeRange: selectedTransferRow.pipeRange,
+            condition: selectedTransferRow.condition,
+            status: destinationStatus,
+            inspectionDue: selectedTransferRow.inspectionDue || null,
+            joints: moveJoints,
+            footage: moveFootage,
+          });
+          await retireInventoryLine(selectedTransferRow.id);
+        } else {
+          const { error: moveError } = await supabase
+            .from("pipe_inventory")
+            .update({
+              rack_id: rack?.id ?? null,
+              workflow_zone_id: zone?.id ?? null,
+              status: destinationStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", selectedTransferRow.id);
+
+          if (moveError) throw moveError;
+        }
       } else {
         const remainingJoints = selectedTransferRow.joints - moveJoints;
         const remainingFootage = calculateRangeFootage(remainingJoints, selectedTransferRow.pipeRange);
 
-        const { error: sourceError } = await supabase
-          .from("pipe_inventory")
-          .update({
-            bulk_joints: remainingJoints,
-            bulk_footage: remainingFootage,
-          })
-          .eq("id", selectedTransferRow.id);
+        if (remainingJoints <= 0) {
+          await retireInventoryLine(selectedTransferRow.id);
+        } else {
+          const { error: sourceError } = await supabase
+            .from("pipe_inventory")
+            .update({
+              bulk_joints: remainingJoints,
+              bulk_footage: remainingFootage,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", selectedTransferRow.id);
 
-        if (sourceError) throw sourceError;
+          if (sourceError) throw sourceError;
+        }
 
-        const { error: destinationError } = await supabase.from("pipe_inventory").insert({
-          company_id: selectedTransferRow.companyId,
-          yard_id: selectedYard.id,
-          rack_id: rack?.id ?? null,
-          workflow_zone_id: zone?.id ?? null,
-          afe: selectedTransferRow.afe || null,
-          operator: selectedTransferRow.operator || null,
-          rig: selectedTransferRow.rig || null,
-          part_number: selectedTransferRow.partNumber,
-          size: selectedTransferRow.size || null,
-          grade: selectedTransferRow.grade || null,
-          connection: selectedTransferRow.connection || null,
-          pipe_range: selectedTransferRow.pipeRange,
-          condition: selectedTransferRow.condition || null,
-          status:
-            zone?.code === "inspection"
-              ? "Awaiting Inspection"
-              : zone?.code === "hardband"
-                ? "WIP"
-              : zone?.code === "shipping"
-                ? "Awaiting Ship"
-                : selectedTransferRow.status,
-          inspection_due_date: selectedTransferRow.inspectionDue || null,
-          bulk_joints: moveJoints,
-          bulk_footage: moveFootage,
-          tallied_joints: 0,
-          tallied_footage: 0,
+        await addToInventoryLine({
+          companyId: selectedTransferRow.companyId,
+          yardId: selectedYard.id,
+          rackId: rack?.id ?? null,
+          zoneId: zone?.id ?? null,
+          excludeId: selectedTransferRow.id,
+          afe: selectedTransferRow.afe,
+          operator: selectedTransferRow.operator,
+          rig: selectedTransferRow.rig,
+          partNumber: selectedTransferRow.partNumber,
+          size: selectedTransferRow.size,
+          grade: selectedTransferRow.grade,
+          connection: selectedTransferRow.connection,
+          pipeRange: selectedTransferRow.pipeRange,
+          condition: selectedTransferRow.condition,
+          status: destinationStatus,
+          inspectionDue: selectedTransferRow.inspectionDue || null,
+          joints: moveJoints,
+          footage: moveFootage,
         });
-
-        if (destinationError) throw destinationError;
       }
 
       await supabase.from("pipe_transactions").insert({
@@ -4012,28 +4224,23 @@ export default function Home() {
       for (const { row, joints, footage } of activeShipLines) {
         const remainingJoints = Math.max(0, row.joints - joints);
         const remainingFootage = calculateRangeFootage(remainingJoints, row.pipeRange);
-        const inventoryUpdate =
-          remainingJoints === 0
-            ? {
-                status: "Shipped",
-                bulk_joints: 0,
-                bulk_footage: 0,
-                tallied_joints: 0,
-                tallied_footage: 0,
-              }
-            : {
-                bulk_joints: remainingJoints,
-                bulk_footage: remainingFootage,
-                tallied_joints: 0,
-                tallied_footage: 0,
-              };
 
-        const { error: inventoryError } = await supabase
-          .from("pipe_inventory")
-          .update(inventoryUpdate)
-          .eq("id", row.id);
+        if (remainingJoints === 0) {
+          await retireInventoryLine(row.id);
+        } else {
+          const { error: inventoryError } = await supabase
+            .from("pipe_inventory")
+            .update({
+              bulk_joints: remainingJoints,
+              bulk_footage: remainingFootage,
+              tallied_joints: 0,
+              tallied_footage: 0,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", row.id);
 
-        if (inventoryError) throw inventoryError;
+          if (inventoryError) throw inventoryError;
+        }
 
         await supabase.from("pipe_transactions").insert({
           pipe_inventory_id: row.id,
@@ -4284,6 +4491,9 @@ export default function Home() {
           <button className="button" onClick={refreshYardView}>Refresh</button>
           <button className="button" disabled={isReadOnlyRole || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
           <button className="button" disabled={isReadOnlyRole} onClick={openTransfer}>Transfer</button>
+          <button className="button" disabled={isReadOnlyRole || selectedRows.length < 2} onClick={combineSelectedInventoryLines}>
+            Combine Lines
+          </button>
           <button className="button primary" disabled={isReadOnlyRole} onClick={openNewReceive}>Receive</button>
           <button
             className="button"
