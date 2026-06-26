@@ -472,6 +472,13 @@ for select
 to authenticated
 using (company_id = public.current_user_company_id());
 
+create policy "ticket line items internal full"
+on public.ticket_line_items
+for all
+to authenticated
+using (public.is_internal_user())
+with check (public.is_internal_user());
+
 create policy "documents internal full"
 on public.documents
 for all

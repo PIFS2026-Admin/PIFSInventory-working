@@ -942,6 +942,13 @@ th {
   padding-top: 8px;
 }
 
+.ticket-line-list > span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 5px;
+}
+
 .ticket-line-list a {
   display: block;
   color: var(--orange-2);
@@ -953,6 +960,65 @@ th {
 
 .ticket-line-list a:hover {
   text-decoration: underline;
+}
+
+.ticket-count-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ticket-count-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #151a22;
+}
+
+.ticket-count-row strong,
+.ticket-count-row span {
+  display: block;
+}
+
+.ticket-count-row strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ticket-count-row span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.ticket-count-fields {
+  display: grid;
+  grid-template-columns: 92px 110px;
+  gap: 8px;
+}
+
+.ticket-count-fields label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ticket-count-fields input {
+  width: 100%;
+  margin-top: 4px;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.ticket-count-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ticket-attachments {
@@ -994,6 +1060,19 @@ th {
   .ticket-row,
   .ticket-row.stacked {
     grid-template-columns: 1fr;
+  }
+
+  .ticket-count-row,
+  .ticket-count-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-count-actions {
+    justify-content: stretch;
+  }
+
+  .ticket-count-actions .button {
+    flex: 1 1 150px;
   }
 }
 .report-metrics {

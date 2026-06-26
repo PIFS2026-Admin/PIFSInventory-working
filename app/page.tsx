@@ -911,6 +911,8 @@ export default function Home() {
   const [transferDocuments, setTransferDocuments] = useState<TransferDocument[]>([]);
   const [ticketLines, setTicketLines] = useState<TicketLine[]>([]);
   const [ticketAttachments, setTicketAttachments] = useState<TicketAttachment[]>([]);
+  const [editingTicketCountId, setEditingTicketCountId] = useState("");
+  const [ticketCountDrafts, setTicketCountDrafts] = useState<Record<string, { joints: string; footage: string }>>({});
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [hardbandJobs, setHardbandJobs] = useState<HardbandJob[]>([]);
   const [hardbandLines, setHardbandLines] = useState<HardbandLineItem[]>([]);
@@ -926,6 +928,7 @@ export default function Home() {
   const [savingTransfer, setSavingTransfer] = useState(false);
   const [savingShip, setSavingShip] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [savingTicketCounts, setSavingTicketCounts] = useState(false);
   const [savingHardbandLine, setSavingHardbandLine] = useState(false);
   const [message, setMessage] = useState("");
   const isReadOnlyRole = profileRole === "sales" || role === "customer";
@@ -2120,6 +2123,205 @@ export default function Home() {
     );
 
     setLoadingTickets(false);
+  }
+
+  function startTicketCountEdit(ticketId: string, lines: TicketLine[]) {
+    const nextDrafts: Record<string, { joints: string; footage: string }> = {};
+
+    lines.forEach((line) => {
+      nextDrafts[line.id] = {
+        joints: String(line.joints),
+        footage: String(line.footage),
+      };
+    });
+
+    setEditingTicketCountId(ticketId);
+    setTicketCountDrafts(nextDrafts);
+    setMessage("");
+  }
+
+  function cancelTicketCountEdit() {
+    setEditingTicketCountId("");
+    setTicketCountDrafts({});
+  }
+
+  function updateTicketCountDraft(line: TicketLine, field: "joints" | "footage", value: string) {
+    setTicketCountDrafts((current) => {
+      const existing = current[line.id] ?? {
+        joints: String(line.joints),
+        footage: String(line.footage),
+      };
+
+      if (field === "joints") {
+        const joints = Math.max(0, Math.trunc(Number(value || 0)));
+
+        return {
+          ...current,
+          [line.id]: {
+            joints: value,
+            footage: String(calculateRangeFootage(joints, line.pipeRange)),
+          },
+        };
+      }
+
+      return {
+        ...current,
+        [line.id]: {
+          ...existing,
+          footage: value,
+        },
+      };
+    });
+  }
+
+  async function saveTicketCountEdits(ticketId: string, lines: TicketLine[]) {
+    if (isReadOnlyRole) {
+      setMessage("This role can view and print tickets, but cannot change ticket counts.");
+      return;
+    }
+
+    if (lines.length === 0) {
+      setMessage("This ticket has no line items to edit.");
+      return;
+    }
+
+    let updates: { id: string; joints: number; footage: number }[] = [];
+
+    try {
+      updates = lines.map((line) => {
+        const draft = ticketCountDrafts[line.id] ?? {
+          joints: String(line.joints),
+          footage: String(line.footage),
+        };
+        const joints = Math.trunc(Number(draft.joints || 0));
+        const footage = Number(draft.footage || 0);
+
+        if (!Number.isFinite(joints) || joints < 0 || !Number.isFinite(footage) || footage < 0) {
+          throw new Error("Counts must be zero or greater.");
+        }
+
+        return {
+          id: line.id,
+          joints,
+          footage,
+        };
+      });
+    } catch (error: any) {
+      setMessage(`Ticket count update failed: ${error.message}`);
+      return;
+    }
+
+    setSavingTicketCounts(true);
+    setMessage("");
+
+    try {
+      for (const update of updates) {
+        const { error } = await supabase
+          .from("ticket_line_items")
+          .update({
+            joints: update.joints,
+            footage: update.footage,
+          })
+          .eq("id", update.id);
+
+        if (error) throw error;
+      }
+
+      setTicketLines((current) =>
+        current.map((line) => {
+          const updated = updates.find((item) => item.id === line.id);
+          return updated ? { ...line, joints: updated.joints, footage: updated.footage } : line;
+        })
+      );
+      cancelTicketCountEdit();
+      await loadTickets();
+      setMessage("Ticket counts updated.");
+    } catch (error: any) {
+      setMessage(`Ticket count update failed: ${error.message}`);
+    } finally {
+      setSavingTicketCounts(false);
+    }
+  }
+
+  function renderTicketCountEditor(ticketId: string, lines: TicketLine[]) {
+    const isEditing = editingTicketCountId === ticketId;
+
+    if (lines.length === 0) {
+      return (
+        <div className="ticket-line-list">
+          <span>No line items are linked to this ticket.</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="ticket-line-list ticket-count-list">
+        {lines.map((line) => {
+          const draft = ticketCountDrafts[line.id] ?? {
+            joints: String(line.joints),
+            footage: String(line.footage),
+          };
+
+          return (
+            <div key={line.id} className="ticket-count-row">
+              <div>
+                <strong>{line.partNumber || "Line item"}</strong>
+                <span>{line.afe ? `TU# ${line.afe} / ` : ""}{line.pipeRange} / {line.condition || "No condition"}</span>
+              </div>
+
+              {isEditing ? (
+                <div className="ticket-count-fields">
+                  <label>
+                    Joints
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={draft.joints}
+                      onChange={(event) => updateTicketCountDraft(line, "joints", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Footage
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={draft.footage}
+                      onChange={(event) => updateTicketCountDraft(line, "footage", event.target.value)}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div>
+                  <span>{line.joints} joints</span>
+                  <span>{line.footage.toLocaleString()} ft</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {!isReadOnlyRole && (
+          <div className="ticket-count-actions">
+            {isEditing ? (
+              <>
+                <button className="button" onClick={cancelTicketCountEdit} disabled={savingTicketCounts}>
+                  Cancel
+                </button>
+                <button className="button primary" onClick={() => saveTicketCountEdits(ticketId, lines)} disabled={savingTicketCounts}>
+                  {savingTicketCounts ? "Saving..." : "Save Counts"}
+                </button>
+              </>
+            ) : (
+              <button className="button" onClick={() => startTicketCountEdit(ticketId, lines)}>
+                Edit Counts
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
   }
 
   async function loadReports() {
@@ -5498,6 +5700,7 @@ export default function Home() {
                       >
                         Add Truck
                       </button>
+                      {renderTicketCountEditor(ticket.id, lines)}
                       {attachments.length > 0 && (
                         <div className="ticket-line-list">
                           {attachments.map((attachment) => (
@@ -5548,15 +5751,7 @@ export default function Home() {
 >
   Print / PDF
 </button>
-                      {lines.length > 0 && (
-                        <div className="ticket-line-list">
-                          {lines.map((line) => (
-                            <span key={line.id}>
-                              {line.partNumber} / {line.pipeRange} / {line.joints} joints / {line.footage.toLocaleString()} ft
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {renderTicketCountEditor(ticket.id, lines)}
                       {attachments.length > 0 && (
                         <div className="ticket-line-list">
                           {attachments.map((attachment) => (
