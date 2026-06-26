@@ -44,6 +44,29 @@ type UserModulePermission = {
   canAccess: boolean;
 };
 
+type EmailNotificationType = {
+  id: string;
+  notificationKey: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+type EmailNotificationRecipient = {
+  id: string;
+  notificationTypeId: string;
+  userId: string;
+  enabled: boolean;
+};
+
+type EmailNotificationUser = {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+};
+
 type Rack = {
   id: string;
   rackCode: string;
@@ -147,6 +170,8 @@ const inventoryYardSetupMessage =
   "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.";
 const modulePermissionSetupMessage =
   "User module permissions table is missing. Run supabase/user_module_permissions.sql in Supabase SQL Editor, then refresh this page.";
+const emailNotificationSetupMessage =
+  "Admin email notification tables are missing. Run supabase/admin_security_and_notifications.sql in Supabase SQL Editor, then refresh this page.";
 
 const emptyRackForm = {
   rackCode: "",
@@ -286,6 +311,35 @@ function mapUserModulePermissions(rows: any[]): UserModulePermission[] {
   }));
 }
 
+function mapEmailNotificationTypes(rows: any[]): EmailNotificationType[] {
+  return (rows ?? []).map((row: any) => ({
+    id: row.id,
+    notificationKey: row.notification_key ?? row.notificationKey ?? "",
+    name: row.name ?? "",
+    description: row.description ?? "",
+    isActive: row.is_active !== false && row.isActive !== false,
+    sortOrder: Number(row.sort_order ?? row.sortOrder ?? 0),
+  }));
+}
+
+function mapEmailNotificationRecipients(rows: any[]): EmailNotificationRecipient[] {
+  return (rows ?? []).map((row: any) => ({
+    id: row.id,
+    notificationTypeId: row.notification_type_id ?? row.notificationTypeId ?? "",
+    userId: row.user_id ?? row.userId ?? "",
+    enabled: row.enabled !== false,
+  }));
+}
+
+function mapEmailNotificationUsers(rows: any[]): EmailNotificationUser[] {
+  return (rows ?? []).map((row: any) => ({
+    id: row.id,
+    fullName: row.full_name ?? row.fullName ?? "",
+    email: row.email ?? "",
+    role: row.role ?? "",
+  }));
+}
+
 export default function AdminPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -313,6 +367,9 @@ export default function AdminPage() {
   const [moduleAccessUserId, setModuleAccessUserId] = useState("");
   const [moduleAccessSelection, setModuleAccessSelection] = useState<ModuleKey[]>([]);
   const [newUserModuleSelection, setNewUserModuleSelection] = useState<ModuleKey[]>([]);
+  const [emailNotificationTypes, setEmailNotificationTypes] = useState<EmailNotificationType[]>([]);
+  const [emailNotificationRecipients, setEmailNotificationRecipients] = useState<EmailNotificationRecipient[]>([]);
+  const [emailNotificationUsers, setEmailNotificationUsers] = useState<EmailNotificationUser[]>([]);
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -393,6 +450,7 @@ export default function AdminPage() {
       loadInspectors(),
       loadInventoryOptions(),
       loadModulePermissions(),
+      loadEmailNotifications(),
     ]);
     setMessage((current) => (current === "Loading admin tools..." ? "" : current));
   }
@@ -598,6 +656,130 @@ export default function AdminPage() {
     setUserModulePermissions(mapUserModulePermissions(result.permissions ?? []));
   }
 
+  async function loadEmailNotifications() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setEmailNotificationTypes([]);
+      setEmailNotificationRecipients([]);
+      setEmailNotificationUsers([]);
+      return;
+    }
+
+    const response = await fetch("/api/admin-email-notifications", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: "list" }),
+    }).catch(() => null);
+
+    if (!response) {
+      setEmailNotificationTypes([]);
+      setEmailNotificationRecipients([]);
+      setEmailNotificationUsers([]);
+      setMessage("Email notification settings failed: Could not reach the notification service.");
+      return;
+    }
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setEmailNotificationTypes([]);
+      setEmailNotificationRecipients([]);
+      setEmailNotificationUsers([]);
+      setMessage(result.error || result.setupMessage || "Email notification settings failed.");
+      return;
+    }
+
+    if (result.setupRequired) {
+      setMessage(result.setupMessage || emailNotificationSetupMessage);
+    }
+
+    setEmailNotificationTypes(mapEmailNotificationTypes(result.notificationTypes ?? []));
+    setEmailNotificationRecipients(mapEmailNotificationRecipients(result.notificationRecipients ?? []));
+    setEmailNotificationUsers(mapEmailNotificationUsers(result.users ?? []));
+  }
+
+  function emailRecipientIdsForType(notificationTypeId: string) {
+    return emailNotificationRecipients
+      .filter((recipient) => recipient.notificationTypeId === notificationTypeId && recipient.enabled)
+      .map((recipient) => recipient.userId);
+  }
+
+  function toggleEmailNotificationRecipient(notificationTypeId: string, userId: string) {
+    setEmailNotificationRecipients((current) => {
+      const exists = current.some(
+        (recipient) =>
+          recipient.notificationTypeId === notificationTypeId && recipient.userId === userId
+      );
+
+      if (exists) {
+        return current.filter(
+          (recipient) =>
+            !(
+              recipient.notificationTypeId === notificationTypeId &&
+              recipient.userId === userId
+            )
+        );
+      }
+
+      return [
+        ...current,
+        {
+          id: `local-${notificationTypeId}-${userId}`,
+          notificationTypeId,
+          userId,
+          enabled: true,
+        },
+      ];
+    });
+  }
+
+  async function saveEmailNotificationRecipients(notificationTypeId: string) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("You must be signed in to save email notification settings.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/admin-email-notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: "save-recipients",
+          notificationTypeId,
+          userIds: emailRecipientIdsForType(notificationTypeId),
+        }),
+      });
+      const result = await response.json();
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error || result.setupMessage || "Email notification settings failed.");
+      }
+
+      setEmailNotificationTypes(mapEmailNotificationTypes(result.notificationTypes ?? []));
+      setEmailNotificationRecipients(mapEmailNotificationRecipients(result.notificationRecipients ?? []));
+      setEmailNotificationUsers(mapEmailNotificationUsers(result.users ?? []));
+      setMessage("Email notification recipients saved.");
+    } catch (error: any) {
+      setMessage(`Email notification save failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function loadRacks(yardId = selectedYardId) {
     if (!yardId) return;
 
@@ -660,6 +842,7 @@ export default function AdminPage() {
       loadInspectors(),
       loadInventoryOptions(),
       loadModulePermissions(),
+      loadEmailNotifications(),
     ]);
     setMessage("Admin tools refreshed.");
   }
@@ -1140,7 +1323,12 @@ export default function AdminPage() {
     setUserForm(emptyUserForm);
     setNewUserYardSelection([]);
     setNewUserModuleSelection([]);
-    await Promise.all([loadProfiles(), loadInventoryUserYards(), loadModulePermissions()]);
+    await Promise.all([
+      loadProfiles(),
+      loadInventoryUserYards(),
+      loadModulePermissions(),
+      loadEmailNotifications(),
+    ]);
     setMessage(result.warning || `User created and login email sent: ${result.email}`);
     setLoading(false);
   }
@@ -2323,6 +2511,63 @@ export default function AdminPage() {
           {!moduleAccessUserId && (
             <p className="muted-text">Choose a user to control Inventory, Yard View, DTI, Hardbanding, Admin, Reports, and Dashboard access.</p>
           )}
+        </div>
+      </details>
+
+      <details className="ticket-card admin-card admin-collapsible">
+        <summary>
+          <div>
+            <h3>Email Notification Settings</h3>
+            <p>Choose who receives automatic emails from release requests, consumable orders, POs, reports, and alerts.</p>
+          </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+          {emailNotificationTypes.length === 0 && (
+            <p className="muted-text">{emailNotificationSetupMessage}</p>
+          )}
+
+          {emailNotificationTypes.map((notificationType) => {
+            const selectedRecipientIds = emailRecipientIdsForType(notificationType.id);
+
+            return (
+              <section key={notificationType.id} className="ticket-card admin-card">
+                <div className="admin-section-header">
+                  <div>
+                    <h4>{notificationType.name}</h4>
+                    <p className="muted-text">{notificationType.description}</p>
+                  </div>
+                  <button
+                    className="button primary"
+                    onClick={() => saveEmailNotificationRecipients(notificationType.id)}
+                    disabled={loading}
+                  >
+                    Save Recipients
+                  </button>
+                </div>
+
+                <div className="yard-access-grid">
+                  {emailNotificationUsers.map((user) => (
+                    <label key={`${notificationType.id}-${user.id}`} className="yard-access-card">
+                      <input
+                        type="checkbox"
+                        checked={selectedRecipientIds.includes(user.id)}
+                        onChange={() => toggleEmailNotificationRecipient(notificationType.id, user.id)}
+                      />
+                      <span>
+                        <strong>{user.fullName || user.email || user.id}</strong>
+                        <small>{user.email || "No email"} / {user.role || "No role"}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                {emailNotificationUsers.length === 0 && (
+                  <p className="muted-text">No users found for email notifications.</p>
+                )}
+              </section>
+            );
+          })}
         </div>
       </details>
 

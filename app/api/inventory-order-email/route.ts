@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  listNotificationRecipientsWithFallback,
+  splitEmails,
+} from "../../../lib/adminEmailRecipients";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -62,49 +66,6 @@ function escapeHtml(value: unknown) {
 function money(value: unknown) {
   const number = Number(value || 0);
   return number.toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
-
-function splitEmails(value: string | undefined) {
-  return String(value || "")
-    .split(/[;,]/)
-    .map((email) => email.trim())
-    .filter((email) => email.includes("@"));
-}
-
-async function getProfileEmailsForRoles(adminClient: any, roles: string[]) {
-  const emails = new Set<string>();
-  const missingUserIds: string[] = [];
-
-  const { data: profiles } = await adminClient
-    .from("profiles")
-    .select("id, email, role")
-    .in("role", roles);
-
-  for (const profile of profiles ?? []) {
-    const email = String(profile.email ?? "").trim();
-    if (email.includes("@")) {
-      emails.add(email);
-    } else if (profile.id) {
-      missingUserIds.push(profile.id);
-    }
-  }
-
-  if (missingUserIds.length > 0) {
-    for (let page = 1; page <= 10; page += 1) {
-      const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
-      if (error) break;
-
-      for (const user of data.users ?? []) {
-        if (missingUserIds.includes(user.id) && user.email) {
-          emails.add(user.email);
-        }
-      }
-
-      if ((data.users ?? []).length < 1000) break;
-    }
-  }
-
-  return Array.from(emails);
 }
 
 async function getMicrosoftAccessToken() {
@@ -206,20 +167,17 @@ export async function POST(request: Request) {
       return Response.json({ error: "Order ID is required." }, { status: 400 });
     }
 
-    const roleRecipients = await getProfileEmailsForRoles(adminClient, [
-      "admin",
-      "inventory_manager",
-      "inventory_specialist",
-    ]);
-
-    const recipients = Array.from(
-      new Set([
-        ...roleRecipients,
-        ...splitEmails(process.env.INVENTORY_ORDER_EMAIL_TO),
-        ...splitEmails(process.env.INVENTORY_EMAIL_TO),
-        ...(manualRecipient ? splitEmails(manualRecipient) : []),
-      ]),
+    const configuredRecipients = await listNotificationRecipientsWithFallback(
+      adminClient,
+      "consumable_order_placed",
+      ["admin", "administrator", "inventory_manager", "inventory_specialist"],
+      [process.env.INVENTORY_ORDER_EMAIL_TO, process.env.INVENTORY_EMAIL_TO],
     );
+
+    const recipients = Array.from(new Set([
+      ...configuredRecipients,
+      ...(manualRecipient ? splitEmails(manualRecipient) : []),
+    ]));
 
     if (recipients.length === 0) {
       return Response.json({ error: "No inventory order email recipients are configured." }, { status: 400 });

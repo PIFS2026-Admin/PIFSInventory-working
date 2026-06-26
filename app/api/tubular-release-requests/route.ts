@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { listNotificationRecipientsWithFallback } from "../../../lib/adminEmailRecipients";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -445,25 +446,16 @@ export async function POST(request: Request) {
       created_by: access.user.id,
     });
 
-    const { data: adminProfiles } = await adminSupabase
-      .from("profiles")
-      .select("id, role");
-
-    const userEmails: string[] = [];
-    const users = await adminSupabase.auth.admin.listUsers();
-    const targetUserIds = new Set(
-      (adminProfiles ?? [])
-        .filter((profile: any) => ["admin", "yard_manager"].includes(String(profile.role ?? "").toLowerCase()))
-        .map((profile: any) => profile.id)
+    const userEmails = await listNotificationRecipientsWithFallback(
+      adminSupabase,
+      "customer_release_request",
+      ["admin", "administrator", "yard_manager"],
+      [
+        process.env.TUBULAR_RELEASE_EMAIL_TO,
+        process.env.RELEASE_REQUEST_EMAIL_TO,
+        process.env.MICROSOFT_MAIL_FROM,
+      ],
     );
-
-    for (const user of users.data.users ?? []) {
-      if (targetUserIds.has(user.id) && user.email) userEmails.push(user.email);
-    }
-
-    if (process.env.MICROSOFT_MAIL_FROM) {
-      userEmails.push(process.env.MICROSOFT_MAIL_FROM);
-    }
 
     let emailSent = false;
     try {
