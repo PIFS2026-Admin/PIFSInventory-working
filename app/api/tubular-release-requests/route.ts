@@ -52,6 +52,57 @@ function getSiteUrl() {
   ).replace(/\/$/, "");
 }
 
+function toNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizePipeRangeValue(value: unknown): "Range 2" | "Range 3" {
+  return value === "Range 3" ? "Range 3" : "Range 2";
+}
+
+function normalizeReleasePartLines(rawLines: unknown, requestedJoints: number) {
+  const rows = Array.isArray(rawLines) ? rawLines : [];
+  let remaining = Math.max(0, toNumber(requestedJoints));
+  const result: Array<Record<string, string | number>> = [];
+
+  for (const row of rows as any[]) {
+    const availableJoints = toNumber(row.joints ?? row.total_joints ?? row.bulk_joints);
+    if (remaining <= 0 || availableJoints <= 0) continue;
+
+    const releasedJoints = Math.min(availableJoints, remaining);
+    const pipeRange = normalizePipeRangeValue(row.pipeRange ?? row.pipe_range);
+    const storedFootage = toNumber(row.footage ?? row.total_footage ?? row.bulk_footage);
+    const footagePerJoint =
+      availableJoints > 0 && storedFootage > 0
+        ? storedFootage / availableJoints
+        : pipeRange === "Range 3"
+          ? 43.5
+          : 31.5;
+
+    remaining -= releasedJoints;
+    result.push({
+      afe: String(row.afe ?? row.tu ?? ""),
+      partNumber: String(row.partNumber ?? row.part_number ?? ""),
+      size: String(row.size ?? ""),
+      grade: String(row.grade ?? ""),
+      connection: String(row.connection ?? ""),
+      pipeRange,
+      condition: String(row.condition ?? ""),
+      joints: releasedJoints,
+      footage: Math.round(releasedJoints * footagePerJoint * 100) / 100,
+    });
+  }
+
+  return result;
+}
+
+function summarizeReleasePartNumbers(lines: Array<Record<string, string | number>>) {
+  return lines
+    .map((line) => `${line.partNumber || "Part"} (${toNumber(line.joints).toLocaleString()} joints)`)
+    .join(", ");
+}
+
 async function getMicrosoftAccessToken() {
   const tenantId = process.env.MICROSOFT_TENANT_ID;
   const clientId = process.env.MICROSOFT_CLIENT_ID;
@@ -284,8 +335,8 @@ export async function POST(request: Request) {
     const shipDate = String(body.shipDate ?? "").trim();
     const carrier = String(body.carrier ?? "").trim();
     const destination = String(body.destination ?? "").trim();
-    const partSummary = String(body.partSummary ?? "").trim();
-    const partLines = Array.isArray(body.partLines) ? body.partLines : [];
+    const partLines = normalizeReleasePartLines(body.partLines, quantityJoints);
+    const partSummary = String(body.partSummary ?? "").trim() || summarizeReleasePartNumbers(partLines);
 
     if (!access.profile.company_id) {
       return Response.json({ error: "Your login is not assigned to a customer company." }, { status: 400 });
@@ -301,6 +352,10 @@ export async function POST(request: Request) {
 
     if (!signatureName) {
       return Response.json({ error: "Printed signature name is required." }, { status: 400 });
+    }
+
+    if (partLines.length === 0) {
+      return Response.json({ error: "No pipe details were included for this release request." }, { status: 400 });
     }
 
     const companyRows = access.profile.companies;

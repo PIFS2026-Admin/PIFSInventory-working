@@ -71,6 +71,42 @@ function splitEmails(value: string | undefined) {
     .filter((email) => email.includes("@"));
 }
 
+async function getProfileEmailsForRoles(adminClient: any, roles: string[]) {
+  const emails = new Set<string>();
+  const missingUserIds: string[] = [];
+
+  const { data: profiles } = await adminClient
+    .from("profiles")
+    .select("id, email, role")
+    .in("role", roles);
+
+  for (const profile of profiles ?? []) {
+    const email = String(profile.email ?? "").trim();
+    if (email.includes("@")) {
+      emails.add(email);
+    } else if (profile.id) {
+      missingUserIds.push(profile.id);
+    }
+  }
+
+  if (missingUserIds.length > 0) {
+    for (let page = 1; page <= 10; page += 1) {
+      const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) break;
+
+      for (const user of data.users ?? []) {
+        if (missingUserIds.includes(user.id) && user.email) {
+          emails.add(user.email);
+        }
+      }
+
+      if ((data.users ?? []).length < 1000) break;
+    }
+  }
+
+  return Array.from(emails);
+}
+
 async function getMicrosoftAccessToken() {
   const tenantId = process.env.MICROSOFT_TENANT_ID;
   const clientId = process.env.MICROSOFT_CLIENT_ID;
@@ -170,8 +206,15 @@ export async function POST(request: Request) {
       return Response.json({ error: "Order ID is required." }, { status: 400 });
     }
 
+    const roleRecipients = await getProfileEmailsForRoles(adminClient, [
+      "admin",
+      "inventory_manager",
+      "inventory_specialist",
+    ]);
+
     const recipients = Array.from(
       new Set([
+        ...roleRecipients,
         ...splitEmails(process.env.INVENTORY_ORDER_EMAIL_TO),
         ...splitEmails(process.env.INVENTORY_EMAIL_TO),
         ...(manualRecipient ? splitEmails(manualRecipient) : []),

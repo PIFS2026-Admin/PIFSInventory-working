@@ -105,6 +105,34 @@ function calculateRangeFootage(joints: number, pipeRange: string) {
   return Math.round(Number(joints || 0) * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
 }
 
+function scaleTicketLinesToJoints(lines: TicketLine[], requestedJoints: number) {
+  let remaining = Math.max(0, Number(requestedJoints || 0));
+  const scaled: TicketLine[] = [];
+
+  for (const line of lines) {
+    const availableJoints = Number(line.joints || 0);
+    if (remaining <= 0 || availableJoints <= 0) continue;
+
+    const releasedJoints = Math.min(availableJoints, remaining);
+    const storedFootage = Number(line.footage || 0);
+    const footagePerJoint =
+      availableJoints > 0 && storedFootage > 0
+        ? storedFootage / availableJoints
+        : line.pipeRange === "Range 3"
+          ? 43.5
+          : 31.5;
+
+    remaining -= releasedJoints;
+    scaled.push({
+      ...line,
+      joints: releasedJoints,
+      footage: Math.round(releasedJoints * footagePerJoint * 100) / 100,
+    });
+  }
+
+  return scaled;
+}
+
 function getCompanyName(value: unknown) {
   const readName = (item: unknown) => {
     if (!item || typeof item !== "object" || !("name" in item)) return "";
@@ -260,8 +288,7 @@ export default function TicketPrintPage() {
           createdAt: data.created_at ?? "",
         });
 
-        setLines(
-          partLines.map((line: any, index: number) => {
+        const mappedPartLines = partLines.map((line: any, index: number) => {
             const pipeRange = normalizePipeRange(line.pipeRange ?? line.pipe_range);
             const joints = Number(line.joints ?? line.total_joints ?? line.bulk_joints ?? 0);
             const storedFootage = line.footage ?? line.total_footage ?? line.bulk_footage;
@@ -280,8 +307,9 @@ export default function TicketPrintPage() {
                 ? calculateRangeFootage(joints, pipeRange)
                 : Number(storedFootage),
             };
-          })
-        );
+          });
+
+        setLines(scaleTicketLinesToJoints(mappedPartLines, Number(data.quantity_joints ?? 0)));
 
         return;
       }

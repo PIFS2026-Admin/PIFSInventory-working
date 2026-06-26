@@ -151,6 +151,40 @@ function summarizeReleasePartLines(lines: ReleasePartLine[]) {
   );
 }
 
+function scaleReleasePartLines(lines: ReleasePartLine[], requestedJoints: number) {
+  let remaining = Math.max(0, Number(requestedJoints || 0));
+  const scaled: ReleasePartLine[] = [];
+
+  for (const line of lines) {
+    const availableJoints = Number(line.joints || 0);
+    if (remaining <= 0 || availableJoints <= 0) continue;
+
+    const releasedJoints = Math.min(availableJoints, remaining);
+    const storedFootage = Number(line.footage || 0);
+    const footagePerJoint =
+      availableJoints > 0 && storedFootage > 0
+        ? storedFootage / availableJoints
+        : line.pipeRange === "Range 3"
+          ? 43.5
+          : 31.5;
+
+    remaining -= releasedJoints;
+    scaled.push({
+      ...line,
+      joints: releasedJoints,
+      footage: Math.round(releasedJoints * footagePerJoint * 100) / 100,
+    });
+  }
+
+  return summarizeReleasePartLines(scaled);
+}
+
+function releasePartSummary(lines: ReleasePartLine[]) {
+  return lines
+    .map((line) => `${line.partNumber || "Part"} (${line.joints.toLocaleString()} joints)`)
+    .join(", ");
+}
+
 export default function CustomerPage() {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [inventory, setInventory] = useState<CustomerInventory[]>([]);
@@ -422,7 +456,15 @@ export default function CustomerPage() {
     return releaseRackOptions.find((option) => option.rackId === releaseForm.rackId) ?? null;
   }, [releaseForm.rackId, releaseRackOptions]);
 
-  const selectedReleasePartLines = selectedReleaseRack?.partLines ?? [];
+  const requestedReleaseJoints = Number(releaseForm.quantityJoints || 0);
+  const selectedReleasePartLines = useMemo(() => {
+    if (!selectedReleaseRack) return [];
+    if (!Number.isFinite(requestedReleaseJoints) || requestedReleaseJoints <= 0) {
+      return selectedReleaseRack.partLines;
+    }
+
+    return scaleReleasePartLines(selectedReleaseRack.partLines, requestedReleaseJoints);
+  }, [requestedReleaseJoints, selectedReleaseRack]);
 
   const filteredInventory = useMemo(() => {
     const searchText = search.toLowerCase().trim();
@@ -538,6 +580,13 @@ export default function CustomerPage() {
       return;
     }
 
+    const releasePartLines = scaleReleasePartLines(rack.partLines, quantityJoints);
+
+    if (releasePartLines.length === 0) {
+      setMessage("No pipe details were found for the requested release quantity.");
+      return;
+    }
+
     setSubmittingRelease(true);
 
     try {
@@ -565,8 +614,8 @@ export default function CustomerPage() {
           shipDate: releaseForm.shipDate,
           carrier: releaseForm.carrier,
           destination: releaseForm.destination,
-          partSummary: rack.partLines.map((line) => line.partNumber).filter(Boolean).join(", "),
-          partLines: rack.partLines,
+          partSummary: releasePartSummary(releasePartLines),
+          partLines: releasePartLines,
           notes: releaseForm.notes,
           signatureName: releaseForm.signatureName,
         }),

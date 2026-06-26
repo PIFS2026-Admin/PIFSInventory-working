@@ -276,6 +276,45 @@ function money(value: number) {
   return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
+function normalizeLookupText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "");
+}
+
+function inventoryItemMatchesTerm(item: InventoryItem, rawTerm: string) {
+  const term = rawTerm.trim().toLowerCase();
+  if (!term) return true;
+
+  const normalized = normalizeLookupText(term);
+  const values = [
+    item.itemCode,
+    item.itemName,
+    item.category,
+    item.location,
+    item.vendorName,
+    item.barcode,
+  ];
+
+  return (
+    values.some((value) => String(value ?? "").toLowerCase().includes(term)) ||
+    values.some((value) => normalizeLookupText(value).includes(normalized))
+  );
+}
+
+function inventoryItemSearchRank(item: InventoryItem, rawTerm: string) {
+  const term = rawTerm.trim().toLowerCase();
+  const normalized = normalizeLookupText(term);
+  const barcode = String(item.barcode ?? "").toLowerCase();
+  const code = String(item.itemCode ?? "").toLowerCase();
+  const name = String(item.itemName ?? "").toLowerCase();
+
+  if (barcode === term || normalizeLookupText(item.barcode) === normalized) return 0;
+  if (code === term || normalizeLookupText(item.itemCode) === normalized) return 1;
+  if (name === term) return 2;
+  if (name.startsWith(term)) return 3;
+  if (barcode.startsWith(term) || code.startsWith(term)) return 4;
+  return 5;
+}
+
 function numberValue(value: string) {
   const parsed = Number(String(value || "0").replace(/[$,]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -391,16 +430,9 @@ export default function InventoryModulePage() {
   );
 
   const filteredItems = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = search.trim();
     return items.filter((item) => {
-      const matchesSearch =
-        !term ||
-        item.itemCode.toLowerCase().includes(term) ||
-        item.itemName.toLowerCase().includes(term) ||
-        item.category.toLowerCase().includes(term) ||
-        item.location.toLowerCase().includes(term) ||
-        item.vendorName.toLowerCase().includes(term) ||
-        item.barcode.toLowerCase().includes(term);
+      const matchesSearch = !term || inventoryItemMatchesTerm(item, term);
       const matchesCategory = categoryFilter === "all" || item.category === categoryFilter;
       const matchesLocation = locationFilter === "all" || item.location === locationFilter;
       const matchesVendor = vendorFilter === "all" || item.vendorName === vendorFilter;
@@ -414,40 +446,17 @@ export default function InventoryModulePage() {
   }, [items, search, categoryFilter, locationFilter, vendorFilter, stockFilter]);
 
   const orderSearchMatches = useMemo(() => {
-    const term = scanInput.trim().toLowerCase();
+    const term = scanInput.trim();
     if (!term || activeView !== "orders") return [];
 
     return items
       .filter((item) => {
         if (!item.active) return false;
-        return (
-          item.itemCode.toLowerCase().includes(term) ||
-          item.itemName.toLowerCase().includes(term) ||
-          item.category.toLowerCase().includes(term) ||
-          item.location.toLowerCase().includes(term) ||
-          item.vendorName.toLowerCase().includes(term) ||
-          item.barcode.toLowerCase().includes(term)
-        );
+        return inventoryItemMatchesTerm(item, term);
       })
       .sort((left, right) => {
-        const leftCode = left.itemCode.toLowerCase();
-        const rightCode = right.itemCode.toLowerCase();
-        const leftBarcode = left.barcode.toLowerCase();
-        const rightBarcode = right.barcode.toLowerCase();
-        const leftName = left.itemName.toLowerCase();
-        const rightName = right.itemName.toLowerCase();
-        const leftScore =
-          leftBarcode === term || leftCode === term ? 0 :
-          leftName === term ? 1 :
-          leftName.startsWith(term) ? 2 :
-          leftCode.startsWith(term) ? 3 :
-          4;
-        const rightScore =
-          rightBarcode === term || rightCode === term ? 0 :
-          rightName === term ? 1 :
-          rightName.startsWith(term) ? 2 :
-          rightCode.startsWith(term) ? 3 :
-          4;
+        const leftScore = inventoryItemSearchRank(left, term);
+        const rightScore = inventoryItemSearchRank(right, term);
 
         if (leftScore !== rightScore) return leftScore - rightScore;
         return left.itemName.localeCompare(right.itemName);
@@ -1219,14 +1228,39 @@ export default function InventoryModulePage() {
   }
 
   function findItemForCounter(value: string) {
-    const term = value.trim().toLowerCase();
+    const term = value.trim();
+    const normalized = normalizeLookupText(term);
     if (!term) return null;
+
     return (
-      items.find((item) => item.barcode && item.barcode.toLowerCase() === term) ||
-      items.find((item) => item.itemCode.toLowerCase() === term) ||
-      items.find((item) => item.itemName.toLowerCase() === term || item.itemName.toLowerCase().includes(term)) ||
+      items.find((item) => item.barcode && normalizeLookupText(item.barcode) === normalized) ||
+      items.find((item) => normalizeLookupText(item.itemCode) === normalized) ||
+      items.find((item) => inventoryItemMatchesTerm(item, term)) ||
       null
     );
+  }
+
+  function addBarcodeToActiveCart(barcode: string) {
+    const item = findItemForCounter(barcode);
+    if (!item) {
+      setScanInput(barcode);
+      setCameraScanMessage(`Scanned ${barcode}, but no inventory item matched it.`);
+      scanFieldRef.current?.focus();
+      return false;
+    }
+
+    if (activeView === "orders") {
+      addItemToOrderCart(item);
+      setOrderSearchOpen(false);
+      setCameraScanMessage(`Added ${item.itemCode} to order from barcode ${barcode}.`);
+    } else {
+      addItemToCart(item);
+      setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
+    }
+
+    setScanInput("");
+    window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+    return true;
   }
 
   function addItemToCart(item: InventoryItem, quantity = 1) {
@@ -1311,20 +1345,8 @@ export default function InventoryModulePage() {
           const barcode = result?.getText?.().trim();
           if (!barcode) return;
 
-          const item = findItemForCounter(barcode);
-          if (!item) {
-            setScanInput(barcode);
-            setCameraScanMessage(`Scanned ${barcode}, but no inventory item matched it.`);
-            stopCameraScanner();
-            scanFieldRef.current?.focus();
-            return;
-          }
-
-          addItemToCart(item);
-          setScanInput("");
-          setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
+          addBarcodeToActiveCart(barcode);
           stopCameraScanner();
-          window.setTimeout(() => scanFieldRef.current?.focus(), 25);
         },
       );
       barcodeControlsRef.current = controls as { stop: () => void };
@@ -1355,18 +1377,7 @@ export default function InventoryModulePage() {
         return;
       }
 
-      const item = findItemForCounter(barcode);
-      if (!item) {
-        setScanInput(barcode);
-        setCameraScanMessage(`Scanned ${barcode}, but no inventory item matched it.`);
-        scanFieldRef.current?.focus();
-        return;
-      }
-
-      addItemToCart(item);
-      setScanInput("");
-      setCameraScanMessage(`Added ${item.itemCode} from barcode ${barcode}.`);
-      window.setTimeout(() => scanFieldRef.current?.focus(), 25);
+      addBarcodeToActiveCart(barcode);
     } catch (error: any) {
       setCameraScanMessage("No barcode was found. Try a closer, brighter photo with the barcode filling most of the screen.");
     } finally {
@@ -2251,8 +2262,31 @@ export default function InventoryModulePage() {
                 )}
               </div>
               <button className="button primary" onClick={addScannedItemToOrder}>Add to Order</button>
+              <input
+                ref={cameraFileRef}
+                className="hidden-file-input"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(event) => handleCameraBarcode(event.target.files?.[0])}
+              />
+              {cameraScanning ? (
+                <video ref={cameraVideoRef} className="barcode-video" muted playsInline />
+              ) : (
+                <video ref={cameraVideoRef} className="barcode-video hidden-video" muted playsInline />
+              )}
+              <button className="button" onClick={openCameraScanner} disabled={cameraScanning}>
+                {cameraScanning ? "Scanning..." : "Scan Camera"}
+              </button>
+              {cameraScanning && (
+                <button className="button ghost" onClick={stopCameraScanner}>
+                  Stop Scan
+                </button>
+              )}
               <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear</button>
             </div>
+
+            {cameraScanMessage && <div className="modal-message compact">{cameraScanMessage}</div>}
 
             {orderCart.length === 0 ? (
               <div className="empty-pos-cart">
