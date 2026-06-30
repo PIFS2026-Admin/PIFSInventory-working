@@ -171,6 +171,8 @@ type DashboardFilters = {
   lead: string;
 };
 
+type ProfileNameMap = Map<string, string>;
+
 const emptyData: DashboardData = {
   pipeInventory: [],
   pipeActivity: [],
@@ -269,6 +271,26 @@ function whole(value: number) {
 function formatDate(value: unknown) {
   if (!value) return "-";
   return String(value).slice(0, 10);
+}
+
+function isUuidLike(value: unknown) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
+  );
+}
+
+function cleanPersonValue(value: unknown) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "-") return "";
+  return trimmed;
+}
+
+function resolvePersonValue(value: unknown, profileNamesById: ProfileNameMap) {
+  const cleaned = cleanPersonValue(value);
+  if (!cleaned) return "";
+  return profileNamesById.get(cleaned) ?? cleaned;
 }
 
 function getTodayInputValue() {
@@ -1128,8 +1150,41 @@ export default function InternalHomePage() {
     });
 
     const dtiRows = ((dtiJobsResult.data ?? []) as any[]).concat((dtiSummariesResult.data ?? []) as any[]);
+    const preJobProfileIds = Array.from(
+      new Set(
+        dtiRows
+          .flatMap((row) => [
+            row.pre_job_completed_by,
+            row.pre_job_manager,
+            row.pre_job_owner,
+            row.management_pre_job_by,
+            row.created_by,
+          ])
+          .filter(isUuidLike)
+          .map((value) => String(value).trim())
+      )
+    );
+    const profileNamesById: ProfileNameMap = new Map();
+
+    if (preJobProfileIds.length > 0) {
+      const { data: preJobProfiles, error: preJobProfileError } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", preJobProfileIds);
+
+      if (preJobProfileError) {
+        warnings.push(`Pre-job owner names: ${preJobProfileError.message}`);
+      } else {
+        ((preJobProfiles ?? []) as any[]).forEach((profileRow) => {
+          const id = cleanPersonValue(profileRow.id);
+          const name = cleanPersonValue(profileRow.full_name);
+          if (id && name) profileNamesById.set(id, name);
+        });
+      }
+    }
+
     const leadPerformance = buildLeadPerformance(dtiRows, dtiResponses);
-    const preJobPerformance = buildPreJobPerformance(dtiRows, dtiResponses);
+    const preJobPerformance = buildPreJobPerformance(dtiRows, dtiResponses, profileNamesById);
 
     setData({
       pipeInventory,
@@ -1150,20 +1205,33 @@ export default function InternalHomePage() {
     return String(row.lead_inspector_name ?? row.lead_inspector ?? row.crew_lead ?? "").trim();
   }
 
-  function getDtiPreJobOwnerName(row: any) {
-    return String(
-      row.pre_job_completed_by ??
-      row.pre_job_manager ??
-      row.pre_job_owner ??
-      row.management_pre_job_by ??
-      row.field_ers_superintendent ??
-      row.superintendent ??
-      row.manager ??
-      row.created_by_name ??
-      row.created_by ??
-      row.created_by_email ??
-      ""
-    ).trim();
+  function getDtiPreJobOwnerName(row: any, profileNamesById: ProfileNameMap = new Map()) {
+    const candidates = [
+      row.pre_job_completed_by_name,
+      row.pre_job_manager_name,
+      row.pre_job_owner_name,
+      row.management_pre_job_by_name,
+      row.field_ers_superintendent,
+      row.superintendent,
+      row.manager,
+      row.created_by_name,
+      row.created_by_email,
+      row.pre_job_completed_by,
+      row.pre_job_manager,
+      row.pre_job_owner,
+      row.management_pre_job_by,
+      row.created_by,
+    ];
+    let uuidFallback = "";
+
+    for (const candidate of candidates) {
+      const resolved = resolvePersonValue(candidate, profileNamesById);
+      if (!resolved) continue;
+      if (!isUuidLike(resolved)) return resolved;
+      uuidFallback = uuidFallback || resolved;
+    }
+
+    return uuidFallback ? "Unassigned" : "";
   }
 
   function normalizeChecklistText(value: string) {
@@ -1271,8 +1339,17 @@ export default function InternalHomePage() {
     return buildPerformanceRows(dtiJobs, responses, getDtiLeadName, (response) => !isPreJobResponse(response));
   }
 
-  function buildPreJobPerformance(dtiJobs: any[], responses: DtiChecklistResponseLine[]) {
-    return buildPerformanceRows(dtiJobs, responses, getDtiPreJobOwnerName, isPreJobResponse);
+  function buildPreJobPerformance(
+    dtiJobs: any[],
+    responses: DtiChecklistResponseLine[],
+    profileNamesById: ProfileNameMap,
+  ) {
+    return buildPerformanceRows(
+      dtiJobs,
+      responses,
+      (job) => getDtiPreJobOwnerName(job, profileNamesById),
+      isPreJobResponse
+    );
   }
 
   async function signOut() {
