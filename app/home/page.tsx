@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
 import { supabase } from "../../lib/supabase";
 import {
@@ -15,13 +15,135 @@ type Profile = {
   modules: ModuleKey[];
 };
 
+type YardOption = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 type LaunchCard = {
   title: string;
   description: string;
   href: string;
 };
 
+type BreakdownLine = {
+  label: string;
+  value: number;
+  subText?: string;
+};
+
+type ActivityLine = {
+  id: string;
+  title: string;
+  detail: string;
+  meta: string;
+};
+
+type PipeInventoryLine = {
+  id: string;
+  company: string;
+  partNumber: string;
+  size: string;
+  grade: string;
+  connection: string;
+  status: string;
+  location: string;
+  joints: number;
+  footage: number;
+  createdAt: string;
+};
+
+type PipeActivityLine = {
+  id: string;
+  type: string;
+  company: string;
+  joints: number;
+  footage: number;
+  fromLocation: string;
+  toLocation: string;
+  comment: string;
+  createdAt: string;
+};
+
+type ConsumableItemLine = {
+  id: string;
+  itemId: string;
+  name: string;
+  category: string;
+  vendor: string;
+  location: string;
+  qtyOnHand: number;
+  minQty: number;
+  unitPrice: number;
+};
+
+type ConsumableTransactionLine = {
+  id: string;
+  itemName: string;
+  category: string;
+  vendor: string;
+  type: string;
+  quantity: number;
+  value: number;
+  date: string;
+  reference: string;
+};
+
+type PurchaseOrderLine = {
+  id: string;
+  poNumber: string;
+  vendor: string;
+  status: string;
+  totalValue: number;
+  orderDate: string;
+};
+
+type LeadPerformanceLine = {
+  name: string;
+  jobsCompleted: number;
+  dailySummaries: number;
+  inventoryMoves: number;
+  issueActivity: number;
+  incompleteEntries: number;
+  score: number;
+  detail: string;
+};
+
+type DashboardData = {
+  pipeInventory: PipeInventoryLine[];
+  pipeActivity: PipeActivityLine[];
+  consumableItems: ConsumableItemLine[];
+  consumableTransactions: ConsumableTransactionLine[];
+  purchaseOrders: PurchaseOrderLine[];
+  leadPerformance: LeadPerformanceLine[];
+  warnings: string[];
+};
+
+type DashboardFilters = {
+  startDate: string;
+  endDate: string;
+  customer: string;
+  department: string;
+  lead: string;
+};
+
+const emptyData: DashboardData = {
+  pipeInventory: [],
+  pipeActivity: [],
+  consumableItems: [],
+  consumableTransactions: [],
+  purchaseOrders: [],
+  leadPerformance: [],
+  warnings: [],
+};
+
 const launchCards: LaunchCard[] = [
+  {
+    title: "Dashboard",
+    description: "Internal command center and live operating metrics.",
+    href: "/home",
+  },
   {
     title: "Yard View",
     description: "Inventory, racks, receiving, shipping, transfers, and tickets.",
@@ -29,12 +151,12 @@ const launchCards: LaunchCard[] = [
   },
   {
     title: "Inventory",
-    description: "Standalone tools, parts, consumables, issue tickets, and stock adjustments.",
+    description: "Consumables, issue counter, items, vendors, and stock adjustments.",
     href: "/inventory",
   },
   {
     title: "Purchase Orders",
-    description: "Vendors, PO line items, receiving, invoices, and packing slips.",
+    description: "Vendor purchase orders, receiving, approvals, and PO reports.",
     href: "/purchase-orders",
   },
   {
@@ -44,38 +166,126 @@ const launchCards: LaunchCard[] = [
   },
   {
     title: "DTI Daily Summary",
-    description: "Paperless inspection summaries with email and print options.",
+    description: "Daily inspection summary form, print, email, and saved summaries.",
     href: "/dti-summary",
   },
   {
     title: "Hardbanding",
-    description: "Hardband jobs, serial numbers, operators, closeout, and reports.",
+    description: "Hardband work orders, serial numbers, closeout, and reports.",
     href: "/hardband",
   },
   {
-    title: "Admin Controls",
-    description: "Companies, users, racks, work zones, and part number setup.",
-    href: "/admin",
-  },
-  {
     title: "Reports",
-    description: "Inventory summaries, customer reports, tickets, and exports.",
+    description: "Pipe inventory reports, ticket searches, and exports.",
     href: "/?open=reports",
   },
   {
-    title: "Dashboard",
-    description: "Weekly employee activity, transaction counts, and WIP overview.",
+    title: "Employee Activity",
+    description: "Weekly activity, transaction counts, and management overview.",
     href: "/dashboard",
+  },
+  {
+    title: "Admin Controls",
+    description: "Companies, users, roles, yards, racks, options, and setup tools.",
+    href: "/admin",
   },
 ];
 
+const departmentOptions = ["All Departments", "Yard", "Inventory", "Purchase Orders", "DTI", "Hardband"];
+
+function normalizeRole(role: unknown) {
+  return typeof role === "string" ? role.toLowerCase() : "customer";
+}
+
 function canOpenLaunchCard(modules: ModuleKey[], card: LaunchCard) {
+  if (card.href === "/home") return true;
   const moduleKey = moduleHrefToKey(card.href);
   return !moduleKey || modules.includes(moduleKey);
 }
 
-function normalizeRole(role: unknown) {
-  return typeof role === "string" ? role.toLowerCase() : "customer";
+function toNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function money(value: number) {
+  return value.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
+}
+
+function whole(value: number) {
+  return Math.round(value).toLocaleString();
+}
+
+function formatDate(value: unknown) {
+  if (!value) return "-";
+  return String(value).slice(0, 10);
+}
+
+function getTodayInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getMonthStartInputValue() {
+  const date = new Date();
+  date.setDate(1);
+  return date.toISOString().slice(0, 10);
+}
+
+function getYearStartInputValue() {
+  return `${new Date().getFullYear()}-01-01`;
+}
+
+function isWithinDateRange(value: string, filters: DashboardFilters) {
+  if (!value || value === "-") return true;
+  const date = value.slice(0, 10);
+  return date >= filters.startDate && date <= filters.endDate;
+}
+
+function relationName(value: any) {
+  const relation = Array.isArray(value) ? value[0] : value;
+  return relation?.name ?? "";
+}
+
+function relationCode(value: any) {
+  const relation = Array.isArray(value) ? value[0] : value;
+  return relation?.rack_code ?? relation?.name ?? relation?.code ?? "";
+}
+
+function buildBreakdown<T>(
+  rows: T[],
+  labelGetter: (row: T) => string,
+  valueGetter: (row: T) => number,
+  limit = 8
+) {
+  const map = new Map<string, number>();
+
+  rows.forEach((row) => {
+    const label = labelGetter(row) || "Unassigned";
+    map.set(label, (map.get(label) ?? 0) + valueGetter(row));
+  });
+
+  return Array.from(map.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
+function averageRangeFootage(joints: number, pipeRange: string) {
+  return Math.round(joints * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
+}
+
+function isIssueTransaction(type: string) {
+  const normalized = type.toLowerCase();
+  return normalized.includes("issue") || normalized.includes("out") || normalized.includes("used");
+}
+
+function isPurchaseTransaction(type: string) {
+  const normalized = type.toLowerCase();
+  return normalized.includes("purchase") || normalized.includes("receive") || normalized.includes("in");
 }
 
 async function loadModuleAccess(role: string, token: string | undefined) {
@@ -91,22 +301,373 @@ async function loadModuleAccess(role: string, token: string | undefined) {
 
   const result = await response.json();
   return Array.isArray(result.moduleKeys)
-    ? result.moduleKeys.map(String) as ModuleKey[]
+    ? (result.moduleKeys.map(String) as ModuleKey[])
     : defaultModulesForRole(role);
+}
+
+async function loadYardOptions(token: string) {
+  const response = await fetch("/api/yard-options", {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => null);
+
+  if (!response?.ok) return [];
+
+  const result = await response.json().catch(() => null);
+  return Array.isArray(result?.yards) ? (result.yards as YardOption[]) : [];
+}
+
+function DashboardMetricCard({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <article className="dashboard-metric-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
+    </article>
+  );
+}
+
+function BreakdownList({ title, rows, suffix = "" }: { title: string; rows: BreakdownLine[]; suffix?: string }) {
+  const maxValue = Math.max(...rows.map((row) => row.value), 1);
+
+  return (
+    <article className="dashboard-panel">
+      <div className="dashboard-panel-title">
+        <h3>{title}</h3>
+      </div>
+      <div className="dashboard-breakdown-list">
+        {rows.length === 0 && <p className="muted-text">No data found for this filter.</p>}
+        {rows.map((row) => (
+          <div key={row.label} className="dashboard-breakdown-row">
+            <div>
+              <strong>{row.label}</strong>
+              <span>{whole(row.value)}{suffix}</span>
+            </div>
+            <div className="dashboard-bar-track">
+              <span style={{ width: `${Math.max(8, (row.value / maxValue) * 100)}%` }} />
+            </div>
+            {row.subText && <small>{row.subText}</small>}
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function ActivityTable({ title, rows }: { title: string; rows: ActivityLine[] }) {
+  return (
+    <article className="dashboard-panel">
+      <div className="dashboard-panel-title">
+        <h3>{title}</h3>
+      </div>
+      <div className="dashboard-activity-list">
+        {rows.length === 0 && <p className="muted-text">No recent activity found.</p>}
+        {rows.map((row) => (
+          <div key={row.id} className="dashboard-activity-row">
+            <div>
+              <strong>{row.title}</strong>
+              <span>{row.detail}</span>
+            </div>
+            <small>{row.meta}</small>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function PlaceholderPanel({ title, children }: { title: string; children: string }) {
+  return (
+    <article className="dashboard-panel dashboard-placeholder">
+      <h3>{title}</h3>
+      <p>{children}</p>
+    </article>
+  );
+}
+
+function TubularInventorySection({
+  inventory,
+  activity,
+}: {
+  inventory: PipeInventoryLine[];
+  activity: PipeActivityLine[];
+}) {
+  const totalJoints = inventory.reduce((sum, row) => sum + row.joints, 0);
+  const totalFootage = inventory.reduce((sum, row) => sum + row.footage, 0);
+  const activeCustomers = new Set(inventory.map((row) => row.company).filter(Boolean)).size;
+  const activeLocations = new Set(inventory.map((row) => row.location).filter(Boolean)).size;
+
+  const recentActivity = activity.slice(0, 8).map((row) => ({
+    id: row.id,
+    title: `${row.type || "Inventory"} - ${row.company}`,
+    detail: `${whole(row.joints)} joints from ${row.fromLocation || "-"} to ${row.toLocation || "-"}`,
+    meta: row.createdAt,
+  }));
+
+  return (
+    <DashboardSection
+      title="Tubular Inventory Breakdown"
+      subtitle="Live pipe inventory by customer, specs, status, and yard location."
+    >
+      <div className="dashboard-metric-grid">
+        <DashboardMetricCard label="Total joints on yard" value={whole(totalJoints)} />
+        <DashboardMetricCard label="Total footage" value={whole(totalFootage)} />
+        <DashboardMetricCard label="Customers with pipe" value={whole(activeCustomers)} />
+        <DashboardMetricCard label="Active locations" value={whole(activeLocations)} />
+      </div>
+
+      <div className="dashboard-widget-grid">
+        <BreakdownList title="Inventory by Customer" rows={buildBreakdown(inventory, (row) => row.company, (row) => row.joints)} suffix=" joints" />
+        <BreakdownList title="Inventory by Pipe Size" rows={buildBreakdown(inventory, (row) => row.size, (row) => row.joints)} suffix=" joints" />
+        <BreakdownList title="Inventory by Connection" rows={buildBreakdown(inventory, (row) => row.connection, (row) => row.joints)} suffix=" joints" />
+        <BreakdownList title="Inventory by Grade" rows={buildBreakdown(inventory, (row) => row.grade, (row) => row.joints)} suffix=" joints" />
+        <BreakdownList title="Inventory by Status" rows={buildBreakdown(inventory, (row) => row.status, (row) => row.joints)} suffix=" joints" />
+        <BreakdownList title="Inventory by Location" rows={buildBreakdown(inventory, (row) => row.location, (row) => row.joints)} suffix=" joints" />
+      </div>
+
+      <ActivityTable title="Recent Inventory Activity" rows={recentActivity} />
+    </DashboardSection>
+  );
+}
+
+function ConsumableInventorySection({
+  items,
+  transactions,
+  filters,
+}: {
+  items: ConsumableItemLine[];
+  transactions: ConsumableTransactionLine[];
+  filters: DashboardFilters;
+}) {
+  const monthStart = getMonthStartInputValue();
+  const yearStart = getYearStartInputValue();
+  const today = getTodayInputValue();
+
+  const monthSpend = transactions
+    .filter((row) => row.date >= monthStart && row.date <= today)
+    .reduce((sum, row) => sum + Math.abs(row.value), 0);
+  const ytdSpend = transactions
+    .filter((row) => row.date >= yearStart && row.date <= today)
+    .reduce((sum, row) => sum + Math.abs(row.value), 0);
+  const weekTransactions = transactions.filter((row) => isWithinDateRange(row.date, filters));
+  const issued = weekTransactions.filter((row) => isIssueTransaction(row.type));
+  const lowStock = items.filter((row) => row.qtyOnHand <= row.minQty);
+
+  return (
+    <DashboardSection
+      title="Consumable Inventory Spending Breakdown"
+      subtitle="Spend, issue velocity, vendor/category mix, and reorder pressure."
+    >
+      <div className="dashboard-metric-grid">
+        <DashboardMetricCard label="Spend this month" value={money(monthSpend)} />
+        <DashboardMetricCard label="Spend year-to-date" value={money(ytdSpend)} />
+        <DashboardMetricCard label="Low stock alerts" value={whole(lowStock.length)} />
+        <DashboardMetricCard label="Week filtered transactions" value={whole(weekTransactions.length)} />
+      </div>
+
+      <div className="dashboard-widget-grid">
+        <BreakdownList title="Spend by Category" rows={buildBreakdown(weekTransactions, (row) => row.category, (row) => Math.abs(row.value))} />
+        <BreakdownList title="Spend by Vendor" rows={buildBreakdown(weekTransactions, (row) => row.vendor, (row) => Math.abs(row.value))} />
+        <BreakdownList title="Top Issued Consumables" rows={buildBreakdown(issued, (row) => row.itemName, (row) => row.quantity, 10)} />
+        <BreakdownList
+          title="Low Stock / Reorder Alerts"
+          rows={lowStock.slice(0, 10).map((row) => ({
+            label: row.name,
+            value: Math.max(0, row.minQty - row.qtyOnHand),
+            subText: `${whole(row.qtyOnHand)} on hand / min ${whole(row.minQty)} - ${row.location}`,
+          }))}
+        />
+      </div>
+
+      <ActivityTable
+        title="Recent Purchases and Issues"
+        rows={weekTransactions.slice(0, 10).map((row) => ({
+          id: row.id,
+          title: `${row.type || "Transaction"} - ${row.itemName}`,
+          detail: `${whole(row.quantity)} units / ${money(Math.abs(row.value))}`,
+          meta: `${row.date} ${row.reference}`,
+        }))}
+      />
+    </DashboardSection>
+  );
+}
+
+function PurchaseOrderSection({ orders, filters }: { orders: PurchaseOrderLine[]; filters: DashboardFilters }) {
+  const monthStart = getMonthStartInputValue();
+  const yearStart = getYearStartInputValue();
+  const today = getTodayInputValue();
+  const filteredOrders = orders.filter((row) => isWithinDateRange(row.orderDate, filters));
+  const monthSpend = orders
+    .filter((row) => row.orderDate >= monthStart && row.orderDate <= today)
+    .reduce((sum, row) => sum + row.totalValue, 0);
+  const ytdSpend = orders
+    .filter((row) => row.orderDate >= yearStart && row.orderDate <= today)
+    .reduce((sum, row) => sum + row.totalValue, 0);
+
+  const countStatus = (status: string) =>
+    orders.filter((row) => row.status.toLowerCase() === status.toLowerCase()).length;
+  const openCount = orders.filter((row) => !["closed", "cancelled", "received"].includes(row.status.toLowerCase())).length;
+
+  return (
+    <DashboardSection
+      title="PO Breakdown"
+      subtitle="Open order pressure, purchasing status, and vendor spend."
+    >
+      <div className="dashboard-metric-grid">
+        <DashboardMetricCard label="Open POs" value={whole(openCount)} />
+        <DashboardMetricCard label="Draft POs" value={whole(countStatus("Draft"))} />
+        <DashboardMetricCard label="Sent / Ordered POs" value={whole(countStatus("Ordered") + countStatus("Sent") + countStatus("Submitted"))} />
+        <DashboardMetricCard label="Partially received" value={whole(countStatus("Partially Received"))} />
+        <DashboardMetricCard label="Closed POs" value={whole(countStatus("Closed") + countStatus("Received"))} />
+        <DashboardMetricCard label="PO spend this month" value={money(monthSpend)} />
+        <DashboardMetricCard label="PO spend year-to-date" value={money(ytdSpend)} />
+      </div>
+
+      <div className="dashboard-widget-grid">
+        <BreakdownList title="PO Spend by Vendor" rows={buildBreakdown(filteredOrders, (row) => row.vendor, (row) => row.totalValue)} />
+        <BreakdownList title="POs by Status" rows={buildBreakdown(orders, (row) => row.status, () => 1)} />
+      </div>
+
+      <ActivityTable
+        title="Recent PO Activity"
+        rows={orders.slice(0, 10).map((row) => ({
+          id: row.id,
+          title: `${row.poNumber} - ${row.vendor}`,
+          detail: `${row.status} / ${money(row.totalValue)}`,
+          meta: row.orderDate,
+        }))}
+      />
+    </DashboardSection>
+  );
+}
+
+function LeadScorecardSection({ leads }: { leads: LeadPerformanceLine[] }) {
+  return (
+    <DashboardSection
+      title="Lead Scorecard Breakdown"
+      subtitle="Job completion, daily summaries, operating activity, and incomplete entries by lead."
+    >
+      <div className="dashboard-lead-grid">
+        {leads.length === 0 && (
+          <PlaceholderPanel title="Lead performance data">
+            DTI jobs and daily summaries are loaded, but no lead names were found for this filter.
+          </PlaceholderPanel>
+        )}
+        {leads.map((lead, index) => (
+          <article key={lead.name} className="dashboard-lead-card">
+            <div className="dashboard-lead-rank">#{index + 1}</div>
+            <div>
+              <h3>{lead.name}</h3>
+              <strong>{lead.score.toFixed(1)}</strong>
+              <span>Performance score</span>
+            </div>
+            <dl>
+              <div><dt>Jobs completed</dt><dd>{whole(lead.jobsCompleted)}</dd></div>
+              <div><dt>Daily summaries</dt><dd>{whole(lead.dailySummaries)}</dd></div>
+              <div><dt>Inventory moves</dt><dd>{whole(lead.inventoryMoves)}</dd></div>
+              <div><dt>PO / issue activity</dt><dd>{whole(lead.issueActivity)}</dd></div>
+              <div><dt>Needs attention</dt><dd>{whole(lead.incompleteEntries)}</dd></div>
+            </dl>
+            <p>{lead.detail}</p>
+          </article>
+        ))}
+      </div>
+    </DashboardSection>
+  );
+}
+
+function DashboardSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="dashboard-section">
+      <div className="dashboard-section-heading">
+        <div>
+          <h2>{title}</h2>
+          <p>{subtitle}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
 }
 
 export default function InternalHomePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [yardOptions, setYardOptions] = useState<YardOption[]>([]);
+  const [selectedYardId, setSelectedYardId] = useState("");
+  const [filters, setFilters] = useState<DashboardFilters>({
+    startDate: getMonthStartInputValue(),
+    endDate: getTodayInputValue(),
+    customer: "All Customers",
+    department: "All Departments",
+    lead: "All Leads",
+  });
+  const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("Loading TITAN...");
+  const [message, setMessage] = useState("Loading TITAN dashboard...");
 
   useEffect(() => {
-    loadProfile();
+    loadProfileAndYards();
   }, []);
 
-  async function loadProfile() {
+  useEffect(() => {
+    if (selectedYardId) {
+      loadDashboardData(selectedYardId);
+    }
+  }, [selectedYardId]);
+
+  const selectedYard = yardOptions.find((yard) => yard.id === selectedYardId);
+
+  const filteredPipeInventory = useMemo(() => {
+    return data.pipeInventory.filter((row) => {
+      const customerMatch = filters.customer === "All Customers" || row.company === filters.customer;
+      return customerMatch;
+    });
+  }, [data.pipeInventory, filters.customer]);
+
+  const filteredPipeActivity = useMemo(() => {
+    return data.pipeActivity.filter((row) => {
+      const customerMatch = filters.customer === "All Customers" || row.company === filters.customer;
+      return customerMatch && isWithinDateRange(row.createdAt, filters);
+    });
+  }, [data.pipeActivity, filters]);
+
+  const filteredLeads = useMemo(() => {
+    return data.leadPerformance.filter((lead) => filters.lead === "All Leads" || lead.name === filters.lead);
+  }, [data.leadPerformance, filters.lead]);
+
+  const customerOptions = useMemo(() => {
+    const customers = new Set(data.pipeInventory.map((row) => row.company).filter(Boolean));
+    return ["All Customers", ...Array.from(customers).sort()];
+  }, [data.pipeInventory]);
+
+  const leadOptions = useMemo(() => {
+    const leads = new Set(data.leadPerformance.map((row) => row.name).filter(Boolean));
+    return ["All Leads", ...Array.from(leads).sort()];
+  }, [data.leadPerformance]);
+
+  const visibleNavCards = useMemo(() => {
+    if (!profile) return launchCards;
+    return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
+  }, [profile]);
+
+  async function loadProfileAndYards() {
     setLoading(true);
-    setMessage("Loading TITAN...");
+    setMessage("Loading TITAN dashboard...");
 
     const { data: sessionData } = await supabase.auth.getSession();
     const user = sessionData.session?.user;
@@ -136,20 +697,260 @@ export default function InternalHomePage() {
     }
 
     const modules = await loadModuleAccess(role, sessionData.session?.access_token);
-
-    if (modules.length === 0) {
-      setMessage("This user does not have any TITAN screen permissions assigned.");
-      setLoading(false);
-      return;
-    }
+    const yards = sessionData.session?.access_token ? await loadYardOptions(sessionData.session.access_token) : [];
+    const savedYardId = window.localStorage.getItem("titan_internal_dashboard_yard_id") || "";
+    const nextYardId = yards.some((yard) => yard.id === savedYardId) ? savedYardId : yards[0]?.id || "";
 
     setProfile({
       fullName: profileData.full_name ?? user.email ?? "Team Member",
       role,
       modules,
     });
+    setYardOptions(yards);
+    setSelectedYardId(nextYardId);
+
+    if (!nextYardId) {
+      setMessage("No yard access was found for this dashboard user.");
+      setLoading(false);
+    } else {
+      setMessage("");
+    }
+  }
+
+  async function loadDashboardData(yardId: string) {
+    setLoading(true);
     setMessage("");
+
+    const warnings: string[] = [];
+
+    const [
+      pipeInventoryResult,
+      pipeActivityResult,
+      consumableItemsResult,
+      consumableTransactionsResult,
+      purchaseOrdersResult,
+      dtiJobsResult,
+      dtiSummariesResult,
+    ] = await Promise.all([
+      supabase
+        .from("pipe_inventory")
+        .select(`
+          id,
+          created_at,
+          part_number,
+          size,
+          grade,
+          connection,
+          status,
+          bulk_joints,
+          bulk_footage,
+          total_joints,
+          total_footage,
+          pipe_range,
+          companies(name),
+          racks(rack_code),
+          workflow_zones(name, code)
+        `)
+        .eq("yard_id", yardId)
+        .neq("status", "Shipped")
+        .limit(2500),
+      supabase
+        .from("pipe_transactions")
+        .select(`
+          id,
+          created_at,
+          transaction_type,
+          quantity_joints,
+          quantity_footage,
+          from_location,
+          to_location,
+          comment,
+          companies(name)
+        `)
+        .eq("yard_id", yardId)
+        .gte("created_at", filters.startDate)
+        .lte("created_at", `${filters.endDate}T23:59:59`)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase.from("inventory_items").select("*").eq("yard_id", yardId).limit(5000),
+      supabase
+        .from("inventory_transactions")
+        .select("*")
+        .eq("yard_id", yardId)
+        .gte("transaction_date", getYearStartInputValue())
+        .order("transaction_date", { ascending: false })
+        .limit(1000),
+      supabase.from("purchase_orders").select("*").eq("yard_id", yardId).order("order_date", { ascending: false }).limit(500),
+      supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
+      supabase.from("dti_daily_summaries").select("*").gte("summary_date", filters.startDate).lte("summary_date", filters.endDate).limit(1000),
+    ]);
+
+    if (pipeInventoryResult.error) warnings.push(`Tubular inventory: ${pipeInventoryResult.error.message}`);
+    if (pipeActivityResult.error) warnings.push(`Recent inventory activity: ${pipeActivityResult.error.message}`);
+    if (consumableItemsResult.error) warnings.push(`Consumable items: ${consumableItemsResult.error.message}`);
+    if (consumableTransactionsResult.error) {
+      warnings.push("Consumable spending needs inventory_transactions.transaction_date and yard_id fields.");
+    }
+    if (purchaseOrdersResult.error) warnings.push(`Purchase orders: ${purchaseOrdersResult.error.message}`);
+    if (dtiJobsResult.error) warnings.push(`DTI jobs: ${dtiJobsResult.error.message}`);
+    if (dtiSummariesResult.error) warnings.push(`DTI daily summaries: ${dtiSummariesResult.error.message}`);
+
+    const pipeInventory = ((pipeInventoryResult.data ?? []) as any[]).map((row) => {
+      const joints = toNumber(row.total_joints ?? row.bulk_joints);
+      const pipeRange = String(row.pipe_range ?? "Range 2");
+      const footage = toNumber(row.total_footage ?? row.bulk_footage) || averageRangeFootage(joints, pipeRange);
+
+      return {
+        id: String(row.id),
+        company: relationName(row.companies) || "Unknown",
+        partNumber: row.part_number ?? "",
+        size: row.size ?? "Unknown",
+        grade: row.grade ?? "Unknown",
+        connection: row.connection ?? "Unknown",
+        status: row.status ?? "Unknown",
+        location: relationCode(row.racks) || relationCode(row.workflow_zones) || "Unassigned",
+        joints,
+        footage,
+        createdAt: formatDate(row.created_at),
+      };
+    });
+
+    const pipeActivity = ((pipeActivityResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      type: row.transaction_type ?? "Activity",
+      company: relationName(row.companies) || "Unknown",
+      joints: toNumber(row.quantity_joints),
+      footage: toNumber(row.quantity_footage),
+      fromLocation: row.from_location ?? "",
+      toLocation: row.to_location ?? "",
+      comment: row.comment ?? "",
+      createdAt: formatDate(row.created_at),
+    }));
+
+    const consumableItems = ((consumableItemsResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      itemId: row.item_id ?? row.item_number ?? "",
+      name: row.item_name ?? row.description ?? row.name ?? "Unknown item",
+      category: row.category ?? "Unassigned",
+      vendor: row.vendor ?? row.vendor_name ?? "Unassigned",
+      location: row.location ?? "",
+      qtyOnHand: toNumber(row.qty_on_hand ?? row.quantity_on_hand),
+      minQty: toNumber(row.min_qty ?? row.minimum_qty ?? row.reorder_point),
+      unitPrice: toNumber(row.unit_price ?? row.unit_cost),
+    }));
+
+    const consumableTransactions = ((consumableTransactionsResult.data ?? []) as any[]).map((row) => {
+      const quantity = Math.abs(toNumber(row.quantity ?? row.qty ?? row.quantity_issued));
+      const unitPrice = toNumber(row.unit_price ?? row.unit_cost ?? row.cost);
+      const value = toNumber(row.total_value ?? row.line_value ?? row.value) || quantity * unitPrice;
+
+      return {
+        id: String(row.id),
+        itemName: row.item_name ?? row.description ?? row.item_id ?? "Unknown item",
+        category: row.category ?? "Unassigned",
+        vendor: row.vendor ?? row.vendor_name ?? "Unassigned",
+        type: row.transaction_type ?? row.type ?? row.direction ?? "Transaction",
+        quantity,
+        value,
+        date: formatDate(row.transaction_date ?? row.date ?? row.created_at),
+        reference: row.reference_number ?? row.reference ?? "",
+      };
+    });
+
+    const purchaseOrders = ((purchaseOrdersResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      poNumber: row.po_number ?? row.purchase_order_number ?? "PO",
+      vendor: row.vendor_name ?? row.vendor ?? "Unassigned",
+      status: row.status ?? "Draft",
+      totalValue: toNumber(row.total_value ?? row.total ?? row.amount),
+      orderDate: formatDate(row.order_date ?? row.created_at),
+    }));
+
+    const leadPerformance = buildLeadPerformance(
+      (dtiJobsResult.data ?? []) as any[],
+      (dtiSummariesResult.data ?? []) as any[],
+      pipeActivity,
+      consumableTransactions
+    );
+
+    setData({
+      pipeInventory,
+      pipeActivity,
+      consumableItems,
+      consumableTransactions,
+      purchaseOrders,
+      leadPerformance,
+      warnings,
+    });
     setLoading(false);
+  }
+
+  function buildLeadPerformance(
+    dtiJobs: any[],
+    summaries: any[],
+    moves: PipeActivityLine[],
+    consumableActivity: ConsumableTransactionLine[]
+  ) {
+    const map = new Map<string, LeadPerformanceLine>();
+
+    function ensureLead(name: string) {
+      const key = name || "Unassigned";
+      if (!map.has(key)) {
+        map.set(key, {
+          name: key,
+          jobsCompleted: 0,
+          dailySummaries: 0,
+          inventoryMoves: 0,
+          issueActivity: 0,
+          incompleteEntries: 0,
+          score: 0,
+          detail: "Score uses completed DTI jobs, daily summaries, activity, and missing-entry indicators.",
+        });
+      }
+      return map.get(key)!;
+    }
+
+    dtiJobs.forEach((job) => {
+      const leadName = job.lead_inspector_name ?? job.lead_inspector ?? job.crew_lead ?? job.inspected_by ?? "Unassigned";
+      const lead = ensureLead(leadName);
+      const status = String(job.status ?? "").toLowerCase();
+      if (status.includes("closed") || status.includes("complete")) lead.jobsCompleted += 1;
+      lead.incompleteEntries += toNumber(job.red_flags_count ?? job.incomplete_entries ?? job.missing_paperwork_count);
+      lead.score += toNumber(job.average_score ?? job.overall_score ?? job.score);
+    });
+
+    summaries.forEach((summary) => {
+      const leadName = summary.lead_inspector_name ?? summary.lead_inspector ?? summary.inspected_by ?? "Unassigned";
+      const lead = ensureLead(leadName);
+      lead.dailySummaries += 1;
+    });
+
+    // Future dashboard widget note:
+    // Pipe transactions do not currently store a lead/employee owner consistently.
+    // When an entered_by profile field is added, inventoryMoves can be attributed by lead here.
+    if (moves.length > 0 && map.size > 0) {
+      const firstLead = Array.from(map.values())[0];
+      firstLead.inventoryMoves += moves.length;
+    }
+
+    // Future dashboard widget note:
+    // Inventory issue tickets can be tied to a lead when requested_by/picked_by is standardized.
+    if (consumableActivity.length > 0 && map.size > 0) {
+      const firstLead = Array.from(map.values())[0];
+      firstLead.issueActivity += consumableActivity.filter((row) => isIssueTransaction(row.type)).length;
+    }
+
+    return Array.from(map.values())
+      .map((lead) => {
+        const scoredItems = lead.jobsCompleted + lead.dailySummaries + lead.inventoryMoves + lead.issueActivity;
+        const explicitScore = lead.score > 0 ? lead.score : 0;
+        const derivedScore = Math.min(100, scoredItems * 12 - lead.incompleteEntries * 5);
+        return {
+          ...lead,
+          score: explicitScore || Math.max(0, derivedScore),
+        };
+      })
+      .sort((a, b) => b.score - a.score);
   }
 
   async function signOut() {
@@ -157,14 +958,19 @@ export default function InternalHomePage() {
     window.location.href = "/login";
   }
 
-  function openCard(card: LaunchCard) {
-    window.location.href = card.href;
+  function updateFilter(key: keyof DashboardFilters, value: string) {
+    setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function changeYard(yardId: string) {
+    window.localStorage.setItem("titan_internal_dashboard_yard_id", yardId);
+    setSelectedYardId(yardId);
   }
 
   return (
-    <main className="launch-shell">
-      <section className="launch-header">
-        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
+    <main className="internal-dashboard-shell">
+      <aside className="internal-sidebar">
+        <button className="brand compact brand-home-link internal-sidebar-brand" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">TITAN</div>
@@ -172,45 +978,118 @@ export default function InternalHomePage() {
           </div>
         </button>
 
-        <div className="launch-actions">
-          {profile && <NotificationCenter />}
-          <button className="button" onClick={loadProfile} disabled={loading}>
-            Refresh
-          </button>
-          <button className="button" onClick={signOut}>
-            Sign Out
-          </button>
+        <div className="internal-sidebar-profile">
+          <span>Welcome</span>
+          <strong>{profile?.fullName ?? "TITAN"}</strong>
+          <small>{profile?.role?.replace(/_/g, " ") ?? "Loading"}</small>
         </div>
-      </section>
 
-      <section className="launch-welcome">
-        <span>Welcome</span>
-        <h1>{profile?.fullName ?? "TITAN"}</h1>
-        <p>Choose where you want to work.</p>
-      </section>
-
-      {message && <div className="modal-message launch-message">{message}</div>}
-
-      <section className="launch-grid">
-        {launchCards
-          .filter((card) => {
-            if (!profile) return true;
-            return canOpenLaunchCard(profile.modules, card);
-          })
-          .map((card) => {
-          return (
+        <nav className="internal-sidebar-nav" aria-label="TITAN modules">
+          {visibleNavCards.map((card) => (
             <button
-              key={card.title}
-              className="launch-card"
+              key={card.href}
+              className={`internal-sidebar-link ${card.href === "/home" ? "active" : ""}`}
               type="button"
-              onClick={() => openCard(card)}
-              disabled={loading}
+              onClick={() => (window.location.href = card.href)}
             >
               <span>{card.title}</span>
               <small>{card.description}</small>
             </button>
-          );
-        })}
+          ))}
+        </nav>
+
+        <div className="internal-sidebar-footer">
+          <NotificationCenter />
+          <button className="button" type="button" onClick={signOut}>
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      <section className="internal-dashboard-content">
+        <header className="internal-dashboard-header">
+          <div>
+            <span className="dashboard-eyebrow">Internal Dashboard</span>
+            <h1>TITAN Command Center</h1>
+            <p>{selectedYard?.name ?? "Select a yard"} live operating snapshot.</p>
+          </div>
+          <div className="internal-dashboard-actions">
+            <button className="button" type="button" onClick={loadProfileAndYards} disabled={loading}>
+              Refresh Access
+            </button>
+            <button className="button primary" type="button" onClick={() => selectedYardId && loadDashboardData(selectedYardId)} disabled={loading || !selectedYardId}>
+              Refresh Data
+            </button>
+          </div>
+        </header>
+
+        {message && <div className="modal-message dashboard-message">{message}</div>}
+        {data.warnings.length > 0 && (
+          <div className="dashboard-warning-stack">
+            {data.warnings.map((warning) => (
+              <div key={warning} className="modal-message dashboard-message">
+                {warning}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <section className="dashboard-filter-bar">
+          <label>
+            Yard
+            <select value={selectedYardId} onChange={(event) => changeYard(event.target.value)}>
+              {yardOptions.map((yard) => (
+                <option key={yard.id} value={yard.id}>
+                  {yard.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Start Date
+            <input type="date" value={filters.startDate} onChange={(event) => updateFilter("startDate", event.target.value)} />
+          </label>
+          <label>
+            End Date
+            <input type="date" value={filters.endDate} onChange={(event) => updateFilter("endDate", event.target.value)} />
+          </label>
+          <label>
+            Customer
+            <select value={filters.customer} onChange={(event) => updateFilter("customer", event.target.value)}>
+              {customerOptions.map((customer) => (
+                <option key={customer} value={customer}>
+                  {customer}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Department
+            <select value={filters.department} onChange={(event) => updateFilter("department", event.target.value)}>
+              {departmentOptions.map((department) => (
+                <option key={department} value={department}>
+                  {department}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Lead
+            <select value={filters.lead} onChange={(event) => updateFilter("lead", event.target.value)}>
+              {leadOptions.map((lead) => (
+                <option key={lead} value={lead}>
+                  {lead}
+                </option>
+              ))}
+            </select>
+          </label>
+        </section>
+
+        {/* Add future dashboard widgets by appending another reusable DashboardSection below. */}
+        <TubularInventorySection inventory={filteredPipeInventory} activity={filteredPipeActivity} />
+        <ConsumableInventorySection items={data.consumableItems} transactions={data.consumableTransactions} filters={filters} />
+        <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
+        <LeadScorecardSection leads={filteredLeads} />
       </section>
     </main>
   );
