@@ -159,6 +159,7 @@ type DashboardData = {
   issueTicketLines: InventoryIssueTicketDetailLine[];
   purchaseOrders: PurchaseOrderLine[];
   leadPerformance: LeadPerformanceLine[];
+  preJobPerformance: LeadPerformanceLine[];
   warnings: string[];
 };
 
@@ -179,6 +180,7 @@ const emptyData: DashboardData = {
   issueTicketLines: [],
   purchaseOrders: [],
   leadPerformance: [],
+  preJobPerformance: [],
   warnings: [],
 };
 
@@ -647,15 +649,25 @@ function PurchaseOrderSection({ orders, filters }: { orders: PurchaseOrderLine[]
   );
 }
 
-function LeadScorecardSection({ leads }: { leads: LeadPerformanceLine[] }) {
+function LeadScorecardSection({
+  leads,
+  title = "Lead Inspector Performance",
+  subtitle = "Rankings are based on DTI scorecards. Strengths and focus areas come from checklist category averages.",
+  nameLabel = "Lead Inspector",
+}: {
+  leads: LeadPerformanceLine[];
+  title?: string;
+  subtitle?: string;
+  nameLabel?: string;
+}) {
   return (
     <DashboardSection
-      title="Lead Inspector Performance"
-      subtitle="Rankings are based on DTI scorecards. Strengths and focus areas come from checklist category averages."
+      title={title}
+      subtitle={subtitle}
     >
       {leads.length === 0 ? (
-        <PlaceholderPanel title="Lead performance data">
-          DTI jobs are loaded, but no lead inspector scorecards were found for this filter.
+        <PlaceholderPanel title={`${nameLabel} performance data`}>
+          DTI jobs are loaded, but no matching scorecards were found for this filter.
         </PlaceholderPanel>
       ) : (
         <div className="table-wrap">
@@ -663,7 +675,7 @@ function LeadScorecardSection({ leads }: { leads: LeadPerformanceLine[] }) {
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Lead Inspector</th>
+                <th>{nameLabel}</th>
                 <th>Jobs</th>
                 <th>Closed</th>
                 <th>Average</th>
@@ -764,15 +776,21 @@ export default function InternalHomePage() {
     return data.leadPerformance.filter((lead) => filters.lead === "All Leads" || lead.name === filters.lead);
   }, [data.leadPerformance, filters.lead]);
 
+  const filteredPreJobPerformance = useMemo(() => {
+    return data.preJobPerformance.filter((lead) => filters.lead === "All Leads" || lead.name === filters.lead);
+  }, [data.preJobPerformance, filters.lead]);
+
   const customerOptions = useMemo(() => {
     const customers = new Set(data.pipeInventory.map((row) => row.company).filter(Boolean));
     return ["All Customers", ...Array.from(customers).sort()];
   }, [data.pipeInventory]);
 
   const leadOptions = useMemo(() => {
-    const leads = new Set(data.leadPerformance.map((row) => row.name).filter(Boolean));
+    const leads = new Set(
+      [...data.leadPerformance.map((row) => row.name), ...data.preJobPerformance.map((row) => row.name)].filter(Boolean)
+    );
     return ["All Leads", ...Array.from(leads).sort()];
-  }, [data.leadPerformance]);
+  }, [data.leadPerformance, data.preJobPerformance]);
 
   const visibleNavCards = useMemo(() => {
     if (!profile) return launchCards;
@@ -844,6 +862,7 @@ export default function InternalHomePage() {
       consumableTransactionsResult,
       issueTicketsResult,
       purchaseOrdersResult,
+      purchaseOrderLinesResult,
       dtiJobsResult,
       dtiSummariesResult,
       dtiResponsesResult,
@@ -903,7 +922,8 @@ export default function InternalHomePage() {
         .gte("issue_date", getYearStartInputValue())
         .order("issue_date", { ascending: false })
         .limit(1000),
-      supabase.from("purchase_orders").select("*").eq("yard_id", yardId).order("order_date", { ascending: false }).limit(500),
+      supabase.from("purchase_orders").select("*").order("order_date", { ascending: false }).limit(1000),
+      supabase.from("purchase_order_lines").select("*").limit(5000),
       supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
       supabase.from("dti_daily_summaries").select("*").gte("summary_date", filters.startDate).lte("summary_date", filters.endDate).limit(1000),
       supabase.from("dti_checklist_responses").select("id, dti_job_id, section, category, score, red_flag").limit(5000),
@@ -917,6 +937,7 @@ export default function InternalHomePage() {
     }
     if (issueTicketsResult.error) warnings.push(`Inventory issue tickets: ${issueTicketsResult.error.message}`);
     if (purchaseOrdersResult.error) warnings.push(`Purchase orders: ${purchaseOrdersResult.error.message}`);
+    if (purchaseOrderLinesResult.error) warnings.push(`Purchase order lines: ${purchaseOrderLinesResult.error.message}`);
     if (dtiJobsResult.error) warnings.push(`DTI jobs: ${dtiJobsResult.error.message}`);
     if (dtiSummariesResult.error) warnings.push(`DTI daily summaries: ${dtiSummariesResult.error.message}`);
     if (dtiResponsesResult.error) warnings.push(`DTI scorecards: ${dtiResponsesResult.error.message}`);
@@ -1042,14 +1063,57 @@ export default function InternalHomePage() {
       };
     });
 
-    const purchaseOrders = ((purchaseOrdersResult.data ?? []) as any[]).map((row) => ({
-      id: String(row.id),
-      poNumber: row.po_number ?? row.purchase_order_number ?? "PO",
-      vendor: row.vendor_name ?? row.vendor ?? row.vendor_company ?? "Unassigned",
-      status: row.status ?? "Draft",
-      totalValue: toNumber(row.total_value ?? row.total ?? row.amount ?? row.po_total ?? row.total_amount ?? row.estimated_total),
-      orderDate: formatDate(row.order_date ?? row.submitted_at ?? row.created_at),
-    }));
+    const selectedYard = yardOptions.find((yard) => yard.id === yardId);
+    const selectedYardText = `${selectedYard?.name ?? ""} ${selectedYard?.code ?? ""}`.toLowerCase();
+    const selectedYardIsWtx = selectedYardText.includes("wtx") || selectedYardText.includes("pathfinder") || selectedYardText.includes("pifs");
+    const purchaseOrderLineRows = (purchaseOrderLinesResult.data ?? []) as any[];
+    const purchaseOrderLinesByOrderId = new Map<string, any[]>();
+
+    purchaseOrderLineRows.forEach((line) => {
+      const orderId = String(line.purchase_order_id ?? line.po_id ?? line.purchase_order ?? "").trim();
+      if (!orderId) return;
+      const lines = purchaseOrderLinesByOrderId.get(orderId) ?? [];
+      lines.push(line);
+      purchaseOrderLinesByOrderId.set(orderId, lines);
+    });
+
+    const purchaseOrders = ((purchaseOrdersResult.data ?? []) as any[])
+      .map((row) => {
+        const orderId = String(row.id);
+        const orderYardId = String(row.yard_id ?? row.inventory_yard_id ?? "").trim();
+        const lines = purchaseOrderLinesByOrderId.get(orderId) ?? [];
+        const lineYardIds = new Set(
+          lines.map((line) => String(line.yard_id ?? line.inventory_yard_id ?? "").trim()).filter(Boolean)
+        );
+        const legacyNoYard = !orderYardId && lineYardIds.size === 0;
+        const belongsToSelectedYard = orderYardId === yardId || lineYardIds.has(yardId) || (legacyNoYard && selectedYardIsWtx);
+
+        if (!belongsToSelectedYard) return null;
+
+        const yardLines = orderYardId === yardId || (legacyNoYard && selectedYardIsWtx)
+          ? lines
+          : lines.filter((line) => String(line.yard_id ?? line.inventory_yard_id ?? "").trim() === yardId);
+
+        const lineTotal = yardLines.reduce((sum, line) => {
+          const explicitTotal = toNumber(line.line_total ?? line.total_value ?? line.extended_cost ?? line.amount);
+          if (explicitTotal) return sum + explicitTotal;
+
+          const quantity = toNumber(line.quantity_ordered ?? line.qty_ordered ?? line.quantity ?? line.qty);
+          const unitCost = toNumber(line.unit_cost ?? line.unit_price ?? line.cost);
+          return sum + quantity * unitCost;
+        }, 0);
+        const headerTotal = toNumber(row.total_value ?? row.total ?? row.amount ?? row.po_total ?? row.total_amount ?? row.estimated_total);
+
+        return {
+          id: orderId,
+          poNumber: String(row.po_number ?? row.purchase_order_number ?? row.po ?? "PO"),
+          vendor: String(row.vendor_name ?? row.vendor ?? row.vendor_company ?? row.vendor_id ?? "Unassigned"),
+          status: String(row.status ?? "Draft"),
+          totalValue: lineTotal || headerTotal,
+          orderDate: formatDate(row.order_date ?? row.submitted_at ?? row.created_at),
+        };
+      })
+      .filter((row): row is PurchaseOrderLine => Boolean(row));
 
     const dtiResponses: DtiChecklistResponseLine[] = ((dtiResponsesResult.data ?? []) as any[]).map((row) => {
       const rawScore = row.score;
@@ -1063,7 +1127,9 @@ export default function InternalHomePage() {
       };
     });
 
-    const leadPerformance = buildLeadPerformance((dtiJobsResult.data ?? []) as any[], dtiResponses);
+    const dtiRows = ((dtiJobsResult.data ?? []) as any[]).concat((dtiSummariesResult.data ?? []) as any[]);
+    const leadPerformance = buildLeadPerformance(dtiRows, dtiResponses);
+    const preJobPerformance = buildPreJobPerformance(dtiRows, dtiResponses);
 
     setData({
       pipeInventory,
@@ -1074,6 +1140,7 @@ export default function InternalHomePage() {
       issueTicketLines,
       purchaseOrders,
       leadPerformance,
+      preJobPerformance,
       warnings,
     });
     setLoading(false);
@@ -1081,6 +1148,31 @@ export default function InternalHomePage() {
 
   function getDtiLeadName(row: any) {
     return String(row.lead_inspector_name ?? row.lead_inspector ?? row.crew_lead ?? "").trim();
+  }
+
+  function getDtiPreJobOwnerName(row: any) {
+    return String(
+      row.pre_job_completed_by ??
+      row.pre_job_manager ??
+      row.pre_job_owner ??
+      row.management_pre_job_by ??
+      row.field_ers_superintendent ??
+      row.superintendent ??
+      row.manager ??
+      row.created_by_name ??
+      row.created_by ??
+      row.created_by_email ??
+      ""
+    ).trim();
+  }
+
+  function normalizeChecklistText(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function isPreJobResponse(response: DtiChecklistResponseLine) {
+    const label = normalizeChecklistText(`${response.section} ${response.category}`);
+    return label.includes("pre job") || label.includes("prejob");
   }
 
   function leadGrade(average: number) {
@@ -1097,25 +1189,30 @@ export default function InternalHomePage() {
     return status.includes("closed") || status.includes("complete");
   }
 
-  function buildLeadPerformance(dtiJobs: any[], responses: DtiChecklistResponseLine[]) {
-    const byLead = new Map<string, any[]>();
+  function buildPerformanceRows(
+    dtiJobs: any[],
+    responses: DtiChecklistResponseLine[],
+    getOwnerName: (job: any) => string,
+    includeResponse: (response: DtiChecklistResponseLine) => boolean,
+  ) {
+    const byOwner = new Map<string, any[]>();
 
     dtiJobs.forEach((job) => {
-      const leadName = getDtiLeadName(job);
-      if (!leadName) return;
-      byLead.set(leadName, [...(byLead.get(leadName) ?? []), job]);
+      const ownerName = getOwnerName(job);
+      if (!ownerName) return;
+      byOwner.set(ownerName, [...(byOwner.get(ownerName) ?? []), job]);
     });
 
-    return Array.from(byLead.entries())
-      .map(([name, leadJobs]) => {
-        const jobIds = new Set(leadJobs.map((job) => String(job.id)));
-        const leadResponses = responses.filter((response) => jobIds.has(response.dtiJobId));
-        const scored = leadResponses.filter((response) => response.score !== null);
+    return Array.from(byOwner.entries())
+      .map(([name, ownerJobs]) => {
+        const jobIds = new Set(ownerJobs.map((job) => String(job.id)));
+        const ownerResponses = responses.filter((response) => jobIds.has(response.dtiJobId) && includeResponse(response));
+        const scored = ownerResponses.filter((response) => response.score !== null);
         const average = scored.length
           ? scored.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scored.length
           : 0;
 
-        const redFlags = leadResponses.filter(
+        const redFlags = ownerResponses.filter(
           (response) => response.redFlag || (response.score !== null && Number(response.score) <= 2)
         ).length;
 
@@ -1133,11 +1230,11 @@ export default function InternalHomePage() {
           .sort((a, b) => b.average - a.average || a.label.localeCompare(b.label));
 
         const operatorMap = new Map<string, { scores: number[]; jobs: number }>();
-        leadJobs.forEach((job) => {
+        ownerJobs.forEach((job) => {
           const jobId = String(job.id);
           const operator = String(job.operator ?? "Unassigned").trim() || "Unassigned";
           const jobScores = responses
-            .filter((response) => response.dtiJobId === jobId && response.score !== null)
+            .filter((response) => response.dtiJobId === jobId && includeResponse(response) && response.score !== null)
             .map((response) => Number(response.score));
           const current = operatorMap.get(operator) ?? { scores: [], jobs: 0 };
           current.scores.push(...jobScores);
@@ -1157,8 +1254,8 @@ export default function InternalHomePage() {
 
         return {
           name,
-          jobs: leadJobs.length,
-          closed: leadJobs.filter(isClosedDtiJob).length,
+          jobs: ownerJobs.length,
+          closed: ownerJobs.filter(isClosedDtiJob).length,
           average,
           grade: leadGrade(average),
           redFlags,
@@ -1168,6 +1265,14 @@ export default function InternalHomePage() {
         };
       })
       .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.name.localeCompare(b.name));
+  }
+
+  function buildLeadPerformance(dtiJobs: any[], responses: DtiChecklistResponseLine[]) {
+    return buildPerformanceRows(dtiJobs, responses, getDtiLeadName, (response) => !isPreJobResponse(response));
+  }
+
+  function buildPreJobPerformance(dtiJobs: any[], responses: DtiChecklistResponseLine[]) {
+    return buildPerformanceRows(dtiJobs, responses, getDtiPreJobOwnerName, isPreJobResponse);
   }
 
   async function signOut() {
@@ -1312,6 +1417,12 @@ export default function InternalHomePage() {
         />
         <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
         <LeadScorecardSection leads={filteredLeads} />
+        <LeadScorecardSection
+          leads={filteredPreJobPerformance}
+          title="Pre-Job Management Performance"
+          subtitle="Pre-job scores are separated from lead inspector scoring and rank the person completing management pre-job work."
+          nameLabel="Pre-Job Owner"
+        />
       </section>
     </main>
   );

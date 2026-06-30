@@ -169,8 +169,7 @@ export async function POST(request: Request) {
     const { data: lines, error: linesError } = await adminClient
       .from("purchase_order_lines")
       .select("item_code, item_name, quantity_ordered, quantity_received, unit_cost, line_total")
-      .eq("purchase_order_id", order.id)
-      .order("created_at", { ascending: true });
+      .eq("purchase_order_id", order.id);
 
     if (linesError) {
       return Response.json({ error: linesError.message }, { status: 500 });
