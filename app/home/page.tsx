@@ -30,6 +30,7 @@ type LaunchCard = {
 type BreakdownLine = {
   label: string;
   value: number;
+  valueText?: string;
   subText?: string;
 };
 
@@ -102,6 +103,23 @@ type InventoryIssueTicketLine = {
   status: string;
 };
 
+type InventoryIssueTicketDetailLine = {
+  id: string;
+  ticketId: string;
+  ticketNumber: string;
+  issueDate: string;
+  itemCode: string;
+  itemName: string;
+  category: string;
+  vendor: string;
+  department: string;
+  unitTruck: string;
+  pickedBy: string;
+  quantity: number;
+  unitCost: number;
+  value: number;
+};
+
 type PurchaseOrderLine = {
   id: string;
   poNumber: string;
@@ -128,6 +146,7 @@ type DashboardData = {
   consumableItems: ConsumableItemLine[];
   consumableTransactions: ConsumableTransactionLine[];
   issueTickets: InventoryIssueTicketLine[];
+  issueTicketLines: InventoryIssueTicketDetailLine[];
   purchaseOrders: PurchaseOrderLine[];
   leadPerformance: LeadPerformanceLine[];
   warnings: string[];
@@ -147,6 +166,7 @@ const emptyData: DashboardData = {
   consumableItems: [],
   consumableTransactions: [],
   issueTickets: [],
+  issueTicketLines: [],
   purchaseOrders: [],
   leadPerformance: [],
   warnings: [],
@@ -288,6 +308,33 @@ function buildBreakdown<T>(
     .slice(0, limit);
 }
 
+function buildQuantityValueBreakdown<T>(
+  rows: T[],
+  labelGetter: (row: T) => string,
+  quantityGetter: (row: T) => number,
+  valueGetter: (row: T) => number,
+  limit = 10
+): BreakdownLine[] {
+  const map = new Map<string, { quantity: number; value: number }>();
+
+  rows.forEach((row) => {
+    const label = labelGetter(row) || "Unassigned";
+    const current = map.get(label) ?? { quantity: 0, value: 0 };
+    current.quantity += Math.abs(quantityGetter(row));
+    current.value += Math.abs(valueGetter(row));
+    map.set(label, current);
+  });
+
+  return Array.from(map.entries())
+    .map(([label, totals]) => ({
+      label,
+      value: totals.quantity,
+      valueText: `${whole(totals.quantity)} / ${money(totals.value)}`,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
 function averageRangeFootage(joints: number, pipeRange: string) {
   return Math.round(joints * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
 }
@@ -362,7 +409,7 @@ function BreakdownList({ title, rows, suffix = "" }: { title: string; rows: Brea
           <div key={row.label} className="dashboard-breakdown-row">
             <div>
               <strong>{row.label}</strong>
-              <span>{whole(row.value)}{suffix}</span>
+              <span>{row.valueText ?? `${whole(row.value)}${suffix}`}</span>
             </div>
             <div className="dashboard-bar-track">
               <span style={{ width: `${Math.max(8, (row.value / maxValue) * 100)}%` }} />
@@ -453,41 +500,36 @@ function TubularInventorySection({
 
 function ConsumableInventorySection({
   items,
-  transactions,
   issueTickets,
+  issueTicketLines,
   filters,
 }: {
   items: ConsumableItemLine[];
-  transactions: ConsumableTransactionLine[];
   issueTickets: InventoryIssueTicketLine[];
+  issueTicketLines: InventoryIssueTicketDetailLine[];
   filters: DashboardFilters;
 }) {
   const monthStart = getMonthStartInputValue();
   const yearStart = getYearStartInputValue();
   const today = getTodayInputValue();
 
-  const monthSpend = transactions
-    .filter((row) => row.date >= monthStart && row.date <= today)
-    .reduce((sum, row) => sum + Math.abs(row.value), 0);
-  const ytdSpend = transactions
-    .filter((row) => row.date >= yearStart && row.date <= today)
-    .reduce((sum, row) => sum + Math.abs(row.value), 0);
-  const weekTransactions = transactions.filter((row) => isWithinDateRange(row.date, filters));
+  const monthLines = issueTicketLines.filter((row) => row.issueDate >= monthStart && row.issueDate <= today);
+  const ytdLines = issueTicketLines.filter((row) => row.issueDate >= yearStart && row.issueDate <= today);
+  const issueLinesInRange = issueTicketLines.filter((row) => isWithinDateRange(row.issueDate, filters));
   const weekIssueTickets = issueTickets.filter((row) => isWithinDateRange(row.issueDate, filters));
-  const issued = weekTransactions.filter((row) => isIssueTransaction(row.type));
-  const lowStock = items.filter((row) => row.qtyOnHand <= row.minQty);
+  const issueTicketIdsInRange = new Set(issueLinesInRange.map((row) => row.ticketId).filter(Boolean));
+  const monthSpend = monthLines
+    .reduce((sum, row) => sum + Math.abs(row.value), 0);
+  const ytdSpend = ytdLines
+    .reduce((sum, row) => sum + Math.abs(row.value), 0);
+  const issuedQuantity = issueLinesInRange.reduce((sum, row) => sum + Math.abs(row.quantity), 0);
+  const lowStock = items.filter((row) => row.minQty > 0 && row.qtyOnHand <= row.minQty);
   const recentActivity = [
     ...weekIssueTickets.map((ticket) => ({
       id: `ticket-${ticket.id}`,
       title: `${ticket.ticketNumber} - ${ticket.issuedTo || "Issue Ticket"}`,
       detail: `${ticket.status || "Issued"} / ${money(ticket.totalValue)} / ${ticket.department || "No department"}`,
       meta: `${ticket.issueDate} ${ticket.unitTruck || ""}`.trim(),
-    })),
-    ...weekTransactions.map((row) => ({
-      id: `transaction-${row.id}`,
-      title: `${row.type || "Transaction"} - ${row.itemName}`,
-      detail: `${whole(row.quantity)} units / ${money(Math.abs(row.value))}`,
-      meta: `${row.date} ${row.reference}`.trim(),
     })),
   ].slice(0, 12);
 
@@ -500,16 +542,34 @@ function ConsumableInventorySection({
         <DashboardMetricCard label="Spend this month" value={money(monthSpend)} />
         <DashboardMetricCard label="Spend year-to-date" value={money(ytdSpend)} />
         <DashboardMetricCard label="Low stock alerts" value={whole(lowStock.length)} />
-        <DashboardMetricCard label="Issue tickets in range" value={whole(weekIssueTickets.length)} />
-        <DashboardMetricCard label="Inventory transactions in range" value={whole(weekTransactions.length)} />
+        <DashboardMetricCard label="Issue tickets in range" value={whole(issueTicketIdsInRange.size || weekIssueTickets.length)} />
+        <DashboardMetricCard label="Items issued in range" value={whole(issuedQuantity)} />
       </div>
 
       <div className="dashboard-widget-grid">
-        <BreakdownList title="Spend by Category" rows={buildBreakdown(weekTransactions, (row) => row.category, (row) => Math.abs(row.value))} />
-        <BreakdownList title="Spend by Vendor" rows={buildBreakdown(weekTransactions, (row) => row.vendor, (row) => Math.abs(row.value))} />
-        <BreakdownList title="Top Issued Consumables" rows={buildBreakdown(issued, (row) => row.itemName, (row) => row.quantity, 10)} />
+        <BreakdownList title="Spend by Category" rows={buildBreakdown(issueLinesInRange, (row) => row.category, (row) => Math.abs(row.value))} />
+        <BreakdownList title="Spend by Vendor" rows={buildBreakdown(issueLinesInRange, (row) => row.vendor, (row) => Math.abs(row.value))} />
+        <BreakdownList
+          title="Top Issued Consumables"
+          rows={buildQuantityValueBreakdown(
+            issueLinesInRange,
+            (row) => `${row.itemCode} ${row.itemName}`.trim(),
+            (row) => row.quantity,
+            (row) => row.value,
+            10
+          )}
+        />
         <BreakdownList title="Issue Tickets by Department" rows={buildBreakdown(weekIssueTickets, (row) => row.department, () => 1, 10)} />
-        <BreakdownList title="Issue Tickets by Unit / Truck" rows={buildBreakdown(weekIssueTickets, (row) => row.unitTruck, (row) => Math.abs(row.totalValue), 10)} />
+        <BreakdownList
+          title="Issue Tickets by Unit / Truck"
+          rows={buildQuantityValueBreakdown(
+            issueLinesInRange,
+            (row) => row.unitTruck,
+            (row) => row.quantity,
+            (row) => row.value,
+            10
+          )}
+        />
         <BreakdownList
           title="Low Stock / Reorder Alerts"
           rows={lowStock.slice(0, 10).map((row) => ({
@@ -907,21 +967,65 @@ export default function InternalHomePage() {
       status: row.status ?? "Issued",
     }));
 
+    let issueTicketLineRows: any[] = [];
+    const issueTicketIds = issueTickets.map((ticket) => ticket.id).filter(Boolean);
+    if (issueTicketIds.length > 0) {
+      const issueTicketLinesResult = await supabase
+        .from("inventory_issue_ticket_lines")
+        .select("*")
+        .in("issue_ticket_id", issueTicketIds)
+        .limit(10000);
+
+      if (issueTicketLinesResult.error) {
+        warnings.push(`Inventory issue ticket lines: ${issueTicketLinesResult.error.message}`);
+      } else {
+        issueTicketLineRows = (issueTicketLinesResult.data ?? []) as any[];
+      }
+    }
+
+    const itemById = new Map(consumableItems.map((item) => [item.id, item]));
+    const itemByCode = new Map(consumableItems.map((item) => [item.itemId, item]));
+    const ticketById = new Map(issueTickets.map((ticket) => [ticket.id, ticket]));
+    const issueTicketLines = issueTicketLineRows.map((row) => {
+      const ticketId = String(row.issue_ticket_id ?? row.ticket_id ?? row.issue_id ?? "");
+      const ticket = ticketById.get(ticketId);
+      const itemId = String(row.item_id ?? row.inventory_item_id ?? "");
+      const itemCode = String(row.item_code ?? row.item_number ?? row.item_id ?? "");
+      const item = itemById.get(itemId) ?? itemByCode.get(itemCode);
+      const quantity = Math.abs(toNumber(row.qty_issued ?? row.quantity_issued ?? row.quantity ?? row.qty));
+      const unitCost = toNumber(row.unit_cost ?? row.unit_price ?? item?.unitPrice);
+      const value = toNumber(row.line_value ?? row.total_value ?? row.value) || quantity * unitCost;
+
+      return {
+        id: String(row.id),
+        ticketId,
+        ticketNumber: ticket?.ticketNumber ?? row.ticket_number ?? "",
+        issueDate: ticket?.issueDate ?? formatDate(row.issue_date ?? row.created_at),
+        itemCode: itemCode || item?.itemId || "",
+        itemName: row.item_name ?? row.description ?? item?.name ?? "Unknown item",
+        category: row.category ?? item?.category ?? "Unassigned",
+        vendor: row.vendor ?? item?.vendor ?? "Unassigned",
+        department: row.department ?? ticket?.department ?? "Unassigned",
+        unitTruck: row.unit_truck ?? ticket?.unitTruck ?? "Unassigned",
+        pickedBy: row.picked_by ?? ticket?.pickedBy ?? "",
+        quantity,
+        unitCost,
+        value,
+      };
+    });
+
     const purchaseOrders = ((purchaseOrdersResult.data ?? []) as any[]).map((row) => ({
       id: String(row.id),
       poNumber: row.po_number ?? row.purchase_order_number ?? "PO",
-      vendor: row.vendor_name ?? row.vendor ?? "Unassigned",
+      vendor: row.vendor_name ?? row.vendor ?? row.vendor_company ?? "Unassigned",
       status: row.status ?? "Draft",
-      totalValue: toNumber(row.total_value ?? row.total ?? row.amount),
-      orderDate: formatDate(row.order_date ?? row.created_at),
+      totalValue: toNumber(row.total_value ?? row.total ?? row.amount ?? row.po_total ?? row.total_amount ?? row.estimated_total),
+      orderDate: formatDate(row.order_date ?? row.submitted_at ?? row.created_at),
     }));
 
     const leadPerformance = buildLeadPerformance(
       (dtiJobsResult.data ?? []) as any[],
-      (dtiSummariesResult.data ?? []) as any[],
-      pipeActivity,
-      consumableTransactions,
-      issueTickets
+      (dtiSummariesResult.data ?? []) as any[]
     );
 
     setData({
@@ -930,6 +1034,7 @@ export default function InternalHomePage() {
       consumableItems,
       consumableTransactions,
       issueTickets,
+      issueTicketLines,
       purchaseOrders,
       leadPerformance,
       warnings,
@@ -937,14 +1042,17 @@ export default function InternalHomePage() {
     setLoading(false);
   }
 
-  function buildLeadPerformance(
-    dtiJobs: any[],
-    summaries: any[],
-    moves: PipeActivityLine[],
-    consumableActivity: ConsumableTransactionLine[],
-    issueTickets: InventoryIssueTicketLine[]
-  ) {
-    const map = new Map<string, LeadPerformanceLine>();
+  function getDtiLeadName(row: any) {
+    return String(row.lead_inspector_name ?? row.lead_inspector ?? row.crew_lead ?? "").trim();
+  }
+
+  function buildLeadPerformance(dtiJobs: any[], summaries: any[]) {
+    type LeadAccumulator = LeadPerformanceLine & {
+      scoreTotal: number;
+      scoreCount: number;
+    };
+
+    const map = new Map<string, LeadAccumulator>();
 
     function ensureLead(name: string) {
       const key = name || "Unassigned";
@@ -957,59 +1065,50 @@ export default function InternalHomePage() {
           issueActivity: 0,
           incompleteEntries: 0,
           score: 0,
-          detail: "Score uses completed DTI jobs, daily summaries, activity, and missing-entry indicators.",
+          scoreTotal: 0,
+          scoreCount: 0,
+          detail: "DTI scorecards only: completed jobs, daily summaries, red flags, and missing DTI entries.",
         });
       }
       return map.get(key)!;
     }
 
     dtiJobs.forEach((job) => {
-      const leadName = job.lead_inspector_name ?? job.lead_inspector ?? job.crew_lead ?? job.inspected_by ?? "Unassigned";
+      const leadName = getDtiLeadName(job);
+      if (!leadName) return;
       const lead = ensureLead(leadName);
       const status = String(job.status ?? "").toLowerCase();
-      if (status.includes("closed") || status.includes("complete")) lead.jobsCompleted += 1;
-      lead.incompleteEntries += toNumber(job.red_flags_count ?? job.incomplete_entries ?? job.missing_paperwork_count);
-      lead.score += toNumber(job.average_score ?? job.overall_score ?? job.score);
+      if (status.includes("closed") || status.includes("complete")) {
+        lead.jobsCompleted += 1;
+      } else {
+        lead.incompleteEntries += 1;
+      }
+
+      lead.incompleteEntries += toNumber(
+        job.red_flags_count ?? job.red_flag_count ?? job.redFlags ?? job.incomplete_entries ?? job.missing_paperwork_count
+      );
+
+      const score = toNumber(job.average_score ?? job.overall_score ?? job.score);
+      if (score > 0) {
+        lead.scoreTotal += score;
+        lead.scoreCount += 1;
+      }
     });
 
     summaries.forEach((summary) => {
-      const leadName = summary.lead_inspector_name ?? summary.lead_inspector ?? summary.inspected_by ?? "Unassigned";
+      const leadName = getDtiLeadName(summary);
+      if (!leadName) return;
       const lead = ensureLead(leadName);
       lead.dailySummaries += 1;
-    });
-
-    moves.forEach((move: any) => {
-      const leadName = move.enteredBy ?? move.createdBy ?? "";
-      if (!leadName) return;
-      const lead = ensureLead(leadName);
-      lead.inventoryMoves += 1;
-    });
-
-    issueTickets.forEach((ticket) => {
-      const leadName = ticket.pickedBy || ticket.issuedTo || "";
-      if (!leadName) return;
-      const lead = ensureLead(leadName);
-      lead.issueActivity += 1;
-    });
-
-    // Future dashboard widget note:
-    // Inventory transactions without an entered_by/picked_by style owner remain in the activity tables,
-    // but they are not assigned to a lead score until an owner field is present.
-    consumableActivity.forEach((row: any) => {
-      const leadName = row.enteredBy ?? row.pickedBy ?? "";
-      if (!leadName || !isIssueTransaction(row.type)) return;
-      const lead = ensureLead(leadName);
-      lead.issueActivity += 1;
+      lead.incompleteEntries += toNumber(summary.red_flags_count ?? summary.red_flag_count ?? summary.redFlags);
     });
 
     return Array.from(map.values())
-      .map((lead) => {
-        const scoredItems = lead.jobsCompleted + lead.dailySummaries + lead.inventoryMoves + lead.issueActivity;
-        const explicitScore = lead.score > 0 ? lead.score : 0;
-        const derivedScore = Math.min(100, scoredItems * 12 - lead.incompleteEntries * 5);
+      .map(({ scoreTotal, scoreCount, ...lead }) => {
+        const derivedScore = Math.min(100, lead.jobsCompleted * 12 + lead.dailySummaries * 6 - lead.incompleteEntries * 5);
         return {
           ...lead,
-          score: explicitScore || Math.max(0, derivedScore),
+          score: scoreCount > 0 ? Math.round((scoreTotal / scoreCount) * 10) / 10 : Math.max(0, derivedScore),
         };
       })
       .sort((a, b) => b.score - a.score);
@@ -1151,8 +1250,8 @@ export default function InternalHomePage() {
         <TubularInventorySection inventory={filteredPipeInventory} activity={filteredPipeActivity} />
         <ConsumableInventorySection
           items={data.consumableItems}
-          transactions={data.consumableTransactions}
           issueTickets={data.issueTickets}
+          issueTicketLines={data.issueTicketLines}
           filters={filters}
         />
         <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
