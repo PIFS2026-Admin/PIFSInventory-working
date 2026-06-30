@@ -131,13 +131,23 @@ type PurchaseOrderLine = {
 
 type LeadPerformanceLine = {
   name: string;
-  jobsCompleted: number;
-  dailySummaries: number;
-  inventoryMoves: number;
-  issueActivity: number;
-  incompleteEntries: number;
-  score: number;
-  detail: string;
+  jobs: number;
+  closed: number;
+  average: number;
+  grade: string;
+  redFlags: number;
+  strongestOperator: string;
+  strength: string;
+  focusArea: string;
+};
+
+type DtiChecklistResponseLine = {
+  id: string;
+  dtiJobId: string;
+  section: string;
+  category: string;
+  score: number | null;
+  redFlag: boolean;
 };
 
 type DashboardData = {
@@ -640,34 +650,49 @@ function PurchaseOrderSection({ orders, filters }: { orders: PurchaseOrderLine[]
 function LeadScorecardSection({ leads }: { leads: LeadPerformanceLine[] }) {
   return (
     <DashboardSection
-      title="Lead Scorecard Breakdown"
-      subtitle="Job completion, daily summaries, operating activity, and incomplete entries by lead."
+      title="Lead Inspector Performance"
+      subtitle="Rankings are based on DTI scorecards. Strengths and focus areas come from checklist category averages."
     >
-      <div className="dashboard-lead-grid">
-        {leads.length === 0 && (
-          <PlaceholderPanel title="Lead performance data">
-            DTI jobs and daily summaries are loaded, but no lead names were found for this filter.
-          </PlaceholderPanel>
-        )}
-        {leads.map((lead, index) => (
-          <article key={lead.name} className="dashboard-lead-card">
-            <div className="dashboard-lead-rank">#{index + 1}</div>
-            <div>
-              <h3>{lead.name}</h3>
-              <strong>{lead.score.toFixed(1)}</strong>
-              <span>Performance score</span>
-            </div>
-            <dl>
-              <div><dt>Jobs completed</dt><dd>{whole(lead.jobsCompleted)}</dd></div>
-              <div><dt>Daily summaries</dt><dd>{whole(lead.dailySummaries)}</dd></div>
-              <div><dt>Inventory moves</dt><dd>{whole(lead.inventoryMoves)}</dd></div>
-              <div><dt>PO / issue activity</dt><dd>{whole(lead.issueActivity)}</dd></div>
-              <div><dt>Needs attention</dt><dd>{whole(lead.incompleteEntries)}</dd></div>
-            </dl>
-            <p>{lead.detail}</p>
-          </article>
-        ))}
-      </div>
+      {leads.length === 0 ? (
+        <PlaceholderPanel title="Lead performance data">
+          DTI jobs are loaded, but no lead inspector scorecards were found for this filter.
+        </PlaceholderPanel>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Lead Inspector</th>
+                <th>Jobs</th>
+                <th>Closed</th>
+                <th>Average</th>
+                <th>Grade</th>
+                <th>Red Flags</th>
+                <th>Strongest Operator</th>
+                <th>Strength</th>
+                <th>Focus Area</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map((lead, index) => (
+                <tr key={lead.name}>
+                  <td>{index + 1}</td>
+                  <td><strong>{lead.name}</strong></td>
+                  <td>{whole(lead.jobs)}</td>
+                  <td>{whole(lead.closed)}</td>
+                  <td>{lead.average.toFixed(1)}</td>
+                  <td>{lead.grade}</td>
+                  <td>{whole(lead.redFlags)}</td>
+                  <td>{lead.strongestOperator}</td>
+                  <td>{lead.strength}</td>
+                  <td>{lead.focusArea}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </DashboardSection>
   );
 }
@@ -821,6 +846,7 @@ export default function InternalHomePage() {
       purchaseOrdersResult,
       dtiJobsResult,
       dtiSummariesResult,
+      dtiResponsesResult,
     ] = await Promise.all([
       supabase
         .from("pipe_inventory")
@@ -880,6 +906,7 @@ export default function InternalHomePage() {
       supabase.from("purchase_orders").select("*").eq("yard_id", yardId).order("order_date", { ascending: false }).limit(500),
       supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
       supabase.from("dti_daily_summaries").select("*").gte("summary_date", filters.startDate).lte("summary_date", filters.endDate).limit(1000),
+      supabase.from("dti_checklist_responses").select("id, dti_job_id, section, category, score, red_flag").limit(5000),
     ]);
 
     if (pipeInventoryResult.error) warnings.push(`Tubular inventory: ${pipeInventoryResult.error.message}`);
@@ -892,6 +919,7 @@ export default function InternalHomePage() {
     if (purchaseOrdersResult.error) warnings.push(`Purchase orders: ${purchaseOrdersResult.error.message}`);
     if (dtiJobsResult.error) warnings.push(`DTI jobs: ${dtiJobsResult.error.message}`);
     if (dtiSummariesResult.error) warnings.push(`DTI daily summaries: ${dtiSummariesResult.error.message}`);
+    if (dtiResponsesResult.error) warnings.push(`DTI scorecards: ${dtiResponsesResult.error.message}`);
 
     const pipeInventory = ((pipeInventoryResult.data ?? []) as any[]).map((row) => {
       const joints = toNumber(row.total_joints ?? row.bulk_joints);
@@ -1023,10 +1051,19 @@ export default function InternalHomePage() {
       orderDate: formatDate(row.order_date ?? row.submitted_at ?? row.created_at),
     }));
 
-    const leadPerformance = buildLeadPerformance(
-      (dtiJobsResult.data ?? []) as any[],
-      (dtiSummariesResult.data ?? []) as any[]
-    );
+    const dtiResponses: DtiChecklistResponseLine[] = ((dtiResponsesResult.data ?? []) as any[]).map((row) => {
+      const rawScore = row.score;
+      return {
+        id: String(row.id),
+        dtiJobId: String(row.dti_job_id ?? ""),
+        section: String(row.section ?? ""),
+        category: String(row.category ?? ""),
+        score: rawScore === null || rawScore === undefined || rawScore === "" ? null : toNumber(rawScore),
+        redFlag: Boolean(row.red_flag),
+      };
+    });
+
+    const leadPerformance = buildLeadPerformance((dtiJobsResult.data ?? []) as any[], dtiResponses);
 
     setData({
       pipeInventory,
@@ -1046,72 +1083,91 @@ export default function InternalHomePage() {
     return String(row.lead_inspector_name ?? row.lead_inspector ?? row.crew_lead ?? "").trim();
   }
 
-  function buildLeadPerformance(dtiJobs: any[], summaries: any[]) {
-    type LeadAccumulator = LeadPerformanceLine & {
-      scoreTotal: number;
-      scoreCount: number;
-    };
+  function leadGrade(average: number) {
+    if (average >= 4.5) return "A";
+    if (average >= 3.5) return "B";
+    if (average >= 2.5) return "C";
+    if (average >= 1.5) return "D";
+    if (average > 0) return "F";
+    return "-";
+  }
 
-    const map = new Map<string, LeadAccumulator>();
+  function isClosedDtiJob(row: any) {
+    const status = String(row.status ?? "").toLowerCase();
+    return status.includes("closed") || status.includes("complete");
+  }
 
-    function ensureLead(name: string) {
-      const key = name || "Unassigned";
-      if (!map.has(key)) {
-        map.set(key, {
-          name: key,
-          jobsCompleted: 0,
-          dailySummaries: 0,
-          inventoryMoves: 0,
-          issueActivity: 0,
-          incompleteEntries: 0,
-          score: 0,
-          scoreTotal: 0,
-          scoreCount: 0,
-          detail: "DTI scorecards only: completed jobs, daily summaries, red flags, and missing DTI entries.",
-        });
-      }
-      return map.get(key)!;
-    }
+  function buildLeadPerformance(dtiJobs: any[], responses: DtiChecklistResponseLine[]) {
+    const byLead = new Map<string, any[]>();
 
     dtiJobs.forEach((job) => {
       const leadName = getDtiLeadName(job);
       if (!leadName) return;
-      const lead = ensureLead(leadName);
-      const status = String(job.status ?? "").toLowerCase();
-      if (status.includes("closed") || status.includes("complete")) {
-        lead.jobsCompleted += 1;
-      } else {
-        lead.incompleteEntries += 1;
-      }
-
-      lead.incompleteEntries += toNumber(
-        job.red_flags_count ?? job.red_flag_count ?? job.redFlags ?? job.incomplete_entries ?? job.missing_paperwork_count
-      );
-
-      const score = toNumber(job.average_score ?? job.overall_score ?? job.score);
-      if (score > 0) {
-        lead.scoreTotal += score;
-        lead.scoreCount += 1;
-      }
+      byLead.set(leadName, [...(byLead.get(leadName) ?? []), job]);
     });
 
-    summaries.forEach((summary) => {
-      const leadName = getDtiLeadName(summary);
-      if (!leadName) return;
-      const lead = ensureLead(leadName);
-      lead.dailySummaries += 1;
-      lead.incompleteEntries += toNumber(summary.red_flags_count ?? summary.red_flag_count ?? summary.redFlags);
-    });
+    return Array.from(byLead.entries())
+      .map(([name, leadJobs]) => {
+        const jobIds = new Set(leadJobs.map((job) => String(job.id)));
+        const leadResponses = responses.filter((response) => jobIds.has(response.dtiJobId));
+        const scored = leadResponses.filter((response) => response.score !== null);
+        const average = scored.length
+          ? scored.reduce((sum, response) => sum + Number(response.score ?? 0), 0) / scored.length
+          : 0;
 
-    return Array.from(map.values())
-      .map(({ scoreTotal, scoreCount, ...lead }) => {
-        const derivedScore = Math.min(100, lead.jobsCompleted * 12 + lead.dailySummaries * 6 - lead.incompleteEntries * 5);
+        const redFlags = leadResponses.filter(
+          (response) => response.redFlag || (response.score !== null && Number(response.score) <= 2)
+        ).length;
+
+        const categoryMap = new Map<string, number[]>();
+        scored.forEach((response) => {
+          const key = response.category || response.section || "General";
+          categoryMap.set(key, [...(categoryMap.get(key) ?? []), Number(response.score)]);
+        });
+
+        const categoryAverages = Array.from(categoryMap.entries())
+          .map(([label, values]) => ({
+            label,
+            average: values.reduce((sum, value) => sum + value, 0) / values.length,
+          }))
+          .sort((a, b) => b.average - a.average || a.label.localeCompare(b.label));
+
+        const operatorMap = new Map<string, { scores: number[]; jobs: number }>();
+        leadJobs.forEach((job) => {
+          const jobId = String(job.id);
+          const operator = String(job.operator ?? "Unassigned").trim() || "Unassigned";
+          const jobScores = responses
+            .filter((response) => response.dtiJobId === jobId && response.score !== null)
+            .map((response) => Number(response.score));
+          const current = operatorMap.get(operator) ?? { scores: [], jobs: 0 };
+          current.scores.push(...jobScores);
+          current.jobs += 1;
+          operatorMap.set(operator, current);
+        });
+
+        const bestOperator = Array.from(operatorMap.entries())
+          .map(([operator, item]) => ({
+            operator,
+            jobs: item.jobs,
+            average: item.scores.length
+              ? item.scores.reduce((sum, score) => sum + score, 0) / item.scores.length
+              : 0,
+          }))
+          .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.operator.localeCompare(b.operator))[0];
+
         return {
-          ...lead,
-          score: scoreCount > 0 ? Math.round((scoreTotal / scoreCount) * 10) / 10 : Math.max(0, derivedScore),
+          name,
+          jobs: leadJobs.length,
+          closed: leadJobs.filter(isClosedDtiJob).length,
+          average,
+          grade: leadGrade(average),
+          redFlags,
+          strongestOperator: bestOperator ? `${bestOperator.operator} (${bestOperator.average.toFixed(1)})` : "No operator data",
+          strength: categoryAverages[0]?.label ?? "No scored categories",
+          focusArea: categoryAverages[categoryAverages.length - 1]?.label ?? "No scored categories",
         };
       })
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.name.localeCompare(b.name));
   }
 
   async function signOut() {
