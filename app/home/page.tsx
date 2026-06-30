@@ -90,6 +90,18 @@ type ConsumableTransactionLine = {
   reference: string;
 };
 
+type InventoryIssueTicketLine = {
+  id: string;
+  ticketNumber: string;
+  issueDate: string;
+  issuedTo: string;
+  department: string;
+  pickedBy: string;
+  unitTruck: string;
+  totalValue: number;
+  status: string;
+};
+
 type PurchaseOrderLine = {
   id: string;
   poNumber: string;
@@ -115,6 +127,7 @@ type DashboardData = {
   pipeActivity: PipeActivityLine[];
   consumableItems: ConsumableItemLine[];
   consumableTransactions: ConsumableTransactionLine[];
+  issueTickets: InventoryIssueTicketLine[];
   purchaseOrders: PurchaseOrderLine[];
   leadPerformance: LeadPerformanceLine[];
   warnings: string[];
@@ -133,6 +146,7 @@ const emptyData: DashboardData = {
   pipeActivity: [],
   consumableItems: [],
   consumableTransactions: [],
+  issueTickets: [],
   purchaseOrders: [],
   leadPerformance: [],
   warnings: [],
@@ -440,10 +454,12 @@ function TubularInventorySection({
 function ConsumableInventorySection({
   items,
   transactions,
+  issueTickets,
   filters,
 }: {
   items: ConsumableItemLine[];
   transactions: ConsumableTransactionLine[];
+  issueTickets: InventoryIssueTicketLine[];
   filters: DashboardFilters;
 }) {
   const monthStart = getMonthStartInputValue();
@@ -457,8 +473,23 @@ function ConsumableInventorySection({
     .filter((row) => row.date >= yearStart && row.date <= today)
     .reduce((sum, row) => sum + Math.abs(row.value), 0);
   const weekTransactions = transactions.filter((row) => isWithinDateRange(row.date, filters));
+  const weekIssueTickets = issueTickets.filter((row) => isWithinDateRange(row.issueDate, filters));
   const issued = weekTransactions.filter((row) => isIssueTransaction(row.type));
   const lowStock = items.filter((row) => row.qtyOnHand <= row.minQty);
+  const recentActivity = [
+    ...weekIssueTickets.map((ticket) => ({
+      id: `ticket-${ticket.id}`,
+      title: `${ticket.ticketNumber} - ${ticket.issuedTo || "Issue Ticket"}`,
+      detail: `${ticket.status || "Issued"} / ${money(ticket.totalValue)} / ${ticket.department || "No department"}`,
+      meta: `${ticket.issueDate} ${ticket.unitTruck || ""}`.trim(),
+    })),
+    ...weekTransactions.map((row) => ({
+      id: `transaction-${row.id}`,
+      title: `${row.type || "Transaction"} - ${row.itemName}`,
+      detail: `${whole(row.quantity)} units / ${money(Math.abs(row.value))}`,
+      meta: `${row.date} ${row.reference}`.trim(),
+    })),
+  ].slice(0, 12);
 
   return (
     <DashboardSection
@@ -469,13 +500,16 @@ function ConsumableInventorySection({
         <DashboardMetricCard label="Spend this month" value={money(monthSpend)} />
         <DashboardMetricCard label="Spend year-to-date" value={money(ytdSpend)} />
         <DashboardMetricCard label="Low stock alerts" value={whole(lowStock.length)} />
-        <DashboardMetricCard label="Week filtered transactions" value={whole(weekTransactions.length)} />
+        <DashboardMetricCard label="Issue tickets in range" value={whole(weekIssueTickets.length)} />
+        <DashboardMetricCard label="Inventory transactions in range" value={whole(weekTransactions.length)} />
       </div>
 
       <div className="dashboard-widget-grid">
         <BreakdownList title="Spend by Category" rows={buildBreakdown(weekTransactions, (row) => row.category, (row) => Math.abs(row.value))} />
         <BreakdownList title="Spend by Vendor" rows={buildBreakdown(weekTransactions, (row) => row.vendor, (row) => Math.abs(row.value))} />
         <BreakdownList title="Top Issued Consumables" rows={buildBreakdown(issued, (row) => row.itemName, (row) => row.quantity, 10)} />
+        <BreakdownList title="Issue Tickets by Department" rows={buildBreakdown(weekIssueTickets, (row) => row.department, () => 1, 10)} />
+        <BreakdownList title="Issue Tickets by Unit / Truck" rows={buildBreakdown(weekIssueTickets, (row) => row.unitTruck, (row) => Math.abs(row.totalValue), 10)} />
         <BreakdownList
           title="Low Stock / Reorder Alerts"
           rows={lowStock.slice(0, 10).map((row) => ({
@@ -488,12 +522,7 @@ function ConsumableInventorySection({
 
       <ActivityTable
         title="Recent Purchases and Issues"
-        rows={weekTransactions.slice(0, 10).map((row) => ({
-          id: row.id,
-          title: `${row.type || "Transaction"} - ${row.itemName}`,
-          detail: `${whole(row.quantity)} units / ${money(Math.abs(row.value))}`,
-          meta: `${row.date} ${row.reference}`,
-        }))}
+        rows={recentActivity}
       />
     </DashboardSection>
   );
@@ -628,7 +657,7 @@ export default function InternalHomePage() {
     if (selectedYardId) {
       loadDashboardData(selectedYardId);
     }
-  }, [selectedYardId]);
+  }, [selectedYardId, filters.startDate, filters.endDate]);
 
   const selectedYard = yardOptions.find((yard) => yard.id === selectedYardId);
 
@@ -728,6 +757,7 @@ export default function InternalHomePage() {
       pipeActivityResult,
       consumableItemsResult,
       consumableTransactionsResult,
+      issueTicketsResult,
       purchaseOrdersResult,
       dtiJobsResult,
       dtiSummariesResult,
@@ -780,6 +810,13 @@ export default function InternalHomePage() {
         .gte("transaction_date", getYearStartInputValue())
         .order("transaction_date", { ascending: false })
         .limit(1000),
+      supabase
+        .from("inventory_issue_tickets")
+        .select("*")
+        .eq("yard_id", yardId)
+        .gte("issue_date", getYearStartInputValue())
+        .order("issue_date", { ascending: false })
+        .limit(1000),
       supabase.from("purchase_orders").select("*").eq("yard_id", yardId).order("order_date", { ascending: false }).limit(500),
       supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
       supabase.from("dti_daily_summaries").select("*").gte("summary_date", filters.startDate).lte("summary_date", filters.endDate).limit(1000),
@@ -791,6 +828,7 @@ export default function InternalHomePage() {
     if (consumableTransactionsResult.error) {
       warnings.push("Consumable spending needs inventory_transactions.transaction_date and yard_id fields.");
     }
+    if (issueTicketsResult.error) warnings.push(`Inventory issue tickets: ${issueTicketsResult.error.message}`);
     if (purchaseOrdersResult.error) warnings.push(`Purchase orders: ${purchaseOrdersResult.error.message}`);
     if (dtiJobsResult.error) warnings.push(`DTI jobs: ${dtiJobsResult.error.message}`);
     if (dtiSummariesResult.error) warnings.push(`DTI daily summaries: ${dtiSummariesResult.error.message}`);
@@ -857,6 +895,18 @@ export default function InternalHomePage() {
       };
     });
 
+    const issueTickets = ((issueTicketsResult.data ?? []) as any[]).map((row) => ({
+      id: String(row.id),
+      ticketNumber: row.ticket_number ?? "",
+      issueDate: formatDate(row.issue_date ?? row.created_at),
+      issuedTo: row.issued_to ?? "",
+      department: row.department ?? "Unassigned",
+      pickedBy: row.picked_by ?? "",
+      unitTruck: row.unit_truck ?? "",
+      totalValue: toNumber(row.total_value),
+      status: row.status ?? "Issued",
+    }));
+
     const purchaseOrders = ((purchaseOrdersResult.data ?? []) as any[]).map((row) => ({
       id: String(row.id),
       poNumber: row.po_number ?? row.purchase_order_number ?? "PO",
@@ -870,7 +920,8 @@ export default function InternalHomePage() {
       (dtiJobsResult.data ?? []) as any[],
       (dtiSummariesResult.data ?? []) as any[],
       pipeActivity,
-      consumableTransactions
+      consumableTransactions,
+      issueTickets
     );
 
     setData({
@@ -878,6 +929,7 @@ export default function InternalHomePage() {
       pipeActivity,
       consumableItems,
       consumableTransactions,
+      issueTickets,
       purchaseOrders,
       leadPerformance,
       warnings,
@@ -889,7 +941,8 @@ export default function InternalHomePage() {
     dtiJobs: any[],
     summaries: any[],
     moves: PipeActivityLine[],
-    consumableActivity: ConsumableTransactionLine[]
+    consumableActivity: ConsumableTransactionLine[],
+    issueTickets: InventoryIssueTicketLine[]
   ) {
     const map = new Map<string, LeadPerformanceLine>();
 
@@ -925,20 +978,29 @@ export default function InternalHomePage() {
       lead.dailySummaries += 1;
     });
 
-    // Future dashboard widget note:
-    // Pipe transactions do not currently store a lead/employee owner consistently.
-    // When an entered_by profile field is added, inventoryMoves can be attributed by lead here.
-    if (moves.length > 0 && map.size > 0) {
-      const firstLead = Array.from(map.values())[0];
-      firstLead.inventoryMoves += moves.length;
-    }
+    moves.forEach((move: any) => {
+      const leadName = move.enteredBy ?? move.createdBy ?? "";
+      if (!leadName) return;
+      const lead = ensureLead(leadName);
+      lead.inventoryMoves += 1;
+    });
+
+    issueTickets.forEach((ticket) => {
+      const leadName = ticket.pickedBy || ticket.issuedTo || "";
+      if (!leadName) return;
+      const lead = ensureLead(leadName);
+      lead.issueActivity += 1;
+    });
 
     // Future dashboard widget note:
-    // Inventory issue tickets can be tied to a lead when requested_by/picked_by is standardized.
-    if (consumableActivity.length > 0 && map.size > 0) {
-      const firstLead = Array.from(map.values())[0];
-      firstLead.issueActivity += consumableActivity.filter((row) => isIssueTransaction(row.type)).length;
-    }
+    // Inventory transactions without an entered_by/picked_by style owner remain in the activity tables,
+    // but they are not assigned to a lead score until an owner field is present.
+    consumableActivity.forEach((row: any) => {
+      const leadName = row.enteredBy ?? row.pickedBy ?? "";
+      if (!leadName || !isIssueTransaction(row.type)) return;
+      const lead = ensureLead(leadName);
+      lead.issueActivity += 1;
+    });
 
     return Array.from(map.values())
       .map((lead) => {
@@ -1087,7 +1149,12 @@ export default function InternalHomePage() {
 
         {/* Add future dashboard widgets by appending another reusable DashboardSection below. */}
         <TubularInventorySection inventory={filteredPipeInventory} activity={filteredPipeActivity} />
-        <ConsumableInventorySection items={data.consumableItems} transactions={data.consumableTransactions} filters={filters} />
+        <ConsumableInventorySection
+          items={data.consumableItems}
+          transactions={data.consumableTransactions}
+          issueTickets={data.issueTickets}
+          filters={filters}
+        />
         <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
         <LeadScorecardSection leads={filteredLeads} />
       </section>
