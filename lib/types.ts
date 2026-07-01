@@ -1,13 +1,6 @@
-export type UserRole =
-  | "admin"
-  | "employee"
-  | "customer"
-  | "operator"
-  | "sales"
-  | "dti_superintendent"
-  | "dti_inspector"
-  | "inventory_specialist"
-  | "inventory_manager";
+import type { RoleKey } from "./modulePermissions";
+
+export type UserRole = RoleKey;
 export type PipeRange = "Range 2" | "Range 3";
 
 export type InventoryStatus =

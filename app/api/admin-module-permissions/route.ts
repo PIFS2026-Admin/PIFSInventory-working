@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { cleanModuleKeys, defaultModulesForRole } from "../../../lib/modulePermissions";
+import { cleanModuleKeys, defaultModulesForRole, normalizeRole } from "../../../lib/modulePermissions";
 
 function configuredSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -59,9 +59,9 @@ async function requireAdmin(request: Request) {
 
   if (profileError) throw profileError;
 
-  const role = String(profile?.role ?? "").toLowerCase();
+  const role = normalizeRole(profile?.role ?? "");
 
-  if (!["admin", "employee"].includes(role)) {
+  if (!["admin", "owner"].includes(role)) {
     return { adminSupabase, error: Response.json({ error: "Admin access is required." }, { status: 403 }) };
   }
 

@@ -1,6 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
-import { cleanModuleKeys, defaultModulesForRole } from "../../../lib/modulePermissions";
+import {
+  allRoleOptions,
+  cleanModuleKeys,
+  defaultModulesForRole,
+  isKnownRole,
+  normalizeRole,
+} from "../../../lib/modulePermissions";
 
 function configuredAdminSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -33,7 +39,6 @@ function makeTemporaryPassword() {
   return `Titan-${randomBytes(4).toString("hex")}-${randomBytes(3).toString("hex")}!`;
 }
 
-const internalInventoryRoles = ["admin", "employee", "inventory_specialist", "inventory_manager"];
 const modulePermissionSetupMessage =
   "User module permissions table is missing. Run supabase/user_module_permissions.sql in Supabase SQL Editor.";
 
@@ -54,6 +59,20 @@ function isMissingModulePermissionsTable(error: any) {
     (message.includes("does not exist") ||
       message.includes("could not find the table") ||
       message.includes("schema cache"))
+  );
+}
+
+function isMissingProfileColumn(error: any) {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes("profiles.") ||
+    message.includes("column") ||
+    message.includes("schema cache")
+  ) && (
+    message.includes("email") ||
+    message.includes("customer_id") ||
+    message.includes("department") ||
+    message.includes("is_disabled")
   );
 }
 
@@ -179,8 +198,11 @@ export async function POST(request: Request) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const fullName = String(body.fullName ?? "").trim();
-    const role = String(body.role ?? "customer").trim();
+    const rawRole = String(body.role ?? "customer").trim();
+    const role = normalizeRole(rawRole);
     const companyId = body.companyId ? String(body.companyId) : null;
+    const customerId = body.customerId ? String(body.customerId) : companyId;
+    const department = String(body.department ?? "").trim();
     const yardIds = Array.isArray(body.yardIds)
       ? Array.from(new Set(body.yardIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];
@@ -188,35 +210,27 @@ export async function POST(request: Request) {
       Array.isArray(body.moduleKeys) ? body.moduleKeys : []
     );
 
-    if (!email || !fullName || !role) {
+    if (!email || !fullName || !rawRole) {
       return Response.json(
         { error: "Email, full name, and role are required." },
         { status: 400 }
       );
     }
 
-    if (role === "customer" && !companyId) {
+    if (!isKnownRole(rawRole)) {
       return Response.json(
-        { error: "Customer users must be assigned to a company." },
+        {
+          error: `Unknown role "${rawRole}". Use one of: ${allRoleOptions
+            .map((option) => option.label)
+            .join(", ")}.`,
+        },
         { status: 400 }
       );
     }
 
-    const allowedRoles = [
-      "admin",
-      "employee",
-      "customer",
-      "operator",
-      "sales",
-      "dti_superintendent",
-      "dti_inspector",
-      "inventory_specialist",
-      "inventory_manager",
-    ];
-
-    if (!allowedRoles.includes(role)) {
+    if (role === "customer" && !customerId) {
       return Response.json(
-        { error: "Role must be admin, employee, customer, operator, sales, DTI superintendent, DTI inspector, inventory specialist, or inventory manager." },
+        { error: "Customer users must be assigned to a company." },
         { status: 400 }
       );
     }
@@ -235,11 +249,28 @@ export async function POST(request: Request) {
     ).replace(/\/$/, "");
 
     const saveProfile = async (userId: string) => {
+      const profilePayload = {
+        id: userId,
+        email,
+        full_name: fullName,
+        role,
+        company_id: role === "customer" ? customerId : null,
+        customer_id: role === "customer" ? customerId : null,
+        department: department || null,
+        is_disabled: false,
+      };
+
+      const result = await adminSupabase.from("profiles").upsert(profilePayload);
+
+      if (!result.error || !isMissingProfileColumn(result.error)) {
+        return result;
+      }
+
       return adminSupabase.from("profiles").upsert({
         id: userId,
         full_name: fullName,
         role,
-        company_id: role === "customer" ? companyId : null,
+        company_id: role === "customer" ? customerId : null,
       });
     };
 
@@ -253,6 +284,8 @@ export async function POST(request: Request) {
         user_metadata: {
           full_name: fullName,
           role,
+          department,
+          customer_id: role === "customer" ? customerId : null,
         },
       });
 
@@ -281,7 +314,7 @@ export async function POST(request: Request) {
     let yardAccessWarning = "";
     let moduleAccessWarning = "";
 
-    if (internalInventoryRoles.includes(role) && yardIds.length > 0) {
+    if (role !== "customer" && yardIds.length > 0) {
       const { error: yardAccessError } = await adminSupabase
         .from("inventory_user_yards")
         .insert(

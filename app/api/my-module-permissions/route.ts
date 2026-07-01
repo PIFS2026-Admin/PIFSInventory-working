@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
-import { defaultModulesForRole } from "../../../lib/modulePermissions";
+import {
+  applyPermissionOverrides,
+  defaultModulesForRole,
+  getDefaultPermissionsForRole,
+  moduleKeysFromPermissionMap,
+  normalizeRole,
+} from "../../../lib/modulePermissions";
 
 function configuredSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,14 +32,28 @@ function errorMessage(error: any) {
   }
 }
 
-function missingPermissionsTable(error: any) {
+function missingTable(error: any, tableName: string) {
   const message = errorMessage(error).toLowerCase();
   return (
-    message.includes("user_module_permissions") &&
+    message.includes(tableName.toLowerCase()) &&
     (message.includes("does not exist") ||
       message.includes("could not find the table") ||
       message.includes("schema cache"))
   );
+}
+
+async function readProfile(adminSupabase: ReturnType<typeof configuredSupabase>, userId: string) {
+  const richProfile = await adminSupabase
+    .from("profiles")
+    .select("role, email, full_name, department, company_id, customer_id, is_disabled")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!richProfile.error) return richProfile.data;
+
+  const basicProfile = await adminSupabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+  if (basicProfile.error) throw basicProfile.error;
+  return basicProfile.data;
 }
 
 export async function GET(request: Request) {
@@ -52,44 +72,56 @@ export async function GET(request: Request) {
       return Response.json({ error: "Invalid user session." }, { status: 401 });
     }
 
-    const { data: profile, error: profileError } = await adminSupabase
-      .from("profiles")
-      .select("role")
-      .eq("id", userData.user.id)
-      .maybeSingle();
+    const profile = await readProfile(adminSupabase, userData.user.id);
+    const role = normalizeRole(profile?.role ?? "customer");
 
-    if (profileError) throw profileError;
-
-    const role = String(profile?.role ?? "customer").toLowerCase();
-
-    if (role === "admin") {
-      return Response.json({ role, moduleKeys: defaultModulesForRole(role), usedDefaults: true });
+    if (Boolean((profile as any)?.is_disabled)) {
+      return Response.json({ error: "This user account is disabled." }, { status: 403 });
     }
 
-    const { data, error } = await adminSupabase
+    let permissions = getDefaultPermissionsForRole(role);
+    let setupRequired = false;
+
+    const overrides = await adminSupabase
+      .from("user_permission_overrides")
+      .select("module_key, action_key, is_allowed")
+      .eq("user_id", userData.user.id);
+
+    if (overrides.error) {
+      setupRequired = missingTable(overrides.error, "user_permission_overrides");
+      if (!setupRequired) throw overrides.error;
+    } else {
+      permissions = applyPermissionOverrides(permissions, overrides.data ?? []);
+    }
+
+    const moduleRows = await adminSupabase
       .from("user_module_permissions")
       .select("module_key, can_access")
       .eq("user_id", userData.user.id)
       .eq("can_access", true);
 
-    if (error) {
-      if (missingPermissionsTable(error)) {
-        return Response.json({
-          role,
-          moduleKeys: defaultModulesForRole(role),
-          setupRequired: true,
-          usedDefaults: true,
-        });
-      }
-
-      throw error;
+    if (moduleRows.error) {
+      setupRequired = setupRequired || missingTable(moduleRows.error, "user_module_permissions");
+      if (!setupRequired) throw moduleRows.error;
     }
 
-    const moduleKeys = (data ?? []).map((row) => row.module_key).filter(Boolean);
+    const savedModuleKeys = moduleRows.error ? [] : (moduleRows.data ?? []).map((row) => row.module_key).filter(Boolean);
+    const defaultModuleKeys = moduleKeysFromPermissionMap(permissions);
+    const moduleKeys = savedModuleKeys.length > 0 ? savedModuleKeys : defaultModuleKeys.length > 0 ? defaultModuleKeys : defaultModulesForRole(role);
+
     return Response.json({
       role,
-      moduleKeys: moduleKeys.length > 0 ? moduleKeys : defaultModulesForRole(role),
-      usedDefaults: moduleKeys.length === 0,
+      moduleKeys,
+      permissions,
+      profile: {
+        email: (profile as any)?.email ?? userData.user.email ?? "",
+        fullName: (profile as any)?.full_name ?? "",
+        department: (profile as any)?.department ?? "",
+        companyId: (profile as any)?.company_id ?? "",
+        customerId: (profile as any)?.customer_id ?? (profile as any)?.company_id ?? "",
+      },
+      setupRequired,
+      usedDefaults: savedModuleKeys.length === 0,
     });
   } catch (error: any) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
