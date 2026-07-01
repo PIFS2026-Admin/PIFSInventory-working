@@ -77,6 +77,7 @@ type ConsumableItemLine = {
   qtyOnHand: number;
   minQty: number;
   unitPrice: number;
+  lowStock: boolean;
 };
 
 type ConsumableTransactionLine = {
@@ -172,6 +173,13 @@ type DashboardFilters = {
 };
 
 type ProfileNameMap = Map<string, string>;
+
+const PRE_JOB_MANAGEMENT_NAMES = new Set([
+  "shawn leblanc",
+  "jesus de los santos",
+  "adrian adame",
+  "jonathan alvarado",
+]);
 
 const emptyData: DashboardData = {
   pipeInventory: [],
@@ -287,6 +295,10 @@ function cleanPersonValue(value: unknown) {
   return trimmed;
 }
 
+function normalizePerformanceName(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function resolvePersonValue(value: unknown, profileNamesById: ProfileNameMap) {
   const cleaned = cleanPersonValue(value);
   if (!cleaned) return "";
@@ -295,6 +307,32 @@ function resolvePersonValue(value: unknown, profileNamesById: ProfileNameMap) {
 
 function getTodayInputValue() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatInputDate(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(12, 0, 0, 0);
+  return copy.toISOString().slice(0, 10);
+}
+
+function getSundayWeekRange(offsetWeeks = 0) {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(today.getDate() - today.getDay() + offsetWeeks * 7);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  return {
+    start: formatInputDate(start),
+    end: formatInputDate(end),
+  };
+}
+
+function isDateWithinRange(value: string, start: string, end: string) {
+  if (!value || value === "-") return false;
+  const date = value.slice(0, 10);
+  return date >= start && date <= end;
 }
 
 function getMonthStartInputValue() {
@@ -546,18 +584,40 @@ function ConsumableInventorySection({
   const monthStart = getMonthStartInputValue();
   const yearStart = getYearStartInputValue();
   const today = getTodayInputValue();
+  const currentWeek = getSundayWeekRange(0);
+  const previousWeek = getSundayWeekRange(-1);
+  const lineMatchesDepartment = (row: { department: string }) =>
+    filters.department === "All Departments" || row.department === filters.department;
+  const ticketMatchesDepartment = (row: { department: string }) =>
+    filters.department === "All Departments" || row.department === filters.department;
 
-  const monthLines = issueTicketLines.filter((row) => row.issueDate >= monthStart && row.issueDate <= today);
-  const ytdLines = issueTicketLines.filter((row) => row.issueDate >= yearStart && row.issueDate <= today);
-  const issueLinesInRange = issueTicketLines.filter((row) => isWithinDateRange(row.issueDate, filters));
-  const weekIssueTickets = issueTickets.filter((row) => isWithinDateRange(row.issueDate, filters));
+  const currentWeekLines = issueTicketLines.filter(
+    (row) => isDateWithinRange(row.issueDate, currentWeek.start, currentWeek.end) && lineMatchesDepartment(row)
+  );
+  const previousWeekLines = issueTicketLines.filter(
+    (row) => isDateWithinRange(row.issueDate, previousWeek.start, previousWeek.end) && lineMatchesDepartment(row)
+  );
+  const monthLines = issueTicketLines.filter(
+    (row) => row.issueDate >= monthStart && row.issueDate <= today && lineMatchesDepartment(row)
+  );
+  const ytdLines = issueTicketLines.filter(
+    (row) => row.issueDate >= yearStart && row.issueDate <= today && lineMatchesDepartment(row)
+  );
+  const issueLinesInRange = issueTicketLines.filter(
+    (row) => isWithinDateRange(row.issueDate, filters) && lineMatchesDepartment(row)
+  );
+  const weekIssueTickets = issueTickets.filter(
+    (row) => isWithinDateRange(row.issueDate, filters) && ticketMatchesDepartment(row)
+  );
   const issueTicketIdsInRange = new Set(issueLinesInRange.map((row) => row.ticketId).filter(Boolean));
+  const currentWeekSpend = currentWeekLines.reduce((sum, row) => sum + Math.abs(row.value), 0);
+  const previousWeekSpend = previousWeekLines.reduce((sum, row) => sum + Math.abs(row.value), 0);
   const monthSpend = monthLines
     .reduce((sum, row) => sum + Math.abs(row.value), 0);
   const ytdSpend = ytdLines
     .reduce((sum, row) => sum + Math.abs(row.value), 0);
   const issuedQuantity = issueLinesInRange.reduce((sum, row) => sum + Math.abs(row.quantity), 0);
-  const lowStock = items.filter((row) => row.minQty > 0 && row.qtyOnHand <= row.minQty);
+  const lowStock = items.filter((row) => row.lowStock || row.qtyOnHand <= 0 || (row.minQty > 0 && row.qtyOnHand <= row.minQty));
   const recentActivity = [
     ...weekIssueTickets.map((ticket) => ({
       id: `ticket-${ticket.id}`,
@@ -573,6 +633,8 @@ function ConsumableInventorySection({
       subtitle="Spend, issue velocity, vendor/category mix, and reorder pressure."
     >
       <div className="dashboard-metric-grid">
+        <DashboardMetricCard label="Current week spend" value={money(currentWeekSpend)} detail={`${currentWeek.start} to ${currentWeek.end}`} />
+        <DashboardMetricCard label="Previous week spend" value={money(previousWeekSpend)} detail={`${previousWeek.start} to ${previousWeek.end}`} />
         <DashboardMetricCard label="Spend this month" value={money(monthSpend)} />
         <DashboardMetricCard label="Spend year-to-date" value={money(ytdSpend)} />
         <DashboardMetricCard label="Low stock alerts" value={whole(lowStock.length)} />
@@ -757,12 +819,15 @@ export default function InternalHomePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [yardOptions, setYardOptions] = useState<YardOption[]>([]);
   const [selectedYardId, setSelectedYardId] = useState("");
-  const [filters, setFilters] = useState<DashboardFilters>({
-    startDate: getMonthStartInputValue(),
-    endDate: getTodayInputValue(),
-    customer: "All Customers",
-    department: "All Departments",
-    lead: "All Leads",
+  const [filters, setFilters] = useState<DashboardFilters>(() => {
+    const currentWeek = getSundayWeekRange(0);
+    return {
+      startDate: currentWeek.start,
+      endDate: currentWeek.end,
+      customer: "All Customers",
+      department: "All Departments",
+      lead: "All Leads",
+    };
   });
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
@@ -929,21 +994,19 @@ export default function InternalHomePage() {
         .lte("created_at", `${filters.endDate}T23:59:59`)
         .order("created_at", { ascending: false })
         .limit(200),
-      supabase.from("inventory_items").select("*").eq("yard_id", yardId).limit(5000),
+      supabase.from("inventory_items").select("*").limit(5000),
       supabase
         .from("inventory_transactions")
         .select("*")
-        .eq("yard_id", yardId)
         .gte("transaction_date", getYearStartInputValue())
         .order("transaction_date", { ascending: false })
-        .limit(1000),
+        .limit(5000),
       supabase
         .from("inventory_issue_tickets")
         .select("*")
-        .eq("yard_id", yardId)
         .gte("issue_date", getYearStartInputValue())
         .order("issue_date", { ascending: false })
-        .limit(1000),
+        .limit(5000),
       supabase.from("purchase_orders").select("*").order("order_date", { ascending: false }).limit(1000),
       supabase.from("purchase_order_lines").select("*").limit(5000),
       supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
@@ -996,7 +1059,26 @@ export default function InternalHomePage() {
       createdAt: formatDate(row.created_at),
     }));
 
-    const consumableItems = ((consumableItemsResult.data ?? []) as any[]).map((row) => ({
+    const selectedYard = yardOptions.find((yard) => yard.id === yardId);
+    const selectedYardText = `${selectedYard?.name ?? ""} ${selectedYard?.code ?? ""}`.toLowerCase();
+    const selectedYardIsWtx =
+      selectedYardText.includes("wtx") ||
+      selectedYardText.includes("pathfinder") ||
+      selectedYardText.includes("pifs");
+
+    const belongsToSelectedInventoryYard = (row: any) => {
+      const rowYardId = String(row.yard_id ?? row.inventory_yard_id ?? "").trim();
+      if (rowYardId) return rowYardId === yardId;
+      return selectedYardIsWtx;
+    };
+
+    const rawConsumableItems = ((consumableItemsResult.data ?? []) as any[]).filter(belongsToSelectedInventoryYard);
+    const rawConsumableTransactions = ((consumableTransactionsResult.data ?? []) as any[]).filter(
+      belongsToSelectedInventoryYard
+    );
+    const rawIssueTickets = ((issueTicketsResult.data ?? []) as any[]).filter(belongsToSelectedInventoryYard);
+
+    const consumableItems = rawConsumableItems.map((row) => ({
       id: String(row.id),
       itemId: row.item_id ?? row.item_number ?? "",
       name: row.item_name ?? row.description ?? row.name ?? "Unknown item",
@@ -1006,9 +1088,10 @@ export default function InternalHomePage() {
       qtyOnHand: toNumber(row.qty_on_hand ?? row.quantity_on_hand),
       minQty: toNumber(row.min_qty ?? row.minimum_qty ?? row.reorder_point),
       unitPrice: toNumber(row.unit_price ?? row.unit_cost),
+      lowStock: Boolean(row.low_stock ?? row.is_low_stock ?? row.low_stock_flag),
     }));
 
-    const consumableTransactions = ((consumableTransactionsResult.data ?? []) as any[]).map((row) => {
+    const consumableTransactions = rawConsumableTransactions.map((row) => {
       const quantity = Math.abs(toNumber(row.quantity ?? row.qty ?? row.quantity_issued));
       const unitPrice = toNumber(row.unit_price ?? row.unit_cost ?? row.cost);
       const value = toNumber(row.total_value ?? row.line_value ?? row.value) || quantity * unitPrice;
@@ -1026,7 +1109,7 @@ export default function InternalHomePage() {
       };
     });
 
-    const issueTickets = ((issueTicketsResult.data ?? []) as any[]).map((row) => ({
+    const issueTickets = rawIssueTickets.map((row) => ({
       id: String(row.id),
       ticketNumber: row.ticket_number ?? "",
       issueDate: formatDate(row.issue_date ?? row.created_at),
@@ -1061,8 +1144,9 @@ export default function InternalHomePage() {
       const ticketId = String(row.issue_ticket_id ?? row.ticket_id ?? row.issue_id ?? "");
       const ticket = ticketById.get(ticketId);
       const itemId = String(row.item_id ?? row.inventory_item_id ?? "");
-      const itemCode = String(row.item_code ?? row.item_number ?? row.item_id ?? "");
-      const item = itemById.get(itemId) ?? itemByCode.get(itemCode);
+      const rawItemCode = String(row.item_code ?? row.item_number ?? "").trim();
+      const item = itemById.get(itemId) ?? itemByCode.get(rawItemCode);
+      const itemCode = item?.itemId || rawItemCode || String(row.item_id ?? "");
       const quantity = Math.abs(toNumber(row.qty_issued ?? row.quantity_issued ?? row.quantity ?? row.qty));
       const unitCost = toNumber(row.unit_cost ?? row.unit_price ?? item?.unitPrice);
       const value = toNumber(row.line_value ?? row.total_value ?? row.value) || quantity * unitCost;
@@ -1072,7 +1156,7 @@ export default function InternalHomePage() {
         ticketId,
         ticketNumber: ticket?.ticketNumber ?? row.ticket_number ?? "",
         issueDate: ticket?.issueDate ?? formatDate(row.issue_date ?? row.created_at),
-        itemCode: itemCode || item?.itemId || "",
+        itemCode,
         itemName: row.item_name ?? row.description ?? item?.name ?? "Unknown item",
         category: row.category ?? item?.category ?? "Unassigned",
         vendor: row.vendor ?? item?.vendor ?? "Unassigned",
@@ -1085,9 +1169,6 @@ export default function InternalHomePage() {
       };
     });
 
-    const selectedYard = yardOptions.find((yard) => yard.id === yardId);
-    const selectedYardText = `${selectedYard?.name ?? ""} ${selectedYard?.code ?? ""}`.toLowerCase();
-    const selectedYardIsWtx = selectedYardText.includes("wtx") || selectedYardText.includes("pathfinder") || selectedYardText.includes("pifs");
     const purchaseOrderLineRows = (purchaseOrderLinesResult.data ?? []) as any[];
     const purchaseOrderLinesByOrderId = new Map<string, any[]>();
 
@@ -1349,7 +1430,7 @@ export default function InternalHomePage() {
       responses,
       (job) => getDtiPreJobOwnerName(job, profileNamesById),
       isPreJobResponse
-    );
+    ).filter((row) => PRE_JOB_MANAGEMENT_NAMES.has(normalizePerformanceName(row.name)));
   }
 
   async function signOut() {
