@@ -3,6 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { supabase } from "../../lib/supabase";
+import {
+  canCreate,
+  canDelete,
+  canEdit,
+  canView,
+  getDefaultPermissionsForRole,
+  moduleKeysFromPermissionMap,
+  normalizeRole as normalizePermissionRole,
+  type ModuleKey,
+  type PermissionMap,
+} from "../../lib/modulePermissions";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 
@@ -269,7 +280,45 @@ const emptyPriceForm: PriceForm = {
 };
 
 function normalizeRole(role: unknown): Role {
-  return typeof role === "string" ? role.toLowerCase() : "customer";
+  return normalizePermissionRole(role);
+}
+
+function hasInventoryAccess(role: Role, moduleKeys: ModuleKey[], permissions: PermissionMap | null) {
+  if (role === "customer") return false;
+  if (inventoryRoles.includes(role)) return true;
+  if (moduleKeys.includes("inventory") || moduleKeys.includes("purchase_orders")) return true;
+
+  return (
+    canView(permissions, "consumable_inventory") ||
+    canCreate(permissions, "consumable_inventory") ||
+    canView(permissions, "issue_tickets") ||
+    canCreate(permissions, "issue_tickets") ||
+    canView(permissions, "purchase_orders") ||
+    canCreate(permissions, "purchase_orders")
+  );
+}
+
+function hasInventoryManagementAccess(role: Role, permissions: PermissionMap | null) {
+  if (inventoryFullRoles.includes(role)) return true;
+
+  return (
+    canCreate(permissions, "consumable_inventory") ||
+    canEdit(permissions, "consumable_inventory") ||
+    canDelete(permissions, "consumable_inventory") ||
+    canCreate(permissions, "purchase_orders") ||
+    canEdit(permissions, "purchase_orders") ||
+    canDelete(permissions, "purchase_orders")
+  );
+}
+
+function hasInventoryOrderAccess(role: Role, permissions: PermissionMap | null) {
+  if (inventoryOrderRoles.includes(role)) return true;
+
+  return (
+    canCreate(permissions, "consumable_inventory") ||
+    canCreate(permissions, "issue_tickets") ||
+    canView(permissions, "consumable_inventory")
+  );
 }
 
 function money(value: number) {
@@ -357,6 +406,8 @@ function downloadCsv(fileName: string, headers: string[], rows: Array<Array<stri
 
 export default function InventoryModulePage() {
   const [role, setRole] = useState<Role>("customer");
+  const [moduleKeys, setModuleKeys] = useState<ModuleKey[]>([]);
+  const [permissions, setPermissions] = useState<PermissionMap | null>(null);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(true);
@@ -409,9 +460,9 @@ export default function InventoryModulePage() {
   const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
 
-  const canUseInventory = inventoryRoles.includes(role);
-  const canManageInventory = inventoryFullRoles.includes(role);
-  const canPlaceInventoryOrders = inventoryOrderRoles.includes(role);
+  const canUseInventory = hasInventoryAccess(role, moduleKeys, permissions);
+  const canManageInventory = hasInventoryManagementAccess(role, permissions);
+  const canPlaceInventoryOrders = hasInventoryOrderAccess(role, permissions);
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
   const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
 
@@ -576,13 +627,41 @@ export default function InventoryModulePage() {
       .eq("id", user.id)
       .single();
 
-    const nextRole = normalizeRole(profileData?.role);
     const nextEmail = user.email || "";
+    let nextRole = normalizeRole(profileData?.role);
+    let nextPermissions = getDefaultPermissionsForRole(nextRole);
+    let nextModuleKeys = moduleKeysFromPermissionMap(nextPermissions);
+
+    try {
+      const token = sessionData.session?.access_token || "";
+      if (token) {
+        const accessResponse = await fetch("/api/my-module-permissions", {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (accessResponse.ok) {
+          const accessData = await accessResponse.json();
+          nextRole = normalizeRole(accessData?.role || profileData?.role);
+          nextPermissions =
+            (accessData?.permissions as PermissionMap | undefined) || getDefaultPermissionsForRole(nextRole);
+          nextModuleKeys = Array.isArray(accessData?.moduleKeys)
+            ? (accessData.moduleKeys.filter((key: unknown) => typeof key === "string") as ModuleKey[])
+            : moduleKeysFromPermissionMap(nextPermissions);
+        }
+      }
+    } catch {
+      nextPermissions = getDefaultPermissionsForRole(nextRole);
+      nextModuleKeys = moduleKeysFromPermissionMap(nextPermissions);
+    }
+
     setRole(nextRole);
+    setPermissions(nextPermissions);
+    setModuleKeys(nextModuleKeys);
     setUserEmail(nextEmail);
     setUserName(profileData?.full_name || user.email || "TITAN User");
 
-    if (!inventoryRoles.includes(nextRole)) {
+    if (!hasInventoryAccess(nextRole, nextModuleKeys, nextPermissions)) {
       setMessage("Inventory is for internal users only.");
       setLoading(false);
       return;
