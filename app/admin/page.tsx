@@ -4,8 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
 import {
+  allRoleOptions,
   ModuleKey,
   defaultModulesForRole,
+  getDefaultPermissionsForRole,
+  permissionActions,
+  PermissionAction,
+  permissionModules,
+  RoleKey,
   moduleAccessOptions,
 } from "../../lib/modulePermissions";
 
@@ -243,6 +249,18 @@ const defaultConditionInventoryOptions: InventoryOption[] = [
     isActive: true,
 }));
 
+const permissionActionLabels: Record<PermissionAction, string> = {
+  view: "View",
+  create: "Create",
+  edit: "Edit",
+  delete: "Delete",
+  approve: "Approve",
+  close: "Close",
+  export: "Export",
+  manage_settings: "Manage",
+  receive_notifications: "Notify",
+};
+
 const defaultInventoryOptions: InventoryOption[] = [
   ...defaultStatusInventoryOptions,
   ...defaultConditionInventoryOptions,
@@ -367,6 +385,7 @@ export default function AdminPage() {
   const [moduleAccessUserId, setModuleAccessUserId] = useState("");
   const [moduleAccessSelection, setModuleAccessSelection] = useState<ModuleKey[]>([]);
   const [newUserModuleSelection, setNewUserModuleSelection] = useState<ModuleKey[]>([]);
+  const [permissionRolePreview, setPermissionRolePreview] = useState<RoleKey>("admin");
   const [emailNotificationTypes, setEmailNotificationTypes] = useState<EmailNotificationType[]>([]);
   const [emailNotificationRecipients, setEmailNotificationRecipients] = useState<EmailNotificationRecipient[]>([]);
   const [emailNotificationUsers, setEmailNotificationUsers] = useState<EmailNotificationUser[]>([]);
@@ -412,6 +431,11 @@ export default function AdminPage() {
   const selectedModuleAccessUser = useMemo(
     () => moduleAccessUsers.find((profile) => profile.id === moduleAccessUserId) || null,
     [moduleAccessUsers, moduleAccessUserId]
+  );
+
+  const rolePermissionPreview = useMemo(
+    () => getDefaultPermissionsForRole(permissionRolePreview),
+    [permissionRolePreview]
   );
 
   async function signOut() {
@@ -2430,87 +2454,146 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible" open>
         <summary>
           <div>
-            <h3>Screen Permissions</h3>
-            <p>Assign exactly which TITAN screens each internal user can open. Admins keep full access.</p>
+            <h3>Permission Management</h3>
+            <p>Review role defaults and assign exactly which TITAN screens each internal user can open.</p>
           </div>
           <span>Open / close</span>
         </summary>
         <div className="admin-collapsible-body">
-          <label>
-            User
-            <select
-              value={moduleAccessUserId}
-              onChange={(event) => openModuleAccess(event.target.value)}
-            >
-              <option value="">Select user</option>
-              {moduleAccessUsers.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.fullName || profile.id} ({profile.role})
-                </option>
-              ))}
-            </select>
-          </label>
+          <section className="ticket-card admin-card">
+            <div className="admin-section-title">
+              <div>
+                <h4>Role Defaults</h4>
+                <p className="muted-text">Pick a role to see which modules and actions are enabled by default.</p>
+              </div>
+              <label>
+                Role
+                <select
+                  value={permissionRolePreview}
+                  onChange={(event) => setPermissionRolePreview(event.target.value as RoleKey)}
+                >
+                  {allRoleOptions.map((role) => (
+                    <option key={role.key} value={role.key}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
-          {moduleAccessUserId && (
-            <>
-              <div className="yard-access-grid">
-                {moduleAccessOptions.map((option) => (
-                  <label key={option.key} className="yard-access-card">
-                    <input
-                      type="checkbox"
-                      checked={moduleAccessSelection.includes(option.key)}
-                      onChange={() => toggleModuleAccess(option.key)}
-                      disabled={selectedModuleAccessUser?.role === "admin"}
-                    />
-                    <span>
-                      <strong>{option.label}</strong>
-                      <small>{option.description}</small>
-                    </span>
-                  </label>
+            <div className="table-wrap">
+              <table className="inventory-table">
+                <thead>
+                  <tr>
+                    <th>Module</th>
+                    {permissionActions.map((action) => (
+                      <th key={action}>{permissionActionLabels[action]}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {permissionModules.map((module) => (
+                    <tr key={module.key}>
+                      <td>
+                        <strong>{module.label}</strong>
+                        <small className="muted-text">{module.description}</small>
+                      </td>
+                      {permissionActions.map((action) => (
+                        <td key={action}>
+                          {rolePermissionPreview[module.key]?.[action] ? "Yes" : "-"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="ticket-card admin-card">
+            <div className="admin-section-title">
+              <div>
+                <h4>User Screen Overrides</h4>
+                <p className="muted-text">Use this for special cases where one person needs more or less access than their role normally gives.</p>
+              </div>
+            </div>
+
+            <label>
+              User
+              <select
+                value={moduleAccessUserId}
+                onChange={(event) => openModuleAccess(event.target.value)}
+              >
+                <option value="">Select user</option>
+                {moduleAccessUsers.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.fullName || profile.id} ({profile.role})
+                  </option>
                 ))}
-              </div>
+              </select>
+            </label>
 
-              <div className="yard-access-actions">
-                <button
-                  className="button"
-                  onClick={() =>
-                    setModuleAccessSelection(
-                      selectedModuleAccessUser
-                        ? defaultModulesForRole(selectedModuleAccessUser.role)
-                        : []
-                    )
-                  }
-                  disabled={loading || selectedModuleAccessUser?.role === "admin"}
-                >
-                  Default For Role
-                </button>
-                <button
-                  className="button"
-                  onClick={() => setModuleAccessSelection(moduleAccessOptions.map((option) => option.key))}
-                  disabled={loading}
-                >
-                  Select All
-                </button>
-                <button
-                  className="button"
-                  onClick={() => setModuleAccessSelection([])}
-                  disabled={loading || selectedModuleAccessUser?.role === "admin"}
-                >
-                  Clear
-                </button>
-                <button className="button primary" onClick={saveModuleAccess} disabled={loading}>
-                  Save Screen Permissions
-                </button>
-              </div>
-            </>
-          )}
+            {moduleAccessUserId && (
+              <>
+                <div className="yard-access-grid">
+                  {moduleAccessOptions.map((option) => (
+                    <label key={option.key} className="yard-access-card">
+                      <input
+                        type="checkbox"
+                        checked={moduleAccessSelection.includes(option.key)}
+                        onChange={() => toggleModuleAccess(option.key)}
+                        disabled={selectedModuleAccessUser?.role === "admin"}
+                      />
+                      <span>
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
 
-          {!moduleAccessUserId && (
-            <p className="muted-text">Choose a user to control Inventory, Yard View, DTI, Hardbanding, Admin, Reports, and Dashboard access.</p>
-          )}
+                <div className="yard-access-actions">
+                  <button
+                    className="button"
+                    onClick={() =>
+                      setModuleAccessSelection(
+                        selectedModuleAccessUser
+                          ? defaultModulesForRole(selectedModuleAccessUser.role)
+                          : []
+                      )
+                    }
+                    disabled={loading || selectedModuleAccessUser?.role === "admin"}
+                  >
+                    Default For Role
+                  </button>
+                  <button
+                    className="button"
+                    onClick={() => setModuleAccessSelection(moduleAccessOptions.map((option) => option.key))}
+                    disabled={loading}
+                  >
+                    Select All
+                  </button>
+                  <button
+                    className="button"
+                    onClick={() => setModuleAccessSelection([])}
+                    disabled={loading || selectedModuleAccessUser?.role === "admin"}
+                  >
+                    Clear
+                  </button>
+                  <button className="button primary" onClick={saveModuleAccess} disabled={loading}>
+                    Save User Permissions
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!moduleAccessUserId && (
+              <p className="muted-text">Choose a user to control Inventory, Yard View, DTI, Hardbanding, Admin, Reports, and Dashboard access.</p>
+            )}
+          </section>
         </div>
       </details>
 
