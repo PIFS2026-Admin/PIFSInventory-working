@@ -92,9 +92,14 @@ export default function DocumentControlPage() {
           <h1>Document Library</h1>
           <p className="muted-text">Search and review company document records.</p>
         </div>
-        <button className="button" onClick={loadDocuments} type="button">
-          Refresh
-        </button>
+        <div className="slide-actions">
+          <Link className="button primary" href="/document-control/upload">
+            Upload Document
+          </Link>
+          <button className="button" onClick={loadDocuments} type="button">
+            Refresh
+          </button>
+        </div>
       </section>
 
       {message && <div className="modal-message">{message}</div>}
