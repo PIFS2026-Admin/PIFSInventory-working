@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 
 type DocumentRecord = {
@@ -174,7 +175,11 @@ export default function DocumentControlPage() {
               {!loading &&
                 filteredDocuments.map((document) => (
                   <tr key={document.id}>
-                    <td>{displayText(document.title)}</td>
+                    <td>
+                      <Link className="table-link" href={`/document-control/${document.id}`}>
+                        {displayText(document.title)}
+                      </Link>
+                    </td>
                     <td>{displayText(document.category)}</td>
                     <td>{displayText(document.department)}</td>
                     <td>{formatDate(document.expiration_date)}</td>
