@@ -56,6 +56,23 @@ function displayValue(value: unknown) {
   return text;
 }
 
+function textValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function fileLinkForDocument(document: DocumentDetail) {
+  const rawFileUrl = textValue(document.file_url);
+  const rawFilePath = textValue(document.file_path);
+  const fileReference = rawFileUrl || rawFilePath;
+
+  if (!fileReference) return "";
+  if (/^https?:\/\//i.test(fileReference)) return fileReference;
+
+  const cleanPath = fileReference.replace(/^\/+/, "");
+  const { data } = supabase.storage.from("documents").getPublicUrl(cleanPath);
+  return data.publicUrl;
+}
+
 export default function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const documentId = params.id;
@@ -95,6 +112,8 @@ export default function DocumentDetailPage() {
     return [...orderedFields, ...remainingFields];
   }, [document]);
 
+  const fileHref = useMemo(() => (document ? fileLinkForDocument(document) : ""), [document]);
+
   return (
     <main className="page-shell">
       <section className="page-header">
@@ -120,6 +139,19 @@ export default function DocumentDetailPage() {
             Refresh
           </button>
         </div>
+
+        {!loading && document && (
+          <div className="ticket-card">
+            <h2>Attached File</h2>
+            {fileHref ? (
+              <a className="button primary" href={fileHref} rel="noreferrer" target="_blank">
+                View / Download File
+              </a>
+            ) : (
+              <p className="muted-text">No file attached.</p>
+            )}
+          </div>
+        )}
 
         {!loading && document && (
           <div className="detail-grid">
