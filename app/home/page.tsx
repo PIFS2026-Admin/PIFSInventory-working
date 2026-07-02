@@ -216,6 +216,11 @@ const launchCards: LaunchCard[] = [
     href: "/purchase-orders",
   },
   {
+    title: "Document Control",
+    description: "Company documents, expirations, approvals, and document records.",
+    href: "/document-control",
+  },
+  {
     title: "DTI",
     description: "Field inspection jobs, scorecards, red flags, and DTI reports.",
     href: "/dti",
