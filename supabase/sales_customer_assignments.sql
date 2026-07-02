@@ -18,7 +18,7 @@ security definer
 set search_path = public
 as $$
   select
-    coalesce(public.current_user_role(), '') in (
+    coalesce(public.current_user_role()::text, '') in (
       'admin',
       'employee',
       'inventory_manager',
@@ -39,7 +39,7 @@ on public.sales_customer_assignments
 for select
 to authenticated
 using (
-  coalesce(public.current_user_role(), '') in ('admin', 'service_line_manager')
+  coalesce(public.current_user_role()::text, '') in ('admin', 'service_line_manager')
   or sales_user_id = auth.uid()
 );
 
@@ -48,8 +48,8 @@ create policy "sales customer assignments admin write"
 on public.sales_customer_assignments
 for all
 to authenticated
-using (coalesce(public.current_user_role(), '') in ('admin', 'service_line_manager'))
-with check (coalesce(public.current_user_role(), '') in ('admin', 'service_line_manager'));
+using (coalesce(public.current_user_role()::text, '') in ('admin', 'service_line_manager'))
+with check (coalesce(public.current_user_role()::text, '') in ('admin', 'service_line_manager'));
 
 do $$
 begin

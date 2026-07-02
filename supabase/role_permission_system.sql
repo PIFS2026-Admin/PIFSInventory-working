@@ -166,6 +166,34 @@ create table if not exists public.inventory_user_yards (
   primary key (user_id, yard_id)
 );
 
+alter table public.inventory_user_yards
+  add column if not exists user_id uuid;
+
+alter table public.inventory_user_yards
+  add column if not exists yard_id uuid;
+
+alter table public.inventory_user_yards
+  add column if not exists can_access boolean;
+
+alter table public.inventory_user_yards
+  add column if not exists created_at timestamptz not null default now();
+
+alter table public.inventory_user_yards
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.inventory_user_yards
+set can_access = true
+where can_access is null;
+
+alter table public.inventory_user_yards
+  alter column can_access set default true;
+
+alter table public.inventory_user_yards
+  alter column can_access set not null;
+
+create unique index if not exists inventory_user_yards_user_yard_key
+on public.inventory_user_yards (user_id, yard_id);
+
 alter table public.user_module_permissions enable row level security;
 alter table public.user_permission_overrides enable row level security;
 alter table public.role_permission_defaults enable row level security;
@@ -538,7 +566,7 @@ end $$;
 do $$
 declare
   profile_record record;
-  module_key text;
+  module_name text;
   modules text[];
 begin
   if to_regclass('public.profiles') is null then
@@ -575,9 +603,9 @@ begin
       else array[]::text[]
     end;
 
-    foreach module_key in array modules loop
+    foreach module_name in array modules loop
       insert into public.user_module_permissions (user_id, module_key, can_access)
-      values (profile_record.id, module_key, true)
+      values (profile_record.id, module_name, true)
       on conflict (user_id, module_key)
       do update set can_access = excluded.can_access, updated_at = now();
     end loop;

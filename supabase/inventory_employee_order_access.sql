@@ -18,7 +18,7 @@ security definer
 set search_path = public
 as $$
   select
-    coalesce(public.current_user_role(), '') in (
+    coalesce(public.current_user_role()::text, '') in (
       'admin',
       'inventory_manager',
       'inventory_specialist'
@@ -37,7 +37,7 @@ on public.inventory_user_yards
 for select
 to authenticated
 using (
-  coalesce(public.current_user_role(), '') = 'admin'
+  coalesce(public.current_user_role()::text, '') = 'admin'
   or user_id = auth.uid()
 );
 
@@ -46,8 +46,8 @@ create policy "inventory user yards admin write"
 on public.inventory_user_yards
 for all
 to authenticated
-using (coalesce(public.current_user_role(), '') = 'admin')
-with check (coalesce(public.current_user_role(), '') = 'admin');
+using (coalesce(public.current_user_role()::text, '') = 'admin')
+with check (coalesce(public.current_user_role()::text, '') = 'admin');
 
 do $$
 begin
@@ -81,7 +81,7 @@ begin
       for select
       to authenticated
       using (
-        coalesce(public.current_user_role(), '''') in (
+        coalesce(public.current_user_role()::text, '''') in (
           ''admin'',
           ''employee'',
           ''inventory_manager'',
@@ -129,14 +129,14 @@ begin
       for update
       to authenticated
       using (
-        coalesce(public.current_user_role(), '''') in (
+        coalesce(public.current_user_role()::text, '''') in (
           ''admin'',
           ''inventory_manager'',
           ''inventory_specialist''
         )
       )
       with check (
-        coalesce(public.current_user_role(), '''') in (
+        coalesce(public.current_user_role()::text, '''') in (
           ''admin'',
           ''inventory_manager'',
           ''inventory_specialist''
