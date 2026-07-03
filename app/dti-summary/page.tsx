@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type Role = "admin" | "employee" | "sales" | "customer" | "operator" | "dti_superintendent" | "dti_inspector";
+type Role =
+  | "admin"
+  | "employee"
+  | "sales"
+  | "customer"
+  | "operator"
+  | "dti_superintendent"
+  | "dti_inspector"
+  | "dti_lead"
+  | "level_2_inspector";
 
 type Profile = {
   id: string;
@@ -85,16 +94,20 @@ type ChecklistResponse = {
   redFlag: boolean;
 };
 
-const editableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
-const readableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector"];
+const editableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector", "dti_lead", "level_2_inspector"];
+const readableRoles: Role[] = ["admin", "dti_superintendent", "dti_inspector", "dti_lead", "level_2_inspector"];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function normalizeRole(role: unknown): Role {
-  const value = typeof role === "string" ? role.toLowerCase() : "customer";
-  if (value === "admin" || value === "employee" || value === "sales" || value === "operator" || value === "dti_superintendent" || value === "dti_inspector") {
+  const value = typeof role === "string" ? role.trim().toLowerCase().replace(/[\s-]+/g, "_") : "customer";
+  if (value === "dti_leads") return "dti_lead";
+  if (value === "level2_inspector" || value === "level2_inspectors" || value === "level_2_inspectors" || value === "level_ii_inspector" || value === "level_ii_inspectors") {
+    return "level_2_inspector";
+  }
+  if (value === "admin" || value === "employee" || value === "sales" || value === "operator" || value === "dti_superintendent" || value === "dti_inspector" || value === "dti_lead" || value === "level_2_inspector") {
     return value;
   }
   return "customer";
@@ -601,11 +614,52 @@ export default function DtiDailySummaryPage() {
     setForm((current) => ({ ...current, ...changes }));
   }
 
-  function startNewSummary() {
-    setForm(blankForm(profile?.fullName ?? ""));
-    setExpandedSummaryId("");
-    setInspectionReportFile(null);
+  async function startNewSummary() {
+    if (!profile || !canEdit || saving) return;
+
+    setSaving(true);
+    setPosting(false);
     setMessage("");
+
+    try {
+      const draft = blankForm(profile.fullName ?? "");
+      const summaryNumber = await makeSummaryNumber(draft.summaryDate);
+      const payload = buildPayload(
+        {
+          ...draft,
+          status: "Draft",
+          totalDamages: "0",
+          totalDbr: "0",
+          totalRefaces: "0",
+          totalHardbands: "0",
+        },
+        profile.id,
+        summaryNumber
+      );
+
+      const { data, error } = await supabase
+        .from("dti_daily_summaries")
+        .insert(payload)
+        .select("*")
+        .single();
+
+      if (error) throw error;
+
+      const createdSummary = mapRow(data);
+      setSummaries((current) => [
+        createdSummary,
+        ...current.filter((summary) => summary.id !== createdSummary.id),
+      ]);
+      setForm(createdSummary);
+      setExpandedSummaryId(createdSummary.id);
+      setInspectionReportFile(null);
+      setMessage(`Created ${createdSummary.summaryNumber}.`);
+    } catch (error: any) {
+      setMessage(`New summary failed: ${error.message}`);
+    } finally {
+      setSaving(false);
+      setPosting(false);
+    }
   }
 
   function selectSummary(summary: SummaryForm) {
@@ -845,7 +899,9 @@ export default function DtiDailySummaryPage() {
               <h2>Daily Summaries</h2>
               <p>{summaries.length} saved records</p>
             </div>
-            <button className="button primary" onClick={startNewSummary} disabled={!canEdit}>New</button>
+            <button className="button primary" onClick={startNewSummary} disabled={!canEdit || saving}>
+              {saving ? "Creating..." : "New"}
+            </button>
           </div>
 
           <div className="summary-list">
