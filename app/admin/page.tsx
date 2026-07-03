@@ -10,6 +10,7 @@ import {
   getDefaultPermissionsForRole,
   permissionActions,
   PermissionAction,
+  PermissionModuleKey,
   permissionModules,
   RoleKey,
   moduleAccessOptions,
@@ -386,6 +387,9 @@ export default function AdminPage() {
   const [moduleAccessSelection, setModuleAccessSelection] = useState<ModuleKey[]>([]);
   const [newUserModuleSelection, setNewUserModuleSelection] = useState<ModuleKey[]>([]);
   const [permissionRolePreview, setPermissionRolePreview] = useState<RoleKey>("admin");
+  const [editableRolePermissions, setEditableRolePermissions] = useState(() =>
+    getDefaultPermissionsForRole("admin")
+  );
   const [emailNotificationTypes, setEmailNotificationTypes] = useState<EmailNotificationType[]>([]);
   const [emailNotificationRecipients, setEmailNotificationRecipients] = useState<EmailNotificationRecipient[]>([]);
   const [emailNotificationUsers, setEmailNotificationUsers] = useState<EmailNotificationUser[]>([]);
@@ -437,6 +441,28 @@ export default function AdminPage() {
     () => getDefaultPermissionsForRole(permissionRolePreview),
     [permissionRolePreview]
   );
+
+  useEffect(() => {
+    setEditableRolePermissions(rolePermissionPreview);
+  }, [rolePermissionPreview]);
+
+  function toggleRolePermission(moduleKey: PermissionModuleKey, action: PermissionAction) {
+    setEditableRolePermissions((currentPermissions) => ({
+      ...currentPermissions,
+      [moduleKey]: {
+        ...currentPermissions[moduleKey],
+        [action]: !currentPermissions[moduleKey][action],
+      },
+    }));
+  }
+
+  function savePermissionMatrixPreview() {
+    console.log("TITAN permission matrix preview", {
+      role: permissionRolePreview,
+      permissions: editableRolePermissions,
+    });
+    setMessage("Permission matrix logged to console. Database save is not connected yet.");
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -2482,6 +2508,9 @@ export default function AdminPage() {
                   ))}
                 </select>
               </label>
+              <button className="button primary" type="button" onClick={savePermissionMatrixPreview}>
+                Save Matrix
+              </button>
             </div>
 
             <div className="table-wrap">
@@ -2503,7 +2532,12 @@ export default function AdminPage() {
                       </td>
                       {permissionActions.map((action) => (
                         <td key={action}>
-                          {rolePermissionPreview[module.key]?.[action] ? "Yes" : "-"}
+                          <input
+                            type="checkbox"
+                            aria-label={`${module.label} ${permissionActionLabels[action]}`}
+                            checked={editableRolePermissions[module.key]?.[action] ?? false}
+                            onChange={() => toggleRolePermission(module.key, action)}
+                          />
                         </td>
                       ))}
                     </tr>
