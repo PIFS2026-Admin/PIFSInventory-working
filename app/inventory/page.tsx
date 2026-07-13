@@ -2893,7 +2893,7 @@ export default function InventoryModulePage() {
         <div>
           <div className="pt">Consumables — Inventory Control</div>
           <div className="ps">
-            Live TITAN warehouse and shop inventory using the Compass consumables workflow.{" "}
+            Live TITAN warehouse and shop inventory.{" "}
             <span>{selectedInventoryYard?.name || "Loading yard"}</span>
           </div>
         </div>
@@ -2921,13 +2921,6 @@ export default function InventoryModulePage() {
       </section>
 
       {message && <div className="modal-message">{message}</div>}
-
-      <div className="preview-banner ci-banner no-print">
-        <div>
-          <b>Built for the Compass consumables workflow.</b>{" "}
-          The current TITAN inventory data stays in Supabase; this screen changes the workflow and presentation around item master, Consumables Store, issue tickets, receiving, vendors, and movement history.
-        </div>
-      </div>
 
       <section className="kpis k5 inventory-top-kpis">
         <article className="kpi warn">
@@ -3870,7 +3863,7 @@ export default function InventoryModulePage() {
             </article>
 
             <article className="card">
-              <h2><span className="dot"></span>Approval Rules<span className="ct">working prototype</span></h2>
+              <h2><span className="dot"></span>Approval Rules</h2>
               <div className="approval-rule-list">
                 <div><b>Draft</b><span>Buyer is still building the PO.</span></div>
                 <div><b>Submitted</b><span>Ready for manager review before ordering.</span></div>
