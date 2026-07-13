@@ -496,6 +496,12 @@ function sequenceLetter(index: number) {
   return value;
 }
 
+function isDuplicateDtiJobNumberError(error: unknown) {
+  const pgError = error as { code?: string; message?: string; details?: string };
+  const text = `${pgError.code ?? ""} ${pgError.message ?? ""} ${pgError.details ?? ""}`.toLowerCase();
+  return pgError.code === "23505" && text.includes("dti_jobs_job_number_key");
+}
+
 function csvCell(value: unknown) {
   const text = String(value ?? "");
   if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -1076,7 +1082,7 @@ export default function DtiPage() {
     return data.id as string;
   }
 
-  async function makeDtiJobNumber(jobDate: string) {
+  async function makeDtiJobNumber(jobDate: string, blockedJobNumbers = new Set<string>()) {
     const date = jobDate ? new Date(`${jobDate}T12:00:00`) : new Date();
     const base = `DTI-${ticketDateStamp(date)}`;
     const { data, error } = await supabase
@@ -1086,17 +1092,16 @@ export default function DtiPage() {
 
     if (error) throw error;
 
-    const usedSuffixes = new Set(
-      (data ?? [])
-        .map((row) => String(row.job_number ?? ""))
-        .filter((jobNumber) => jobNumber.startsWith(base))
-        .map((jobNumber) => jobNumber.slice(base.length))
-        .filter(Boolean)
+    const usedJobNumbers = new Set(
+      [
+        ...(data ?? []).map((row) => String(row.job_number ?? "")),
+        ...Array.from(blockedJobNumbers),
+      ].filter((jobNumber) => jobNumber.startsWith(base))
     );
 
     for (let index = 0; index < 702; index += 1) {
-      const suffix = sequenceLetter(index);
-      if (!usedSuffixes.has(suffix)) return `${base}${suffix}`;
+      const candidate = `${base}${sequenceLetter(index)}`;
+      if (!usedJobNumbers.has(candidate)) return candidate;
     }
 
     throw new Error(`No DTI job number remains available for ${base}.`);
@@ -1124,36 +1129,50 @@ export default function DtiPage() {
     setMessage("");
 
     let createdJobId = "";
+    let jobNumber = "";
     let stage = "creating DTI job";
 
     try {
       const companyId = await findOrCreateCompany(jobForm.customer);
-      const jobNumber = await makeDtiJobNumber(jobForm.jobDate);
+      const blockedJobNumbers = new Set<string>();
+      let job: { id: string } | null = null;
 
-      stage = "saving DTI job";
-      const { data: job, error } = await supabase
-        .from("dti_jobs")
-        .insert({
-          job_number: jobNumber,
-          company_id: companyId,
-          job_date: jobForm.jobDate || new Date().toISOString().slice(0, 10),
-          field_ticket_number: jobForm.fieldTicketNumber || null,
-          inspection_type: jobForm.inspectionType || null,
-          inspection_company: jobForm.inspectionCompany || null,
-          rig: jobForm.rig || null,
-          operator: jobForm.operator || null,
-          lead_inspector: jobForm.leadInspector || null,
-          field_superintendent: jobForm.fieldSuperintendent || null,
-          pad_location: jobForm.padLocation || null,
-          crew_lead: jobForm.crewLead || null,
-          status: "Open",
-          notes: jobForm.notes || null,
-          created_by: profile.id,
-        })
-        .select("id")
-        .single();
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        jobNumber = await makeDtiJobNumber(jobForm.jobDate, blockedJobNumbers);
+        stage = attempt ? "retrying DTI job number" : "saving DTI job";
 
-      if (error) throw error;
+        const { data, error } = await supabase
+          .from("dti_jobs")
+          .insert({
+            job_number: jobNumber,
+            company_id: companyId,
+            job_date: jobForm.jobDate || new Date().toISOString().slice(0, 10),
+            field_ticket_number: jobForm.fieldTicketNumber || null,
+            inspection_type: jobForm.inspectionType || null,
+            inspection_company: jobForm.inspectionCompany || null,
+            rig: jobForm.rig || null,
+            operator: jobForm.operator || null,
+            lead_inspector: jobForm.leadInspector || null,
+            field_superintendent: jobForm.fieldSuperintendent || null,
+            pad_location: jobForm.padLocation || null,
+            crew_lead: jobForm.crewLead || null,
+            status: "Open",
+            notes: jobForm.notes || null,
+            created_by: profile.id,
+          })
+          .select("id")
+          .single();
+
+        if (!error) {
+          job = data;
+          break;
+        }
+
+        if (!isDuplicateDtiJobNumberError(error)) throw error;
+        blockedJobNumbers.add(jobNumber);
+      }
+
+      if (!job) throw new Error("Could not generate an unused DTI job number. Please try again.");
       createdJobId = job.id;
 
       stage = "creating checklist responses";
