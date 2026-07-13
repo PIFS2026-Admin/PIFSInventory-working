@@ -134,6 +134,28 @@ type InventoryOrderLine = {
   lineValue: number;
 };
 
+type PurchaseOrderSummary = {
+  id: string;
+  poNumber: string;
+  vendorName: string;
+  orderDate: string;
+  requestedBy: string;
+  totalValue: number;
+  status: string;
+};
+
+type PurchaseOrderLineSummary = {
+  id: string;
+  purchaseOrderId: string;
+  itemId: string;
+  itemCode: string;
+  itemName: string;
+  quantityOrdered: number;
+  quantityReceived: number;
+  unitCost: number;
+  lineTotal: number;
+};
+
 type ItemForm = {
   id: string;
   itemCode: string;
@@ -169,7 +191,8 @@ type OrderForm = {
   emailTo: string;
 };
 
-type InventoryModuleView = "dashboard" | "counter" | "orders" | "items" | "tickets" | "vendors";
+type InventoryModuleView = "dashboard" | "orders" | "counter" | "approvals" | "reorder" | "items" | "tickets" | "documents" | "vendors";
+type DashboardPeriod = "week" | "lastWeek" | "month" | "quarter" | "year";
 
 type VendorForm = {
   id: string;
@@ -251,6 +274,13 @@ const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const inventoryYardScopedTablesEnabled = true;
+const dashboardPeriodOptions: Array<{ value: DashboardPeriod; label: string }> = [
+  { value: "week", label: "This Week" },
+  { value: "lastWeek", label: "Last Week" },
+  { value: "month", label: "This Month" },
+  { value: "quarter", label: "This Quarter" },
+  { value: "year", label: "This Year" },
+];
 
 const emptyVendorForm: VendorForm = {
   id: "",
@@ -380,6 +410,49 @@ function todayStamp() {
   return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
 }
 
+function dateOnly(value: string) {
+  const date = new Date(`${String(value || "").slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function localDayStart(date = new Date()) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function getDashboardPeriodRange(period: DashboardPeriod) {
+  const today = localDayStart();
+  const end = new Date(today);
+  end.setDate(end.getDate() + 1);
+
+  if (period === "lastWeek") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - start.getDay() - 7);
+    const lastWeekEnd = new Date(start);
+    lastWeekEnd.setDate(lastWeekEnd.getDate() + 7);
+    return { start, end: lastWeekEnd };
+  }
+
+  const start = new Date(today);
+  if (period === "week") {
+    start.setDate(start.getDate() - start.getDay());
+  } else if (period === "month") {
+    start.setDate(1);
+  } else if (period === "quarter") {
+    start.setMonth(Math.floor(start.getMonth() / 3) * 3, 1);
+  } else {
+    start.setMonth(0, 1);
+  }
+
+  return { start, end };
+}
+
+function dateInRange(value: string, start: Date, end: Date) {
+  const date = dateOnly(value);
+  return Boolean(date && date >= start && date < end);
+}
+
 function downloadCsv(fileName: string, headers: string[], rows: Array<Array<string | number>>) {
   const csv = [
     headers.join(","),
@@ -422,6 +495,8 @@ export default function InventoryModulePage() {
   const [ticketLines, setTicketLines] = useState<IssueTicketLine[]>([]);
   const [orders, setOrders] = useState<InventoryOrder[]>([]);
   const [orderLines, setOrderLines] = useState<InventoryOrderLine[]>([]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderSummary[]>([]);
+  const [purchaseOrderLines, setPurchaseOrderLines] = useState<PurchaseOrderLineSummary[]>([]);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -429,6 +504,14 @@ export default function InventoryModulePage() {
   const [vendorFilter, setVendorFilter] = useState("all");
   const [stockFilter, setStockFilter] = useState("all");
   const [activeView, setActiveView] = useState<InventoryModuleView>("dashboard");
+  const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>("week");
+  const [dashboardSearch, setDashboardSearch] = useState("");
+  const [dashboardDepartment, setDashboardDepartment] = useState("all");
+  const [dashboardCategory, setDashboardCategory] = useState("all");
+  const [dashboardVendor, setDashboardVendor] = useState("all");
+  const [storeSearch, setStoreSearch] = useState("");
+  const [storeCategory, setStoreCategory] = useState("all");
+  const [storeQuantities, setStoreQuantities] = useState<Record<string, string>>({});
   const [itemFormOpen, setItemFormOpen] = useState(false);
   const [itemForm, setItemForm] = useState<ItemForm>(emptyItemForm);
   const [vendorFormOpen, setVendorFormOpen] = useState(false);
@@ -449,6 +532,8 @@ export default function InventoryModulePage() {
   const [orderForm, setOrderForm] = useState<OrderForm>(emptyOrderForm);
   const [expandedTicketId, setExpandedTicketId] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState("");
+  const [expandedPoId, setExpandedPoId] = useState("");
+  const [itemPhotoDraft, setItemPhotoDraft] = useState("");
   const [emailingTicketId, setEmailingTicketId] = useState("");
   const [emailingOrderId, setEmailingOrderId] = useState("");
   const [orderFulfillmentDrafts, setOrderFulfillmentDrafts] = useState<Record<string, string>>({});
@@ -479,6 +564,20 @@ export default function InventoryModulePage() {
   const locations = useMemo(
     () => Array.from(new Set(items.map((item) => item.location).filter(Boolean))).sort(),
     [items],
+  );
+  const dashboardDepartments = useMemo(
+    () => Array.from(new Set(tickets.map((ticket) => ticket.department).filter(Boolean))).sort(),
+    [tickets],
+  );
+  const dashboardVendors = useMemo(
+    () => Array.from(new Set(items.map((item) => item.vendorName).filter(Boolean))).sort(),
+    [items],
+  );
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const itemByCode = useMemo(() => new Map(items.map((item) => [item.itemCode, item])), [items]);
+  const purchaseOrderLookup = useMemo(
+    () => new Map(purchaseOrders.map((order) => [order.id, order])),
+    [purchaseOrders],
   );
 
   const filteredItems = useMemo(() => {
@@ -516,6 +615,20 @@ export default function InventoryModulePage() {
       .slice(0, 12);
   }, [activeView, items, scanInput]);
 
+  const storeItems = useMemo(() => {
+    const term = storeSearch.trim();
+    return items
+      .filter((item) => item.active)
+      .filter((item) => (storeCategory === "all" ? true : item.category === storeCategory))
+      .filter((item) => !term || inventoryItemMatchesTerm(item, term))
+      .sort((left, right) => {
+        const leftLow = left.lowStock || left.qtyOnHand <= left.minQuantity ? 0 : 1;
+        const rightLow = right.lowStock || right.qtyOnHand <= right.minQuantity ? 0 : 1;
+        if (leftLow !== rightLow) return leftLow - rightLow;
+        return left.itemName.localeCompare(right.itemName);
+      });
+  }, [items, storeCategory, storeSearch]);
+
   const itemTransactions = useMemo(() => {
     if (!selectedItem) return transactions.slice(0, 25);
     return transactions.filter((transaction) => transaction.itemCode === selectedItem.itemCode).slice(0, 25);
@@ -531,14 +644,19 @@ export default function InventoryModulePage() {
   );
   const outOfStockCount = useMemo(() => items.filter((item) => item.qtyOnHand <= 0).length, [items]);
   const activeItemCount = useMemo(() => items.filter((item) => item.active).length, [items]);
-  const lowStockItems = useMemo(
+  const reorderItems = useMemo(
     () =>
       items
         .filter((item) => item.lowStock || item.qtyOnHand <= item.minQuantity)
-        .sort((a, b) => a.qtyOnHand - b.qtyOnHand)
-        .slice(0, 8),
+        .sort((a, b) => {
+          const leftGap = Math.max(0, a.minQuantity - a.qtyOnHand);
+          const rightGap = Math.max(0, b.minQuantity - b.qtyOnHand);
+          if (leftGap !== rightGap) return rightGap - leftGap;
+          return a.itemName.localeCompare(b.itemName);
+        }),
     [items],
   );
+  const lowStockItems = useMemo(() => reorderItems.slice(0, 8), [reorderItems]);
   const cartQuantity = useMemo(
     () => issueCart.reduce((sum, line) => sum + line.quantity, 0),
     [issueCart],
@@ -555,52 +673,257 @@ export default function InventoryModulePage() {
     () => orderCart.reduce((sum, line) => sum + line.lineValue, 0),
     [orderCart],
   );
-  const weekStart = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - start.getDay());
-    return start;
-  }, []);
-  const weeklyTickets = useMemo(
-    () => tickets.filter((ticket) => new Date(`${ticket.issueDate}T00:00:00`) >= weekStart),
-    [tickets, weekStart],
-  );
-  const weeklyTicketIds = useMemo(() => new Set(weeklyTickets.map((ticket) => ticket.id)), [weeklyTickets]);
-  const weeklyLines = useMemo(
-    () => ticketLines.filter((line) => weeklyTicketIds.has(line.issueTicketId)),
-    [ticketLines, weeklyTicketIds],
-  );
+  const dashboardRange = useMemo(() => getDashboardPeriodRange(dashboardPeriod), [dashboardPeriod]);
+  const dashboardPeriodLabel = dashboardPeriodOptions.find((option) => option.value === dashboardPeriod)?.label || "Selected Period";
   const ticketLookup = useMemo(
     () => new Map(tickets.map((ticket) => [ticket.id, ticket])),
     [tickets],
   );
-  const weeklySpending = useMemo(
-    () => weeklyLines.reduce((sum, line) => sum + line.lineValue, 0),
-    [weeklyLines],
+  const selectedItemWeeklyUse = useMemo(() => {
+    const code = itemForm.itemCode || selectedItem?.itemCode || "";
+    const id = itemForm.id || selectedItem?.id || "";
+    if (!code && !id) return 0;
+    const since = localDayStart();
+    since.setDate(since.getDate() - 84);
+    const qty = ticketLines.reduce((sum, line) => {
+      const ticket = ticketLookup.get(line.issueTicketId);
+      const date = dateOnly(ticket?.issueDate || "");
+      if (!date || date < since) return sum;
+      if (line.itemId !== id && line.itemCode !== code) return sum;
+      return sum + line.qtyIssued;
+    }, 0);
+    return Math.round((qty / 12) * 10) / 10;
+  }, [itemForm.id, itemForm.itemCode, selectedItem?.id, selectedItem?.itemCode, ticketLines, ticketLookup]);
+  const dashboardIssueSourceRows = useMemo(() => {
+    const term = dashboardSearch.trim().toLowerCase();
+    return ticketLines
+      .map((line) => {
+        const ticket = ticketLookup.get(line.issueTicketId);
+        const item = itemById.get(line.itemId) || itemByCode.get(line.itemCode);
+        return {
+          id: line.id,
+          date: ticket?.issueDate || "",
+          ref: line.ticketNumber || ticket?.ticketNumber || "",
+          sku: line.itemCode || item?.itemCode || "",
+          item: line.itemName || item?.itemName || "",
+          category: item?.category || "",
+          vendor: item?.vendorName || "",
+          costCenter: line.department || ticket?.department || "",
+          party: ticket?.issuedTo || "",
+          qty: line.qtyIssued,
+          amount: line.lineValue,
+        };
+      })
+      .filter((row) => dashboardDepartment === "all" || row.costCenter === dashboardDepartment)
+      .filter((row) => dashboardCategory === "all" || row.category === dashboardCategory)
+      .filter((row) => dashboardVendor === "all" || row.vendor === dashboardVendor)
+      .filter((row) => {
+        if (!term) return true;
+        return [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.party]
+          .join(" ")
+          .toLowerCase()
+          .includes(term);
+      });
+  }, [
+    dashboardCategory,
+    dashboardDepartment,
+    dashboardSearch,
+    dashboardVendor,
+    itemByCode,
+    itemById,
+    ticketLines,
+    ticketLookup,
+  ]);
+  const dashboardIssueRows = useMemo(
+    () => dashboardIssueSourceRows.filter((row) => dateInRange(row.date, dashboardRange.start, dashboardRange.end)),
+    [dashboardIssueSourceRows, dashboardRange.end, dashboardRange.start],
   );
+  const dashboardPoSourceRows = useMemo(() => {
+    const term = dashboardSearch.trim().toLowerCase();
+    return purchaseOrderLines
+      .map((line) => {
+        const order = purchaseOrderLookup.get(line.purchaseOrderId);
+        const item = itemById.get(line.itemId) || itemByCode.get(line.itemCode);
+        return {
+          id: line.id,
+          date: order?.orderDate || "",
+          ref: order?.poNumber || "",
+          sku: line.itemCode || item?.itemCode || "",
+          item: line.itemName || item?.itemName || "",
+          category: item?.category || "",
+          vendor: order?.vendorName || item?.vendorName || "",
+          requestedBy: order?.requestedBy || "",
+          status: order?.status || "",
+          qty: line.quantityOrdered,
+          amount: line.lineTotal,
+        };
+      })
+      .filter((row) => {
+        const status = row.status.toLowerCase();
+        return status !== "cancelled" && status !== "canceled";
+      })
+      .filter((row) => dashboardCategory === "all" || row.category === dashboardCategory)
+      .filter((row) => dashboardVendor === "all" || row.vendor === dashboardVendor)
+      .filter((row) => {
+        if (!term) return true;
+        return [row.ref, row.sku, row.item, row.category, row.vendor, row.requestedBy, row.status]
+          .join(" ")
+          .toLowerCase()
+          .includes(term);
+      });
+  }, [
+    dashboardCategory,
+    dashboardSearch,
+    dashboardVendor,
+    itemByCode,
+    itemById,
+    purchaseOrderLines,
+    purchaseOrderLookup,
+  ]);
+  const dashboardPoRows = useMemo(
+    () => dashboardPoSourceRows.filter((row) => dateInRange(row.date, dashboardRange.start, dashboardRange.end)),
+    [dashboardPoSourceRows, dashboardRange.end, dashboardRange.start],
+  );
+  const dashboardTicketRefs = useMemo(
+    () => new Set(dashboardIssueRows.map((row) => row.ref).filter(Boolean)),
+    [dashboardIssueRows],
+  );
+  const dashboardPoRefs = useMemo(
+    () => new Set(dashboardPoRows.map((row) => row.ref).filter(Boolean)),
+    [dashboardPoRows],
+  );
+  const dashboardIssueSpend = useMemo(
+    () => dashboardIssueRows.reduce((sum, row) => sum + row.amount, 0),
+    [dashboardIssueRows],
+  );
+  const dashboardIssueQuantity = useMemo(
+    () => dashboardIssueRows.reduce((sum, row) => sum + row.qty, 0),
+    [dashboardIssueRows],
+  );
+  const dashboardPoSpend = useMemo(
+    () => dashboardPoRows.reduce((sum, row) => sum + row.amount, 0),
+    [dashboardPoRows],
+  );
+  const dashboardPeriodSnapshots = useMemo(
+    () =>
+      dashboardPeriodOptions.map((option) => {
+        const range = getDashboardPeriodRange(option.value);
+        const issueRows = dashboardIssueSourceRows.filter((row) => dateInRange(row.date, range.start, range.end));
+        const poRows = dashboardPoSourceRows.filter((row) => dateInRange(row.date, range.start, range.end));
+        return {
+          ...option,
+          issueSpend: issueRows.reduce((sum, row) => sum + row.amount, 0),
+          issueTickets: new Set(issueRows.map((row) => row.ref).filter(Boolean)).size,
+          issueQty: issueRows.reduce((sum, row) => sum + row.qty, 0),
+          poSpend: poRows.reduce((sum, row) => sum + row.amount, 0),
+          poCount: new Set(poRows.map((row) => row.ref).filter(Boolean)).size,
+        };
+      }),
+    [dashboardIssueSourceRows, dashboardPoSourceRows],
+  );
+  const dashboardSpendMax = useMemo(
+    () => Math.max(1, ...dashboardPeriodSnapshots.map((period) => Math.max(period.issueSpend, period.poSpend))),
+    [dashboardPeriodSnapshots],
+  );
+  const pendingOrders = useMemo(
+    () =>
+      orders.filter((order) => {
+        const status = (order.status || "").toLowerCase();
+        return status !== "fulfilled" && status !== "cancelled" && status !== "canceled" && status !== "rejected";
+      }),
+    [orders],
+  );
+  const pendingPoCount = useMemo(
+    () => purchaseOrders.filter((order) => !["received", "closed", "cancelled", "canceled"].includes((order.status || "").toLowerCase())).length,
+    [purchaseOrders],
+  );
+  const purchaseOrdersForApproval = useMemo(
+    () =>
+      purchaseOrders.filter((order) => {
+        const status = (order.status || "").toLowerCase();
+        return !["received", "closed", "cancelled", "canceled"].includes(status);
+      }),
+    [purchaseOrders],
+  );
+  const purchaseOrderLineCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    purchaseOrderLines.forEach((line) => {
+      counts.set(line.purchaseOrderId, (counts.get(line.purchaseOrderId) || 0) + 1);
+    });
+    return counts;
+  }, [purchaseOrderLines]);
+  const inventoryDocuments = useMemo(() => {
+    const poDocs = purchaseOrders.map((order) => ({
+      id: `po-${order.id}`,
+      sourceId: order.id,
+      date: order.orderDate,
+      type: "Purchase Order",
+      number: order.poNumber || "-",
+      party: order.vendorName || "-",
+      status: order.status || "Open",
+      lines: purchaseOrderLineCounts.get(order.id) || 0,
+      value: order.totalValue,
+      action: "purchase-orders",
+    }));
+    const issueDocs = tickets.map((ticket) => ({
+      id: `issue-${ticket.id}`,
+      sourceId: ticket.id,
+      date: ticket.issueDate,
+      type: "Issue Ticket",
+      number: ticket.ticketNumber || "-",
+      party: ticket.issuedTo || "-",
+      status: ticket.status || "Issued",
+      lines: linesForTicket(ticket).length,
+      value: ticket.totalValue,
+      action: "tickets",
+    }));
+    const requestDocs = orders.map((order) => ({
+      id: `request-${order.id}`,
+      sourceId: order.id,
+      date: order.orderDate,
+      type: "Consumables Store",
+      number: order.orderNumber || "-",
+      party: order.requestedBy || "-",
+      status: order.status || "Submitted",
+      lines: linesForOrder(order).length,
+      value: order.totalValue,
+      action: "orders",
+    }));
+    return [...poDocs, ...issueDocs, ...requestDocs]
+      .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")))
+      .slice(0, 150);
+  }, [orders, orderLines, purchaseOrderLineCounts, purchaseOrders, tickets, ticketLines]);
   const topIssuedItems = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
-    weeklyLines.forEach((line) => {
-      const key = line.itemCode || line.itemName || line.id;
-      const current = totals.get(key) || { label: `${line.itemCode || "-"} ${line.itemName || ""}`.trim(), qty: 0, value: 0 };
-      current.qty += line.qtyIssued;
-      current.value += line.lineValue;
+    dashboardIssueRows.forEach((row) => {
+      const key = row.sku || row.item || row.id;
+      const current = totals.get(key) || { label: `${row.sku || "-"} ${row.item || ""}`.trim(), qty: 0, value: 0 };
+      current.qty += row.qty;
+      current.value += row.amount;
       totals.set(key, current);
     });
     return Array.from(totals.values()).sort((a, b) => b.qty - a.qty).slice(0, 10);
-  }, [weeklyLines]);
+  }, [dashboardIssueRows]);
   const topIssuedUnits = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
-    weeklyLines.forEach((line) => {
-      const ticket = ticketLookup.get(line.issueTicketId);
-      const key = line.unitTruck || ticket?.unitTruck || "No unit/truck";
+    dashboardIssueRows.forEach((row) => {
+      const key = row.costCenter || "No cost center";
       const current = totals.get(key) || { label: key, qty: 0, value: 0 };
-      current.qty += line.qtyIssued;
-      current.value += line.lineValue;
+      current.qty += row.qty;
+      current.value += row.amount;
       totals.set(key, current);
     });
     return Array.from(totals.values()).sort((a, b) => b.value - a.value).slice(0, 10);
-  }, [ticketLookup, weeklyLines]);
+  }, [dashboardIssueRows]);
+  const recentIssueTickets = useMemo(() => tickets.slice(0, 8), [tickets]);
+  const recentDashboardIssueRows = useMemo(
+    () => dashboardIssueRows.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
+    [dashboardIssueRows],
+  );
+  const recentDashboardPoRows = useMemo(
+    () => dashboardPoRows.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
+    [dashboardPoRows],
+  );
 
   useEffect(() => {
     loadPage();
@@ -726,6 +1049,8 @@ export default function InventoryModulePage() {
       setTicketLines([]);
       setOrders([]);
       setOrderLines([]);
+      setPurchaseOrders([]);
+      setPurchaseOrderLines([]);
       return;
     }
     await Promise.all([
@@ -736,6 +1061,8 @@ export default function InventoryModulePage() {
       loadIssueTicketLines(yardId),
       loadOrders(yardId),
       loadOrderLines(yardId),
+      loadPurchaseOrders(yardId),
+      loadPurchaseOrderLines(yardId),
     ]);
   }
 
@@ -851,7 +1178,7 @@ export default function InventoryModulePage() {
       .from("inventory_issue_tickets")
       .select("*")
       .order("issue_date", { ascending: false })
-      .limit(50);
+      .limit(500);
     if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
@@ -882,7 +1209,8 @@ export default function InventoryModulePage() {
     let query = supabase
       .from("inventory_issue_ticket_lines")
       .select("*")
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .limit(5000);
     if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
@@ -915,7 +1243,7 @@ export default function InventoryModulePage() {
       .from("inventory_orders")
       .select("*")
       .order("order_date", { ascending: false })
-      .limit(75);
+      .limit(200);
     if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
@@ -948,7 +1276,8 @@ export default function InventoryModulePage() {
     let query = supabase
       .from("inventory_order_lines")
       .select("*")
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true })
+      .limit(5000);
     if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
 
     const { data, error } = await query;
@@ -977,9 +1306,96 @@ export default function InventoryModulePage() {
     );
   }
 
+  async function loadPurchaseOrders(yardId = selectedInventoryYardId) {
+    let query = supabase
+      .from("purchase_orders")
+      .select("id, po_number, vendor_name, order_date, requested_by, total_value, status")
+      .order("order_date", { ascending: false })
+      .limit(250);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
+
+    if (error) {
+      setPurchaseOrders([]);
+      setMessage(`Purchase order summary failed: ${error.message}`);
+      return;
+    }
+
+    setPurchaseOrders(
+      (data || []).map((row) => ({
+        id: row.id,
+        poNumber: row.po_number || "",
+        vendorName: row.vendor_name || "",
+        orderDate: String(row.order_date || "").slice(0, 10),
+        requestedBy: row.requested_by || "",
+        totalValue: Number(row.total_value || 0),
+        status: row.status || "",
+      })),
+    );
+  }
+
+  async function loadPurchaseOrderLines(yardId = selectedInventoryYardId) {
+    let query = supabase
+      .from("purchase_order_lines")
+      .select("id, purchase_order_id, item_id, item_code, item_name, quantity_ordered, quantity_received, unit_cost, line_total")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+
+    const { data, error } = await query;
+
+    if (error) {
+      setPurchaseOrderLines([]);
+      setMessage(`Purchase order line summary failed: ${error.message}`);
+      return;
+    }
+
+    setPurchaseOrderLines(
+      (data || []).map((row) => ({
+        id: row.id,
+        purchaseOrderId: row.purchase_order_id || "",
+        itemId: row.item_id || "",
+        itemCode: row.item_code || "",
+        itemName: row.item_name || "",
+        quantityOrdered: Number(row.quantity_ordered || 0),
+        quantityReceived: Number(row.quantity_received || 0),
+        unitCost: Number(row.unit_cost || 0),
+        lineTotal: Number(row.line_total || 0),
+      })),
+    );
+  }
+
   function openNewItem() {
+    setSelectedItemId("");
     setItemForm(emptyItemForm);
+    setItemPhotoDraft("");
+    if (activeView === "items") {
+      setMessage("Blank item setup is ready.");
+      return;
+    }
     setItemFormOpen(true);
+  }
+
+  function selectItemForSetup(item: InventoryItem) {
+    setSelectedItemId(item.id);
+    setItemPhotoDraft("");
+    setItemForm({
+      id: item.id,
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      category: item.category,
+      location: item.location,
+      vendorId: item.vendorId,
+      vendorName: item.vendorName,
+      qtyOnHand: String(item.qtyOnHand),
+      minQuantity: String(item.minQuantity),
+      maxQuantity: String(item.maxQuantity),
+      unitPrice: String(item.unitPrice),
+      barcode: item.barcode,
+      uom: item.uom,
+      active: item.active,
+    });
   }
 
   function openNewVendor() {
@@ -1040,22 +1456,11 @@ export default function InventoryModulePage() {
   }
 
   function openEditItem(item: InventoryItem) {
-    setItemForm({
-      id: item.id,
-      itemCode: item.itemCode,
-      itemName: item.itemName,
-      category: item.category,
-      location: item.location,
-      vendorId: item.vendorId,
-      vendorName: item.vendorName,
-      qtyOnHand: String(item.qtyOnHand),
-      minQuantity: String(item.minQuantity),
-      maxQuantity: String(item.maxQuantity),
-      unitPrice: String(item.unitPrice),
-      barcode: item.barcode,
-      uom: item.uom,
-      active: item.active,
-    });
+    selectItemForSetup(item);
+    if (activeView === "items") {
+      setMessage(`${item.itemCode} loaded into item setup.`);
+      return;
+    }
     setItemFormOpen(true);
   }
 
@@ -1405,8 +1810,22 @@ export default function InventoryModulePage() {
 
   async function openCameraScanner() {
     setCameraScanMessage("");
+    stopCameraScanner();
     const video = cameraVideoRef.current;
+    const canUseLiveCamera =
+      typeof window !== "undefined" &&
+      window.isSecureContext &&
+      typeof navigator !== "undefined" &&
+      Boolean(navigator.mediaDevices?.getUserMedia);
+
+    if (!canUseLiveCamera) {
+      setCameraScanMessage("Live camera scanning needs HTTPS. Opening photo scanner instead.");
+      cameraFileRef.current?.click();
+      return;
+    }
+
     if (!video) {
+      setCameraScanMessage("Opening photo scanner because the camera preview is not available.");
       cameraFileRef.current?.click();
       return;
     }
@@ -1418,8 +1837,15 @@ export default function InventoryModulePage() {
 
       setCameraScanning(true);
       setCameraScanMessage("Point the camera at the barcode.");
-      const controls = await (barcodeReaderRef.current as any).decodeFromVideoDevice(
-        undefined,
+      const controls = await (barcodeReaderRef.current as any).decodeFromConstraints(
+        {
+          audio: false,
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        },
         video,
         (result: any) => {
           const barcode = result?.getText?.().trim();
@@ -1431,6 +1857,7 @@ export default function InventoryModulePage() {
       );
       barcodeControlsRef.current = controls as { stop: () => void };
     } catch (error: any) {
+      stopCameraScanner();
       setCameraScanning(false);
       setCameraScanMessage("Camera scanning is not available in this browser. Opening photo scanner instead.");
       cameraFileRef.current?.click();
@@ -1440,6 +1867,7 @@ export default function InventoryModulePage() {
   async function handleCameraBarcode(file: File | undefined) {
     if (!file) return;
 
+    stopCameraScanner();
     setCameraScanning(true);
     setCameraScanMessage("Reading barcode...");
     const imageUrl = URL.createObjectURL(file);
@@ -1527,6 +1955,46 @@ export default function InventoryModulePage() {
         lineValue: quantity * item.unitPrice,
       });
     });
+  }
+
+  function stockStatus(item: InventoryItem) {
+    if (item.qtyOnHand <= 0) return "Out";
+    if (item.lowStock || item.qtyOnHand <= item.minQuantity) return "Reorder";
+    return "Available";
+  }
+
+  function productInitials(item: InventoryItem) {
+    const source = item.category || item.itemName || item.itemCode || "CI";
+    return source
+      .split(/\s|-/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "CI";
+  }
+
+  function suggestedReorderQuantity(item: InventoryItem) {
+    const targetGap = item.maxQuantity > item.qtyOnHand ? item.maxQuantity - item.qtyOnHand : 0;
+    const minGap = item.minQuantity > item.qtyOnHand ? item.minQuantity - item.qtyOnHand : 0;
+    return Math.max(1, Math.ceil(targetGap || minGap || item.minQuantity || 1));
+  }
+
+  function seedPurchaseOrderItem(item: InventoryItem, quantity = suggestedReorderQuantity(item)) {
+    window.sessionStorage.setItem("titanInventoryPoSeedItem", JSON.stringify({
+      id: item.id,
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      vendorName: item.vendorName,
+      unitPrice: item.unitPrice,
+      quantityOrdered: quantity,
+    }));
+    window.location.href = "/purchase-orders";
+  }
+
+  function addStoreItemToCart(item: InventoryItem) {
+    const qty = Math.max(1, Math.floor(numberValue(storeQuantities[item.id] || "1")));
+    addItemToOrderCart(item, qty);
+    setStoreQuantities((current) => ({ ...current, [item.id]: "1" }));
   }
 
   function addScannedItemToOrder() {
@@ -1656,9 +2124,46 @@ export default function InventoryModulePage() {
     return orderLines.filter((line) => line.orderId === order.id || line.orderNumber === order.orderNumber);
   }
 
-  function orderHtml(order: InventoryOrder, lines: InventoryOrderLine[]) {
+  function linesForPurchaseOrder(order: PurchaseOrderSummary) {
+    return purchaseOrderLines.filter((line) => line.purchaseOrderId === order.id);
+  }
+
+  function openInventoryDocument(document: { action: string; sourceId: string }) {
+    if (document.action === "tickets") {
+      setExpandedTicketId(document.sourceId);
+      setActiveView("tickets");
+      return;
+    }
+    if (document.action === "orders") {
+      setExpandedOrderId(document.sourceId);
+      setActiveView("orders");
+      return;
+    }
+    window.location.href = "/purchase-orders";
+  }
+
+  function printInventoryDocument(document: { action: string; sourceId: string }) {
+    if (document.action === "tickets") {
+      const ticket = tickets.find((candidate) => candidate.id === document.sourceId);
+      if (ticket) printIssueTicket(ticket);
+      return;
+    }
+    if (document.action === "orders") {
+      const order = orders.find((candidate) => candidate.id === document.sourceId);
+      if (order) printOrder(order);
+      return;
+    }
+    window.location.href = "/purchase-orders";
+  }
+
+  function pickTicketNumber(order: InventoryOrder) {
+    return order.orderNumber.replace(/^ORD-/, "PICK-");
+  }
+
+  function orderHtml(order: InventoryOrder, lines: InventoryOrderLine[], title = "Consumable Order") {
     const totalQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
     const totalValue = lines.reduce((sum, line) => sum + line.lineValue, 0);
+    const documentNumber = title === "Pick Ticket" ? pickTicketNumber(order) : order.orderNumber;
 
     return `<!doctype html>
       <html>
@@ -1702,8 +2207,8 @@ export default function InventoryModulePage() {
               <div class="brand">
                 <img src="/titan_logo.jpg" alt="TITAN" />
                 <div>
-                  <h1>Consumable Order</h1>
-                  <h2>${order.orderNumber}</h2>
+                  <h1>${title}</h1>
+                  <h2>${documentNumber}</h2>
                 </div>
               </div>
               <div class="company">
@@ -1760,6 +2265,16 @@ export default function InventoryModulePage() {
     printWindow.document.close();
   }
 
+  function printPickTicket(order: InventoryOrder) {
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the pick ticket.");
+      return;
+    }
+    printWindow.document.write(orderHtml(order, linesForOrder(order), "Pick Ticket"));
+    printWindow.document.close();
+  }
+
   async function emailOrder(order: InventoryOrder) {
     const recipientEmail = window.prompt("Email this consumable order to:", orderForm.emailTo || "");
     if (!recipientEmail) return;
@@ -1798,13 +2313,55 @@ export default function InventoryModulePage() {
     return (order.status || "").toLowerCase() === "fulfilled";
   }
 
+  function orderIsRejected(order: InventoryOrder) {
+    return (order.status || "").toLowerCase() === "rejected";
+  }
+
   function orderIsCancelled(order: InventoryOrder) {
     const status = (order.status || "").toLowerCase();
     return status === "cancelled" || status === "canceled";
   }
 
   function orderIsClosed(order: InventoryOrder) {
-    return orderIsFulfilled(order) || orderIsCancelled(order);
+    return orderIsFulfilled(order) || orderIsCancelled(order) || orderIsRejected(order);
+  }
+
+  function issueTicketForOrder(order: InventoryOrder) {
+    const orderNeedle = order.orderNumber.toLowerCase();
+    return tickets.find((ticket) => String(ticket.notes || "").toLowerCase().includes(orderNeedle)) || null;
+  }
+
+  async function updateOrderStatus(order: InventoryOrder, status: string) {
+    if (!canManageInventory || orderIsClosed(order)) return;
+
+    const reason = status === "Rejected" ? window.prompt("Optional rejection reason:", "") : "";
+    if (reason === null) return;
+
+    setSaving(true);
+    setMessage("");
+
+    const nextNotes = reason.trim()
+      ? `${order.notes ? `${order.notes}\n` : ""}${status}: ${reason.trim()}`
+      : order.notes || null;
+
+    const { error } = await supabase
+      .from("inventory_orders")
+      .update({
+        status,
+        notes: nextNotes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id);
+
+    if (error) {
+      setMessage(`Request status failed: ${error.message}`);
+    } else {
+      await loadOrders(selectedInventoryYardId);
+      setExpandedOrderId(order.id);
+      setMessage(`${order.orderNumber} moved to ${status}.`);
+    }
+
+    setSaving(false);
   }
 
   function fulfillmentQtyForLine(line: InventoryOrderLine) {
@@ -1884,8 +2441,8 @@ export default function InventoryModulePage() {
 
   async function fulfillOrder(order: InventoryOrder) {
     if (!canManageInventory) return;
-    if (orderIsCancelled(order)) {
-      setMessage("Cancelled orders cannot be fulfilled.");
+    if (orderIsClosed(order)) {
+      setMessage("Closed requests cannot be fulfilled.");
       return;
     }
 
@@ -1898,7 +2455,12 @@ export default function InventoryModulePage() {
     setSaving(true);
     setMessage("");
 
-    const targetLines = lines.map((line) => ({ line, qtyToFulfill: fulfillmentQtyForLine(line) }));
+    const targetLines = lines
+      .map((line) => {
+        const item = items.find((candidate) => candidate.id === line.itemId);
+        return { line, item, qtyToFulfill: fulfillmentQtyForLine(line) };
+      })
+      .filter((entry) => entry.qtyToFulfill > 0);
     const totalToFulfill = targetLines.reduce((sum, entry) => sum + entry.qtyToFulfill, 0);
 
     if (totalToFulfill <= 0) {
@@ -1907,15 +2469,71 @@ export default function InventoryModulePage() {
       return;
     }
 
-    for (const { line, qtyToFulfill } of targetLines) {
-      const item = items.find((candidate) => candidate.id === line.itemId);
-      if (!item || qtyToFulfill <= 0) continue;
+    for (const { line, item, qtyToFulfill } of targetLines) {
+      if (!item) {
+        setMessage(`${line.itemCode || line.itemName} is no longer tied to an inventory item.`);
+        setSaving(false);
+        return;
+      }
       if (item.qtyOnHand < qtyToFulfill) {
         setMessage(`${item.itemCode} does not have enough quantity to fulfill this order.`);
         setSaving(false);
         return;
       }
+    }
 
+    const ticketNumber = `ISS-${todayStamp()}`;
+    const totalIssueValue = targetLines.reduce((sum, entry) => sum + entry.qtyToFulfill * entry.line.unitCost, 0);
+
+    const { data: ticket, error: ticketError } = await supabase
+      .from("inventory_issue_tickets")
+      .insert({
+        ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+        ticket_number: ticketNumber,
+        issue_date: new Date().toISOString().slice(0, 10),
+        issued_to: order.requestedBy || "Consumables Store",
+        department: order.department || null,
+        picked_by: userName,
+        unit_truck: order.unitTruck || null,
+        job_number: order.jobNumber || null,
+        total_value: totalIssueValue,
+        status: "Issued",
+        notes: `Fulfilled from Consumables Store request ${order.orderNumber}.${order.notes ? `\n${order.notes}` : ""}`,
+      })
+      .select("id")
+      .single();
+
+    if (ticketError || !ticket) {
+      setMessage(`Issue ticket failed: ${ticketError?.message || "ticket was not created"}`);
+      setSaving(false);
+      return;
+    }
+
+    const issueLinePayload = targetLines.map(({ line, qtyToFulfill }) => ({
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+      issue_ticket_id: ticket.id,
+      ticket_number: ticketNumber,
+      item_id: line.itemId,
+      item_code: line.itemCode,
+      item_name: line.itemName,
+      department: order.department || null,
+      qty_issued: qtyToFulfill,
+      unit_cost: line.unitCost,
+      line_value: qtyToFulfill * line.unitCost,
+      unit_truck: order.unitTruck || null,
+      picked_by: userName,
+      line_processed: true,
+    }));
+
+    const { error: issueLineError } = await supabase.from("inventory_issue_ticket_lines").insert(issueLinePayload);
+    if (issueLineError) {
+      setMessage(`Issue ticket created, but lines failed: ${issueLineError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    for (const { line, item, qtyToFulfill } of targetLines) {
+      if (!item) continue;
       const nextQty = item.qtyOnHand - qtyToFulfill;
       const { error: itemError } = await supabase
         .from("inventory_items")
@@ -1937,20 +2555,26 @@ export default function InventoryModulePage() {
         ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
         item_id: item.id,
         item_code: item.itemCode,
-        transaction_type: "Order Fulfillment",
+        transaction_type: "Issue",
         quantity: qtyToFulfill,
-        reference_type: "Consumable Order",
-        reference_number: order.orderNumber,
+        reference_type: "Issue Ticket",
+        reference_number: ticketNumber,
         entered_by: userName,
-        notes: order.notes || null,
+        notes: `Fulfilled from Consumables Store request ${order.orderNumber}`,
         transaction_source: "TITAN Inventory",
         quantity_direction: "Out",
       });
     }
 
+    const nextOrderNotes = `${order.notes ? `${order.notes}\n` : ""}Fulfilled by issue ticket ${ticketNumber}`;
     await supabase
       .from("inventory_orders")
-      .update({ status: "Fulfilled", fulfilled_at: new Date().toISOString(), fulfilled_by: userName })
+      .update({
+        status: "Fulfilled",
+        fulfilled_at: new Date().toISOString(),
+        fulfilled_by: userName,
+        notes: nextOrderNotes,
+      })
       .eq("id", order.id);
 
     await Promise.all([
@@ -1958,9 +2582,13 @@ export default function InventoryModulePage() {
       loadTransactions(selectedInventoryYardId),
       loadOrders(selectedInventoryYardId),
       loadOrderLines(selectedInventoryYardId),
+      loadTickets(selectedInventoryYardId),
+      loadIssueTicketLines(selectedInventoryYardId),
     ]);
     setOrderFulfillmentDrafts({});
-    setMessage(`Consumable order ${order.orderNumber} fulfilled.`);
+    setExpandedTicketId(ticket.id);
+    setActiveView("tickets");
+    setMessage(`Consumables Store request ${order.orderNumber} fulfilled and issue ticket ${ticketNumber} created.`);
     setSaving(false);
   }
 
@@ -2260,190 +2888,425 @@ export default function InventoryModulePage() {
   }
 
   return (
-    <main className="module-shell inventory-module">
-      <section className="module-header">
-        <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
-          <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
-          <div>
-            <div className="brand-title">TITAN Inventory</div>
-            <div className="brand-subtitle">
-              Standalone warehouse and shop inventory / {selectedInventoryYard?.name || "Loading yard"}
-            </div>
+    <main className="module-shell inventory-module consum-scope">
+      <section className="page-head no-print">
+        <div>
+          <div className="pt">Consumables — Inventory Control</div>
+          <div className="ps">
+            Live TITAN warehouse and shop inventory using the Compass consumables workflow.{" "}
+            <span>{selectedInventoryYard?.name || "Loading yard"}</span>
           </div>
-        </button>
-        <div className="module-actions no-print">
-          <select
-            className="field"
-            value={selectedInventoryYardId}
-            onChange={(event) => handleInventoryYardChange(event.target.value)}
-            disabled={loading || inventoryYards.length <= 1}
-          >
-            {inventoryYards.map((yard) => (
-              <option key={yard.id} value={yard.id}>
-                {yard.name}
-              </option>
-            ))}
-          </select>
-          <button className="button" onClick={() => (window.location.href = "/home")}>Home</button>
-          <button className="button" onClick={loadPage} disabled={loading}>Refresh</button>
-          <button className="button" onClick={() => window.print()}>Print</button>
-          <button className="button" onClick={exportInventory}>Export CSV</button>
-          {canPlaceInventoryOrders && (
-            <button className="button primary" onClick={() => openOrder()}>Order Consumables</button>
-          )}
-          {canManageInventory && (
-            <>
-              <button className="button" onClick={() => openManualReceive()}>Receive Stock</button>
-              <button className="button" onClick={() => openPriceAdjust()}>Adjust Price</button>
-              <button className="button" onClick={() => openIssue()}>Issue Inventory</button>
-              <button className="button" onClick={openNewVendor}>Add Vendor</button>
-              <button className="button primary" onClick={openNewItem}>Add Item</button>
-            </>
-          )}
+        </div>
+        <div className="statusline">
+          <span className="pill ok">Live TITAN data</span>
+          <label className="branch-inline">
+            <span>Yard</span>
+            <select
+              value={selectedInventoryYardId}
+              onChange={(event) => handleInventoryYardChange(event.target.value)}
+              disabled={loading || inventoryYards.length <= 1}
+            >
+              {inventoryYards.map((yard) => (
+                <option key={yard.id} value={yard.id}>
+                  {yard.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="ci-btn mini" onClick={() => (window.location.href = "/home")}>Home</button>
+          <button className="ci-btn mini" onClick={loadPage} disabled={loading}>Refresh</button>
+          <button className="ci-btn mini" onClick={() => window.print()}>Print</button>
+          <button className="ci-btn mini" onClick={exportInventory}>Export CSV</button>
         </div>
       </section>
 
       {message && <div className="modal-message">{message}</div>}
 
-      <section className="module-metrics">
-        <article className="metric-card">
-          <strong>{items.length}</strong>
-          <span>Inventory Items</span>
+      <div className="preview-banner ci-banner no-print">
+        <div>
+          <b>Built for the Compass consumables workflow.</b>{" "}
+          The current TITAN inventory data stays in Supabase; this screen changes the workflow and presentation around item master, Consumables Store, issue tickets, receiving, vendors, and movement history.
+        </div>
+      </div>
+
+      <section className="kpis k5 inventory-top-kpis">
+        <article className="kpi warn">
+          <div className="lab">Issue tickets</div>
+          <div className="val mono">{dashboardTicketRefs.size.toLocaleString()}</div>
+          <div className="note">{dashboardPeriodLabel} · {dashboardIssueQuantity.toLocaleString()} units issued</div>
         </article>
-        <article className="metric-card">
-          <strong>{filteredItems.length}</strong>
-          <span>Visible Items</span>
+        <article className="kpi steel">
+          <div className="lab">Purchase orders</div>
+          <div className="val mono">{dashboardPoRefs.size.toLocaleString()}</div>
+          <div className="note">{dashboardPeriodLabel} PO activity</div>
         </article>
-        <article className="metric-card">
-          <strong>{lowStockCount}</strong>
-          <span>Low Stock</span>
+        <article className="kpi good">
+          <div className="lab">Consumables store</div>
+          <div className="val mono">{pendingOrders.length.toLocaleString()}</div>
+          <div className="note">Waiting on warehouse action</div>
         </article>
-        <article className="metric-card">
-          <strong>{outOfStockCount}</strong>
-          <span>Out of Stock</span>
+        <article className="kpi">
+          <div className="lab">Inventory value</div>
+          <div className="val mono">{money(totalValue)}</div>
+          <div className="note">{activeItemCount.toLocaleString()} active items</div>
         </article>
-        <article className="metric-card">
-          <strong>{money(totalValue)}</strong>
-          <span>Total Value</span>
+        <article className="kpi bad">
+          <div className="lab">Reorder alerts</div>
+          <div className="val mono orange">{lowStockCount.toLocaleString()}</div>
+          <div className="note">{outOfStockCount.toLocaleString()} out of stock · {pendingPoCount.toLocaleString()} open POs</div>
         </article>
       </section>
 
-      <section className="module-tabs no-print">
+      <section className="ytabs ci-tabs no-print">
         {([
-          ["dashboard", "Dashboard"],
-          ...(canPlaceInventoryOrders ? [["orders", "Orders"]] : []),
-          ...(canManageInventory ? [["counter", "Pick List"]] : []),
-          ["items", "Items"],
-          ...(canManageInventory ? [["tickets", "Issue Tickets"], ["vendors", "Vendors"]] : []),
-        ] as Array<[InventoryModuleView, string]>).map(([view, label]) => (
+          ["dashboard", "Dashboard", ""],
+          ...(canPlaceInventoryOrders ? [["orders", "Consumables Store", pendingOrders.length.toLocaleString()]] : []),
+          ...(canManageInventory ? [["counter", "Issue Tickets", issueCart.length ? issueCart.length.toLocaleString() : ""] as [InventoryModuleView, string, string]] : []),
+          ...(canManageInventory ? [["approvals", "PO Approvals", purchaseOrdersForApproval.length.toLocaleString()] as [InventoryModuleView, string, string]] : []),
+          ...(canManageInventory ? [["reorder", "Reorder Queue", reorderItems.length.toLocaleString()] as [InventoryModuleView, string, string]] : []),
+          ["items", "Item Master", activeItemCount.toLocaleString()],
+          ...(canManageInventory ? [["tickets", "History", tickets.length.toLocaleString()], ["documents", "Documents", inventoryDocuments.length.toLocaleString()], ["vendors", "Vendors", vendors.length.toLocaleString()]] : []),
+        ] as Array<[InventoryModuleView, string, string]>).map(([view, label, count]) => (
           <button
             key={view}
-            className={`button ${activeView === view ? "primary" : ""}`}
+            className={`ytab ${activeView === view ? "on" : ""}`}
             type="button"
             onClick={() => setActiveView(view)}
           >
             {label}
+            {count && <span className="yc">{count}</span>}
           </button>
         ))}
       </section>
 
       {activeView === "dashboard" && (
-        <section className="inventory-dashboard no-print">
-          <article className="ticket-card">
-            <h3>Weekly Inventory Dashboard</h3>
-            <div className="stock-watch-metrics">
-              <div><strong>{money(weeklySpending)}</strong><span>Weekly Spend</span></div>
-              <div><strong>{weeklyTickets.length}</strong><span>Issue Tickets</span></div>
-              <div><strong>{weeklyLines.reduce((sum, line) => sum + line.qtyIssued, 0).toLocaleString()}</strong><span>Items Issued</span></div>
+        <section className="ci-dashboard no-print">
+          <div className="card">
+            <h2><span className="dot"></span>Dashboard filters<span className="ct">{selectedInventoryYard?.name || "yard"}</span></h2>
+            <div className="ci-dash-filters">
+              <div className="ci-field">
+                <div className="lab">Lookup</div>
+                <input
+                  className="ci-input"
+                  value={dashboardSearch}
+                  onChange={(event) => setDashboardSearch(event.target.value)}
+                  placeholder="Search ticket, PO, item, vendor, crew..."
+                />
+              </div>
+              <div className="ci-field">
+                <div className="lab">Focus period</div>
+                <select
+                  className="ci-select"
+                  value={dashboardPeriod}
+                  onChange={(event) => setDashboardPeriod(event.target.value as DashboardPeriod)}
+                >
+                  {dashboardPeriodOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="ci-field">
+                <div className="lab">Cost center</div>
+                <select className="ci-select" value={dashboardDepartment} onChange={(event) => setDashboardDepartment(event.target.value)}>
+                  <option value="all">All cost centers</option>
+                  {dashboardDepartments.map((department) => <option key={department} value={department}>{department}</option>)}
+                </select>
+              </div>
+              <div className="ci-field">
+                <div className="lab">Category</div>
+                <select className="ci-select" value={dashboardCategory} onChange={(event) => setDashboardCategory(event.target.value)}>
+                  <option value="all">All categories</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </div>
+              <div className="ci-field">
+                <div className="lab">Vendor</div>
+                <select className="ci-select" value={dashboardVendor} onChange={(event) => setDashboardVendor(event.target.value)}>
+                  <option value="all">All vendors</option>
+                  {dashboardVendors.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
+                </select>
+              </div>
             </div>
-            <p className="muted-text">Week starts Sunday. This is the same window used by the weekly email summary.</p>
-          </article>
+            <div className="ci-sub">Issued spend is calculated only from issue tickets. PO spend is calculated from purchase order line value in the same date window.</div>
+          </div>
 
-          <article className="ticket-card">
-            <h3>Top 10 Items Issued</h3>
-            {topIssuedItems.length === 0 && <p className="muted-text">No items issued this week.</p>}
-            {topIssuedItems.map((item, index) => (
-              <div className="dashboard-list-row" key={item.label}>
-                <span>#{index + 1} {item.label}</span>
-                <strong>{item.qty.toLocaleString()} / {money(item.value)}</strong>
-              </div>
+          <div className="ci-spend-grid">
+            {dashboardPeriodSnapshots.map((period) => (
+              <button
+                className={`ci-spend-card ${dashboardPeriod === period.value ? "focus" : ""}`}
+                type="button"
+                key={period.value}
+                onClick={() => setDashboardPeriod(period.value)}
+              >
+                <div className="lab">{period.label} issued spend</div>
+                <div className="val">{money(period.issueSpend)}</div>
+                <div className="sub">PO spend {money(period.poSpend)}</div>
+                <div className="sub">{period.issueTickets.toLocaleString()} issue tickets · {period.poCount.toLocaleString()} POs</div>
+              </button>
             ))}
-          </article>
+          </div>
 
-          <article className="ticket-card">
-            <h3>Top 10 Units / Trucks</h3>
-            {topIssuedUnits.length === 0 && <p className="muted-text">No unit or truck issues this week.</p>}
-            {topIssuedUnits.map((unit, index) => (
-              <div className="dashboard-list-row" key={unit.label}>
-                <span>#{index + 1} {unit.label}</span>
-                <strong>{unit.qty.toLocaleString()} / {money(unit.value)}</strong>
+          <div className="grid g2">
+            <div className="card">
+              <h2><span className="dot"></span>Spend by period<span className="ct">same filters</span></h2>
+              <div className="ci-table-wrap compact-table-wrap">
+                <table className="dt">
+                  <thead>
+                    <tr><th>Period</th><th className="num">Issued</th><th className="num">Tickets</th><th className="num">PO spend</th><th className="num">POs</th></tr>
+                  </thead>
+                  <tbody>
+                    {dashboardPeriodSnapshots.map((period) => (
+                      <tr key={period.value}>
+                        <td><b>{period.label}</b><div className="ci-sub">{period.issueQty.toLocaleString()} units issued</div></td>
+                        <td className="mono num">{money(period.issueSpend)}</td>
+                        <td className="mono num">{period.issueTickets.toLocaleString()}</td>
+                        <td className="mono num">{money(period.poSpend)}</td>
+                        <td className="mono num">{period.poCount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
+            </div>
+
+            <div className="card">
+              <h2><span className="dot"></span>Spend breakdown<span className="ct">{dashboardPeriodLabel}</span></h2>
+              <div className="sec-label">Issued by cost center</div>
+              <div className="ci-dash-bars">
+                {topIssuedUnits.length === 0 && <p className="muted-text">No issue ticket spend for this period.</p>}
+                {topIssuedUnits.slice(0, 4).map((unit) => (
+                  <div className="bar-row" key={unit.label}>
+                    <div className="bn">{unit.label}</div>
+                    <div className="bar-track"><span style={{ width: `${Math.max(4, Math.round((unit.value / dashboardSpendMax) * 100))}%` }} /></div>
+                    <div className="bv">{money(unit.value)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="sec-label">Top items issued</div>
+              <div className="ci-dash-bars">
+                {topIssuedItems.length === 0 && <p className="muted-text">No items issued for this period.</p>}
+                {topIssuedItems.slice(0, 4).map((item) => (
+                  <div className="bar-row" key={item.label}>
+                    <div className="bn">{item.label}</div>
+                    <div className="bar-track"><span style={{ width: `${Math.max(4, Math.round((item.value / dashboardSpendMax) * 100))}%` }} /></div>
+                    <div className="bv">{money(item.value)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid g2">
+            <div className="card">
+              <h2><span className="dot"></span>Consumables Store requests<span className="ct">{pendingOrders.length.toLocaleString()} open</span></h2>
+              <div className="ci-queue">
+                {pendingOrders.length === 0 && <p className="muted-text">No Consumables Store requests are waiting.</p>}
+                {pendingOrders.slice(0, 6).map((order) => {
+                  const lines = linesForOrder(order);
+                  const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
+                  return (
+                    <button
+                      className="ci-line click-row"
+                      type="button"
+                      key={order.id}
+                      onClick={() => {
+                        setActiveView("orders");
+                        setExpandedOrderId(order.id);
+                      }}
+                    >
+                      <div>
+                        <b>{order.orderNumber}</b>
+                        <span>{order.requestedBy || "-"} · {order.department || "-"} · {order.orderDate || "-"}</span>
+                      </div>
+                      <div className="ci-num">
+                        {requestedQty.toLocaleString()} req
+                        <span>{money(order.totalValue)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="card">
+              <h2><span className="dot"></span>Reorder attention<span className="ct">{lowStockItems.length.toLocaleString()} lines</span></h2>
+              <div className="ci-queue">
+                {lowStockItems.length === 0 && <p className="muted-text">All branch stock is above reorder minimum.</p>}
+                {lowStockItems.slice(0, 6).map((item) => (
+                  <button
+                    className="ci-line click-row"
+                    type="button"
+                    key={item.id}
+                    onClick={() => {
+                      setSelectedItemId(item.id);
+                      setStockFilter("low");
+                      setActiveView("items");
+                    }}
+                  >
+                    <div>
+                      <b>{item.itemCode}</b>
+                      <span>{item.itemName} · {item.vendorName || "No vendor"}</span>
+                    </div>
+                    <div className="ci-num">
+                      {item.qtyOnHand.toLocaleString()}
+                      <span>min {item.minQuantity.toLocaleString()}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid g2">
+          <div className="card">
+            <h2><span className="dot"></span>Issue-ticket spend detail<span className="ct">{dashboardIssueRows.length.toLocaleString()} lines</span></h2>
+            {recentDashboardIssueRows.length === 0 ? (
+              <p className="muted-text">No issue lines match the current filters.</p>
+            ) : (
+              <div className="ci-table-wrap compact-table-wrap">
+                <table className="dt">
+                  <thead><tr><th>Date</th><th>Ticket</th><th>Item</th><th>Cost Center</th><th>Qty</th><th>Spend</th></tr></thead>
+                  <tbody>
+                    {recentDashboardIssueRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.date || "-"}</td>
+                        <td className="mono">{row.ref || "-"}</td>
+                        <td><b>{row.sku || "-"}</b><div className="ci-sub">{row.item || "-"}</div></td>
+                        <td>{row.costCenter || "-"}</td>
+                        <td className="mono num">{row.qty.toLocaleString()}</td>
+                        <td className="mono num">{money(row.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <h2><span className="dot"></span>PO spend detail<span className="ct">{dashboardPoRows.length.toLocaleString()} lines</span></h2>
+            {recentDashboardPoRows.length === 0 ? (
+              <p className="muted-text">No PO lines match the current filters.</p>
+            ) : (
+              <div className="ci-table-wrap compact-table-wrap">
+                <table className="dt">
+                  <thead><tr><th>Date</th><th>PO</th><th>Item</th><th>Vendor</th><th>Qty</th><th>Spend</th></tr></thead>
+                  <tbody>
+                    {recentDashboardPoRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.date || "-"}</td>
+                        <td className="mono">{row.ref || "-"}</td>
+                        <td><b>{row.sku || "-"}</b><div className="ci-sub">{row.item || "-"}</div></td>
+                        <td>{row.vendor || "-"}</td>
+                        <td className="mono num">{row.qty.toLocaleString()}</td>
+                        <td className="mono num">{money(row.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          </div>
+
+          <div className="card">
+            <h2><span className="dot"></span>Recent issue tickets<span className="ct">audit trail</span></h2>
+            <div className="ci-queue">
+            {recentIssueTickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
+            {recentIssueTickets.map((ticket) => (
+              <button
+                className="ci-line click-row"
+                type="button"
+                key={ticket.id}
+                onClick={() => {
+                  setExpandedTicketId(ticket.id);
+                  setActiveView("tickets");
+                }}
+              >
+                <div>
+                  <b>{ticket.ticketNumber}</b>
+                  <span>{ticket.issuedTo || "-"} · {ticket.department || "-"} · {ticket.issueDate || "-"}</span>
+                </div>
+                <div className="ci-num">{money(ticket.totalValue)}<span>{ticket.status || "Issued"}</span></div>
+              </button>
             ))}
-          </article>
+            </div>
+          </div>
         </section>
       )}
 
       {activeView === "orders" && (
-        <section className="inventory-dashboard no-print">
-          <article className="ticket-card pos-card">
-            <div className="detail-title-row">
-              <div>
-                <h3>Consumable Order Cart</h3>
-                <p className="muted-text">Scan a barcode, enter an item ID, or search by item name. Inventory is not reduced until an inventory manager or specialist fulfills the order.</p>
+        <>
+          <div className="preview-banner ci-banner no-print">
+            <div><b>Warehouse store.</b> Employees request consumables here. Stock is not reduced until the warehouse fulfills the request and TITAN creates the issue ticket.</div>
+          </div>
+          <section className="ci-layout no-print">
+            <div className="card">
+              <h2><span className="dot"></span>Store catalog<span className="ct">{selectedInventoryYard?.name || "yard"}</span></h2>
+              <div className="ci-scanbar">
+                <div className="order-search-picker">
+                  <input
+                    ref={scanFieldRef}
+                    className="ci-input scan-field"
+                    value={scanInput}
+                    onChange={(event) => {
+                      setScanInput(event.target.value);
+                      setOrderSearchOpen(true);
+                    }}
+                    onFocus={() => setOrderSearchOpen(true)}
+                    onBlur={() => window.setTimeout(() => setOrderSearchOpen(false), 180)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addScannedItemToOrder();
+                      }
+                      if (event.key === "Escape") {
+                        setOrderSearchOpen(false);
+                      }
+                    }}
+                    placeholder="Scan barcode or type item ID, barcode, or item name"
+                    autoComplete="off"
+                  />
+                  {orderSearchOpen && orderSearchMatches.length > 0 && (
+                    <div className="order-search-menu">
+                      {orderSearchMatches.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="order-search-option"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            chooseOrderSearchItem(item);
+                          }}
+                        >
+                          <strong>{item.itemCode}</strong>
+                          <span>{item.itemName}</span>
+                          <small>
+                            {item.barcode || "No barcode"} / {item.location || "No location"} / {item.qtyOnHand.toLocaleString()} on hand
+                          </small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button className="ci-btn pri" onClick={addScannedItemToOrder}>Add to request</button>
               </div>
-              <div className="pos-total">
-                <strong>{orderQuantity.toLocaleString()}</strong>
-                <span>items requested / {money(orderValue)}</span>
-              </div>
-            </div>
-
-            <div className="pos-scan-row">
-              <div className="order-search-picker">
+              <div className="ci-toolbar">
                 <input
-                  ref={scanFieldRef}
-                  className="field scan-field"
-                  value={scanInput}
-                  onChange={(event) => {
-                    setScanInput(event.target.value);
-                    setOrderSearchOpen(true);
-                  }}
-                  onFocus={() => setOrderSearchOpen(true)}
-                  onBlur={() => window.setTimeout(() => setOrderSearchOpen(false), 180)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      addScannedItemToOrder();
-                    }
-                    if (event.key === "Escape") {
-                      setOrderSearchOpen(false);
-                    }
-                  }}
-                  placeholder="Scan barcode or type item ID, barcode, or item name"
-                  autoComplete="off"
+                  className="ci-input"
+                  value={storeSearch}
+                  onChange={(event) => setStoreSearch(event.target.value)}
+                  placeholder="Search the warehouse store..."
                 />
-                {orderSearchOpen && orderSearchMatches.length > 0 && (
-                  <div className="order-search-menu">
-                    {orderSearchMatches.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className="order-search-option"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          chooseOrderSearchItem(item);
-                        }}
-                      >
-                        <strong>{item.itemCode}</strong>
-                        <span>{item.itemName}</span>
-                        <small>
-                          {item.barcode || "No barcode"} / {item.location || "No location"} / {item.qtyOnHand.toLocaleString()} on hand
-                        </small>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <select className="ci-select" value={storeCategory} onChange={(event) => setStoreCategory(event.target.value)}>
+                  <option value="all">All categories</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+                <button className="ci-btn" type="button" onClick={() => {
+                  setStoreSearch("");
+                  setStoreCategory("all");
+                }}>Clear</button>
               </div>
-              <button className="button primary" onClick={addScannedItemToOrder}>Add to Order</button>
               <input
                 ref={cameraFileRef}
                 className="hidden-file-input"
@@ -2457,170 +3320,217 @@ export default function InventoryModulePage() {
               ) : (
                 <video ref={cameraVideoRef} className="barcode-video hidden-video" muted playsInline />
               )}
-              <button className="button" onClick={openCameraScanner} disabled={cameraScanning}>
-                {cameraScanning ? "Scanning..." : "Scan Camera"}
-              </button>
-              {cameraScanning && (
-                <button className="button ghost" onClick={stopCameraScanner}>
-                  Stop Scan
-                </button>
-              )}
-              <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear</button>
-            </div>
-
-            {cameraScanMessage && <div className="modal-message compact">{cameraScanMessage}</div>}
-
-            {orderCart.length === 0 ? (
-              <div className="empty-pos-cart">
-                <strong>No items in order cart.</strong>
-                <span>Select Order from the item table or scan an item to begin.</span>
+              <div className="ci-actions">
+                <button className="ci-btn" onClick={openCameraScanner} disabled={cameraScanning}>{cameraScanning ? "Scanning..." : "Scan camera"}</button>
+                {cameraScanning && <button className="ci-btn" onClick={stopCameraScanner}>Stop scan</button>}
+                <button className="ci-btn" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
               </div>
-            ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Description</th>
-                      <th>Barcode</th>
-                      <th>Location</th>
-                      <th>On Hand</th>
-                      <th>Request Qty</th>
-                      <th>Est. Value</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderCart.map((line) => (
-                      <tr key={line.itemId}>
-                        <td>{line.itemCode}</td>
-                        <td>{line.itemName}</td>
-                        <td>{line.barcode || "-"}</td>
-                        <td>{line.location || "-"}</td>
-                        <td>{line.qtyOnHand.toLocaleString()}</td>
-                        <td>
+              {cameraScanMessage && <div className="ci-notice">{cameraScanMessage}</div>}
+
+              {storeItems.length === 0 ? (
+                <div className="empty-pos-cart">
+                  <strong>No store items match this lookup.</strong>
+                  <span>Try another item ID, name, vendor, barcode, or category.</span>
+                </div>
+              ) : (
+                <div className="ci-store-grid">
+                  {storeItems.slice(0, 24).map((item) => {
+                    const status = stockStatus(item);
+                    const inCart = orderCart.find((line) => line.itemId === item.id);
+                    const pillClass = status === "Available" ? "ok" : status === "Reorder" ? "warn" : "bad";
+                    return (
+                      <article className="ci-store-item" key={item.id}>
+                        <div className="ci-store-card-head">
+                          <div className="ci-product-photo generated-product-tile">{productInitials(item)}</div>
+                          <div>
+                            <div className="ci-name" title={item.itemName}>{item.itemName}</div>
+                            <div className="ci-sub">{item.itemCode} · {item.category || "Uncategorized"} · {item.vendorName || "No vendor"}</div>
+                          </div>
+                          <span className={`pill ${pillClass}`}>{status}</span>
+                        </div>
+                        <div className="ci-request-summary">
+                          <div className="ci-micro"><div className="lab">On hand</div><div className="val">{item.qtyOnHand.toLocaleString()}</div></div>
+                          <div className="ci-micro"><div className="lab">Unit</div><div className="val compact-val">{item.uom || "-"}</div></div>
+                          <div className="ci-micro"><div className="lab">Bin</div><div className="val compact-val">{item.location || "-"}</div></div>
+                        </div>
+                        <div className="request">
                           <input
-                            className="qty-input"
+                            className="ci-input mono"
                             type="number"
                             min="1"
-                            value={line.quantity}
-                            onChange={(event) => updateOrderCartQuantity(line.itemId, event.target.value)}
+                            value={storeQuantities[item.id] || "1"}
+                            onChange={(event) => setStoreQuantities((current) => ({ ...current, [item.id]: event.target.value }))}
                           />
-                        </td>
-                        <td>{money(line.lineValue)}</td>
-                        <td><button className="mini-button" onClick={() => removeOrderCartLine(line.itemId)}>Remove</button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            <div className="form-grid">
-              <label>Requested By<input value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} /></label>
-              <label>Department<input value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="DTI, Hardband, CDT..." /></label>
-              <label>Unit / Truck<input value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} /></label>
-              <label>Job Number<input value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} /></label>
-              <label>Email To<input value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional extra recipient" /></label>
-              <label className="full">Notes<textarea value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} /></label>
+                          <button className="ci-btn pri" type="button" onClick={() => addStoreItemToCart(item)}>Add</button>
+                        </div>
+                        {inCart && <div className="ci-sub">In cart: {inCart.quantity.toLocaleString()} {item.uom || "units"}</div>}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <div className="slide-actions">
-              <button className="button ghost" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear Cart</button>
-              <button className="button primary" onClick={saveInventoryOrder} disabled={saving || orderCart.length === 0}>
-                {saving ? "Submitting..." : "Submit Consumable Order"}
-              </button>
-            </div>
-          </article>
-
-          <aside className="ticket-card stock-watch-card">
-            <h3>Consumable Orders</h3>
-            {orders.length === 0 && <p className="muted-text">No consumable orders found for this yard.</p>}
-            {orders.map((order) => {
-              const lines = linesForOrder(order);
-              const expanded = expandedOrderId === order.id;
-              const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
-              const fulfilledQty = lines.reduce((sum, line) => sum + (expanded ? fulfillmentQtyForLine(line) : line.qtyFulfilled), 0);
-              const closedOrder = orderIsClosed(order);
-
-              return (
-                <article className={`document-card ${expanded ? "open" : ""}`} key={order.id}>
-                  <button className="document-card-summary" type="button" onClick={() => setExpandedOrderId(expanded ? "" : order.id)}>
-                    <div>
-                      <strong>{order.orderNumber}</strong>
-                      <span>{order.requestedBy || "-"} / {order.department || "-"}</span>
-                      <small>{lines.length} lines / {requestedQty.toLocaleString()} requested / {money(order.totalValue)}</small>
-                    </div>
-                    <span className="document-status">{order.status || "Submitted"}</span>
+            <div>
+              <div className="card">
+                <h2><span className="dot"></span>Request cart<span className="ct">employee order</span></h2>
+                <div className="ci-request-summary">
+                  <div className="ci-micro"><div className="lab">Lines</div><div className="val">{orderCart.length.toLocaleString()}</div></div>
+                  <div className="ci-micro"><div className="lab">Quantity</div><div className="val">{orderQuantity.toLocaleString()}</div></div>
+                  <div className="ci-micro"><div className="lab">Est. value</div><div className="val">{money(orderValue)}</div></div>
+                </div>
+                {orderCart.length === 0 ? (
+                  <div className="empty-pos-cart">
+                    <strong>No items in this request yet.</strong>
+                    <span>Add items from the warehouse store catalog.</span>
+                  </div>
+                ) : (
+                  <div className="ci-table-wrap compact-table-wrap">
+                    <table className="dt">
+                      <thead>
+                        <tr><th>Item</th><th className="num">On hand</th><th className="num">Request</th><th className="num">Value</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {orderCart.map((line) => (
+                          <tr key={line.itemId}>
+                            <td><b>{line.itemCode}</b><div className="ci-sub">{line.itemName} · {line.location || "-"}</div></td>
+                            <td className="mono num">{line.qtyOnHand.toLocaleString()}</td>
+                            <td className="mono num">
+                              <input
+                                className="qty-input"
+                                type="number"
+                                min="1"
+                                value={line.quantity}
+                                onChange={(event) => updateOrderCartQuantity(line.itemId, event.target.value)}
+                              />
+                            </td>
+                            <td className="mono num">{money(line.lineValue)}</td>
+                            <td><button className="ci-btn mini" onClick={() => removeOrderCartLine(line.itemId)}>Remove</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="ci-ticket-grid request-form-grid">
+                  <input className="ci-input" value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} placeholder="Requested by / crew lead" />
+                  <input className="ci-input" value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="Department" />
+                  <input className="ci-input" value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} placeholder="Unit / truck" />
+                  <input className="ci-input" value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} placeholder="Job number" />
+                  <input className="ci-input" value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional email recipient" />
+                  <input className="ci-input" value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} placeholder="Notes" />
+                </div>
+                <div className="ci-actions">
+                  <button className="ci-btn" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
+                  <button className="ci-btn pri" onClick={saveInventoryOrder} disabled={saving || orderCart.length === 0}>
+                    {saving ? "Submitting..." : "Submit consumable order"}
                   </button>
-                  {expanded && (
-                    <div className="document-card-detail">
-                      <div className="document-detail-grid">
-                        <span><strong>Order Date:</strong> {order.orderDate || "-"}</span>
-                        <span><strong>Unit / Truck:</strong> {order.unitTruck || "-"}</span>
-                        <span><strong>Job Number:</strong> {order.jobNumber || "-"}</span>
-                        <span><strong>Fulfilled:</strong> {fulfilledQty.toLocaleString()} / {requestedQty.toLocaleString()}</span>
-                      </div>
-                      <div className="table-wrap">
-                        <table className="document-line-table">
-                          <thead><tr><th>Item ID</th><th>Item Name</th><th>Requested</th><th>Fulfilled</th><th>Value</th></tr></thead>
-                          <tbody>
-                            {lines.length === 0 && <tr><td colSpan={5}>No line items found for this order.</td></tr>}
-                            {lines.map((line) => (
-                              <tr key={line.id}>
-                                <td>{line.itemCode || "-"}</td>
-                                <td>{line.itemName || "-"}</td>
-                                <td>{line.qtyRequested.toLocaleString()}</td>
-                                <td>
-                                  {canManageInventory && !closedOrder ? (
-                                    <div className="fulfillment-qty-cell">
-                                      <input
-                                        className="qty-input fulfillment-qty-input"
-                                        type="number"
-                                        min="0"
-                                        max={line.qtyRequested}
-                                        value={orderFulfillmentDrafts[line.id] ?? String(line.qtyFulfilled || line.qtyRequested || 0)}
-                                        onChange={(event) => updateFulfillmentDraft(line, event.target.value)}
-                                      />
-                                      <small>of {line.qtyRequested.toLocaleString()}</small>
-                                    </div>
-                                  ) : (
-                                    line.qtyFulfilled.toLocaleString()
-                                  )}
-                                </td>
-                                <td>{money(line.lineValue)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {order.notes && <p className="muted-text">{order.notes}</p>}
-                      <div className="document-actions">
-                        <button className="mini-button" type="button" onClick={() => printOrder(order)}>Print / PDF</button>
-                        <button className="mini-button" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
-                          {emailingOrderId === order.id ? "Emailing..." : "Email"}
+                </div>
+              </div>
+
+              <div className="card request-queue-card">
+                <h2><span className="dot"></span>Consumables Store queue<span className="ct">{pendingOrders.length.toLocaleString()} open</span></h2>
+                <div className="ci-queue">
+                  {orders.length === 0 && <p className="muted-text">No consumable orders found for this yard.</p>}
+                  {orders.map((order) => {
+                    const lines = linesForOrder(order);
+                    const expanded = expandedOrderId === order.id;
+                    const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
+                    const fulfilledQty = lines.reduce((sum, line) => sum + (expanded ? fulfillmentQtyForLine(line) : line.qtyFulfilled), 0);
+                    const closedOrder = orderIsClosed(order);
+                    const relatedIssueTicket = issueTicketForOrder(order);
+                    const orderStatus = (order.status || "Submitted").toLowerCase();
+
+                    return (
+                      <article className={`ci-request-card ${expanded ? "focus" : ""}`} key={order.id}>
+                        <button className="ci-detail-head request-summary-button" type="button" onClick={() => setExpandedOrderId(expanded ? "" : order.id)}>
+                          <div>
+                            <div className="ci-detail-title">{order.orderNumber}</div>
+                            <div className="ci-sub">{order.requestedBy || "-"} · {order.department || "-"} · {order.orderDate || "-"}</div>
+                          </div>
+                          <span className={`pill ${closedOrder ? "neu" : orderStatus === "rejected" ? "bad" : orderStatus === "fulfilled" ? "ok" : "warn"}`}>{order.status || "Submitted"}</span>
                         </button>
-                        {canManageInventory && !closedOrder && (
+                        <div className="ci-status-rail">
+                          <span className="pill neu">{lines.length.toLocaleString()} lines</span>
+                          <span className="pill neu">{requestedQty.toLocaleString()} requested</span>
+                          <span className="pill neu">{fulfilledQty.toLocaleString()} fulfilled</span>
+                          {relatedIssueTicket && <span className="pill ok">{relatedIssueTicket.ticketNumber}</span>}
+                        </div>
+                        {expanded && (
                           <>
-                            <button className="mini-button" type="button" onClick={() => saveFulfillmentAmounts(order)} disabled={saving}>
-                              Save Amounts
-                            </button>
-                            <button className="mini-button" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>
-                              Mark Fulfilled
-                            </button>
-                            <button className="mini-button danger" type="button" onClick={() => cancelOrder(order)} disabled={saving}>
-                              Cancel Order
-                            </button>
+                            <div className="ci-table-wrap compact-table-wrap">
+                              <table className="dt">
+                                <thead><tr><th>Line</th><th className="num">Requested</th><th className="num">Fulfilled</th><th className="num">Value</th></tr></thead>
+                                <tbody>
+                                  {lines.length === 0 && <tr><td colSpan={4}>No line items found for this order.</td></tr>}
+                                  {lines.map((line) => (
+                                    <tr key={line.id}>
+                                      <td><b>{line.itemCode || "-"}</b><div className="ci-sub">{line.itemName || "-"}</div></td>
+                                      <td className="mono num">{line.qtyRequested.toLocaleString()}</td>
+                                      <td className="mono num">
+                                        {canManageInventory && !closedOrder ? (
+                                          <input
+                                            className="qty-input fulfillment-qty-input"
+                                            type="number"
+                                            min="0"
+                                            max={line.qtyRequested}
+                                            value={orderFulfillmentDrafts[line.id] ?? String(line.qtyFulfilled || line.qtyRequested || 0)}
+                                            onChange={(event) => updateFulfillmentDraft(line, event.target.value)}
+                                          />
+                                        ) : (
+                                          line.qtyFulfilled.toLocaleString()
+                                        )}
+                                      </td>
+                                      <td className="mono num">{money(line.lineValue)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            {order.notes && <div className="ci-notice">{order.notes}</div>}
+                            <div className="ci-actions">
+                              <button className="ci-btn mini" type="button" onClick={() => printOrder(order)}>Print request</button>
+                              <button className="ci-btn mini" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
+                                {emailingOrderId === order.id ? "Emailing..." : "Email"}
+                              </button>
+                              {relatedIssueTicket && (
+                                <button className="ci-btn mini" type="button" onClick={() => {
+                                  setExpandedTicketId(relatedIssueTicket.id);
+                                  setActiveView("tickets");
+                                }}>View issue ticket</button>
+                              )}
+                              {canManageInventory && !closedOrder && (
+                                <>
+                                  {orderStatus === "submitted" && (
+                                    <>
+                                      <button className="ci-btn mini green" type="button" onClick={() => updateOrderStatus(order, "Approved")} disabled={saving}>Approve</button>
+                                      <button className="ci-btn mini red" type="button" onClick={() => updateOrderStatus(order, "Rejected")} disabled={saving}>Reject</button>
+                                    </>
+                                  )}
+                                  {orderStatus === "approved" && (
+                                    <button className="ci-btn mini" type="button" onClick={() => updateOrderStatus(order, "Picking")} disabled={saving}>Create pick ticket</button>
+                                  )}
+                                  {orderStatus === "picking" && (
+                                    <>
+                                      <button className="ci-btn mini" type="button" onClick={() => printPickTicket(order)}>Print pick ticket</button>
+                                      <button className="ci-btn mini" type="button" onClick={() => saveFulfillmentAmounts(order)} disabled={saving}>Save amounts</button>
+                                      <button className="ci-btn mini green" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>Fulfill &amp; open receipt</button>
+                                    </>
+                                  )}
+                                  <button className="ci-btn mini red" type="button" onClick={() => cancelOrder(order)} disabled={saving}>Cancel request</button>
+                                </>
+                              )}
+                            </div>
                           </>
                         )}
-                      </div>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </aside>
-        </section>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+        </>
       )}
 
       {activeView === "counter" && (
@@ -2743,184 +3653,362 @@ export default function InventoryModulePage() {
       )}
 
       {activeView === "items" && (
-      <>
-      <section className="filter-grid no-print">
-        <input className="field" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item ID, name, barcode, category..." />
-        <select className="field" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-          <option value="all">All Categories</option>
-          {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-        </select>
-        <select className="field" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
-          <option value="all">All Locations</option>
-          {locations.map((location) => <option key={location} value={location}>{location}</option>)}
-        </select>
-        <select className="field" value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)}>
-          <option value="all">All Vendors</option>
-          {vendors.map((vendor) => <option key={vendor.id} value={vendor.vendorName}>{vendor.vendorName}</option>)}
-        </select>
-        <select className="field" value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}>
-          <option value="all">All Stock</option>
-          <option value="low">Low Stock</option>
-          <option value="active">Active Only</option>
-          <option value="inactive">Inactive Only</option>
-        </select>
-      </section>
-
-      <section className="module-grid">
-        <article className="ticket-card module-main-card">
-          <h3>Inventory Items</h3>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Item ID</th>
-                  <th>Barcode</th>
-                  <th>Item Name</th>
-                  <th>Category</th>
-                  <th>Location</th>
-                  <th>Vendor</th>
-                  <th>Qty</th>
-                  <th>Min</th>
-                  <th>Unit Price</th>
-                  <th>Status</th>
-                  <th className="no-print">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((item) => (
-                  <tr key={item.id} className={selectedItemId === item.id ? "selected-row" : ""}>
-                    <td>{item.itemCode}</td>
-                    <td>{item.barcode || "-"}</td>
-                    <td>{item.itemName}</td>
-                    <td>{item.category || "-"}</td>
-                    <td>{item.location || "-"}</td>
-                    <td>{item.vendorName || "-"}</td>
-                    <td>{item.qtyOnHand.toLocaleString()}</td>
-                    <td>{item.minQuantity.toLocaleString()}</td>
-                    <td>{money(item.unitPrice)}</td>
-                    <td>
-                      <span className={item.lowStock || item.qtyOnHand <= item.minQuantity ? "badge red" : "badge green"}>
-                        {item.lowStock || item.qtyOnHand <= item.minQuantity ? "Low" : item.active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="row-actions no-print">
-                      <button className="mini-button" onClick={() => setSelectedItemId(item.id)}>History</button>
-                      {canPlaceInventoryOrders && <button className="mini-button" onClick={() => openOrder(item)}>Order</button>}
-                      {canManageInventory && (
-                        <>
-                          <button className="mini-button" onClick={() => openEditItem(item)}>Edit</button>
-                          <button className="mini-button" onClick={() => openAdjust(item)}>Adjust</button>
-                          <button className="mini-button" onClick={() => openManualReceive(item)}>Receive</button>
-                          <button className="mini-button" onClick={() => openPriceAdjust(item)}>Price</button>
-                          <button className="mini-button" onClick={() => openIssue(item)}>Issue</button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <aside className="module-side-stack">
-          <section className="ticket-card">
-            <h3>{selectedItem ? selectedItem.itemName : "Recent Transactions"}</h3>
-            {itemTransactions.length === 0 && <p className="muted-text">No transactions found.</p>}
-            {itemTransactions.map((transaction) => (
-              <article className="history-row" key={transaction.id}>
-                <div>
-                  <strong>{transaction.transactionType}</strong>
-                  <span>{transaction.itemCode}</span>
+        <>
+          <section className="card item-setup-card no-print">
+            <h2><span className="dot"></span>Item Setup<span className="ct">Create / update SKU</span></h2>
+            <div className="item-setup-photo-row">
+              <div className="item-setup-photo">
+                <div className="item-setup-photo-initials">{productInitials({
+                  id: itemForm.id,
+                  itemCode: itemForm.itemCode || "SKU",
+                  itemName: itemForm.itemName || "New Item",
+                  category: itemForm.category || "Item",
+                  location: itemForm.location,
+                  vendorId: itemForm.vendorId,
+                  vendorName: itemForm.vendorName,
+                  qtyOnHand: numberValue(itemForm.qtyOnHand),
+                  minQuantity: numberValue(itemForm.minQuantity),
+                  maxQuantity: numberValue(itemForm.maxQuantity),
+                  unitPrice: numberValue(itemForm.unitPrice),
+                  barcode: itemForm.barcode,
+                  uom: itemForm.uom,
+                  active: itemForm.active,
+                  lowStock: numberValue(itemForm.qtyOnHand) <= numberValue(itemForm.minQuantity),
+                })}</div>
+                <div className="item-setup-photo-band" />
+                <strong>{itemForm.category || "Category"}</strong>
+              </div>
+              <div className="item-setup-photo-control">
+                <label className="ci-field full">
+                  <div className="lab">Product photo</div>
+                  <input
+                    className="ci-input"
+                    value={itemPhotoDraft}
+                    onChange={(event) => setItemPhotoDraft(event.target.value)}
+                    placeholder="Photo URL or upload from device"
+                  />
+                </label>
+                <div className="ci-sub">Use a product photo URL, or upload from the device camera/files once photo storage is connected.</div>
+                <div className="ci-actions">
+                  <button className="ci-btn" type="button" onClick={() => setMessage("Product photo storage is not connected to the current inventory_items table yet.")}>Upload Photo</button>
+                  <button className="ci-btn" type="button" onClick={() => setItemPhotoDraft("")}>Clear Photo</button>
                 </div>
-                <div>
-                  <span>{transaction.quantityDirection || "-"} {transaction.quantity.toLocaleString()}</span>
-                  <small>{transaction.transactionDate}</small>
-                </div>
-                <small>{transaction.referenceNumber || transaction.notes || "-"}</small>
-              </article>
-            ))}
+                <div className="ci-sub">No saved photo yet. The store will show a generated category tile until one is added.</div>
+              </div>
+            </div>
+
+            <div className="item-setup-grid">
+              <label className="ci-field"><div className="lab">SKU / Item ID</div><input className="ci-input" value={itemForm.itemCode} onChange={(event) => setItemForm({ ...itemForm, itemCode: event.target.value })} /><div className="ci-sub">Unique item code used for lookup, scanning, tickets, and imports.</div></label>
+              <label className="ci-field"><div className="lab">Item Name</div><input className="ci-input" value={itemForm.itemName} onChange={(event) => setItemForm({ ...itemForm, itemName: event.target.value })} /><div className="ci-sub">Plain-English product name employees will see in the store.</div></label>
+              <label className="ci-field"><div className="lab">Category</div><input className="ci-input" value={itemForm.category} onChange={(event) => setItemForm({ ...itemForm, category: event.target.value })} /><div className="ci-sub">Groups items for filtering and dashboard spend.</div></label>
+              <label className="ci-field"><div className="lab">Unit of Measure</div><input className="ci-input" value={itemForm.uom} onChange={(event) => setItemForm({ ...itemForm, uom: event.target.value })} /><div className="ci-sub">How the item is counted or issued: can, pair, pail, each, spool.</div></label>
+              <label className="ci-field"><div className="lab">Bin Location</div><input className="ci-input" value={itemForm.location} onChange={(event) => setItemForm({ ...itemForm, location: event.target.value })} /><div className="ci-sub">Where warehouse staff physically find it.</div></label>
+              <label className="ci-field"><div className="lab">Barcode</div><input className="ci-input" value={itemForm.barcode} onChange={(event) => setItemForm({ ...itemForm, barcode: event.target.value })} /><div className="ci-sub">Scanner code. If blank, TITAN can use the SKU.</div></label>
+              <label className="ci-field"><div className="lab">Preferred Vendor</div><select className="ci-select" value={itemForm.vendorId} onChange={(event) => setItemForm({ ...itemForm, vendorId: event.target.value })}><option value="">No vendor</option>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendorName}</option>)}</select><div className="ci-sub">Supplier normally used when this item needs purchased.</div></label>
+              <label className="ci-field"><div className="lab">Qty On Hand</div><input className="ci-input" type="number" value={itemForm.qtyOnHand} onChange={(event) => setItemForm({ ...itemForm, qtyOnHand: event.target.value })} /><div className="ci-sub">Actual usable quantity currently in this branch warehouse.</div></label>
+              <label className="ci-field"><div className="lab">Reorder Min</div><input className="ci-input" type="number" value={itemForm.minQuantity} onChange={(event) => setItemForm({ ...itemForm, minQuantity: event.target.value })} /><div className="ci-sub">When on-hand drops below this number, item appears in Reorder Queue.</div></label>
+              <label className="ci-field"><div className="lab">Max Target</div><input className="ci-input" type="number" value={itemForm.maxQuantity} onChange={(event) => setItemForm({ ...itemForm, maxQuantity: event.target.value })} /><div className="ci-sub">Ideal stocked amount after reordering.</div></label>
+              <label className="ci-field"><div className="lab">Avg Weekly Use</div><input className="ci-input" value={selectedItemWeeklyUse.toLocaleString()} readOnly /><div className="ci-sub">Calculated from issue tickets over the last 12 weeks.</div></label>
+              <label className="ci-field"><div className="lab">Average Cost</div><input className="ci-input" type="number" value={itemForm.unitPrice} onChange={(event) => setItemForm({ ...itemForm, unitPrice: event.target.value })} /><div className="ci-sub">Estimated cost per unit for issue spend, PO value, and inventory value.</div></label>
+            </div>
+
+            <div className="ci-actions item-setup-actions">
+              <button className="ci-btn pri" onClick={saveItem} disabled={saving}>{saving ? "Saving..." : "Save Item"}</button>
+              <button className="ci-btn" onClick={openNewItem}>New Blank Item</button>
+              <button
+                className="ci-btn"
+                disabled={!selectedItem}
+                onClick={() => {
+                  if (!selectedItem) return;
+                  seedPurchaseOrderItem(selectedItem);
+                }}
+              >
+                Add Selected To PO
+              </button>
+              <label className="checkbox-row item-active-toggle"><input type="checkbox" checked={itemForm.active} onChange={(event) => setItemForm({ ...itemForm, active: event.target.checked })} /> Active SKU</label>
+            </div>
+            <div className="ci-sub">Select a row below to edit, or blank the form to create a new SKU for this branch.</div>
           </section>
 
-          <section className="ticket-card">
-            <h3>Recent Issue Tickets</h3>
-            {tickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
-            {tickets.map((ticket) => {
-              const lines = linesForTicket(ticket);
-              const expanded = expandedTicketId === ticket.id;
-
-              return (
-                <article className={`document-card ${expanded ? "open" : ""}`} key={ticket.id}>
-                  <button
-                    className="document-card-summary"
-                    type="button"
-                    onClick={() => setExpandedTicketId(expanded ? "" : ticket.id)}
-                  >
-                    <div>
-                      <strong>{ticket.ticketNumber}</strong>
-                      <span>{ticket.issuedTo || "-"} / {ticket.department || "-"}</span>
-                      <small>{lines.length} lines / {ticket.issueDate}</small>
-                    </div>
-                    <span className="document-status">{ticket.status || "Issued"}</span>
-                  </button>
-
-                  {expanded && (
-                    <div className="document-card-detail">
-                      <div className="document-detail-grid">
-                        <span><strong>Picked By:</strong> {ticket.pickedBy || "-"}</span>
-                        <span><strong>Unit / Truck:</strong> {ticket.unitTruck || "-"}</span>
-                        <span><strong>Job Number:</strong> {ticket.jobNumber || "-"}</span>
-                        <span><strong>Total:</strong> {money(ticket.totalValue)}</span>
-                      </div>
-
-                      <div className="table-wrap">
-                        <table className="document-line-table">
-                          <thead>
-                            <tr>
-                              <th>Item ID</th>
-                              <th>Item Name</th>
-                              <th>Qty</th>
-                              <th>Value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {lines.length === 0 && (
-                              <tr><td colSpan={4}>No line items found for this ticket.</td></tr>
-                            )}
-                            {lines.map((line) => (
-                              <tr key={line.id}>
-                                <td>{line.itemCode || "-"}</td>
-                                <td>{line.itemName || "-"}</td>
-                                <td>{line.qtyIssued.toLocaleString()}</td>
-                                <td>{money(line.lineValue)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {ticket.notes && <p className="muted-text">{ticket.notes}</p>}
-
-                      <div className="document-actions">
-                        <button className="mini-button" type="button" onClick={() => printIssueTicket(ticket)}>Print / PDF</button>
-                        <button
-                          className="mini-button"
-                          type="button"
-                          onClick={() => emailIssueTicket(ticket)}
-                          disabled={emailingTicketId === ticket.id}
+          <section className="ci-layout item-master-layout">
+            <div className="card">
+              <h2><span className="dot"></span>Inventory Items<span className="ct">{filteredItems.length.toLocaleString()} shown</span></h2>
+              <div className="ci-toolbar item-master-toolbar">
+                <input className="ci-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, barcode, category..." />
+                <select className="ci-select" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                  <option value="all">All Categories</option>
+                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+                <select className="ci-select" value={locationFilter} onChange={(event) => setLocationFilter(event.target.value)}>
+                  <option value="all">All Bins</option>
+                  {locations.map((location) => <option key={location} value={location}>{location}</option>)}
+                </select>
+                <select className="ci-select" value={vendorFilter} onChange={(event) => setVendorFilter(event.target.value)}>
+                  <option value="all">All Vendors</option>
+                  {vendors.map((vendor) => <option key={vendor.id} value={vendor.vendorName}>{vendor.vendorName}</option>)}
+                </select>
+                <select className="ci-select" value={stockFilter} onChange={(event) => setStockFilter(event.target.value)}>
+                  <option value="all">All Stock</option>
+                  <option value="low">Low Stock</option>
+                  <option value="active">Active Only</option>
+                  <option value="inactive">Inactive Only</option>
+                </select>
+              </div>
+              <div className="ci-table-wrap item-master-table-wrap">
+                <table className="dt item-master-table">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Item</th>
+                      <th>Category</th>
+                      <th>Bin</th>
+                      <th>Vendor</th>
+                      <th className="num">On Hand</th>
+                      <th className="num">Min</th>
+                      <th className="num">Max</th>
+                      <th className="num">Cost</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((item) => {
+                      const needsReorder = item.lowStock || item.qtyOnHand <= item.minQuantity;
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`click-row ${selectedItemId === item.id ? "selected-row" : ""}`}
+                          onClick={() => selectItemForSetup(item)}
                         >
-                          {emailingTicketId === ticket.id ? "Emailing..." : "Email"}
-                        </button>
-                      </div>
+                          <td className="mono"><b>{item.itemCode}</b><div className="ci-sub">{item.barcode || "No barcode"}</div></td>
+                          <td>{item.itemName}</td>
+                          <td>{item.category || "-"}</td>
+                          <td>{item.location || "-"}</td>
+                          <td>{item.vendorName || "-"}</td>
+                          <td className="mono num">{item.qtyOnHand.toLocaleString()}</td>
+                          <td className="mono num">{item.minQuantity.toLocaleString()}</td>
+                          <td className="mono num">{item.maxQuantity.toLocaleString()}</td>
+                          <td className="mono num">{money(item.unitPrice)}</td>
+                          <td><span className={`pill ${!item.active ? "neu" : needsReorder ? "warn" : "ok"}`}>{!item.active ? "Inactive" : needsReorder ? "Reorder" : "OK"}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <aside className="module-side-stack">
+              <section className="card selected-item-card">
+                <h2><span className="dot"></span>{selectedItem ? "Selected Item" : "Item Actions"}<span className="ct">{selectedItem ? selectedItem.itemCode : "select row"}</span></h2>
+                {!selectedItem ? (
+                  <div className="empty-pos-cart">
+                    <strong>No item selected.</strong>
+                    <span>Click any row in the inventory table to load setup, movement history, and item actions.</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="ci-detail-title">{selectedItem.itemName}</div>
+                    <div className="ci-status-rail">
+                      <span className="pill neu">{selectedItem.category || "No category"}</span>
+                      <span className="pill neu">{selectedItem.location || "No bin"}</span>
+                      <span className={`pill ${selectedItem.qtyOnHand <= selectedItem.minQuantity ? "warn" : "ok"}`}>{selectedItem.qtyOnHand.toLocaleString()} on hand</span>
                     </div>
-                  )}
-                </article>
-              );
-            })}
+                    <div className="ci-microgrid">
+                      <div className="ci-micro"><div className="lab">Min</div><div className="val">{selectedItem.minQuantity.toLocaleString()}</div></div>
+                      <div className="ci-micro"><div className="lab">Max</div><div className="val">{selectedItem.maxQuantity.toLocaleString()}</div></div>
+                      <div className="ci-micro"><div className="lab">Cost</div><div className="val">{money(selectedItem.unitPrice)}</div></div>
+                    </div>
+                    <div className="ci-actions selected-item-actions">
+                      <button className="ci-btn mini" onClick={() => selectItemForSetup(selectedItem)}>Edit Setup</button>
+                      {canManageInventory && <button className="ci-btn mini" onClick={() => openAdjust(selectedItem)}>Adjust Qty</button>}
+                      {canManageInventory && <button className="ci-btn mini" onClick={() => openManualReceive(selectedItem)}>Receive</button>}
+                      {canManageInventory && <button className="ci-btn mini" onClick={() => openPriceAdjust(selectedItem)}>Price</button>}
+                      {canManageInventory && <button className="ci-btn mini" onClick={() => openIssue(selectedItem)}>Issue</button>}
+                      {canPlaceInventoryOrders && <button className="ci-btn mini" onClick={() => openOrder(selectedItem)}>Consumables Store</button>}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              <section className="card">
+                <h2><span className="dot"></span>{selectedItem ? "Movement History" : "Recent Transactions"}<span className="ct">{itemTransactions.length.toLocaleString()} rows</span></h2>
+                <div className="ci-queue item-history-list">
+                  {itemTransactions.length === 0 && <p className="muted-text">No transactions found.</p>}
+                  {itemTransactions.map((transaction) => (
+                    <article className="ci-line" key={transaction.id}>
+                      <div>
+                        <b>{transaction.transactionType}</b>
+                        <span>{transaction.itemCode} · {transaction.referenceNumber || transaction.notes || "-"}</span>
+                      </div>
+                      <div className="ci-num">
+                        {transaction.quantityDirection || "-"} {transaction.quantity.toLocaleString()}
+                        <span>{transaction.transactionDate}</span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </aside>
           </section>
-        </aside>
-      </section>
-      </>
+        </>
+      )}
+
+      {activeView === "approvals" && (
+        <section className="inventory-control-page no-print">
+          <div className="grid g2 approval-overview-grid">
+            <article className="card">
+              <h2><span className="dot"></span>PO Approval Center<span className="ct">{purchaseOrdersForApproval.length.toLocaleString()} active</span></h2>
+              <div className="ci-microgrid">
+                <div className="ci-micro"><div className="lab">Submitted</div><div className="val">{purchaseOrdersForApproval.filter((order) => (order.status || "").toLowerCase() === "submitted").length.toLocaleString()}</div></div>
+                <div className="ci-micro"><div className="lab">Ordered</div><div className="val">{purchaseOrdersForApproval.filter((order) => (order.status || "").toLowerCase() === "ordered").length.toLocaleString()}</div></div>
+                <div className="ci-micro"><div className="lab">Open Value</div><div className="val">{money(purchaseOrdersForApproval.reduce((sum, order) => sum + order.totalValue, 0))}</div></div>
+              </div>
+              <div className="ci-sub">This page gives inventory a focused approval queue. Final PO edits, approval status changes, receiving, and vendor emails stay in the live Purchase Orders module.</div>
+              <div className="ci-actions">
+                <button className="ci-btn pri" type="button" onClick={() => (window.location.href = "/purchase-orders")}>Open Purchase Orders</button>
+              </div>
+            </article>
+
+            <article className="card">
+              <h2><span className="dot"></span>Approval Rules<span className="ct">working prototype</span></h2>
+              <div className="approval-rule-list">
+                <div><b>Draft</b><span>Buyer is still building the PO.</span></div>
+                <div><b>Submitted</b><span>Ready for manager review before ordering.</span></div>
+                <div><b>Ordered</b><span>Approved and sent to vendor.</span></div>
+                <div><b>Received</b><span>Inventory has been brought into stock.</span></div>
+              </div>
+            </article>
+          </div>
+
+          <article className="card">
+            <h2><span className="dot"></span>POs Needing Review<span className="ct">{purchaseOrdersForApproval.length.toLocaleString()} rows</span></h2>
+            <div className="ci-queue approval-queue">
+              {purchaseOrdersForApproval.length === 0 && (
+                <div className="empty-pos-cart">
+                  <strong>No purchase orders need attention.</strong>
+                  <span>Submitted, ordered, and partially received POs will show here.</span>
+                </div>
+              )}
+              {purchaseOrdersForApproval.map((order) => {
+                const lines = linesForPurchaseOrder(order);
+                const expanded = expandedPoId === order.id;
+                const orderedQty = lines.reduce((sum, line) => sum + line.quantityOrdered, 0);
+                const receivedQty = lines.reduce((sum, line) => sum + line.quantityReceived, 0);
+                const status = (order.status || "Draft").toLowerCase();
+                const statusClass = status === "ordered" || status === "partially received" ? "ok" : status === "submitted" ? "warn" : "neu";
+
+                return (
+                  <article className={`ci-request-card ${expanded ? "focus" : ""}`} key={order.id}>
+                    <button className="ci-detail-head request-summary-button" type="button" onClick={() => setExpandedPoId(expanded ? "" : order.id)}>
+                      <div>
+                        <div className="ci-detail-title">{order.poNumber || "Unnumbered PO"}</div>
+                        <div className="ci-sub">{order.vendorName || "No vendor"} · {order.requestedBy || "-"} · {order.orderDate || "-"}</div>
+                      </div>
+                      <span className={`pill ${statusClass}`}>{order.status || "Draft"}</span>
+                    </button>
+                    <div className="ci-status-rail">
+                      <span className="pill neu">{lines.length.toLocaleString()} lines</span>
+                      <span className="pill neu">{orderedQty.toLocaleString()} ordered</span>
+                      <span className="pill neu">{receivedQty.toLocaleString()} received</span>
+                      <span className="pill neu">{money(order.totalValue)}</span>
+                    </div>
+                    {expanded && (
+                      <>
+                        <div className="ci-table-wrap compact-table-wrap">
+                          <table className="dt">
+                            <thead><tr><th>Item</th><th className="num">Ordered</th><th className="num">Received</th><th className="num">Unit</th><th className="num">Line</th></tr></thead>
+                            <tbody>
+                              {lines.length === 0 && <tr><td colSpan={5}>No line items found for this PO.</td></tr>}
+                              {lines.map((line) => (
+                                <tr key={line.id}>
+                                  <td><b>{line.itemCode || "-"}</b><div className="ci-sub">{line.itemName || "-"}</div></td>
+                                  <td className="mono num">{line.quantityOrdered.toLocaleString()}</td>
+                                  <td className="mono num">{line.quantityReceived.toLocaleString()}</td>
+                                  <td className="mono num">{money(line.unitCost)}</td>
+                                  <td className="mono num">{money(line.lineTotal)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="ci-actions">
+                          <button className="ci-btn mini pri" type="button" onClick={() => (window.location.href = "/purchase-orders")}>Review / Approve PO</button>
+                          <button className="ci-btn mini" type="button" onClick={() => (window.location.href = "/purchase-orders")}>Receive Against PO</button>
+                        </div>
+                      </>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {activeView === "reorder" && (
+        <section className="inventory-control-page no-print">
+          <article className="card reorder-command-card">
+            <h2><span className="dot"></span>Reorder Queue<span className="ct">{reorderItems.length.toLocaleString()} items below min</span></h2>
+            <div className="ci-microgrid">
+              <div className="ci-micro"><div className="lab">Low / Out</div><div className="val">{lowStockCount.toLocaleString()} / {outOfStockCount.toLocaleString()}</div></div>
+              <div className="ci-micro"><div className="lab">Suggested PO Value</div><div className="val">{money(reorderItems.reduce((sum, item) => sum + suggestedReorderQuantity(item) * item.unitPrice, 0))}</div></div>
+              <div className="ci-micro"><div className="lab">Vendors</div><div className="val">{new Set(reorderItems.map((item) => item.vendorName).filter(Boolean)).size.toLocaleString()}</div></div>
+            </div>
+            <div className="ci-sub">Suggested quantity fills each SKU back to max target when available, otherwise to the reorder minimum. Click a row to load it into Item Setup.</div>
+          </article>
+
+          <article className="card">
+            <h2><span className="dot"></span>Actionable Reorder Lines<span className="ct">click row for setup</span></h2>
+            <div className="ci-table-wrap reorder-table-wrap">
+              <table className="dt reorder-table">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Item</th>
+                    <th>Vendor</th>
+                    <th className="num">On Hand</th>
+                    <th className="num">Min</th>
+                    <th className="num">Max</th>
+                    <th className="num">Suggested</th>
+                    <th className="num">Value</th>
+                    <th className="no-print">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reorderItems.length === 0 && <tr><td colSpan={9}>All active inventory is above reorder minimum.</td></tr>}
+                  {reorderItems.map((item) => {
+                    const suggestedQty = suggestedReorderQuantity(item);
+                    const out = item.qtyOnHand <= 0;
+                    return (
+                      <tr
+                        key={item.id}
+                        className={`click-row ${selectedItemId === item.id ? "selected-row" : ""}`}
+                        onClick={() => {
+                          selectItemForSetup(item);
+                          setActiveView("items");
+                        }}
+                      >
+                        <td className="mono"><b>{item.itemCode}</b><div className="ci-sub">{item.barcode || "No barcode"}</div></td>
+                        <td>{item.itemName}<div className="ci-sub">{item.category || "Uncategorized"} · {item.location || "No bin"}</div></td>
+                        <td>{item.vendorName || "No vendor"}</td>
+                        <td className="mono num"><span className={`pill ${out ? "bad" : "warn"}`}>{item.qtyOnHand.toLocaleString()}</span></td>
+                        <td className="mono num">{item.minQuantity.toLocaleString()}</td>
+                        <td className="mono num">{item.maxQuantity.toLocaleString()}</td>
+                        <td className="mono num">{suggestedQty.toLocaleString()}</td>
+                        <td className="mono num">{money(suggestedQty * item.unitPrice)}</td>
+                        <td className="row-actions no-print">
+                          <button className="ci-btn mini" type="button" onClick={(event) => { event.stopPropagation(); seedPurchaseOrderItem(item, suggestedQty); }}>Add To PO</button>
+                          <button className="ci-btn mini" type="button" onClick={(event) => { event.stopPropagation(); openManualReceive(item); }}>Receive</button>
+                          <button className="ci-btn mini" type="button" onClick={(event) => { event.stopPropagation(); selectItemForSetup(item); setActiveView("items"); }}>Edit</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
       )}
 
       {activeView === "tickets" && (
@@ -2977,6 +4065,51 @@ export default function InventoryModulePage() {
               </article>
             );
           })}
+        </section>
+      )}
+
+      {activeView === "documents" && (
+        <section className="inventory-control-page no-print">
+          <article className="card">
+            <h2><span className="dot"></span>Documents<span className="ct">{inventoryDocuments.length.toLocaleString()} recent</span></h2>
+            <div className="ci-sub">A single register for issue tickets, Consumables Store requests, and purchase orders. Click a document to open its detail screen.</div>
+            <div className="ci-table-wrap document-register-wrap">
+              <table className="dt document-register-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Document</th>
+                    <th>Type</th>
+                    <th>Party</th>
+                    <th>Status</th>
+                    <th className="num">Lines</th>
+                    <th className="num">Value</th>
+                    <th className="no-print">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryDocuments.length === 0 && <tr><td colSpan={8}>No inventory documents found.</td></tr>}
+                  {inventoryDocuments.map((document) => (
+                    <tr className="click-row" key={document.id} onClick={() => openInventoryDocument(document)}>
+                      <td>{document.date || "-"}</td>
+                      <td><b>{document.number}</b><div className="ci-sub">{document.id}</div></td>
+                      <td>{document.type}</td>
+                      <td>{document.party || "-"}</td>
+                      <td><span className="pill neu">{document.status || "-"}</span></td>
+                      <td className="mono num">{document.lines.toLocaleString()}</td>
+                      <td className="mono num">{money(document.value)}</td>
+                      <td className="row-actions no-print">
+                        <button className="ci-btn mini" type="button" onClick={(event) => { event.stopPropagation(); openInventoryDocument(document); }}>Open</button>
+                        <button className="ci-btn mini" type="button" onClick={(event) => { event.stopPropagation(); printInventoryDocument(document); }}>
+                          {document.action === "purchase-orders" ? "PO Module" : "Print"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </article>
         </section>
       )}
 

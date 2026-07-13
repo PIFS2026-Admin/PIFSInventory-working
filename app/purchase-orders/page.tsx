@@ -72,6 +72,15 @@ type LineForm = {
   unitCost: string;
 };
 
+type InventoryPoSeed = {
+  id?: string;
+  itemCode?: string;
+  itemName?: string;
+  vendorName?: string;
+  unitPrice?: number;
+  quantityOrdered?: number;
+};
+
 const statusOptions = ["Draft", "Submitted", "Ordered", "Partially Received", "Received", "Closed", "Cancelled"];
 const inventoryRoles = ["admin", "inventory_specialist", "inventory_manager"];
 const managementRoles = ["admin", "inventory_manager"];
@@ -161,6 +170,7 @@ export default function PurchaseOrdersPage() {
   const [lineFormOpen, setLineFormOpen] = useState(false);
   const [poForm, setPoForm] = useState<PoForm>(emptyPoForm);
   const [lineForm, setLineForm] = useState<LineForm>(emptyLineForm);
+  const [pendingSeedLine, setPendingSeedLine] = useState<LineForm | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [uploading, setUploading] = useState(false);
@@ -201,6 +211,43 @@ export default function PurchaseOrdersPage() {
   useEffect(() => {
     loadPage();
   }, []);
+
+  useEffect(() => {
+    if (loading || !canUsePurchaseOrders || items.length === 0) return;
+
+    const seedText = window.sessionStorage.getItem("titanInventoryPoSeedItem");
+    if (!seedText) return;
+    window.sessionStorage.removeItem("titanInventoryPoSeedItem");
+
+    try {
+      const seed = JSON.parse(seedText) as InventoryPoSeed;
+      const item =
+        items.find((candidate) => candidate.id === seed.id) ||
+        items.find((candidate) => candidate.itemCode === seed.itemCode);
+      const vendor = vendors.find((candidate) => candidate.vendorName.toLowerCase() === String(seed.vendorName || "").toLowerCase());
+      const seedLine: LineForm = {
+        itemId: item?.id || seed.id || "",
+        itemCode: item?.itemCode || seed.itemCode || "",
+        itemName: item?.itemName || seed.itemName || "",
+        quantityOrdered: String(seed.quantityOrdered || 1),
+        unitCost: String(seed.unitPrice ?? item?.unitPrice ?? 0),
+      };
+
+      setPendingSeedLine(seedLine);
+      setPoForm({
+        ...emptyPoForm,
+        poNumber: poNumber(),
+        vendorId: vendor?.id || "",
+        vendorName: seed.vendorName || vendor?.vendorName || "",
+        requestedBy: userName,
+        notes: `Seeded from inventory reorder for ${seedLine.itemCode || seedLine.itemName}.`,
+      });
+      setPoFormOpen(true);
+      setMessage(`${seedLine.itemCode || seedLine.itemName} is ready. Save the PO, then review and add the prepared line.`);
+    } catch {
+      setMessage("The inventory PO handoff could not be read. Create the PO manually.");
+    }
+  }, [canUsePurchaseOrders, items, loading, userName, vendors]);
 
   async function loadPage() {
     setLoading(true);
@@ -471,7 +518,13 @@ export default function PurchaseOrdersPage() {
     } else {
       setPoFormOpen(false);
       await loadOrders(selectedInventoryYardId);
-      if (movedToOrdered && vendor?.email) {
+      setSelectedPoId(savedOrder.id);
+      if (pendingSeedLine && !poForm.id) {
+        setLineForm(pendingSeedLine);
+        setPendingSeedLine(null);
+        setLineFormOpen(true);
+        setMessage("Purchase order saved. Review the prepared inventory line and click Add Line.");
+      } else if (movedToOrdered && vendor?.email) {
         await sendPurchaseOrderEmail(savedOrder.id, vendor.email, "Attached is your TITAN purchase order.", "Purchase order saved and emailed to vendor.");
       } else {
         setMessage(movedToOrdered && !vendor?.email ? "Purchase order saved. Vendor email is missing, so it was not emailed." : "Purchase order saved.");
