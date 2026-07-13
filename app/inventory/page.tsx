@@ -51,6 +51,7 @@ type InventoryItem = {
   uom: string;
   active: boolean;
   lowStock: boolean;
+  photoUrl: string;
 };
 
 type InventoryTransaction = {
@@ -171,6 +172,7 @@ type ItemForm = {
   barcode: string;
   uom: string;
   active: boolean;
+  photoUrl: string;
 };
 
 type IssueForm = {
@@ -192,7 +194,7 @@ type OrderForm = {
 };
 
 type InventoryModuleView = "dashboard" | "orders" | "counter" | "approvals" | "reorder" | "items" | "tickets" | "documents" | "vendors";
-type DashboardPeriod = "week" | "lastWeek" | "month" | "quarter" | "year";
+type DashboardPeriod = "week" | "lastWeek" | "month" | "quarter" | "year" | "all";
 
 type VendorForm = {
   id: string;
@@ -236,6 +238,7 @@ const emptyItemForm: ItemForm = {
   barcode: "",
   uom: "Each",
   active: true,
+  photoUrl: "",
 };
 
 const emptyIssueForm: IssueForm = {
@@ -280,6 +283,7 @@ const dashboardPeriodOptions: Array<{ value: DashboardPeriod; label: string }> =
   { value: "month", label: "This Month" },
   { value: "quarter", label: "This Quarter" },
   { value: "year", label: "This Year" },
+  { value: "all", label: "All Records" },
 ];
 
 const emptyVendorForm: VendorForm = {
@@ -422,6 +426,10 @@ function localDayStart(date = new Date()) {
 }
 
 function getDashboardPeriodRange(period: DashboardPeriod) {
+  if (period === "all") {
+    return { start: new Date(0), end: new Date(8640000000000000) };
+  }
+
   const today = localDayStart();
   const end = new Date(today);
   end.setDate(end.getDate() + 1);
@@ -541,6 +549,8 @@ export default function InventoryModulePage() {
   const [cameraScanning, setCameraScanning] = useState(false);
   const scanFieldRef = useRef<HTMLInputElement | null>(null);
   const cameraFileRef = useRef<HTMLInputElement | null>(null);
+  const itemPhotoUploadRef = useRef<HTMLInputElement | null>(null);
+  const itemPhotoCameraRef = useRef<HTMLInputElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
@@ -562,6 +572,14 @@ export default function InventoryModulePage() {
       return query.or(`yard_id.eq.${yardId},yard_id.is.null`);
     }
     return query.eq("yard_id", yardId);
+  }
+
+  function renderProductPhoto(item: InventoryItem, className = "ci-product-photo") {
+    if (item.photoUrl) {
+      return <img className={`${className} ci-product-img`} src={item.photoUrl} alt={item.itemName || item.itemCode} />;
+    }
+
+    return <div className={`${className} generated-product-tile`}>{productInitials(item)}</div>;
   }
 
   useEffect(() => {
@@ -903,8 +921,7 @@ export default function InventoryModulePage() {
       action: "orders",
     }));
     return [...poDocs, ...issueDocs, ...requestDocs]
-      .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")))
-      .slice(0, 150);
+      .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
   }, [orders, orderLines, purchaseOrderLineCounts, purchaseOrders, tickets, ticketLines]);
   const topIssuedItems = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
@@ -1129,6 +1146,25 @@ export default function InventoryModulePage() {
       return;
     }
 
+    let photoQuery = supabase
+      .from("inventory_documents")
+      .select("linked_record_id, file_url, uploaded_at")
+      .eq("linked_record_type", "item")
+      .order("uploaded_at", { ascending: false })
+      .limit(5000);
+    photoQuery = applyInventoryYardScope(photoQuery, yardId, yardList);
+
+    const { data: photoData, error: photoError } = await photoQuery;
+    const photoByItemId = new Map<string, string>();
+    if (!photoError) {
+      (photoData || []).forEach((photo) => {
+        const itemId = String(photo.linked_record_id || "");
+        if (itemId && photo.file_url && !photoByItemId.has(itemId)) {
+          photoByItemId.set(itemId, photo.file_url);
+        }
+      });
+    }
+
     setItems(
       (data || []).map((row) => {
         const vendor = Array.isArray(row.inventory_vendors)
@@ -1150,9 +1186,14 @@ export default function InventoryModulePage() {
           uom: row.uom || "",
           active: Boolean(row.active),
           lowStock: Boolean(row.low_stock),
+          photoUrl: photoByItemId.get(row.id) || "",
         };
       }),
     );
+
+    if (photoError && !String(photoError.message || "").includes("inventory_documents")) {
+      setMessage(`Item photos failed: ${photoError.message}`);
+    }
   }
 
   async function loadTransactions(yardId = selectedInventoryYardId, yardList = inventoryYards) {
@@ -1160,7 +1201,7 @@ export default function InventoryModulePage() {
       .from("inventory_transactions")
       .select("*")
       .order("transaction_date", { ascending: false })
-      .limit(250);
+      .limit(5000);
     query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
@@ -1408,7 +1449,9 @@ export default function InventoryModulePage() {
       barcode: item.barcode,
       uom: item.uom,
       active: item.active,
+      photoUrl: item.photoUrl,
     });
+    setItemPhotoDraft(item.photoUrl);
   }
 
   function openNewVendor() {
@@ -1509,16 +1552,112 @@ export default function InventoryModulePage() {
     };
 
     const request = itemForm.id
-      ? supabase.from("inventory_items").update(payload).eq("id", itemForm.id)
-      : supabase.from("inventory_items").insert(payload);
+      ? supabase.from("inventory_items").update(payload).eq("id", itemForm.id).select("id").single()
+      : supabase.from("inventory_items").insert(payload).select("id").single();
 
-    const { error } = await request;
-    if (error) {
-      setMessage(`Save failed: ${error.message}`);
+    const { data: savedItem, error } = await request;
+    if (error || !savedItem) {
+      setMessage(`Save failed: ${error?.message || "item was not returned."}`);
     } else {
+      let photoMessage = "";
+      if (itemPhotoDraft.trim() && itemPhotoDraft.trim() !== itemForm.photoUrl) {
+        const photoError = await saveItemPhotoUrl(savedItem.id, itemPhotoDraft.trim(), itemForm.itemCode.trim() || "item-photo");
+        if (photoError) photoMessage = ` Photo link failed: ${photoError}`;
+      }
       setItemFormOpen(false);
       await loadItems();
-      setMessage("Inventory item saved.");
+      setMessage(`Inventory item saved.${photoMessage}`);
+    }
+    setSaving(false);
+  }
+
+  async function saveItemPhotoUrl(itemId: string, photoUrl: string, fileName = "item-photo") {
+    const cleanUrl = photoUrl.trim();
+    if (!itemId || !cleanUrl) return "";
+
+    const { error } = await supabase.from("inventory_documents").insert({
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+      linked_record_type: "item",
+      linked_record_id: itemId,
+      file_name: fileName,
+      file_url: cleanUrl,
+      file_path: cleanUrl.startsWith("http") ? null : cleanUrl,
+      mime_type: "image/*",
+      file_size: null,
+    });
+    return error?.message || "";
+  }
+
+  async function handleItemPhotoFile(file?: File | null) {
+    if (!file) return;
+    if (!itemForm.id) {
+      setMessage("Save the inventory item first, then attach a product photo.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "item-photo.jpg";
+    const filePath = `inventory-items/${selectedInventoryYardId || "yard"}/${itemForm.id}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from("ticket-attachments").upload(filePath, file, {
+      upsert: true,
+      contentType: file.type || "image/jpeg",
+    });
+
+    if (uploadError) {
+      setMessage(`Photo upload failed: ${uploadError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
+    const publicUrl = publicUrlData.publicUrl;
+    const { error: docError } = await supabase.from("inventory_documents").insert({
+      ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
+      linked_record_type: "item",
+      linked_record_id: itemForm.id,
+      file_name: file.name || safeName,
+      file_url: publicUrl,
+      file_path: filePath,
+      mime_type: file.type || "image/jpeg",
+      file_size: file.size,
+    });
+
+    if (docError) {
+      setMessage(`Photo uploaded, but item link failed: ${docError.message}`);
+      setSaving(false);
+      return;
+    }
+
+    setItemPhotoDraft(publicUrl);
+    setItemForm((current) => ({ ...current, photoUrl: publicUrl }));
+    await loadItems(selectedInventoryYardId);
+    setMessage("Product photo saved.");
+    setSaving(false);
+  }
+
+  async function clearItemPhoto() {
+    const targetId = itemForm.id || selectedItem?.id || "";
+    setItemPhotoDraft("");
+    setItemForm((current) => ({ ...current, photoUrl: "" }));
+    if (!targetId) {
+      setMessage("Photo cleared from the form.");
+      return;
+    }
+
+    setSaving(true);
+    const deleteQuery = supabase
+      .from("inventory_documents")
+      .delete()
+      .eq("linked_record_type", "item")
+      .eq("linked_record_id", targetId);
+    const { error } = await deleteQuery;
+    if (error) {
+      setMessage(`Photo clear failed: ${error.message}`);
+    } else {
+      await loadItems(selectedInventoryYardId);
+      setMessage("Product photo cleared.");
     }
     setSaving(false);
   }
@@ -3347,7 +3486,7 @@ export default function InventoryModulePage() {
                     return (
                       <article className="ci-store-item" key={item.id}>
                         <div className="ci-store-card-head">
-                          <div className="ci-product-photo generated-product-tile">{productInitials(item)}</div>
+                          {renderProductPhoto(item)}
                           <div>
                             <div className="ci-name" title={item.itemName}>{item.itemName}</div>
                             <div className="ci-sub">{item.itemCode} · {item.category || "Uncategorized"} · {item.vendorName || "No vendor"}</div>
@@ -3664,6 +3803,9 @@ export default function InventoryModulePage() {
             <h2><span className="dot"></span>Item Setup<span className="ct">Create / update SKU</span></h2>
             <div className="item-setup-photo-row">
               <div className="item-setup-photo">
+                {itemPhotoDraft ? (
+                  <img className="item-setup-photo-img" src={itemPhotoDraft} alt={itemForm.itemName || itemForm.itemCode || "Product photo"} />
+                ) : (
                 <div className="item-setup-photo-initials">{productInitials({
                   id: itemForm.id,
                   itemCode: itemForm.itemCode || "SKU",
@@ -3680,7 +3822,9 @@ export default function InventoryModulePage() {
                   uom: itemForm.uom,
                   active: itemForm.active,
                   lowStock: numberValue(itemForm.qtyOnHand) <= numberValue(itemForm.minQuantity),
+                  photoUrl: itemPhotoDraft,
                 })}</div>
+                )}
                 <div className="item-setup-photo-band" />
                 <strong>{itemForm.category || "Category"}</strong>
               </div>
@@ -3694,12 +3838,28 @@ export default function InventoryModulePage() {
                     placeholder="Photo URL or upload from device"
                   />
                 </label>
-                <div className="ci-sub">Use a product photo URL, or upload from the device camera/files once photo storage is connected.</div>
+                <div className="ci-sub">Use a product photo URL, upload from files, or take a photo with a mobile device camera.</div>
+                <input
+                  ref={itemPhotoUploadRef}
+                  className="hidden-file-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleItemPhotoFile(event.target.files?.[0])}
+                />
+                <input
+                  ref={itemPhotoCameraRef}
+                  className="hidden-file-input"
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => handleItemPhotoFile(event.target.files?.[0])}
+                />
                 <div className="ci-actions">
-                  <button className="ci-btn" type="button" onClick={() => setMessage("Product photo storage is not connected to the current inventory_items table yet.")}>Upload Photo</button>
-                  <button className="ci-btn" type="button" onClick={() => setItemPhotoDraft("")}>Clear Photo</button>
+                  <button className="ci-btn" type="button" onClick={() => itemPhotoCameraRef.current?.click()} disabled={saving || !itemForm.id}>Take Photo</button>
+                  <button className="ci-btn" type="button" onClick={() => itemPhotoUploadRef.current?.click()} disabled={saving || !itemForm.id}>Upload Photo</button>
+                  <button className="ci-btn" type="button" onClick={clearItemPhoto} disabled={saving}>Clear Photo</button>
                 </div>
-                <div className="ci-sub">No saved photo yet. The store will show a generated category tile until one is added.</div>
+                <div className="ci-sub">{itemPhotoDraft ? "This photo will appear in the Consumables Store and Item Master." : "No saved photo yet. The store will show a generated category tile until one is added."}</div>
               </div>
             </div>
 

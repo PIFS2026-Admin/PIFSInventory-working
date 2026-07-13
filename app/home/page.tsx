@@ -130,6 +130,18 @@ type PurchaseOrderLine = {
   orderDate: string;
 };
 
+type ConsumableStoreRequestLine = {
+  id: string;
+  orderNumber: string;
+  orderDate: string;
+  requestedBy: string;
+  department: string;
+  unitTruck: string;
+  status: string;
+  totalValue: number;
+  lineCount: number;
+};
+
 type LeadPerformanceLine = {
   name: string;
   jobs: number;
@@ -158,6 +170,7 @@ type DashboardData = {
   consumableTransactions: ConsumableTransactionLine[];
   issueTickets: InventoryIssueTicketLine[];
   issueTicketLines: InventoryIssueTicketDetailLine[];
+  storeRequests: ConsumableStoreRequestLine[];
   purchaseOrders: PurchaseOrderLine[];
   leadPerformance: LeadPerformanceLine[];
   preJobPerformance: LeadPerformanceLine[];
@@ -188,6 +201,7 @@ const emptyData: DashboardData = {
   consumableTransactions: [],
   issueTickets: [],
   issueTicketLines: [],
+  storeRequests: [],
   purchaseOrders: [],
   leadPerformance: [],
   preJobPerformance: [],
@@ -579,11 +593,13 @@ function ConsumableInventorySection({
   items,
   issueTickets,
   issueTicketLines,
+  storeRequests,
   filters,
 }: {
   items: ConsumableItemLine[];
   issueTickets: InventoryIssueTicketLine[];
   issueTicketLines: InventoryIssueTicketDetailLine[];
+  storeRequests: ConsumableStoreRequestLine[];
   filters: DashboardFilters;
 }) {
   const monthStart = getMonthStartInputValue();
@@ -614,6 +630,9 @@ function ConsumableInventorySection({
   const weekIssueTickets = issueTickets.filter(
     (row) => isWithinDateRange(row.issueDate, filters) && ticketMatchesDepartment(row)
   );
+  const storeRequestsInRange = storeRequests.filter(
+    (row) => isWithinDateRange(row.orderDate, filters) && ticketMatchesDepartment(row)
+  );
   const issueTicketIdsInRange = new Set(issueLinesInRange.map((row) => row.ticketId).filter(Boolean));
   const currentWeekSpend = currentWeekLines.reduce((sum, row) => sum + Math.abs(row.value), 0);
   const previousWeekSpend = previousWeekLines.reduce((sum, row) => sum + Math.abs(row.value), 0);
@@ -623,14 +642,23 @@ function ConsumableInventorySection({
     .reduce((sum, row) => sum + Math.abs(row.value), 0);
   const issuedQuantity = issueLinesInRange.reduce((sum, row) => sum + Math.abs(row.quantity), 0);
   const lowStock = items.filter((row) => row.lowStock || row.qtyOnHand <= 0 || (row.minQty > 0 && row.qtyOnHand <= row.minQty));
+  const openStoreRequests = storeRequests.filter(
+    (row) => !["fulfilled", "cancelled", "canceled", "rejected"].includes(row.status.toLowerCase())
+  );
   const recentActivity = [
+    ...storeRequestsInRange.map((order) => ({
+      id: `store-${order.id}`,
+      title: `${order.orderNumber} - ${order.requestedBy || "Store Request"}`,
+      detail: `${order.status || "Submitted"} / ${money(order.totalValue)} / ${order.lineCount} lines`,
+      meta: `${order.orderDate} ${order.unitTruck || ""}`.trim(),
+    })),
     ...weekIssueTickets.map((ticket) => ({
       id: `ticket-${ticket.id}`,
       title: `${ticket.ticketNumber} - ${ticket.issuedTo || "Issue Ticket"}`,
       detail: `${ticket.status || "Issued"} / ${money(ticket.totalValue)} / ${ticket.department || "No department"}`,
       meta: `${ticket.issueDate} ${ticket.unitTruck || ""}`.trim(),
     })),
-  ].slice(0, 12);
+  ].sort((left, right) => right.meta.localeCompare(left.meta)).slice(0, 12);
 
   return (
     <DashboardSection
@@ -645,6 +673,8 @@ function ConsumableInventorySection({
         <DashboardMetricCard label="Low stock alerts" value={whole(lowStock.length)} />
         <DashboardMetricCard label="Issue tickets in range" value={whole(issueTicketIdsInRange.size || weekIssueTickets.length)} />
         <DashboardMetricCard label="Items issued in range" value={whole(issuedQuantity)} />
+        <DashboardMetricCard label="Open store requests" value={whole(openStoreRequests.length)} />
+        <DashboardMetricCard label="Store requests in range" value={whole(storeRequestsInRange.length)} />
       </div>
 
       <div className="dashboard-widget-grid">
@@ -661,6 +691,7 @@ function ConsumableInventorySection({
           )}
         />
         <BreakdownList title="Issue Tickets by Department" rows={buildBreakdown(weekIssueTickets, (row) => row.department, () => 1, 10)} />
+        <BreakdownList title="Store Requests by Department" rows={buildBreakdown(storeRequestsInRange, (row) => row.department, () => 1, 10)} />
         <BreakdownList
           title="Issue Tickets by Unit / Truck"
           rows={buildQuantityValueBreakdown(
@@ -953,6 +984,8 @@ export default function InternalHomePage() {
       consumableItemsResult,
       consumableTransactionsResult,
       issueTicketsResult,
+      storeRequestsResult,
+      storeRequestLinesResult,
       purchaseOrdersResult,
       purchaseOrderLinesResult,
       dtiJobsResult,
@@ -1003,15 +1036,23 @@ export default function InternalHomePage() {
       supabase
         .from("inventory_transactions")
         .select("*")
-        .gte("transaction_date", getYearStartInputValue())
         .order("transaction_date", { ascending: false })
         .limit(5000),
       supabase
         .from("inventory_issue_tickets")
         .select("*")
-        .gte("issue_date", getYearStartInputValue())
         .order("issue_date", { ascending: false })
         .limit(5000),
+      supabase
+        .from("inventory_orders")
+        .select("*")
+        .order("order_date", { ascending: false })
+        .limit(5000),
+      supabase
+        .from("inventory_order_lines")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(10000),
       supabase.from("purchase_orders").select("*").order("order_date", { ascending: false }).limit(1000),
       supabase.from("purchase_order_lines").select("*").limit(5000),
       supabase.from("dti_jobs").select("*").gte("created_at", filters.startDate).lte("created_at", `${filters.endDate}T23:59:59`).limit(1000),
@@ -1026,6 +1067,8 @@ export default function InternalHomePage() {
       warnings.push("Consumable spending needs inventory_transactions.transaction_date and yard_id fields.");
     }
     if (issueTicketsResult.error) warnings.push(`Inventory issue tickets: ${issueTicketsResult.error.message}`);
+    if (storeRequestsResult.error) warnings.push(`Consumables Store requests: ${storeRequestsResult.error.message}`);
+    if (storeRequestLinesResult.error) warnings.push(`Consumables Store request lines: ${storeRequestLinesResult.error.message}`);
     if (purchaseOrdersResult.error) warnings.push(`Purchase orders: ${purchaseOrdersResult.error.message}`);
     if (purchaseOrderLinesResult.error) warnings.push(`Purchase order lines: ${purchaseOrderLinesResult.error.message}`);
     if (dtiJobsResult.error) warnings.push(`DTI jobs: ${dtiJobsResult.error.message}`);
@@ -1082,6 +1125,8 @@ export default function InternalHomePage() {
       belongsToSelectedInventoryYard
     );
     const rawIssueTickets = ((issueTicketsResult.data ?? []) as any[]).filter(belongsToSelectedInventoryYard);
+    const rawStoreRequests = ((storeRequestsResult.data ?? []) as any[]).filter(belongsToSelectedInventoryYard);
+    const rawStoreRequestLines = ((storeRequestLinesResult.data ?? []) as any[]).filter(belongsToSelectedInventoryYard);
 
     const consumableItems = rawConsumableItems.map((row) => ({
       id: String(row.id),
@@ -1124,6 +1169,25 @@ export default function InternalHomePage() {
       unitTruck: row.unit_truck ?? "",
       totalValue: toNumber(row.total_value),
       status: row.status ?? "Issued",
+    }));
+
+    const storeRequestLineCounts = new Map<string, number>();
+    rawStoreRequestLines.forEach((row) => {
+      const orderId = String(row.order_id ?? "").trim();
+      if (!orderId) return;
+      storeRequestLineCounts.set(orderId, (storeRequestLineCounts.get(orderId) ?? 0) + 1);
+    });
+
+    const storeRequests = rawStoreRequests.map((row) => ({
+      id: String(row.id),
+      orderNumber: row.order_number ?? "",
+      orderDate: formatDate(row.order_date ?? row.created_at),
+      requestedBy: row.requested_by ?? "",
+      department: row.department ?? "Unassigned",
+      unitTruck: row.unit_truck ?? "",
+      status: row.status ?? "Submitted",
+      totalValue: toNumber(row.total_value),
+      lineCount: storeRequestLineCounts.get(String(row.id)) ?? 0,
     }));
 
     let issueTicketLineRows: any[] = [];
@@ -1279,6 +1343,7 @@ export default function InternalHomePage() {
       consumableTransactions,
       issueTickets,
       issueTicketLines,
+      storeRequests,
       purchaseOrders,
       leadPerformance,
       preJobPerformance,
@@ -1576,6 +1641,7 @@ export default function InternalHomePage() {
           items={data.consumableItems}
           issueTickets={data.issueTickets}
           issueTicketLines={data.issueTicketLines}
+          storeRequests={data.storeRequests}
           filters={filters}
         />
         <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
