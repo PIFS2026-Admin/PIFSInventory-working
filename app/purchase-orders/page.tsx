@@ -87,7 +87,7 @@ const managementRoles = ["admin", "inventory_manager"];
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
-const inventoryYardScopedTablesEnabled = false;
+const inventoryYardScopedTablesEnabled = true;
 
 const emptyPoForm: PoForm = {
   id: "",
@@ -184,6 +184,19 @@ export default function PurchaseOrdersPage() {
   const selectedOrder = orders.find((order) => order.id === selectedPoId) || null;
   const selectedLines = lines.filter((line) => line.purchaseOrderId === selectedPoId);
   const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
+
+  function applyInventoryYardScope<T extends { eq: (column: string, value: string) => T; or: (filters: string) => T }>(
+    query: T,
+    yardId = selectedInventoryYardId,
+    yardList = inventoryYards,
+  ) {
+    if (!inventoryYardScopedTablesEnabled || !yardId) return query;
+    const yard = yardList.find((candidate) => candidate.id === yardId);
+    if (yard?.code === defaultInventoryYardCode) {
+      return query.or(`yard_id.eq.${yardId},yard_id.is.null`);
+    }
+    return query.eq("yard_id", yardId);
+  }
 
   function linesForOrder(order: PurchaseOrder) {
     return lines.filter((line) => line.purchaseOrderId === order.id);
@@ -284,7 +297,7 @@ export default function PurchaseOrdersPage() {
     const nextYardId = preferredYard?.id || "";
     setSelectedInventoryYardId(nextYardId);
 
-    await reloadPurchaseOrderData(nextYardId);
+    await reloadPurchaseOrderData(nextYardId, yards);
     setMessage("");
     setLoading(false);
   }
@@ -324,9 +337,9 @@ export default function PurchaseOrdersPage() {
     return yards.filter((yard) => assignedYardIds.has(yard.id));
   }
 
-  async function reloadPurchaseOrderData(yardId = selectedInventoryYardId) {
+  async function reloadPurchaseOrderData(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     setSelectedPoId("");
-    const yard = inventoryYards.find((candidate) => candidate.id === yardId);
+    const yard = yardList.find((candidate) => candidate.id === yardId);
     if (yard && yard.code !== defaultInventoryYardCode && !inventoryYardScopedTablesEnabled) {
       setVendors([]);
       setItems([]);
@@ -334,7 +347,7 @@ export default function PurchaseOrdersPage() {
       setLines([]);
       return;
     }
-    await Promise.all([loadVendors(yardId), loadItems(yardId), loadOrders(yardId), loadLines(yardId)]);
+    await Promise.all([loadVendors(yardId, yardList), loadItems(yardId, yardList), loadOrders(yardId, yardList), loadLines(yardId, yardList)]);
   }
 
   async function handleInventoryYardChange(yardId: string) {
@@ -344,12 +357,12 @@ export default function PurchaseOrdersPage() {
     setMessage("");
   }
 
-  async function loadVendors(yardId = selectedInventoryYardId) {
+  async function loadVendors(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_vendors")
       .select("id, vendor_name, email")
       .order("vendor_name");
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -361,12 +374,12 @@ export default function PurchaseOrdersPage() {
     setVendors((data || []).map((row) => ({ id: row.id, vendorName: row.vendor_name || "", email: row.email || "" })));
   }
 
-  async function loadItems(yardId = selectedInventoryYardId) {
+  async function loadItems(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_items")
       .select("id, item_code, item_name, unit_price, qty_on_hand")
       .order("item_code");
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -386,12 +399,12 @@ export default function PurchaseOrdersPage() {
     );
   }
 
-  async function loadOrders(yardId = selectedInventoryYardId) {
+  async function loadOrders(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("purchase_orders")
       .select("*")
       .order("order_date", { ascending: false });
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -419,12 +432,12 @@ export default function PurchaseOrdersPage() {
     if (!selectedPoId && mapped.length > 0) setSelectedPoId(mapped[0].id);
   }
 
-  async function loadLines(yardId = selectedInventoryYardId) {
+  async function loadLines(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("purchase_order_lines")
       .select("*")
       .order("created_at");
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 

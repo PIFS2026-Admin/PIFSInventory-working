@@ -551,6 +551,19 @@ export default function InventoryModulePage() {
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
   const selectedInventoryYard = inventoryYards.find((yard) => yard.id === selectedInventoryYardId) || null;
 
+  function applyInventoryYardScope<T extends { eq: (column: string, value: string) => T; or: (filters: string) => T }>(
+    query: T,
+    yardId = selectedInventoryYardId,
+    yardList = inventoryYards,
+  ) {
+    if (!inventoryYardScopedTablesEnabled || !yardId) return query;
+    const yard = yardList.find((candidate) => candidate.id === yardId);
+    if (yard?.code === defaultInventoryYardCode) {
+      return query.or(`yard_id.eq.${yardId},yard_id.is.null`);
+    }
+    return query.eq("yard_id", yardId);
+  }
+
   useEffect(() => {
     if (!issueOpen) return;
     const timer = window.setTimeout(() => scanFieldRef.current?.focus(), 80);
@@ -996,7 +1009,7 @@ export default function InventoryModulePage() {
     const nextYardId = preferredYard?.id || "";
     setSelectedInventoryYardId(nextYardId);
 
-    await reloadInventoryData(nextYardId);
+    await reloadInventoryData(nextYardId, yards);
     setMessage("");
     setLoading(false);
   }
@@ -1036,11 +1049,11 @@ export default function InventoryModulePage() {
     return yards.filter((yard) => assignedYardIds.has(yard.id));
   }
 
-  async function reloadInventoryData(yardId = selectedInventoryYardId) {
+  async function reloadInventoryData(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     setSelectedItemId("");
     setIssueCart([]);
     setOrderCart([]);
-    const yard = inventoryYards.find((candidate) => candidate.id === yardId);
+    const yard = yardList.find((candidate) => candidate.id === yardId);
     if (yard && yard.code !== defaultInventoryYardCode && !inventoryYardScopedTablesEnabled) {
       setVendors([]);
       setItems([]);
@@ -1054,15 +1067,15 @@ export default function InventoryModulePage() {
       return;
     }
     await Promise.all([
-      loadVendors(yardId),
-      loadItems(yardId),
-      loadTransactions(yardId),
-      loadTickets(yardId),
-      loadIssueTicketLines(yardId),
-      loadOrders(yardId),
-      loadOrderLines(yardId),
-      loadPurchaseOrders(yardId),
-      loadPurchaseOrderLines(yardId),
+      loadVendors(yardId, yardList),
+      loadItems(yardId, yardList),
+      loadTransactions(yardId, yardList),
+      loadTickets(yardId, yardList),
+      loadIssueTicketLines(yardId, yardList),
+      loadOrders(yardId, yardList),
+      loadOrderLines(yardId, yardList),
+      loadPurchaseOrders(yardId, yardList),
+      loadPurchaseOrderLines(yardId, yardList),
     ]);
   }
 
@@ -1073,12 +1086,12 @@ export default function InventoryModulePage() {
     setMessage("");
   }
 
-  async function loadVendors(yardId = selectedInventoryYardId) {
+  async function loadVendors(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_vendors")
       .select("id, vendor_name, vendor_code, vendor_type, contact_name, phone, email, terms, active")
       .order("vendor_name");
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1102,12 +1115,12 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadItems(yardId = selectedInventoryYardId) {
+  async function loadItems(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_items")
       .select("*, inventory_vendors(vendor_name)")
       .order("item_code");
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1142,13 +1155,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadTransactions(yardId = selectedInventoryYardId) {
+  async function loadTransactions(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_transactions")
       .select("*")
       .order("transaction_date", { ascending: false })
       .limit(250);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1173,13 +1186,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadTickets(yardId = selectedInventoryYardId) {
+  async function loadTickets(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_issue_tickets")
       .select("*")
       .order("issue_date", { ascending: false })
       .limit(500);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1205,13 +1218,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadIssueTicketLines(yardId = selectedInventoryYardId) {
+  async function loadIssueTicketLines(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_issue_ticket_lines")
       .select("*")
       .order("created_at", { ascending: true })
       .limit(5000);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1238,13 +1251,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadOrders(yardId = selectedInventoryYardId) {
+  async function loadOrders(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_orders")
       .select("*")
       .order("order_date", { ascending: false })
       .limit(200);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1272,13 +1285,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadOrderLines(yardId = selectedInventoryYardId) {
+  async function loadOrderLines(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("inventory_order_lines")
       .select("*")
       .order("created_at", { ascending: true })
       .limit(5000);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1306,13 +1319,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadPurchaseOrders(yardId = selectedInventoryYardId) {
+  async function loadPurchaseOrders(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("purchase_orders")
       .select("id, po_number, vendor_name, order_date, requested_by, total_value, status")
       .order("order_date", { ascending: false })
       .limit(250);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
@@ -1335,13 +1348,13 @@ export default function InventoryModulePage() {
     );
   }
 
-  async function loadPurchaseOrderLines(yardId = selectedInventoryYardId) {
+  async function loadPurchaseOrderLines(yardId = selectedInventoryYardId, yardList = inventoryYards) {
     let query = supabase
       .from("purchase_order_lines")
       .select("id, purchase_order_id, item_id, item_code, item_name, quantity_ordered, quantity_received, unit_cost, line_total")
       .order("created_at", { ascending: false })
       .limit(5000);
-    if (inventoryYardScopedTablesEnabled && yardId) query = query.eq("yard_id", yardId);
+    query = applyInventoryYardScope(query, yardId, yardList);
 
     const { data, error } = await query;
 
