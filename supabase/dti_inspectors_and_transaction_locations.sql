@@ -24,13 +24,13 @@ create policy "inspectors internal read"
 on public.inspectors
 for select
 to authenticated
-using (public.current_user_role() in ('admin', 'employee', 'dti_superintendent'));
+using (public.current_user_role()::text in ('admin', 'employee', 'dti_superintendent', 'dti_lead'));
 
 create policy "inspectors internal write"
 on public.inspectors
 for all
 to authenticated
-using (public.current_user_role() in ('admin', 'employee'))
-with check (public.current_user_role() in ('admin', 'employee'));
+using (public.current_user_role()::text in ('admin', 'employee', 'dti_superintendent'))
+with check (public.current_user_role()::text in ('admin', 'employee', 'dti_superintendent'));
 
 grant select, insert, update, delete on public.inspectors to authenticated;

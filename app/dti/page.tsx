@@ -3,8 +3,18 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type UserRole = "admin" | "employee" | "sales" | "customer" | "operator" | "dti_superintendent" | "dti_inspector";
+type UserRole =
+  | "admin"
+  | "employee"
+  | "sales"
+  | "customer"
+  | "operator"
+  | "dti_superintendent"
+  | "dti_lead"
+  | "dti_inspector";
 type JobStatus = "Open" | "In Progress" | "Review" | "Closed";
+
+const DTI_MANAGEMENT_ROLES: UserRole[] = ["admin", "employee", "dti_superintendent", "dti_lead"];
 
 type Company = {
   id: string;
@@ -512,6 +522,7 @@ function normalizeRole(value: unknown): UserRole {
     role === "customer" ||
     role === "operator" ||
     role === "dti_superintendent" ||
+    role === "dti_lead" ||
     role === "dti_inspector"
   ) {
     return role;
@@ -674,10 +685,8 @@ export default function DtiPage() {
   const [emailingReport, setEmailingReport] = useState(false);
   const [showRedFlagList, setShowRedFlagList] = useState(false);
 
-  const canEdit = profile
-    ? ["admin", "employee", "dti_superintendent"].includes(profile.role)
-    : false;
-  const canClose = profile ? ["admin", "employee", "dti_superintendent"].includes(profile.role) : false;
+  const canEdit = profile ? DTI_MANAGEMENT_ROLES.includes(profile.role) : false;
+  const canClose = profile ? DTI_MANAGEMENT_ROLES.includes(profile.role) : false;
 
   const selectedJob = useMemo(() => {
     return jobs.find((job) => job.id === selectedJobId) ?? null;
@@ -888,7 +897,7 @@ export default function DtiPage() {
       return;
     }
 
-    if (!["admin", "employee", "dti_superintendent"].includes(loadedProfile.role)) {
+    if (!DTI_MANAGEMENT_ROLES.includes(loadedProfile.role)) {
       window.location.href = "/home";
       return;
     }
@@ -1070,12 +1079,27 @@ export default function DtiPage() {
   async function makeDtiJobNumber(jobDate: string) {
     const date = jobDate ? new Date(`${jobDate}T12:00:00`) : new Date();
     const base = `DTI-${ticketDateStamp(date)}`;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("dti_jobs")
       .select("job_number")
       .ilike("job_number", `${base}%`);
 
-    return `${base}${sequenceLetter(data?.length ?? 0)}`;
+    if (error) throw error;
+
+    const usedSuffixes = new Set(
+      (data ?? [])
+        .map((row) => String(row.job_number ?? ""))
+        .filter((jobNumber) => jobNumber.startsWith(base))
+        .map((jobNumber) => jobNumber.slice(base.length))
+        .filter(Boolean)
+    );
+
+    for (let index = 0; index < 702; index += 1) {
+      const suffix = sequenceLetter(index);
+      if (!usedSuffixes.has(suffix)) return `${base}${suffix}`;
+    }
+
+    throw new Error(`No DTI job number remains available for ${base}.`);
   }
 
   async function createJob() {
@@ -1099,10 +1123,14 @@ export default function DtiPage() {
     setSaving(true);
     setMessage("");
 
+    let createdJobId = "";
+    let stage = "creating DTI job";
+
     try {
       const companyId = await findOrCreateCompany(jobForm.customer);
       const jobNumber = await makeDtiJobNumber(jobForm.jobDate);
 
+      stage = "saving DTI job";
       const { data: job, error } = await supabase
         .from("dti_jobs")
         .insert({
@@ -1126,7 +1154,9 @@ export default function DtiPage() {
         .single();
 
       if (error) throw error;
+      createdJobId = job.id;
 
+      stage = "creating checklist responses";
       const rows = checklistTemplate.map((item, index) => ({
         dti_job_id: job.id,
         section: item.section,
@@ -1141,19 +1171,25 @@ export default function DtiPage() {
       const { error: checklistError } = await supabase.from("dti_checklist_responses").insert(rows);
       if (checklistError) throw checklistError;
 
-      await supabase.from("dti_status_history").insert({
+      stage = "recording status history";
+      const { error: historyError } = await supabase.from("dti_status_history").insert({
         dti_job_id: job.id,
         status: "Open",
         comment: "DTI job created.",
         created_by: profile.id,
       });
+      if (historyError) throw historyError;
 
       setJobForm(emptyJobForm);
       await loadJobs();
       setSelectedJobId(job.id);
       setMessage(`${jobNumber} created.`);
     } catch (error: any) {
-      setMessage(`Create DTI job failed: ${error.message}`);
+      if (createdJobId) {
+        await supabase.from("dti_jobs").delete().eq("id", createdJobId);
+      }
+
+      setMessage(`Create DTI job failed while ${stage}: ${error.message}`);
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,5 @@
 alter type public.user_role add value if not exists 'dti_superintendent';
+alter type public.user_role add value if not exists 'dti_lead';
 alter type public.user_role add value if not exists 'dti_inspector';
 
 create table if not exists public.dti_jobs (
@@ -114,7 +115,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  select coalesce(public.current_user_role()::text in ('admin', 'employee', 'dti_superintendent', 'dti_inspector'), false)
+  select coalesce(public.current_user_role()::text in ('admin', 'employee', 'dti_superintendent', 'dti_lead', 'dti_inspector'), false)
 $$;
 
 create or replace function public.is_dti_reader()
@@ -123,7 +124,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  select coalesce(public.current_user_role()::text in ('admin', 'employee', 'sales', 'dti_superintendent', 'dti_inspector'), false)
+  select coalesce(public.current_user_role()::text in ('admin', 'employee', 'sales', 'dti_superintendent', 'dti_lead', 'dti_inspector'), false)
 $$;
 
 drop policy if exists "dti jobs internal full" on public.dti_jobs;
