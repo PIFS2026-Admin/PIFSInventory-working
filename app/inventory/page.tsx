@@ -3142,7 +3142,7 @@ export default function InventoryModulePage() {
   }
 
   return (
-    <main className="module-shell inventory-module consum-scope">
+    <main className={`module-shell inventory-module consum-scope ${activeView === "orders" ? "store-mode" : ""}`}>
       <section className="page-head no-print">
         <div>
           <div className="pt">Consumables — Inventory Control</div>
@@ -3176,33 +3176,35 @@ export default function InventoryModulePage() {
 
       {message && <div className="modal-message">{message}</div>}
 
-      <section className="kpis k5 inventory-top-kpis">
-        <article className="kpi warn">
-          <div className="lab">Issue tickets</div>
-          <div className="val mono">{dashboardTicketRefs.size.toLocaleString()}</div>
-          <div className="note">{dashboardPeriodLabel} · {dashboardIssueQuantity.toLocaleString()} units issued</div>
-        </article>
-        <article className="kpi steel">
-          <div className="lab">Purchase orders</div>
-          <div className="val mono">{dashboardPoRefs.size.toLocaleString()}</div>
-          <div className="note">{dashboardPeriodLabel} PO activity</div>
-        </article>
-        <article className="kpi good">
-          <div className="lab">Consumables store</div>
-          <div className="val mono">{pendingOrders.length.toLocaleString()}</div>
-          <div className="note">Waiting on warehouse action</div>
-        </article>
-        <article className="kpi">
-          <div className="lab">Inventory value</div>
-          <div className="val mono">{money(totalValue)}</div>
-          <div className="note">{activeItemCount.toLocaleString()} active items</div>
-        </article>
-        <article className="kpi bad">
-          <div className="lab">Reorder alerts</div>
-          <div className="val mono orange">{lowStockCount.toLocaleString()}</div>
-          <div className="note">{outOfStockCount.toLocaleString()} out of stock · {pendingPoCount.toLocaleString()} open POs</div>
-        </article>
-      </section>
+      {activeView !== "orders" && (
+        <section className="kpis k5 inventory-top-kpis">
+          <article className="kpi warn">
+            <div className="lab">Issue tickets</div>
+            <div className="val mono">{dashboardTicketRefs.size.toLocaleString()}</div>
+            <div className="note">{dashboardPeriodLabel} · {dashboardIssueQuantity.toLocaleString()} units issued</div>
+          </article>
+          <article className="kpi steel">
+            <div className="lab">Purchase orders</div>
+            <div className="val mono">{dashboardPoRefs.size.toLocaleString()}</div>
+            <div className="note">{dashboardPeriodLabel} PO activity</div>
+          </article>
+          <article className="kpi good">
+            <div className="lab">Consumables store</div>
+            <div className="val mono">{pendingOrders.length.toLocaleString()}</div>
+            <div className="note">Waiting on warehouse action</div>
+          </article>
+          <article className="kpi">
+            <div className="lab">Inventory value</div>
+            <div className="val mono">{money(totalValue)}</div>
+            <div className="note">{activeItemCount.toLocaleString()} active items</div>
+          </article>
+          <article className="kpi bad">
+            <div className="lab">Reorder alerts</div>
+            <div className="val mono orange">{lowStockCount.toLocaleString()}</div>
+            <div className="note">{outOfStockCount.toLocaleString()} out of stock · {pendingPoCount.toLocaleString()} open POs</div>
+          </article>
+        </section>
+      )}
 
       <section className="ytabs ci-tabs no-print">
         {([
@@ -3484,19 +3486,13 @@ export default function InventoryModulePage() {
 
       {activeView === "orders" && (
         <>
-          <div className="preview-banner ci-banner ci-store-banner no-print">
-            <div>
-              <b>Consumables Store.</b> Shop available warehouse supplies, build a cart, and submit one clean request to the warehouse.
-            </div>
-            <span>{orderCart.length.toLocaleString()} cart lines</span>
-          </div>
           <section className="ci-layout ci-storefront-layout no-print">
             <div className="card ci-storefront-card">
-              <div className="ci-store-hero">
+              <div className="ci-store-shopping-head">
                 <div>
-                  <div className="ci-store-eyebrow">TITAN warehouse</div>
-                  <h2><span className="dot"></span>Consumables Store<span className="ct">{selectedInventoryYard?.name || "yard"}</span></h2>
-                  <p>Find supplies by photo, SKU, category, barcode, vendor, or bin. Add what you need and submit a request for fulfillment.</p>
+                  <span>TITAN Store</span>
+                  <h2>Consumables</h2>
+                  <small>{selectedInventoryYard?.name || "Yard"} warehouse</small>
                 </div>
                 <div className="ci-store-cart-mini">
                   <span>Cart</span>
@@ -3504,8 +3500,25 @@ export default function InventoryModulePage() {
                   <small>{money(orderValue)}</small>
                 </div>
               </div>
-              <div className="ci-scanbar">
-                <div className="order-search-picker">
+
+              <div className="ci-store-search-row">
+                <div className="ci-store-search-pill">
+                  <span>Search</span>
+                  <input
+                    value={storeSearch}
+                    onChange={(event) => setStoreSearch(event.target.value)}
+                    placeholder="Search TITAN store"
+                  />
+                </div>
+                <button className="ci-store-scan-btn" type="button" onClick={openCameraScanner} disabled={cameraScanning}>
+                  {cameraScanning ? "Scanning" : "Scan"}
+                </button>
+              </div>
+
+              <details className="ci-store-quick-add">
+                <summary>Quick add by SKU or barcode</summary>
+                <div className="ci-scanbar">
+                  <div className="order-search-picker">
                   <input
                     ref={scanFieldRef}
                     className="ci-input scan-field"
@@ -3528,46 +3541,32 @@ export default function InventoryModulePage() {
                     placeholder="Scan barcode or type item ID, barcode, or item name"
                     autoComplete="off"
                   />
-                  {orderSearchOpen && orderSearchMatches.length > 0 && (
-                    <div className="order-search-menu">
-                      {orderSearchMatches.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className="order-search-option"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            chooseOrderSearchItem(item);
-                          }}
-                        >
-                          <strong>{item.itemCode}</strong>
-                          <span>{item.itemName}</span>
-                          <small>
-                            {item.barcode || "No barcode"} / {item.location || "No location"} / {item.qtyOnHand.toLocaleString()} on hand
-                          </small>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    {orderSearchOpen && orderSearchMatches.length > 0 && (
+                      <div className="order-search-menu">
+                        {orderSearchMatches.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="order-search-option"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              chooseOrderSearchItem(item);
+                            }}
+                          >
+                            <strong>{item.itemCode}</strong>
+                            <span>{item.itemName}</span>
+                            <small>
+                              {item.barcode || "No barcode"} / {item.location || "No location"} / {item.qtyOnHand.toLocaleString()} on hand
+                            </small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button className="ci-btn pri" onClick={addScannedItemToOrder}>Add</button>
                 </div>
-                <button className="ci-btn pri" onClick={addScannedItemToOrder}>Add to request</button>
-              </div>
-              <div className="ci-toolbar">
-                <input
-                  className="ci-input"
-                  value={storeSearch}
-                  onChange={(event) => setStoreSearch(event.target.value)}
-                  placeholder="Search the warehouse store..."
-                />
-                <select className="ci-select" value={storeCategory} onChange={(event) => setStoreCategory(event.target.value)}>
-                  <option value="all">All categories</option>
-                  {categories.map((category) => <option key={category} value={category}>{category}</option>)}
-                </select>
-                <button className="ci-btn" type="button" onClick={() => {
-                  setStoreSearch("");
-                  setStoreCategory("all");
-                }}>Clear</button>
-              </div>
+              </details>
+
               <div className="ci-store-category-strip">
                 <button
                   className={storeCategory === "all" ? "on" : ""}
@@ -3576,7 +3575,7 @@ export default function InventoryModulePage() {
                 >
                   All
                 </button>
-                {categories.slice(0, 10).map((category) => (
+                {categories.map((category) => (
                   <button
                     className={storeCategory === category ? "on" : ""}
                     key={category}
@@ -3601,9 +3600,14 @@ export default function InventoryModulePage() {
                 <video ref={cameraVideoRef} className="barcode-video hidden-video" muted playsInline />
               )}
               <div className="ci-actions">
-                <button className="ci-btn" onClick={openCameraScanner} disabled={cameraScanning}>{cameraScanning ? "Scanning..." : "Scan camera"}</button>
                 {cameraScanning && <button className="ci-btn" onClick={stopCameraScanner}>Stop scan</button>}
                 <button className="ci-btn" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
+                {(storeSearch || storeCategory !== "all") && (
+                  <button className="ci-btn" type="button" onClick={() => {
+                    setStoreSearch("");
+                    setStoreCategory("all");
+                  }}>Clear search</button>
+                )}
               </div>
               {cameraScanMessage && <div className="ci-notice">{cameraScanMessage}</div>}
               <div className="ci-store-results-row">

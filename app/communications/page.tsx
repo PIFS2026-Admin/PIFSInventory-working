@@ -116,7 +116,7 @@ type CommunicationTask = {
 
 const modes: Array<{ key: ModeKey; label: string; types: ConversationType[] }> = [
   { key: "groups", label: "Groups", types: ["group", "yard", "department"] },
-  { key: "directs", label: "Directs", types: ["direct"] },
+  { key: "directs", label: "DMs", types: ["direct"] },
   { key: "announcements", label: "Alerts", types: ["announcement"] },
 ];
 
@@ -181,6 +181,7 @@ export default function CommunicationsPage() {
   const [mentionFilter, setMentionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
   const [newOpen, setNewOpen] = useState(false);
+  const [mobileThreadOpen, setMobileThreadOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newMembers, setNewMembers] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
@@ -372,6 +373,7 @@ export default function CommunicationsPage() {
     if (requestedConversation && requestedConversation.id !== selectedId) {
       setSelectedId(requestedConversation.id);
       setMode(modeForConversationType(requestedConversation.conversation_type));
+      setMobileThreadOpen(true);
     } else if (!selectedId && conversationList[0]) {
       setSelectedId(conversationList[0].id);
       setMode(modeForConversationType(conversationList[0].conversation_type));
@@ -585,6 +587,7 @@ export default function CommunicationsPage() {
   function openConversation(conversation: Conversation) {
     setSelectedId(conversation.id);
     setMode(modeForConversationType(conversation.conversation_type));
+    setMobileThreadOpen(true);
     setNewOpen(false);
     setReplyToId(null);
     setMembersOpen(false);
@@ -1227,6 +1230,7 @@ export default function CommunicationsPage() {
     const last = convMessages[convMessages.length - 1];
     const unread = unreadForConversation(conversation);
     const title = conversationTitle(conversation);
+    const lastTime = last ? formatTime(last.created_at) : "";
     const lastText = last
       ? `${contactById.get(last.sender_id)?.name ?? "TITAN"}: ${last.body || "Attachment"}`
       : conversation.conversation_type === "direct"
@@ -1244,7 +1248,6 @@ export default function CommunicationsPage() {
         <span className="comm-group-main">
           <span className="comm-group-title">
             <span>{title}</span>
-            {unread > 0 && <span className="comm-unread">{unread}</span>}
           </span>
           <span className="comm-group-last">{lastText}</span>
           <span className="comm-group-meta">
@@ -1252,6 +1255,10 @@ export default function CommunicationsPage() {
             {conversation.is_archived && <span className="comm-chip">Archived</span>}
             {conversation.is_locked && <span className="comm-chip">Locked</span>}
           </span>
+        </span>
+        <span className="comm-group-side">
+          {lastTime && <span className="comm-group-time">{lastTime}</span>}
+          {unread > 0 && <span className="comm-unread">{unread}</span>}
         </span>
       </button>
     );
@@ -1567,7 +1574,7 @@ export default function CommunicationsPage() {
   }
 
   return (
-    <main className="communications-page">
+    <main className={`communications-page ${mobileThreadOpen ? "thread-open" : ""}`}>
       <datalist id="comm-contact-options">
         {contacts
           .filter((contact) => contact.id !== currentUser.id)
@@ -1580,6 +1587,15 @@ export default function CommunicationsPage() {
 
       <section className="module">
         <div className="page-head">
+          <div className="comm-mobile-app-head">
+            <h1>Chat</h1>
+            <div className="comm-mobile-head-actions">
+              <NotificationCenter />
+              <button className="comm-btn ghost comm-mobile-new" type="button" onClick={() => setNewOpen((current) => !current)} disabled={!canCreateConversations}>
+                +
+              </button>
+            </div>
+          </div>
           <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
             <div>
@@ -1609,7 +1625,7 @@ export default function CommunicationsPage() {
         )}
 
         <div id="commsRoot">
-          <div className="comms">
+          <div className={`comms ${mobileThreadOpen ? "thread-open" : ""} ${membersOpen ? "members-open" : ""}`}>
             <aside className="comm-sidebar">
               <div className="comm-sidebar-head">
                 <b>{modes.find((item) => item.key === mode)?.label ?? "Groups"}</b>
@@ -1642,7 +1658,7 @@ export default function CommunicationsPage() {
               <div className="comm-toolbar">
                 <div className="comm-search">
                   <span>Search</span>
-                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search conversations" />
+                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chats and messages" />
                 </div>
                 <button className="comm-btn ghost" type="button" onClick={() => setFiltersOpen((current) => !current)}>
                   Filter
@@ -1694,6 +1710,9 @@ export default function CommunicationsPage() {
               <>
                 <main className="comm-main">
                   <div className="comm-thread-head">
+                    <button className="comm-mobile-back" type="button" onClick={() => setMobileThreadOpen(false)} aria-label="Back to chats">
+                      &lt;
+                    </button>
                     <div className="comm-thread-title">
                       <span className={`comm-avatar ${selectedConversation.color || "orange"}`}>{initials(conversationTitle(selectedConversation))}</span>
                       <div>
