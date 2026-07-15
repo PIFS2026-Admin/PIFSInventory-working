@@ -161,6 +161,10 @@ function modeForConversationType(type: ConversationType): ModeKey {
   return "groups";
 }
 
+function typesForMode(modeKey: ModeKey) {
+  return (modes.find((item) => item.key === modeKey) ?? modes[0]).types;
+}
+
 export default function CommunicationsPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -255,8 +259,10 @@ export default function CommunicationsPage() {
   }, [messages]);
 
   const selectedConversation = useMemo(() => {
-    return conversations.find((conversation) => conversation.id === selectedId) ?? conversations[0] ?? null;
-  }, [conversations, selectedId]);
+    const activeTypes = typesForMode(mode);
+    const conversation = conversations.find((item) => item.id === selectedId);
+    return conversation && activeTypes.includes(conversation.conversation_type) ? conversation : null;
+  }, [conversations, mode, selectedId]);
 
   const currentMember = useMemo(() => {
     if (!currentUser || !selectedConversation) return null;
@@ -286,11 +292,11 @@ export default function CommunicationsPage() {
   );
 
   const visibleConversations = useMemo(() => {
-    const modeDef = modes.find((item) => item.key === mode) ?? modes[0];
+    const modeTypes = typesForMode(mode);
     const query = search.trim().toLowerCase();
 
     return conversations.filter((conversation) => {
-      if (!modeDef.types.includes(conversation.conversation_type)) return false;
+      if (!modeTypes.includes(conversation.conversation_type)) return false;
       if (statusFilter === "active" && conversation.is_archived) return false;
       if (statusFilter === "archived" && !conversation.is_archived) return false;
       if (activeYardId && conversation.yard_id && conversation.yard_id !== activeYardId) return false;
@@ -370,14 +376,37 @@ export default function CommunicationsPage() {
   }, [messages]);
 
   useEffect(() => {
-    if (loading || visibleConversations.length === 0) return;
+    if (loading) return;
     if (selectedConversation && visibleConversations.some((conversation) => conversation.id === selectedConversation.id)) return;
     const timer = window.setTimeout(() => {
-      setSelectedId(visibleConversations[0].id);
+      setSelectedId(visibleConversations[0]?.id ?? "");
     }, 0);
 
     return () => window.clearTimeout(timer);
   }, [loading, selectedConversation, visibleConversations]);
+
+  function switchMode(nextMode: ModeKey) {
+    const nextTypes = typesForMode(nextMode);
+    const nextConversation = conversations.find((conversation) => {
+      if (!nextTypes.includes(conversation.conversation_type)) return false;
+      if (conversation.is_archived) return false;
+      if (activeYardId && conversation.yard_id && conversation.yard_id !== activeYardId) return false;
+      return true;
+    });
+
+    setMode(nextMode);
+    setSelectedId(nextConversation?.id ?? "");
+    setNewOpen(false);
+    setFiltersOpen(false);
+    setSearch("");
+    setPriorityFilter("all");
+    setMentionFilter("all");
+    setStatusFilter("active");
+    setReplyToId(null);
+    setMembersOpen(false);
+    setPrefsOpen(false);
+    setAdminOpen(false);
+  }
 
   const loadData = useCallback(async (activeUserId?: string) => {
     setMessage("");
@@ -562,7 +591,7 @@ export default function CommunicationsPage() {
     setCurrentUser(bootstrapData.currentUser);
     setContacts(Array.isArray(bootstrapData.contacts) ? bootstrapData.contacts : []);
     setYards(Array.isArray(bootstrapData.yards) ? bootstrapData.yards : []);
-    setActiveYardId(bootstrapData.yards?.[0]?.id ?? "");
+    setActiveYardId("");
 
     await loadData(bootstrapData.currentUser?.id);
     setMessage("");
@@ -1846,10 +1875,7 @@ export default function CommunicationsPage() {
                       key={item.key}
                       className={`comm-mode ${mode === item.key ? "on" : ""}`}
                       type="button"
-                      onClick={() => {
-                        setMode(item.key);
-                        setNewOpen(false);
-                      }}
+                      onClick={() => switchMode(item.key)}
                     >
                       {item.label}
                       {unread > 0 && <span className="comm-unread">{unread}</span>}

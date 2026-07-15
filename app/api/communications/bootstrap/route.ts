@@ -25,6 +25,38 @@ type AuthUserRow = {
 };
 
 const departmentFallbacks = ["Yard", "Inventory", "Purchase Orders", "DTI", "Hardband", "Safety", "Management"];
+const requiredAlertChannels = [
+  {
+    key: "announcement:all-employees",
+    name: "Company Wide",
+    topic: "Company-wide TITAN alerts for every internal employee.",
+    yardCodes: [],
+  },
+  {
+    key: "announcement:yard:pathfinder-wtx",
+    name: "Pathfinder WTX Yard",
+    topic: "Pathfinder WTX Yard alerts and urgent yard-wide updates.",
+    yardCodes: ["PIFS", "WTX", "PATHFINDER"],
+  },
+  {
+    key: "announcement:yard:gillette",
+    name: "Gillette Yard",
+    topic: "Gillette Yard alerts and urgent yard-wide updates.",
+    yardCodes: ["GILLETTE"],
+  },
+  {
+    key: "announcement:yard:casper",
+    name: "Casper Yard",
+    topic: "Casper Yard alerts and urgent yard-wide updates.",
+    yardCodes: ["CASPER"],
+  },
+  {
+    key: "announcement:yard:dickinson",
+    name: "Dickinson Yard",
+    topic: "Dickinson Yard alerts and urgent yard-wide updates.",
+    yardCodes: ["DICKINSON"],
+  },
+];
 
 function configuredSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -144,11 +176,58 @@ async function insertMembers(adminSupabase: ReturnType<typeof configuredSupabase
       conversation_id: conversationId,
       user_id: userId,
       is_admin: adminIds.has(userId),
+      removed_at: null,
     })),
     { onConflict: "conversation_id,user_id" }
   );
 
   if (error) throw error;
+}
+
+function findYardForAlert(yards: YardRow[], yardCodes: string[]) {
+  if (yardCodes.length === 0) return null;
+  const normalizedCodes = yardCodes.map((item) => item.toLowerCase());
+
+  return (
+    yards.find((yard) => normalizedCodes.includes(String(yard.code ?? "").toLowerCase())) ??
+    yards.find((yard) => {
+      const haystack = `${yard.name} ${yard.code}`.toLowerCase();
+      return normalizedCodes.some((code) => haystack.includes(code));
+    }) ??
+    null
+  );
+}
+
+async function ensureAlertChannels(
+  adminSupabase: ReturnType<typeof configuredSupabase>,
+  profiles: ProfileRow[],
+  yards: YardRow[],
+  assignments: Array<{ user_id: string; yard_id: string }>,
+  adminIds: Set<string>,
+  createdBy: string
+) {
+  for (const channel of requiredAlertChannels) {
+    const yard = findYardForAlert(yards, channel.yardCodes);
+    const conversationId = await upsertConversation(adminSupabase, {
+      conversation_key: channel.key,
+      name: channel.name,
+      conversation_type: "announcement",
+      topic: channel.topic,
+      color: channel.yardCodes.length === 0 ? "green" : "orange",
+      yard_id: yard?.id ?? null,
+      created_by: createdBy,
+    });
+
+    const memberIds =
+      channel.yardCodes.length === 0
+        ? profiles.map((row) => row.id)
+        : [
+            ...assignments.filter((row) => row.yard_id === yard?.id).map((row) => row.user_id),
+            ...Array.from(adminIds),
+          ];
+
+    await insertMembers(adminSupabase, conversationId, memberIds, adminIds);
+  }
 }
 
 async function upsertConversation(
@@ -235,17 +314,9 @@ export async function GET(request: Request) {
 
     const shouldSeedDefaultChannels = process.env.COMMUNICATIONS_SEED_DEFAULT_CHANNELS === "true";
 
-    if (shouldSeedDefaultChannels && (conversationCount ?? 0) === 0) {
-      const allInternalId = await upsertConversation(adminSupabase, {
-        conversation_key: "announcement:all-employees",
-        name: "Company Alerts",
-        conversation_type: "announcement",
-        topic: "All-employee notices, safety alerts, and operating updates.",
-        color: "green",
-        created_by: userData.user.id,
-      });
-      await insertMembers(adminSupabase, allInternalId, profiles.map((row) => row.id), adminIds);
+    await ensureAlertChannels(adminSupabase, profiles, yards, assignments, adminIds, userData.user.id);
 
+    if (shouldSeedDefaultChannels && (conversationCount ?? 0) === 0) {
       for (const yard of yards) {
         const yardConversationId = await upsertConversation(adminSupabase, {
           conversation_key: `yard:${yard.id}`,
