@@ -203,6 +203,7 @@ export default function CommunicationsPage() {
   const [busyConversationId, setBusyConversationId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const currentUserRef = useRef<CurrentUser | null>(null);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingBroadcastRef = useRef(0);
 
@@ -267,6 +268,10 @@ export default function CommunicationsPage() {
   }, [currentUser, membersByConversation, selectedConversation]);
 
   const canManageSelected = Boolean(canModerate || currentMember?.is_admin);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   const unreadForConversation = useCallback(
     (conversation: Conversation) => {
@@ -374,8 +379,9 @@ export default function CommunicationsPage() {
     return () => window.clearTimeout(timer);
   }, [loading, selectedConversation, visibleConversations]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (activeUserId?: string) => {
     setMessage("");
+    const userId = activeUserId ?? currentUserRef.current?.id ?? "";
 
     const { data: conversationRows, error: conversationError } = await supabase
       .from("conversations")
@@ -392,24 +398,8 @@ export default function CommunicationsPage() {
     const conversationList = (conversationRows ?? []) as Conversation[];
     const conversationIds = conversationList.map((conversation) => conversation.id);
 
-    setConversations(conversationList);
-
-    const requestedId =
-      typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("conversation") ?? "";
-    const requestedConversation = requestedId
-      ? conversationList.find((conversation) => conversation.id === requestedId)
-      : null;
-
-    if (requestedConversation && requestedConversation.id !== selectedId) {
-      setSelectedId(requestedConversation.id);
-      setMode(modeForConversationType(requestedConversation.conversation_type));
-      setMobileThreadOpen(true);
-    } else if (!selectedId && conversationList[0]) {
-      setSelectedId(conversationList[0].id);
-      setMode(modeForConversationType(conversationList[0].conversation_type));
-    }
-
-    if (conversationIds.length === 0) {
+    if (!userId) {
+      setConversations([]);
       setMembers([]);
       setMessages([]);
       setAttachments([]);
@@ -419,31 +409,83 @@ export default function CommunicationsPage() {
       return;
     }
 
-    const [memberResult, messageResult, taskResult] = await Promise.all([
-      supabase
-        .from("conversation_members")
-        .select("id, conversation_id, user_id, is_admin, muted, urgent_only, safety_override, last_read_at, removed_at")
-        .in("conversation_id", conversationIds),
+    if (conversationIds.length === 0) {
+      setConversations([]);
+      setMembers([]);
+      setMessages([]);
+      setAttachments([]);
+      setReactions([]);
+      setAcks([]);
+      setTasks([]);
+      return;
+    }
+
+    const memberResult = await supabase
+      .from("conversation_members")
+      .select("id, conversation_id, user_id, is_admin, muted, urgent_only, safety_override, last_read_at, removed_at")
+      .in("conversation_id", conversationIds);
+
+    if (memberResult.error) throw memberResult.error;
+
+    const memberRows = (memberResult.data ?? []) as Member[];
+    const currentMembershipIds = new Set(
+      memberRows
+        .filter((member) => member.user_id === userId && !member.removed_at)
+        .map((member) => member.conversation_id)
+    );
+    const safeConversationList = conversationList.filter((conversation) => currentMembershipIds.has(conversation.id));
+    const safeConversationIds = safeConversationList.map((conversation) => conversation.id);
+    const safeConversationIdSet = new Set(safeConversationIds);
+
+    setConversations(safeConversationList);
+
+    const requestedId =
+      typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("conversation") ?? "";
+    const requestedConversation = requestedId
+      ? safeConversationList.find((conversation) => conversation.id === requestedId)
+      : null;
+
+    if (requestedConversation && requestedConversation.id !== selectedId) {
+      setSelectedId(requestedConversation.id);
+      setMode(modeForConversationType(requestedConversation.conversation_type));
+      setMobileThreadOpen(true);
+    } else if ((!selectedId || !safeConversationIdSet.has(selectedId)) && safeConversationList[0]) {
+      setSelectedId(safeConversationList[0].id);
+      setMode(modeForConversationType(safeConversationList[0].conversation_type));
+    } else if (selectedId && !safeConversationIdSet.has(selectedId)) {
+      setSelectedId("");
+    }
+
+    if (safeConversationIds.length === 0) {
+      setMembers([]);
+      setMessages([]);
+      setAttachments([]);
+      setReactions([]);
+      setAcks([]);
+      setTasks([]);
+      return;
+    }
+
+    const [messageResult, taskResult] = await Promise.all([
       supabase
         .from("messages")
         .select("id, conversation_id, sender_id, body, priority, reply_to_message_id, status, deleted_at, created_at")
-        .in("conversation_id", conversationIds)
+        .in("conversation_id", safeConversationIds)
         .order("created_at", { ascending: true })
         .limit(1000),
       supabase
         .from("communication_tasks")
         .select("id, source_message_id, conversation_id, owner_id, title, status")
-        .in("conversation_id", conversationIds),
+        .in("conversation_id", safeConversationIds),
     ]);
 
-    if (memberResult.error) throw memberResult.error;
     if (messageResult.error) throw messageResult.error;
     if (taskResult.error) throw taskResult.error;
 
     const messageList = (messageResult.data ?? []) as Message[];
     const messageIds = messageList.map((item) => item.id);
 
-    setMembers((memberResult.data ?? []) as Member[]);
+    setMembers(memberRows.filter((member) => safeConversationIdSet.has(member.conversation_id)));
     setMessages(messageList);
     setTasks((taskResult.data ?? []) as CommunicationTask[]);
 
@@ -516,12 +558,13 @@ export default function CommunicationsPage() {
     }
 
     setPermissions(permissionMap);
+    currentUserRef.current = bootstrapData.currentUser;
     setCurrentUser(bootstrapData.currentUser);
     setContacts(Array.isArray(bootstrapData.contacts) ? bootstrapData.contacts : []);
     setYards(Array.isArray(bootstrapData.yards) ? bootstrapData.yards : []);
     setActiveYardId(bootstrapData.yards?.[0]?.id ?? "");
 
-    await loadData();
+    await loadData(bootstrapData.currentUser?.id);
     setMessage("");
     setLoading(false);
   }, [loadData]);

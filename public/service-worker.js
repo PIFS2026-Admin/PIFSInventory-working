@@ -1,4 +1,4 @@
-const TITAN_CACHE = "titan-pwa-shell-v3";
+const TITAN_CACHE = "titan-pwa-shell-v4";
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icon-192.png",

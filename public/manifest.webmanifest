@@ -10,6 +10,7 @@
   "orientation": "portrait",
   "background_color": "#0b0d10",
   "theme_color": "#0b0d10",
+  "gcm_sender_id": "103953800507",
   "categories": ["business", "productivity", "utilities"],
   "icons": [
     {

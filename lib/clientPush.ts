@@ -22,6 +22,24 @@ function urlBase64ToUint8Array(value: string) {
   return outputArray;
 }
 
+function bufferSourceToBytes(value: BufferSource | null | undefined) {
+  if (!value) return null;
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(value);
+}
+
+function bytesMatch(left: Uint8Array | null, right: Uint8Array) {
+  if (!left || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function subscriptionUsesApplicationKey(subscription: PushSubscription, publicKey: string) {
+  const expectedKey = urlBase64ToUint8Array(publicKey);
+  return bytesMatch(bufferSourceToBytes(subscription.options.applicationServerKey), expectedKey);
+}
+
 function pushSupported() {
   return (
     typeof window !== "undefined" &&
@@ -32,7 +50,10 @@ function pushSupported() {
 }
 
 async function getReadyRegistration() {
-  await navigator.serviceWorker.register("/service-worker.js").catch(() => undefined);
+  const registration = await navigator.serviceWorker
+    .register("/service-worker.js", { updateViaCache: "none" })
+    .catch(() => undefined);
+  await registration?.update().catch(() => undefined);
   return navigator.serviceWorker.ready;
 }
 
@@ -102,8 +123,13 @@ export async function getTitanPushState(): Promise<TitanPushState> {
 
   const registration = await getReadyRegistration();
   const subscription = await registration.pushManager.getSubscription();
+  const validSubscription = subscription && subscriptionUsesApplicationKey(subscription, publicKey);
 
-  if (subscription && token) {
+  if (subscription && !validSubscription) {
+    await subscription.unsubscribe().catch(() => undefined);
+  }
+
+  if (validSubscription && token) {
     await saveSubscription(subscription).catch(() => undefined);
   }
 
@@ -112,7 +138,7 @@ export async function getTitanPushState(): Promise<TitanPushState> {
     configured: Boolean(publicKey),
     hasSession: Boolean(token),
     permission: Notification.permission,
-    subscribed: Boolean(subscription),
+    subscribed: Boolean(validSubscription),
   };
 }
 
@@ -129,14 +155,24 @@ export async function subscribeToTitanPush() {
     throw new Error("Push notification permission was not granted.");
   }
 
-  await navigator.serviceWorker.register("/service-worker.js");
+  await navigator.serviceWorker.register("/service-worker.js", { updateViaCache: "none" });
   const readyRegistration = await navigator.serviceWorker.ready;
   const existingSubscription = await readyRegistration.pushManager.getSubscription();
+  const activeSubscription =
+    existingSubscription && subscriptionUsesApplicationKey(existingSubscription, publicKey)
+      ? existingSubscription
+      : null;
+
+  if (existingSubscription && !activeSubscription) {
+    await existingSubscription.unsubscribe().catch(() => undefined);
+  }
+
+  const applicationServerKey = urlBase64ToUint8Array(publicKey);
   const subscription =
-    existingSubscription ??
+    activeSubscription ??
     (await readyRegistration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+      applicationServerKey: applicationServerKey as BufferSource,
     }));
 
   await saveSubscription(subscription);

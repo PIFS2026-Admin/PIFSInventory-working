@@ -110,11 +110,19 @@ export async function DELETE(request: Request, context: { params: { id: string }
     if (memberError) throw memberError;
 
     const memberRow = member as MemberRow | null;
+    const isActiveMember = Boolean(memberRow && !memberRow.removed_at);
+
+    if (conversationRow.conversation_type === "direct" && !isActiveMember) {
+      return Response.json({ error: "Direct messages are only available to their participants." }, { status: 403 });
+    }
+
     const canDelete =
-      isSystemAdmin ||
-      canModerateCommunications ||
-      conversationRow.created_by === userData.user.id ||
-      (Boolean(memberRow?.is_admin) && !memberRow?.removed_at);
+      conversationRow.conversation_type === "direct"
+        ? conversationRow.created_by === userData.user.id || Boolean(memberRow?.is_admin)
+        : isSystemAdmin ||
+          canModerateCommunications ||
+          conversationRow.created_by === userData.user.id ||
+          (Boolean(memberRow?.is_admin) && isActiveMember);
 
     if (!canDelete) {
       return Response.json({ error: "Only group admins or TITAN admins can delete this conversation." }, { status: 403 });
