@@ -47,6 +47,8 @@ type WebPushFailure = Error & {
   statusCode?: number;
 };
 
+const defaultVapidSubject = "mailto:notifications@pifstitan.com";
+
 function getErrorMessage(error: unknown) {
   if (!error) return "Unknown error.";
   if (typeof error === "string") return error;
@@ -72,10 +74,16 @@ function configuredSupabase() {
   });
 }
 
+function validVapidSubject(value: string) {
+  const subject = value.trim();
+  if (/^(mailto:|https?:\/\/)/i.test(subject)) return subject;
+  return defaultVapidSubject;
+}
+
 function configureWebPush() {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY || "";
   const privateKey = process.env.VAPID_PRIVATE_KEY || "";
-  const subject = process.env.VAPID_SUBJECT || "mailto:notifications@pifstitan.com";
+  const subject = validVapidSubject(process.env.VAPID_SUBJECT || defaultVapidSubject);
 
   if (!publicKey || !privateKey) {
     return false;
