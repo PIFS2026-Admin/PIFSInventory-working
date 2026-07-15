@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import NotificationCenter from "./NotificationCenter";
 
 const hiddenRoutes = ["/login", "/print", "/ticket-print"];
+const pageOwnedBellRoutes = ["/communications", "/home", "/customer"];
 
 export default function GlobalNotificationBell() {
   const [path, setPath] = useState("");
@@ -23,7 +24,14 @@ export default function GlobalNotificationBell() {
     };
   }, []);
 
-  if (!path || path.includes("/print") || hiddenRoutes.some((route) => path.startsWith(route))) return null;
+  if (
+    !path ||
+    path.includes("/print") ||
+    hiddenRoutes.some((route) => path.startsWith(route)) ||
+    pageOwnedBellRoutes.some((route) => path === route || path.startsWith(`${route}/`))
+  ) {
+    return null;
+  }
 
   return (
     <div className="global-notification-bell">
