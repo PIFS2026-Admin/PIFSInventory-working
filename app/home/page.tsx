@@ -250,6 +250,11 @@ const launchCards: LaunchCard[] = [
     href: "/hardband",
   },
   {
+    title: "Communications",
+    description: "Groups, direct messages, alerts, attachments, and team notifications.",
+    href: "/communications",
+  },
+  {
     title: "Reports",
     description: "Pipe inventory reports, ticket searches, and exports.",
     href: "/?open=reports",

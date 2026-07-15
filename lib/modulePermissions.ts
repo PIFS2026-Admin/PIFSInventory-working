@@ -29,6 +29,7 @@ export type PermissionModuleKey =
   | "lead_scorecards"
   | "reports"
   | "exports"
+  | "communications"
   | "user_management"
   | "system_settings"
   | "email_notification_settings";
@@ -91,6 +92,7 @@ export type ModuleKey =
   | "dti"
   | "dti_summary"
   | "hardband"
+  | "communications"
   | "admin"
   | "reports"
   | "dashboard";
@@ -133,6 +135,7 @@ export const permissionModules: ModulePermissionConfig[] = [
   { key: "lead_scorecards", label: "Lead Scorecards", description: "Lead performance and scorecard dashboards." },
   { key: "reports", label: "Reports", description: "Internal reports, ticket history, and customer reports." },
   { key: "exports", label: "Exports", description: "CSV/PDF exports and printable records." },
+  { key: "communications", label: "Communications", description: "Group messaging, direct messages, alerts, attachments, and notification preferences." },
   { key: "user_management", label: "User Management", description: "Users, roles, yards, customers, and access controls." },
   { key: "system_settings", label: "System Settings", description: "System setup, options, and global settings." },
   { key: "email_notification_settings", label: "Email / Notification Settings", description: "Email groups, alerts, and notification preferences." },
@@ -262,6 +265,11 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
     description: "Hardband work orders, serial numbers, closeout, and reports.",
   },
   {
+    key: "communications",
+    label: "Communications",
+    description: "Group conversations, direct messages, alerts, attachments, and communication notifications.",
+  },
+  {
     key: "admin",
     label: "Admin Controls",
     description: "Companies, users, roles, yards, racks, options, and setup tools.",
@@ -287,6 +295,7 @@ const legacyModuleRequirements: Record<ModuleKey, PermissionModuleKey[]> = {
   dti: ["dti", "lead_scorecards"],
   dti_summary: ["daily_summaries"],
   hardband: ["hardbanding"],
+  communications: ["communications"],
   admin: ["user_management", "system_settings", "email_notification_settings"],
   reports: ["reports", "exports"],
   dashboard: ["dashboard"],
@@ -449,13 +458,13 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
   }
 
   if (role === "cdt_lead" || role === "hardband_lead" || role === "tubing_lead") {
-    const module = role === "cdt_lead" ? "cdt" : role === "hardband_lead" ? "hardbanding" : "tubing";
-    allow(permissions, [module, "daily_summaries", "consumable_inventory", "issue_tickets", "reports", "exports"], ["view", "create", "edit", "close", "export", "receive_notifications"]);
+    const serviceModule = role === "cdt_lead" ? "cdt" : role === "hardband_lead" ? "hardbanding" : "tubing";
+    allow(permissions, [serviceModule, "daily_summaries", "consumable_inventory", "issue_tickets", "reports", "exports"], ["view", "create", "edit", "close", "export", "receive_notifications"]);
   }
 
   if (role === "cdt_hand" || role === "hardband_hand" || role === "tubing_hand") {
-    const module = role === "cdt_hand" ? "cdt" : role === "hardband_hand" ? "hardbanding" : "tubing";
-    allow(permissions, [module, "daily_summaries", "consumable_inventory", "issue_tickets"], ["view", "create", "edit"]);
+    const serviceModule = role === "cdt_hand" ? "cdt" : role === "hardband_hand" ? "hardbanding" : "tubing";
+    allow(permissions, [serviceModule, "daily_summaries", "consumable_inventory", "issue_tickets"], ["view", "create", "edit"]);
   }
 
   if (role === "maintenance_lead") {
@@ -472,6 +481,22 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
 
   if (role === "lead_inspector") {
     allow(permissions, ["dti", "daily_summaries", "lead_scorecards"], ["view", "create", "edit", "close"]);
+  }
+
+  allow(permissions, ["communications"], ["view", "create", "edit", "export", "receive_notifications"]);
+
+  if (
+    [
+      "service_line_manager",
+      "dti_superintendent",
+      "yard_manager",
+      "inventory_manager",
+      "office_admin",
+      "admin",
+      "owner",
+    ].includes(role)
+  ) {
+    allow(permissions, ["communications"], ["approve", "close", "manage_settings", "delete"]);
   }
 
   return permissions;
@@ -562,6 +587,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/dti") return "dti";
   if (href === "/dti-summary") return "dti_summary";
   if (href === "/hardband") return "hardband";
+  if (href === "/communications") return "communications";
   if (href === "/admin") return "admin";
   if (href.startsWith("/?open=reports")) return "reports";
   return null;
