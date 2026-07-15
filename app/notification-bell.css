@@ -36,8 +36,24 @@
   right: -5px;
 }
 
-.mobile-app-alerts {
-  display: none;
+.global-notification-bell {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  right: max(14px, env(safe-area-inset-right));
+  z-index: 10020;
+  display: flex;
+}
+
+.global-notification-bell .notification-button {
+  border-color: rgba(249, 115, 22, 0.48);
+  background: rgba(16, 19, 24, 0.94);
+  color: #f8fafc;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.36), 0 0 0 1px rgba(249, 115, 22, 0.08);
+}
+
+.global-notification-bell .notification-button:hover {
+  border-color: rgba(249, 115, 22, 0.82);
+  background: rgba(28, 32, 40, 0.98);
 }
 
 @media (max-width: 760px) {
@@ -63,12 +79,9 @@
     max-height: calc(100dvh - 160px);
   }
 
-  .mobile-app-alerts {
-    position: fixed;
+  .global-notification-bell {
     top: max(12px, env(safe-area-inset-top));
     right: max(12px, env(safe-area-inset-right));
-    z-index: 9999;
-    display: flex;
   }
 
   .communications-page .comm-mobile-head-actions .notification-center {
@@ -77,7 +90,7 @@
 }
 
 @media print {
-  .mobile-app-alerts {
+  .global-notification-bell {
     display: none !important;
   }
 }

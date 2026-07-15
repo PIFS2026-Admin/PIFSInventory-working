@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import GlobalNotificationBell from "../components/GlobalNotificationBell";
 import MobileAppChrome from "../components/MobileAppChrome";
 import PwaRegistrar from "../components/PwaRegistrar";
 import "./globals.css";
@@ -54,6 +55,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         {children}
+        <GlobalNotificationBell />
         <MobileAppChrome />
         <PwaRegistrar />
       </body>
