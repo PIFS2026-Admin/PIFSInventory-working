@@ -158,7 +158,9 @@ export async function GET(request: Request) {
 
     if (countError) throw countError;
 
-    if ((conversationCount ?? 0) === 0) {
+    const shouldSeedDefaultChannels = process.env.COMMUNICATIONS_SEED_DEFAULT_CHANNELS === "true";
+
+    if (shouldSeedDefaultChannels && (conversationCount ?? 0) === 0) {
       const allInternalId = await upsertConversation(adminSupabase, {
         conversation_key: "announcement:all-employees",
         name: "Company Alerts",

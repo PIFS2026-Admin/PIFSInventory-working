@@ -790,6 +790,44 @@ export default function CommunicationsPage() {
     await loadData();
   }
 
+  async function removeMember(member: Member) {
+    if (!selectedConversation || !canManageSelected) return;
+    if (member.user_id === currentUser?.id) {
+      setMessage("Use Leave if you want to remove yourself from this group.");
+      return;
+    }
+
+    const contactName = contactById.get(member.user_id)?.name ?? "this member";
+    if (!window.confirm(`Remove ${contactName} from ${conversationTitle(selectedConversation)}?`)) return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("Your session expired. Sign in again before removing members.");
+      return;
+    }
+
+    const response = await fetch(`/api/communications/members/${member.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(String(payload.error ?? "Member could not be removed."));
+      return;
+    }
+
+    setMembers((current) =>
+      current.map((item) =>
+        item.id === member.id ? { ...item, removed_at: new Date().toISOString() } : item
+      )
+    );
+    await loadData();
+  }
+
   async function sendMessage() {
     if (!currentUser || !selectedConversation) return;
     const text = draft.trim();
@@ -1016,6 +1054,46 @@ export default function CommunicationsPage() {
     await loadData();
   }
 
+  async function resetGroups() {
+    if (!currentUser || !canModerate) return;
+    const confirmed = window.confirm(
+      "Start fresh with Communications groups? This deletes every group, yard channel, department channel, and alert thread, but keeps direct messages."
+    );
+    if (!confirmed) return;
+
+    setBusyConversationId("reset-groups");
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("Your session expired. Sign in again before resetting groups.");
+      setBusyConversationId("");
+      return;
+    }
+
+    const response = await fetch("/api/communications/reset-groups", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(String(payload.error ?? "Groups could not be reset."));
+      setBusyConversationId("");
+      return;
+    }
+
+    setMode("groups");
+    setSelectedId("");
+    setConversations((current) => current.filter((conversation) => conversation.conversation_type === "direct"));
+    setBusyConversationId("");
+    setMessage(`Groups reset. ${Number(payload.deleted ?? 0)} group conversations removed.`);
+    await loadData();
+  }
+
   async function deleteMessage(messageId: string) {
     if (!currentUser) return;
     const target = messageById.get(messageId);
@@ -1214,6 +1292,11 @@ export default function CommunicationsPage() {
                   <b>{name}</b>
                   <span>{member.user_id === currentUser?.id ? "You" : displayRole(contact?.role ?? "employee")}{member.is_admin ? " · Admin" : ""}</span>
                 </div>
+                {conversation.conversation_type !== "direct" && member.user_id !== currentUser?.id && (
+                  <button className="comm-react danger" type="button" onClick={() => removeMember(member)} disabled={!canManageSelected}>
+                    Remove
+                  </button>
+                )}
               </div>
             );
           })}
@@ -1281,7 +1364,7 @@ export default function CommunicationsPage() {
               <button className="comm-btn ghost" type="button" onClick={exportLog} disabled={!canExportLogs}>
                 Export
               </button>
-              {["group", "direct"].includes(conversation.conversation_type) && (
+              {(canModerate || ["group", "direct"].includes(conversation.conversation_type)) && (
                 <button
                   className="comm-btn danger"
                   type="button"
@@ -1299,6 +1382,16 @@ export default function CommunicationsPage() {
                   disabled={busyConversationId === conversation.id}
                 >
                   {conversation.conversation_type === "direct" ? "Hide" : "Leave"}
+                </button>
+              )}
+              {canModerate && (
+                <button
+                  className="comm-btn danger"
+                  type="button"
+                  onClick={resetGroups}
+                  disabled={busyConversationId === "reset-groups"}
+                >
+                  Reset Groups
                 </button>
               )}
             </div>
@@ -1381,10 +1474,13 @@ export default function CommunicationsPage() {
       <main className="communications-page">
         <section className="module">
           <div className="page-head">
-            <div>
-              <div className="pt">Communication</div>
-              <div className="ps">Branch and service-line messaging for crews, dispatch, warehouse, and management.</div>
-            </div>
+            <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
+              <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
+              <div>
+                <div className="brand-title">TITAN</div>
+                <div className="brand-subtitle">Communications</div>
+              </div>
+            </button>
             <div className="statusline">
               <span className="pill ok">Opening Chats</span>
             </div>
@@ -1456,10 +1552,13 @@ export default function CommunicationsPage() {
       <main className="communications-page">
         <section className="module">
           <div className="page-head">
-            <div>
-              <div className="pt">Communication</div>
-              <div className="ps">Branch and service-line messaging for crews, dispatch, warehouse, and management.</div>
-            </div>
+            <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
+              <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
+              <div>
+                <div className="brand-title">TITAN</div>
+                <div className="brand-subtitle">Communications</div>
+              </div>
+            </button>
           </div>
           <div className="comm-empty-state">{message || "You do not have access to Communications."}</div>
         </section>
@@ -1481,10 +1580,13 @@ export default function CommunicationsPage() {
 
       <section className="module">
         <div className="page-head">
-          <div>
-            <div className="pt">Communication</div>
-            <div className="ps">Branch and service-line messaging for crews, dispatch, warehouse, and management.</div>
-          </div>
+          <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
+            <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
+            <div>
+              <div className="brand-title">TITAN</div>
+              <div className="brand-subtitle">Communications</div>
+            </div>
+          </button>
           <div className="statusline">
             <select className="comm-input branch-select" value={activeYardId} onChange={(event) => setActiveYardId(event.target.value)}>
               <option value="">All yards</option>

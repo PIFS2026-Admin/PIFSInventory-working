@@ -1,22 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRole } from "../../../../../lib/modulePermissions";
 
-type ConversationRow = {
-  id: string;
-  conversation_type: string;
-  name: string;
-  created_by: string | null;
-};
-
 type MemberRow = {
+  id: string;
+  conversation_id: string;
   user_id: string;
   is_admin: boolean | null;
   removed_at: string | null;
-};
-
-type AttachmentRow = {
-  file_path: string;
-  storage_bucket: string | null;
+  conversations: {
+    id: string;
+    conversation_type: string;
+    created_by: string | null;
+  } | null;
 };
 
 function configuredSupabase() {
@@ -49,7 +44,7 @@ export async function DELETE(request: Request, context: { params: { id: string }
     const adminSupabase = configuredSupabase();
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.replace(/^Bearer\s+/i, "").trim();
-    const conversationId = context.params.id;
+    const memberId = context.params.id;
 
     if (!token) {
       return Response.json({ error: "Missing user session." }, { status: 401 });
@@ -70,7 +65,6 @@ export async function DELETE(request: Request, context: { params: { id: string }
     if (profileError) throw profileError;
 
     const role = normalizeRole(profile?.role);
-    const isSystemAdmin = ["admin", "owner"].includes(role);
     const canModerateCommunications = [
       "admin",
       "owner",
@@ -85,68 +79,49 @@ export async function DELETE(request: Request, context: { params: { id: string }
       return Response.json({ error: "Communications is only available to internal TITAN users." }, { status: 403 });
     }
 
-    const { data: conversation, error: conversationError } = await adminSupabase
-      .from("conversations")
-      .select("id, conversation_type, name, created_by")
-      .eq("id", conversationId)
-      .maybeSingle();
-
-    if (conversationError) throw conversationError;
-    if (!conversation) return Response.json({ error: "Conversation was not found." }, { status: 404 });
-
-    const conversationRow = conversation as ConversationRow;
-
-    if (!canModerateCommunications && !["group", "direct"].includes(conversationRow.conversation_type)) {
-      return Response.json({ error: "Only managers can delete system-created channels." }, { status: 400 });
-    }
-
     const { data: member, error: memberError } = await adminSupabase
       .from("conversation_members")
-      .select("user_id, is_admin, removed_at")
-      .eq("conversation_id", conversationId)
-      .eq("user_id", userData.user.id)
+      .select("id, conversation_id, user_id, is_admin, removed_at, conversations(id, conversation_type, created_by)")
+      .eq("id", memberId)
       .maybeSingle();
 
     if (memberError) throw memberError;
+    if (!member) return Response.json({ error: "Member was not found." }, { status: 404 });
 
-    const memberRow = member as MemberRow | null;
-    const canDelete =
-      isSystemAdmin ||
+    const memberRow = member as unknown as MemberRow;
+
+    if (memberRow.user_id === userData.user.id) {
+      return Response.json({ error: "Use Leave to remove yourself from a group." }, { status: 400 });
+    }
+
+    if (memberRow.conversations?.conversation_type === "direct") {
+      return Response.json({ error: "Direct messages do not support member removal." }, { status: 400 });
+    }
+
+    const { data: requesterMember, error: requesterMemberError } = await adminSupabase
+      .from("conversation_members")
+      .select("is_admin, removed_at")
+      .eq("conversation_id", memberRow.conversation_id)
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+
+    if (requesterMemberError) throw requesterMemberError;
+
+    const canRemove =
       canModerateCommunications ||
-      conversationRow.created_by === userData.user.id ||
-      (Boolean(memberRow?.is_admin) && !memberRow?.removed_at);
+      memberRow.conversations?.created_by === userData.user.id ||
+      (Boolean(requesterMember?.is_admin) && !requesterMember?.removed_at);
 
-    if (!canDelete) {
-      return Response.json({ error: "Only group admins or TITAN admins can delete this conversation." }, { status: 403 });
+    if (!canRemove) {
+      return Response.json({ error: "Only group admins or TITAN managers can remove members." }, { status: 403 });
     }
 
-    const { data: attachments, error: attachmentError } = await adminSupabase
-      .from("message_attachments")
-      .select("file_path, storage_bucket")
-      .eq("conversation_id", conversationId);
+    const { error: updateError } = await adminSupabase
+      .from("conversation_members")
+      .update({ removed_at: new Date().toISOString() })
+      .eq("id", memberId);
 
-    if (attachmentError) throw attachmentError;
-
-    const filesByBucket = new Map<string, string[]>();
-    ((attachments ?? []) as AttachmentRow[]).forEach((attachment) => {
-      const bucket = attachment.storage_bucket || "communication-attachments";
-      const paths = filesByBucket.get(bucket) ?? [];
-      paths.push(attachment.file_path);
-      filesByBucket.set(bucket, paths);
-    });
-
-    for (const [bucket, paths] of filesByBucket) {
-      if (paths.length > 0) {
-        await adminSupabase.storage.from(bucket).remove(paths);
-      }
-    }
-
-    const { error: deleteError } = await adminSupabase
-      .from("conversations")
-      .delete()
-      .eq("id", conversationId);
-
-    if (deleteError) throw deleteError;
+    if (updateError) throw updateError;
 
     return Response.json({ ok: true });
   } catch (error: unknown) {

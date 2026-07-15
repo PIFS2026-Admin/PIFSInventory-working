@@ -1,17 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import { normalizeRole } from "../../../../../lib/modulePermissions";
+import { normalizeRole } from "../../../../lib/modulePermissions";
 
 type ConversationRow = {
   id: string;
-  conversation_type: string;
-  name: string;
-  created_by: string | null;
-};
-
-type MemberRow = {
-  user_id: string;
-  is_admin: boolean | null;
-  removed_at: string | null;
 };
 
 type AttachmentRow = {
@@ -44,12 +35,11 @@ function errorMessage(error: unknown) {
   }
 }
 
-export async function DELETE(request: Request, context: { params: { id: string } }) {
+export async function DELETE(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
     const authorization = request.headers.get("authorization") ?? "";
     const token = authorization.replace(/^Bearer\s+/i, "").trim();
-    const conversationId = context.params.id;
 
     if (!token) {
       return Response.json({ error: "Missing user session." }, { status: 401 });
@@ -70,8 +60,7 @@ export async function DELETE(request: Request, context: { params: { id: string }
     if (profileError) throw profileError;
 
     const role = normalizeRole(profile?.role);
-    const isSystemAdmin = ["admin", "owner"].includes(role);
-    const canModerateCommunications = [
+    const canReset = [
       "admin",
       "owner",
       "service_line_manager",
@@ -81,49 +70,27 @@ export async function DELETE(request: Request, context: { params: { id: string }
       "office_admin",
     ].includes(role);
 
-    if (role === "customer" || Boolean(profile?.is_disabled)) {
-      return Response.json({ error: "Communications is only available to internal TITAN users." }, { status: 403 });
+    if (!canReset || role === "customer" || Boolean(profile?.is_disabled)) {
+      return Response.json({ error: "You do not have permission to reset Communications groups." }, { status: 403 });
     }
 
-    const { data: conversation, error: conversationError } = await adminSupabase
+    const { data: conversations, error: conversationError } = await adminSupabase
       .from("conversations")
-      .select("id, conversation_type, name, created_by")
-      .eq("id", conversationId)
-      .maybeSingle();
+      .select("id")
+      .neq("conversation_type", "direct");
 
     if (conversationError) throw conversationError;
-    if (!conversation) return Response.json({ error: "Conversation was not found." }, { status: 404 });
 
-    const conversationRow = conversation as ConversationRow;
+    const conversationIds = ((conversations ?? []) as ConversationRow[]).map((conversation) => conversation.id);
 
-    if (!canModerateCommunications && !["group", "direct"].includes(conversationRow.conversation_type)) {
-      return Response.json({ error: "Only managers can delete system-created channels." }, { status: 400 });
-    }
-
-    const { data: member, error: memberError } = await adminSupabase
-      .from("conversation_members")
-      .select("user_id, is_admin, removed_at")
-      .eq("conversation_id", conversationId)
-      .eq("user_id", userData.user.id)
-      .maybeSingle();
-
-    if (memberError) throw memberError;
-
-    const memberRow = member as MemberRow | null;
-    const canDelete =
-      isSystemAdmin ||
-      canModerateCommunications ||
-      conversationRow.created_by === userData.user.id ||
-      (Boolean(memberRow?.is_admin) && !memberRow?.removed_at);
-
-    if (!canDelete) {
-      return Response.json({ error: "Only group admins or TITAN admins can delete this conversation." }, { status: 403 });
+    if (conversationIds.length === 0) {
+      return Response.json({ ok: true, deleted: 0 });
     }
 
     const { data: attachments, error: attachmentError } = await adminSupabase
       .from("message_attachments")
       .select("file_path, storage_bucket")
-      .eq("conversation_id", conversationId);
+      .in("conversation_id", conversationIds);
 
     if (attachmentError) throw attachmentError;
 
@@ -144,11 +111,11 @@ export async function DELETE(request: Request, context: { params: { id: string }
     const { error: deleteError } = await adminSupabase
       .from("conversations")
       .delete()
-      .eq("id", conversationId);
+      .in("id", conversationIds);
 
     if (deleteError) throw deleteError;
 
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, deleted: conversationIds.length });
   } catch (error: unknown) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
