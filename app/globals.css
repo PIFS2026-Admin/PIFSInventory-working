@@ -6910,6 +6910,12 @@ th {
   color: #111;
 }
 
+.communications-page .comm-btn.danger {
+  border-color: rgba(224, 83, 63, 0.68);
+  background: rgba(224, 83, 63, 0.15);
+  color: #ffb4a9;
+}
+
 .communications-page .comm-btn.ghost {
   background: var(--comm-panel3);
 }

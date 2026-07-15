@@ -191,6 +191,7 @@ export default function CommunicationsPage() {
   const [draft, setDraft] = useState("");
   const [draftPriority, setDraftPriority] = useState<Priority>("normal");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [busyConversationId, setBusyConversationId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -331,6 +332,16 @@ export default function CommunicationsPage() {
     messages.forEach((item) => map.set(item.id, item));
     return map;
   }, [messages]);
+
+  useEffect(() => {
+    if (loading || visibleConversations.length === 0) return;
+    if (selectedConversation && visibleConversations.some((conversation) => conversation.id === selectedConversation.id)) return;
+    const timer = window.setTimeout(() => {
+      setSelectedId(visibleConversations[0].id);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, selectedConversation, visibleConversations]);
 
   const loadData = useCallback(async () => {
     setMessage("");
@@ -571,6 +582,20 @@ export default function CommunicationsPage() {
     return `${memberCount} members`;
   }
 
+  function openConversation(conversation: Conversation) {
+    setSelectedId(conversation.id);
+    setMode(modeForConversationType(conversation.conversation_type));
+    setNewOpen(false);
+    setReplyToId(null);
+    setMembersOpen(false);
+    setPrefsOpen(false);
+    setAdminOpen(false);
+
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `/communications?conversation=${conversation.id}`);
+    }
+  }
+
   const markRead = useCallback(async (conversationId: string) => {
     if (!currentUser) return;
     const readAt = new Date().toISOString();
@@ -650,9 +675,7 @@ export default function CommunicationsPage() {
       key = `direct:${pair[0]}:${pair[1]}`;
       const existing = conversations.find((conversation) => conversation.conversation_key === key);
       if (existing) {
-        setMode("directs");
-        setSelectedId(existing.id);
-        setNewOpen(false);
+        openConversation(existing);
         return;
       }
       conversationName = `${currentUser.name} / ${contact.name}`;
@@ -714,8 +737,22 @@ export default function CommunicationsPage() {
     setNewOpen(false);
     setNewName("");
     setNewMembers("");
-    setSelectedId(conversation.id);
     await loadData();
+    openConversation({
+      id: conversation.id,
+      conversation_key: key || null,
+      name: conversationName,
+      conversation_type: type,
+      yard_id: null,
+      department: null,
+      topic: type === "announcement" ? "TITAN alert thread." : type === "direct" ? "Direct message." : "TITAN group conversation.",
+      color: type === "announcement" ? "green" : "orange",
+      priority: "normal",
+      is_archived: false,
+      is_locked: false,
+      created_by: currentUser.id,
+      updated_at: new Date().toISOString(),
+    });
   }
 
   async function addMember() {
@@ -903,6 +940,82 @@ export default function CommunicationsPage() {
     await loadData();
   }
 
+  async function deleteConversation() {
+    if (!currentUser || !selectedConversation) return;
+
+    if (!["group", "direct"].includes(selectedConversation.conversation_type)) {
+      setMessage("Yard, department, and alert channels are system channels. Archive them instead of deleting them.");
+      return;
+    }
+
+    const title = conversationTitle(selectedConversation);
+    if (!window.confirm(`Delete ${title}? This removes the conversation and its messages for everyone.`)) return;
+
+    setBusyConversationId(selectedConversation.id);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("Your session expired. Sign in again before deleting a group.");
+      setBusyConversationId("");
+      return;
+    }
+
+    const response = await fetch(`/api/communications/conversations/${selectedConversation.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(String(payload.error ?? "Conversation could not be deleted."));
+      setBusyConversationId("");
+      return;
+    }
+
+    setConversations((current) => current.filter((conversation) => conversation.id !== selectedConversation.id));
+    setMembers((current) => current.filter((member) => member.conversation_id !== selectedConversation.id));
+    setMessages((current) => current.filter((item) => item.conversation_id !== selectedConversation.id));
+    setAttachments((current) => current.filter((item) => item.conversation_id !== selectedConversation.id));
+    setSelectedId("");
+    setBusyConversationId("");
+    await loadData();
+  }
+
+  async function leaveConversation() {
+    if (!currentUser || !currentMember || !selectedConversation) return;
+
+    if (selectedConversation.conversation_type === "announcement") {
+      setMessage("Alert channels stay available to employees.");
+      return;
+    }
+
+    const prompt = selectedConversation.conversation_type === "direct" ? "Hide this direct message?" : `Leave ${conversationTitle(selectedConversation)}?`;
+    if (!window.confirm(prompt)) return;
+
+    setBusyConversationId(selectedConversation.id);
+    setMessage("");
+
+    const { error } = await supabase
+      .from("conversation_members")
+      .update({ removed_at: new Date().toISOString() })
+      .eq("id", currentMember.id);
+
+    if (error) {
+      setMessage(error.message);
+      setBusyConversationId("");
+      return;
+    }
+
+    setConversations((current) => current.filter((conversation) => conversation.id !== selectedConversation.id));
+    setSelectedId("");
+    setBusyConversationId("");
+    await loadData();
+  }
+
   async function deleteMessage(messageId: string) {
     if (!currentUser) return;
     const target = messageById.get(messageId);
@@ -1047,11 +1160,7 @@ export default function CommunicationsPage() {
         key={conversation.id}
         className={`comm-group ${conversation.id === selectedConversation?.id ? "on" : ""}`}
         type="button"
-        onClick={() => {
-          setSelectedId(conversation.id);
-          setNewOpen(false);
-          setReplyToId(null);
-        }}
+        onClick={() => openConversation(conversation)}
       >
         <span className={`comm-avatar ${conversation.color || "orange"}`}>{initials(title)}</span>
         <span className="comm-group-main">
@@ -1172,9 +1281,29 @@ export default function CommunicationsPage() {
               <button className="comm-btn ghost" type="button" onClick={exportLog} disabled={!canExportLogs}>
                 Export
               </button>
+              {["group", "direct"].includes(conversation.conversation_type) && (
+                <button
+                  className="comm-btn danger"
+                  type="button"
+                  onClick={deleteConversation}
+                  disabled={busyConversationId === conversation.id || !canManageSelected}
+                >
+                  Delete
+                </button>
+              )}
+              {conversation.conversation_type !== "announcement" && (
+                <button
+                  className="comm-btn ghost"
+                  type="button"
+                  onClick={leaveConversation}
+                  disabled={busyConversationId === conversation.id}
+                >
+                  {conversation.conversation_type === "direct" ? "Hide" : "Leave"}
+                </button>
+              )}
             </div>
           ) : (
-            <div className="comm-status-line">Lock, archive, restore, or export only when needed.</div>
+            <div className="comm-status-line">Lock, archive, leave, export, or delete custom groups from here.</div>
           )}
         </div>
 
@@ -1250,7 +1379,74 @@ export default function CommunicationsPage() {
   if (loading) {
     return (
       <main className="communications-page">
-        <div className="comm-loading">Loading TITAN Communications...</div>
+        <section className="module">
+          <div className="page-head">
+            <div>
+              <div className="pt">Communication</div>
+              <div className="ps">Branch and service-line messaging for crews, dispatch, warehouse, and management.</div>
+            </div>
+            <div className="statusline">
+              <span className="pill ok">Opening Chats</span>
+            </div>
+          </div>
+
+          <div id="commsRoot">
+            <div className="comms loading">
+              <aside className="comm-sidebar">
+                <div className="comm-sidebar-head">
+                  <b>Groups</b>
+                  <button className="comm-btn ghost" type="button" disabled>
+                    + New
+                  </button>
+                </div>
+                <div className="comm-sidebar-note">Loading your TITAN conversations...</div>
+                <div className="comm-mode-tabs">
+                  {modes.map((item) => (
+                    <button key={item.key} className={`comm-mode ${item.key === "groups" ? "on" : ""}`} type="button" disabled>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="comm-group-list">
+                  {["Company Alerts", "Yard Operations", "Direct Messages"].map((label) => (
+                    <div key={label} className="comm-group skeleton">
+                      <span className="comm-avatar orange">{initials(label)}</span>
+                      <span className="comm-group-main">
+                        <span className="comm-group-title">
+                          <span>{label}</span>
+                        </span>
+                        <span className="comm-group-last">Syncing messages...</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </aside>
+
+              <main className="comm-main">
+                <div className="comm-thread-head">
+                  <div className="comm-thread-title">
+                    <span className="comm-avatar orange">T</span>
+                    <div>
+                      <h2>Opening TITAN Communications</h2>
+                      <p>Loading groups, direct messages, and alerts.</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="comm-feed">
+                  <div className="comm-loading">Getting your chats ready...</div>
+                </div>
+              </main>
+
+              <aside className="comm-roster">
+                <h3>Thread Tools</h3>
+                <div className="comm-side-panel">
+                  <h4>Notifications</h4>
+                  <div className="comm-status-line">Preferences and members appear once the chat opens.</div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
       </main>
     );
   }

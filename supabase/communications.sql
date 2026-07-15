@@ -282,6 +282,14 @@ on public.conversations for update to authenticated
 using (public.communications_can_manage(id))
 with check (public.communications_can_manage(id));
 
+drop policy if exists "communications conversations delete manager" on public.conversations;
+create policy "communications conversations delete manager"
+on public.conversations for delete to authenticated
+using (
+  conversation_type in ('group', 'direct')
+  and public.communications_can_manage(id)
+);
+
 drop policy if exists "communications members read conversation" on public.conversation_members;
 create policy "communications members read conversation"
 on public.conversation_members for select to authenticated

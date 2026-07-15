@@ -152,53 +152,61 @@ export async function GET(request: Request) {
     const currentAssignedYardIds = new Set(assignments.filter((row) => row.user_id === userData.user.id).map((row) => row.yard_id));
     const visibleYards = currentIsAdmin ? yards : yards.filter((yard) => currentAssignedYardIds.has(yard.id));
 
-    const allInternalId = await upsertConversation(adminSupabase, {
-      conversation_key: "announcement:all-employees",
-      name: "Company Alerts",
-      conversation_type: "announcement",
-      topic: "All-employee notices, safety alerts, and operating updates.",
-      color: "green",
-      created_by: userData.user.id,
-    });
-    await insertMembers(adminSupabase, allInternalId, profiles.map((row) => row.id), adminIds);
+    const { count: conversationCount, error: countError } = await adminSupabase
+      .from("conversations")
+      .select("id", { count: "exact", head: true });
 
-    for (const yard of yards) {
-      const yardConversationId = await upsertConversation(adminSupabase, {
-        conversation_key: `yard:${yard.id}`,
-        name: `${yard.name}`,
-        conversation_type: "yard",
-        topic: "Yard operations, loader moves, rack questions, and dispatch coordination.",
-        color: "orange",
-        yard_id: yard.id,
+    if (countError) throw countError;
+
+    if ((conversationCount ?? 0) === 0) {
+      const allInternalId = await upsertConversation(adminSupabase, {
+        conversation_key: "announcement:all-employees",
+        name: "Company Alerts",
+        conversation_type: "announcement",
+        topic: "All-employee notices, safety alerts, and operating updates.",
+        color: "green",
         created_by: userData.user.id,
       });
-      const assignedUserIds = assignments.filter((row) => row.yard_id === yard.id).map((row) => row.user_id);
-      await insertMembers(adminSupabase, yardConversationId, [...assignedUserIds, ...Array.from(adminIds)], adminIds);
-    }
+      await insertMembers(adminSupabase, allInternalId, profiles.map((row) => row.id), adminIds);
 
-    const departments = Array.from(
-      new Set(
-        [
-          ...departmentFallbacks,
-          ...profiles.map((row) => String(row.department ?? "").trim()).filter(Boolean),
-        ].filter(Boolean)
-      )
-    );
+      for (const yard of yards) {
+        const yardConversationId = await upsertConversation(adminSupabase, {
+          conversation_key: `yard:${yard.id}`,
+          name: `${yard.name}`,
+          conversation_type: "yard",
+          topic: "Yard operations, loader moves, rack questions, and dispatch coordination.",
+          color: "orange",
+          yard_id: yard.id,
+          created_by: userData.user.id,
+        });
+        const assignedUserIds = assignments.filter((row) => row.yard_id === yard.id).map((row) => row.user_id);
+        await insertMembers(adminSupabase, yardConversationId, [...assignedUserIds, ...Array.from(adminIds)], adminIds);
+      }
 
-    for (const department of departments) {
-      const departmentConversationId = await upsertConversation(adminSupabase, {
-        conversation_key: `department:${slug(department)}`,
-        name: `${department} Team`,
-        conversation_type: "department",
-        topic: `${department} service-line and department coordination.`,
-        color: department.toLowerCase().includes("inventory") ? "green" : "steel",
-        department,
-        created_by: userData.user.id,
-      });
-      const departmentUsers = profiles
-        .filter((row) => String(row.department ?? "").trim().toLowerCase() === department.toLowerCase())
-        .map((row) => row.id);
-      await insertMembers(adminSupabase, departmentConversationId, [...departmentUsers, ...Array.from(adminIds)], adminIds);
+      const departments = Array.from(
+        new Set(
+          [
+            ...departmentFallbacks,
+            ...profiles.map((row) => String(row.department ?? "").trim()).filter(Boolean),
+          ].filter(Boolean)
+        )
+      );
+
+      for (const department of departments) {
+        const departmentConversationId = await upsertConversation(adminSupabase, {
+          conversation_key: `department:${slug(department)}`,
+          name: `${department} Team`,
+          conversation_type: "department",
+          topic: `${department} service-line and department coordination.`,
+          color: department.toLowerCase().includes("inventory") ? "green" : "steel",
+          department,
+          created_by: userData.user.id,
+        });
+        const departmentUsers = profiles
+          .filter((row) => String(row.department ?? "").trim().toLowerCase() === department.toLowerCase())
+          .map((row) => row.id);
+        await insertMembers(adminSupabase, departmentConversationId, [...departmentUsers, ...Array.from(adminIds)], adminIds);
+      }
     }
 
     return Response.json({
