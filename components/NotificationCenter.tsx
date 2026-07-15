@@ -45,7 +45,18 @@ export default function NotificationCenter() {
     loadNotifications();
     refreshPushState();
     const interval = window.setInterval(loadNotifications, 60000);
-    return () => window.clearInterval(interval);
+
+    const channel = supabase
+      .channel(`titan-notifications-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
+        loadNotifications();
+      })
+      .subscribe();
+
+    return () => {
+      window.clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function refreshPushState() {

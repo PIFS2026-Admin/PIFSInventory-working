@@ -17,6 +17,13 @@ type YardRow = {
   is_active?: boolean | null;
 };
 
+type AuthUserRow = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  app_metadata?: Record<string, unknown> | null;
+};
+
 const departmentFallbacks = ["Yard", "Inventory", "Purchase Orders", "DTI", "Hardband", "Safety", "Management"];
 
 function configuredSupabase() {
@@ -59,6 +66,73 @@ function sortByName<T extends { name: string }>(rows: T[]) {
 
 function displayName(profile: ProfileRow) {
   return profile.full_name || profile.email || "TITAN User";
+}
+
+function metadataText(user: AuthUserRow | undefined, key: string) {
+  const value = user?.user_metadata?.[key] ?? user?.app_metadata?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function roleFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserRow | undefined) {
+  const profileRole = String(profile?.role ?? "").trim();
+  const authRole = metadataText(user, "role") || metadataText(user, "user_role");
+  return normalizeRole(profileRole || authRole || "employee");
+}
+
+function nameFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserRow | undefined) {
+  return (
+    profile?.full_name ||
+    metadataText(user, "full_name") ||
+    metadataText(user, "name") ||
+    profile?.email ||
+    user?.email ||
+    "TITAN User"
+  );
+}
+
+function emailFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserRow | undefined) {
+  return profile?.email || user?.email || "";
+}
+
+function departmentFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserRow | undefined) {
+  return profile?.department || metadataText(user, "department") || "";
+}
+
+async function listAuthUsers(adminSupabase: ReturnType<typeof configuredSupabase>) {
+  const users: AuthUserRow[] = [];
+
+  for (let page = 1; page <= 10; page += 1) {
+    const { data, error } = await adminSupabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    users.push(...((data.users ?? []) as AuthUserRow[]));
+    if ((data.users ?? []).length < 1000) break;
+  }
+
+  return users;
+}
+
+function buildInternalUsers(profileRows: ProfileRow[], authUsers: AuthUserRow[]) {
+  const profileById = new Map(profileRows.map((profile) => [profile.id, profile]));
+  const authById = new Map(authUsers.map((user) => [user.id, user]));
+  const ids = Array.from(new Set([...profileById.keys(), ...authById.keys()]));
+
+  return ids
+    .map((id) => {
+      const profile = profileById.get(id);
+      const authUser = authById.get(id);
+      const role = roleFromProfileOrAuth(profile, authUser);
+
+      return {
+        id,
+        full_name: nameFromProfileOrAuth(profile, authUser),
+        email: emailFromProfileOrAuth(profile, authUser),
+        role,
+        department: departmentFromProfileOrAuth(profile, authUser),
+        is_disabled: Boolean(profile?.is_disabled),
+      } satisfies ProfileRow;
+    })
+    .filter((row) => !row.is_disabled && normalizeRole(row.role) !== "customer");
 }
 
 async function insertMembers(adminSupabase: ReturnType<typeof configuredSupabase>, conversationId: string, userIds: string[], adminIds: Set<string>) {
@@ -125,26 +199,27 @@ export async function GET(request: Request) {
     if (profileError) throw profileError;
     if (!profile) return Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 });
 
-    const role = normalizeRole(profile.role);
+    const currentAuthUser = userData.user as AuthUserRow;
+    const role = roleFromProfileOrAuth(profile as ProfileRow, currentAuthUser);
 
     if (role === "customer" || Boolean(profile.is_disabled)) {
       return Response.json({ error: "Communications is only available to internal TITAN users." }, { status: 403 });
     }
 
-    const [profilesResult, yardsResult, assignmentsResult] = await Promise.all([
+    const [profilesResult, yardsResult, assignmentsResult, authUsers] = await Promise.all([
       adminSupabase
         .from("profiles")
         .select("id, full_name, email, role, department, is_disabled")
-        .neq("role", "customer")
         .order("full_name", { ascending: true }),
       adminSupabase.from("yards").select("id, name, code, is_active").eq("is_active", true),
       adminSupabase.from("inventory_user_yards").select("user_id, yard_id"),
+      listAuthUsers(adminSupabase),
     ]);
 
     if (profilesResult.error) throw profilesResult.error;
     if (yardsResult.error) throw yardsResult.error;
 
-    const profiles = ((profilesResult.data ?? []) as ProfileRow[]).filter((row) => !row.is_disabled && normalizeRole(row.role) !== "customer");
+    const profiles = buildInternalUsers((profilesResult.data ?? []) as ProfileRow[], authUsers);
     const yards = ((yardsResult.data ?? []) as YardRow[]).filter((yard) => yard.is_active !== false);
     const assignments = assignmentsResult.error ? [] : ((assignmentsResult.data ?? []) as Array<{ user_id: string; yard_id: string }>);
     const adminIds = new Set(profiles.filter((row) => ["admin", "owner"].includes(normalizeRole(row.role))).map((row) => row.id));

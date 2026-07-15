@@ -309,6 +309,21 @@ export default function CommunicationsPage() {
     unreadForConversation,
   ]);
 
+  const directContactMatches = useMemo(() => {
+    const query = newName.trim().toLowerCase();
+
+    return contacts
+      .filter((contact) => contact.id !== currentUser?.id)
+      .filter((contact) => {
+        if (!query) return true;
+        return includesText(
+          [contact.name, contact.email, displayRole(contact.role), contact.department],
+          query
+        );
+      })
+      .slice(0, 50);
+  }, [contacts, currentUser, newName]);
+
   const selectedMessages = useMemo(() => {
     return selectedConversation ? messagesByConversation.get(selectedConversation.id) ?? [] : [];
   }, [messagesByConversation, selectedConversation]);
@@ -836,14 +851,39 @@ export default function CommunicationsPage() {
     const token = data.session?.access_token;
     if (!token) return;
 
-    await fetch("/api/communications/push", {
+    const response = await fetch("/api/communications/push", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ messageId }),
-    }).catch(() => undefined);
+    }).catch(() => null);
+
+    if (!response) {
+      setMessage("Message sent, but push delivery could not be reached.");
+      return;
+    }
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(String(payload.error ?? "Message sent, but push delivery failed."));
+      return;
+    }
+
+    if (payload.configured === false) {
+      setMessage(String(payload.warning ?? "Message sent, but push delivery is not configured."));
+      return;
+    }
+
+    const attempted = Number(payload.attempted ?? 0);
+    const sent = Number(payload.sent ?? 0);
+    if (attempted === 0) {
+      setMessage("Message sent. No recipient devices are currently registered for push notifications.");
+    } else if (sent === 0) {
+      setMessage("Message sent, but no push notifications were delivered.");
+    }
   }
 
   async function sendMessage() {
@@ -871,7 +911,7 @@ export default function CommunicationsPage() {
     }
 
     if (pendingFile) {
-      const path = `${selectedConversation.id}/${insertedMessage.id}/${Date.now()}-${safeFileName(pendingFile.name)}`;
+      const path = `${selectedConversation.id}/${insertedMessage.id}/${pendingFile.lastModified}-${safeFileName(pendingFile.name)}`;
       const { error: uploadError } = await supabase.storage
         .from("communication-attachments")
         .upload(path, pendingFile, {
@@ -1218,10 +1258,10 @@ export default function CommunicationsPage() {
         </div>
         {directMode && (
           <div className="comm-contact-list">
-            {contacts
-              .filter((contact) => contact.id !== currentUser?.id)
-              .slice(0, 8)
-                      .map((contact) => (
+            {directContactMatches.length === 0 && (
+              <div className="comm-status-line">No internal employee logins match that search.</div>
+            )}
+            {directContactMatches.map((contact) => (
                 <button
                   key={contact.id}
                   className="comm-contact"
