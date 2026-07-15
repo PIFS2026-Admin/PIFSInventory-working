@@ -208,6 +208,7 @@ export default function CommunicationsPage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const currentUserRef = useRef<CurrentUser | null>(null);
+  const appliedRequestedConversationRef = useRef(false);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingBroadcastRef = useRef(0);
 
@@ -406,6 +407,14 @@ export default function CommunicationsPage() {
     setMembersOpen(false);
     setPrefsOpen(false);
     setAdminOpen(false);
+
+    if (typeof window !== "undefined") {
+      window.history.replaceState(
+        null,
+        "",
+        nextConversation?.id ? `/communications?conversation=${nextConversation.id}` : "/communications"
+      );
+    }
   }
 
   const loadData = useCallback(async (activeUserId?: string) => {
@@ -469,7 +478,10 @@ export default function CommunicationsPage() {
     setConversations(safeConversationList);
 
     const requestedId =
-      typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("conversation") ?? "";
+      typeof window === "undefined" || appliedRequestedConversationRef.current
+        ? ""
+        : new URLSearchParams(window.location.search).get("conversation") ?? "";
+    if (requestedId) appliedRequestedConversationRef.current = true;
     const requestedConversation = requestedId
       ? safeConversationList.find((conversation) => conversation.id === requestedId)
       : null;

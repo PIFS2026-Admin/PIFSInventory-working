@@ -171,17 +171,49 @@ async function insertMembers(adminSupabase: ReturnType<typeof configuredSupabase
   const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
   if (uniqueUserIds.length === 0) return;
 
-  const { error } = await adminSupabase.from("conversation_members").upsert(
-    uniqueUserIds.map((userId) => ({
-      conversation_id: conversationId,
-      user_id: userId,
-      is_admin: adminIds.has(userId),
-      removed_at: null,
-    })),
-    { onConflict: "conversation_id,user_id" }
-  );
+  const memberRows = uniqueUserIds.map((userId) => ({
+    conversation_id: conversationId,
+    user_id: userId,
+    is_admin: adminIds.has(userId),
+    removed_at: null,
+  }));
 
-  if (error) throw error;
+  const { error } = await adminSupabase
+    .from("conversation_members")
+    .upsert(memberRows, { onConflict: "conversation_id,user_id" });
+
+  if (!error) return;
+
+  const isDuplicateError =
+    error.code === "23505" ||
+    String(error.message ?? "").toLowerCase().includes("duplicate key");
+
+  if (!isDuplicateError) throw error;
+
+  for (const memberRow of memberRows) {
+    const { error: rowError } = await adminSupabase
+      .from("conversation_members")
+      .upsert(memberRow, { onConflict: "conversation_id,user_id" });
+
+    if (!rowError) continue;
+
+    const rowIsDuplicateError =
+      rowError.code === "23505" ||
+      String(rowError.message ?? "").toLowerCase().includes("duplicate key");
+
+    if (!rowIsDuplicateError) throw rowError;
+
+    const { error: updateError } = await adminSupabase
+      .from("conversation_members")
+      .update({
+        is_admin: memberRow.is_admin,
+        removed_at: null,
+      })
+      .eq("conversation_id", conversationId)
+      .eq("user_id", memberRow.user_id);
+
+    if (updateError) throw updateError;
+  }
 }
 
 function findYardForAlert(yards: YardRow[], yardCodes: string[]) {
