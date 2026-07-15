@@ -166,9 +166,9 @@ export async function POST(request: Request) {
       return Response.json({ error: ticketError?.message ?? "Issue ticket not found." }, { status: 404 });
     }
 
-    const { data: lines, error: linesError } = await adminClient
+    const { data: linesById, error: linesError } = await adminClient
       .from("inventory_issue_ticket_lines")
-      .select("item_code, item_name, department, qty_issued, unit_cost, line_value, unit_truck, picked_by")
+      .select("id, item_code, item_name, department, qty_issued, unit_cost, line_value, unit_truck, picked_by")
       .eq("issue_ticket_id", ticket.id)
       .order("created_at", { ascending: true });
 
@@ -176,7 +176,26 @@ export async function POST(request: Request) {
       return Response.json({ error: linesError.message }, { status: 500 });
     }
 
-    const rows = (lines || [])
+    const lineMap = new Map<string, any>();
+    (linesById || []).forEach((line) => lineMap.set(String(line.id), line));
+
+    if (ticket.ticket_number) {
+      const { data: linesByNumber, error: numberLinesError } = await adminClient
+        .from("inventory_issue_ticket_lines")
+        .select("id, item_code, item_name, department, qty_issued, unit_cost, line_value, unit_truck, picked_by")
+        .eq("ticket_number", ticket.ticket_number)
+        .order("created_at", { ascending: true });
+
+      if (numberLinesError) {
+        return Response.json({ error: numberLinesError.message }, { status: 500 });
+      }
+
+      (linesByNumber || []).forEach((line) => lineMap.set(String(line.id), line));
+    }
+
+    const lines = Array.from(lineMap.values());
+
+    const rows = lines
       .map(
         (line) => `
           <tr>

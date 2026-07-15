@@ -403,6 +403,14 @@ function numberValue(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function chunkArray<T>(values: T[], chunkSize = 100) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
+
 function todayStamp() {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -1083,17 +1091,17 @@ export default function InventoryModulePage() {
       setPurchaseOrderLines([]);
       return;
     }
-    await Promise.all([
+    const [, , , loadedTickets] = await Promise.all([
       loadVendors(yardId, yardList),
       loadItems(yardId, yardList),
       loadTransactions(yardId, yardList),
       loadTickets(yardId, yardList),
-      loadIssueTicketLines(yardId, yardList),
       loadOrders(yardId, yardList),
       loadOrderLines(yardId, yardList),
       loadPurchaseOrders(yardId, yardList),
       loadPurchaseOrderLines(yardId, yardList),
     ]);
+    await loadIssueTicketLines(yardId, yardList, loadedTickets);
   }
 
   async function handleInventoryYardChange(yardId: string) {
@@ -1239,57 +1247,108 @@ export default function InventoryModulePage() {
 
     if (error) {
       setMessage(`Issue tickets failed: ${error.message}`);
-      return;
+      return [];
     }
 
-    setTickets(
-      (data || []).map((row) => ({
-        id: row.id,
-        ticketNumber: row.ticket_number || "",
-        issueDate: String(row.issue_date || "").slice(0, 10),
-        issuedTo: row.issued_to || "",
-        department: row.department || "",
-        pickedBy: row.picked_by || "",
-        unitTruck: row.unit_truck || "",
-        jobNumber: row.job_number || "",
-        totalValue: Number(row.total_value || 0),
-        status: row.status || "",
-        notes: row.notes || "",
-      })),
-    );
+    const mappedTickets = (data || []).map((row) => ({
+      id: row.id,
+      ticketNumber: row.ticket_number || "",
+      issueDate: String(row.issue_date || "").slice(0, 10),
+      issuedTo: row.issued_to || "",
+      department: row.department || "",
+      pickedBy: row.picked_by || "",
+      unitTruck: row.unit_truck || "",
+      jobNumber: row.job_number || "",
+      totalValue: Number(row.total_value || 0),
+      status: row.status || "",
+      notes: row.notes || "",
+    }));
+
+    setTickets(mappedTickets);
+    return mappedTickets;
   }
 
-  async function loadIssueTicketLines(yardId = selectedInventoryYardId, yardList = inventoryYards) {
-    let query = supabase
-      .from("inventory_issue_ticket_lines")
-      .select("*")
-      .order("created_at", { ascending: true })
-      .limit(5000);
-    query = applyInventoryYardScope(query, yardId, yardList);
+  async function loadIssueTicketLines(
+    yardId = selectedInventoryYardId,
+    yardList = inventoryYards,
+    scopedTickets = tickets,
+  ) {
+    const mapLine = (row: any): IssueTicketLine => ({
+      id: row.id,
+      issueTicketId: row.issue_ticket_id || "",
+      ticketNumber: row.ticket_number || "",
+      itemId: row.item_id || "",
+      itemCode: row.item_code || "",
+      itemName: row.item_name || "",
+      department: row.department || "",
+      qtyIssued: Number(row.qty_issued || 0),
+      unitCost: Number(row.unit_cost || 0),
+      lineValue: Number(row.line_value || 0),
+      unitTruck: row.unit_truck || "",
+      pickedBy: row.picked_by || "",
+    });
+    const lineMap = new Map<string, IssueTicketLine>();
+    const errors: string[] = [];
+    const addRows = (rows: any[] | null) => {
+      (rows || []).forEach((row) => {
+        const mapped = mapLine(row);
+        lineMap.set(mapped.id, mapped);
+      });
+    };
+    const ticketIds = Array.from(new Set(scopedTickets.map((ticket) => ticket.id).filter(Boolean)));
+    const ticketNumbers = Array.from(new Set(scopedTickets.map((ticket) => ticket.ticketNumber).filter(Boolean)));
 
-    const { data, error } = await query;
+    if (ticketIds.length > 0 || ticketNumbers.length > 0) {
+      for (const batch of chunkArray(ticketIds, 100)) {
+        const { data, error } = await supabase
+          .from("inventory_issue_ticket_lines")
+          .select("*")
+          .in("issue_ticket_id", batch)
+          .order("created_at", { ascending: true })
+          .limit(5000);
 
-    if (error) {
-      setMessage(`Issue ticket lines failed: ${error.message}`);
-      return;
+        if (error) {
+          errors.push(error.message);
+        } else {
+          addRows(data);
+        }
+      }
+
+      for (const batch of chunkArray(ticketNumbers, 100)) {
+        const { data, error } = await supabase
+          .from("inventory_issue_ticket_lines")
+          .select("*")
+          .in("ticket_number", batch)
+          .order("created_at", { ascending: true })
+          .limit(5000);
+
+        if (error) {
+          errors.push(error.message);
+        } else {
+          addRows(data);
+        }
+      }
+    } else {
+      let query = supabase
+        .from("inventory_issue_ticket_lines")
+        .select("*")
+        .order("created_at", { ascending: true })
+        .limit(5000);
+      query = applyInventoryYardScope(query, yardId, yardList);
+
+      const { data, error } = await query;
+      if (error) {
+        errors.push(error.message);
+      } else {
+        addRows(data);
+      }
     }
 
-    setTicketLines(
-      (data || []).map((row) => ({
-        id: row.id,
-        issueTicketId: row.issue_ticket_id || "",
-        ticketNumber: row.ticket_number || "",
-        itemId: row.item_id || "",
-        itemCode: row.item_code || "",
-        itemName: row.item_name || "",
-        department: row.department || "",
-        qtyIssued: Number(row.qty_issued || 0),
-        unitCost: Number(row.unit_cost || 0),
-        lineValue: Number(row.line_value || 0),
-        unitTruck: row.unit_truck || "",
-        pickedBy: row.picked_by || "",
-      })),
-    );
+    if (errors.length > 0 && lineMap.size === 0) {
+      setMessage(`Issue ticket lines failed: ${errors[0]}`);
+    }
+
+    setTicketLines(Array.from(lineMap.values()));
   }
 
   async function loadOrders(yardId = selectedInventoryYardId, yardList = inventoryYards) {
@@ -2729,14 +2788,14 @@ export default function InventoryModulePage() {
       })
       .eq("id", order.id);
 
-    await Promise.all([
+    const [, , , , loadedTickets] = await Promise.all([
       loadItems(selectedInventoryYardId),
       loadTransactions(selectedInventoryYardId),
       loadOrders(selectedInventoryYardId),
       loadOrderLines(selectedInventoryYardId),
       loadTickets(selectedInventoryYardId),
-      loadIssueTicketLines(selectedInventoryYardId),
     ]);
+    await loadIssueTicketLines(selectedInventoryYardId, inventoryYards, loadedTickets);
     setOrderFulfillmentDrafts({});
     setExpandedTicketId(ticket.id);
     setActiveView("tickets");
@@ -2848,12 +2907,12 @@ export default function InventoryModulePage() {
     setIssueForm({ ...emptyIssueForm, pickedBy: userName });
     setIssueCart([]);
     setScanInput("");
-    await Promise.all([
+    const [, , loadedTickets] = await Promise.all([
       loadItems(selectedInventoryYardId),
       loadTransactions(selectedInventoryYardId),
       loadTickets(selectedInventoryYardId),
-      loadIssueTicketLines(selectedInventoryYardId),
     ]);
+    await loadIssueTicketLines(selectedInventoryYardId, inventoryYards, loadedTickets);
     setMessage(`Issue ticket ${ticketNumber} created with ${issueCart.length} line items.`);
     setSaving(false);
   }

@@ -17,7 +17,9 @@ type IssueTicket = {
 };
 
 type IssueLine = {
+  id: string;
   issue_ticket_id: string | null;
+  ticket_number: string | null;
   item_code: string | null;
   item_name: string | null;
   qty_issued: number | string | null;
@@ -213,22 +215,41 @@ async function buildWeeklyReport() {
 
   const ticketRows = (tickets || []) as IssueTicket[];
   const ticketIds = ticketRows.map((ticket) => ticket.id);
+  const ticketNumbers = ticketRows.map((ticket) => ticket.ticket_number).filter((ticketNumber): ticketNumber is string => Boolean(ticketNumber));
   let lines: IssueLine[] = [];
 
-  if (ticketIds.length) {
+  if (ticketIds.length || ticketNumbers.length) {
+    const lineMap = new Map<string, IssueLine>();
+
     const { data: lineData, error: lineError } = await adminClient
       .from("inventory_issue_ticket_lines")
-      .select("issue_ticket_id, item_code, item_name, qty_issued, line_value, unit_truck")
+      .select("id, issue_ticket_id, ticket_number, item_code, item_name, qty_issued, line_value, unit_truck")
       .in("issue_ticket_id", ticketIds);
 
     if (lineError) {
       throw new Error(lineError.message);
     }
 
-    lines = (lineData || []) as IssueLine[];
+    ((lineData || []) as IssueLine[]).forEach((line) => lineMap.set(line.id, line));
+
+    if (ticketNumbers.length) {
+      const { data: lineNumberData, error: lineNumberError } = await adminClient
+        .from("inventory_issue_ticket_lines")
+        .select("id, issue_ticket_id, ticket_number, item_code, item_name, qty_issued, line_value, unit_truck")
+        .in("ticket_number", ticketNumbers);
+
+      if (lineNumberError) {
+        throw new Error(lineNumberError.message);
+      }
+
+      ((lineNumberData || []) as IssueLine[]).forEach((line) => lineMap.set(line.id, line));
+    }
+
+    lines = Array.from(lineMap.values());
   }
 
   const ticketById = new Map(ticketRows.map((ticket) => [ticket.id, ticket]));
+  const ticketByNumber = new Map(ticketRows.map((ticket) => [ticket.ticket_number, ticket]));
   const weeklySpending = ticketRows.reduce((sum, ticket) => sum + Number(ticket.total_value || 0), 0);
 
   const itemTotals = new Map<string, { label: string; quantity: number; value: number }>();
@@ -243,7 +264,7 @@ async function buildWeeklyReport() {
     item.value += value;
     itemTotals.set(itemLabel, item);
 
-    const ticket = line.issue_ticket_id ? ticketById.get(line.issue_ticket_id) : null;
+    const ticket = line.issue_ticket_id ? ticketById.get(line.issue_ticket_id) : line.ticket_number ? ticketByNumber.get(line.ticket_number) : null;
     const unitLabel = line.unit_truck || ticket?.unit_truck || "No unit / truck listed";
     const unit = unitTotals.get(unitLabel) || { label: unitLabel, quantity: 0, value: 0 };
     unit.quantity += quantity;
