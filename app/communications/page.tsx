@@ -155,6 +155,14 @@ function includesText(values: Array<string | null | undefined>, query: string) {
   return haystack.includes(query.toLowerCase());
 }
 
+function isDuplicateMemberError(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === "23505" ||
+    String(error?.message ?? "").toLowerCase().includes("conversation_members_conversation_id_user_id_key") ||
+    String(error?.message ?? "").toLowerCase().includes("duplicate key")
+  );
+}
+
 function modeForConversationType(type: ConversationType): ModeKey {
   if (type === "direct") return "directs";
   if (type === "announcement") return "announcements";
@@ -387,6 +395,7 @@ export default function CommunicationsPage() {
   }, [loading, selectedConversation, visibleConversations]);
 
   function switchMode(nextMode: ModeKey) {
+    setMessage("");
     const nextTypes = typesForMode(nextMode);
     const nextConversation = conversations.find((conversation) => {
       if (!nextTypes.includes(conversation.conversation_type)) return false;
@@ -858,6 +867,42 @@ export default function CommunicationsPage() {
     return "New";
   }
 
+  async function saveConversationMembers(
+    conversationId: string,
+    rows: Array<{ user_id: string; is_admin: boolean }>
+  ) {
+    const uniqueRows = Array.from(
+      new Map(rows.filter((row) => row.user_id).map((row) => [row.user_id, row])).values()
+    );
+
+    if (uniqueRows.length === 0) return null;
+
+    const payload = uniqueRows.map((row) => ({
+      conversation_id: conversationId,
+      user_id: row.user_id,
+      is_admin: row.is_admin,
+      removed_at: null,
+    }));
+
+    const { error } = await supabase
+      .from("conversation_members")
+      .upsert(payload, { onConflict: "conversation_id,user_id" });
+
+    if (!error || !isDuplicateMemberError(error)) return error;
+
+    for (const row of payload) {
+      const { error: updateError } = await supabase
+        .from("conversation_members")
+        .update({ is_admin: row.is_admin, removed_at: null })
+        .eq("conversation_id", conversationId)
+        .eq("user_id", row.user_id);
+
+      if (updateError && !isDuplicateMemberError(updateError)) return updateError;
+    }
+
+    return null;
+  }
+
   async function createConversation(explicitDirectContact?: Contact) {
     if (!currentUser) return;
     if (!canCreateConversations) {
@@ -922,22 +967,15 @@ export default function CommunicationsPage() {
       return;
     }
 
-    await supabase.from("conversation_members").insert({
-      conversation_id: conversation.id,
-      user_id: currentUser.id,
-      is_admin: true,
-    });
-
     const otherMembers = Array.from(new Set(memberIds.filter((id) => id && id !== currentUser.id)));
-    if (otherMembers.length > 0) {
-      const { error: memberError } = await supabase.from("conversation_members").insert(
-        otherMembers.map((id) => ({
-          conversation_id: conversation.id,
-          user_id: id,
-          is_admin: false,
-        }))
-      );
-      if (memberError) setMessage(memberError.message);
+    const memberError = await saveConversationMembers(conversation.id, [
+      { user_id: currentUser.id, is_admin: true },
+      ...otherMembers.map((id) => ({ user_id: id, is_admin: false })),
+    ]);
+
+    if (memberError) {
+      setMessage(memberError.message);
+      return;
     }
 
     setNewOpen(false);
@@ -980,11 +1018,9 @@ export default function CommunicationsPage() {
       return;
     }
 
-    const { error } = await supabase.from("conversation_members").insert({
-      conversation_id: selectedConversation.id,
-      user_id: contact.id,
-      is_admin: false,
-    });
+    const error = await saveConversationMembers(selectedConversation.id, [
+      { user_id: contact.id, is_admin: false },
+    ]);
 
     if (error) {
       setMessage(error.message);
