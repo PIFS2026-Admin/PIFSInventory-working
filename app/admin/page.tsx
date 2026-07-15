@@ -2480,7 +2480,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible" open>
+      <details className="ticket-card admin-card admin-collapsible">
         <summary>
           <div>
             <h3>Permission Management</h3>

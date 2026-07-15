@@ -7790,3 +7790,256 @@ html.titan-standalone body {
     display: none !important;
   }
 }
+
+/* TITAN consumables store storefront polish. */
+.consum-scope .ci-store-banner {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.consum-scope .ci-store-banner span {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 112, 36, 0.36);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: #fed7aa;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.consum-scope .ci-store-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 14px;
+  border: 1px solid rgba(255, 112, 36, 0.24);
+  border-radius: 14px;
+  padding: 16px;
+  background: radial-gradient(circle at 15% 0%, rgba(255, 112, 36, 0.18), transparent 42%), #12151b;
+}
+
+.consum-scope .ci-store-hero h2 {
+  margin: 3px 0 6px;
+}
+
+.consum-scope .ci-store-hero p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.consum-scope .ci-store-eyebrow,
+.consum-scope .ci-store-sku {
+  color: #ffb36b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.consum-scope .ci-store-cart-mini {
+  min-width: 106px;
+  border: 1px solid rgba(255, 112, 36, 0.34);
+  border-radius: 12px;
+  padding: 11px;
+  background: rgba(5, 7, 11, 0.72);
+  text-align: center;
+}
+
+.consum-scope .ci-store-cart-mini span,
+.consum-scope .ci-store-cart-mini small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.consum-scope .ci-store-cart-mini b {
+  display: block;
+  color: #ffffff;
+  font-family: "Courier New", monospace;
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.consum-scope .ci-store-category-strip,
+.consum-scope .ci-store-results-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.consum-scope .ci-store-category-strip button {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #11151d;
+  color: #dbe4ef;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.consum-scope .ci-store-category-strip button.on {
+  border-color: rgba(255, 112, 36, 0.58);
+  background: rgba(255, 112, 36, 0.16);
+  color: #ffffff;
+}
+
+.consum-scope .ci-store-results-row {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.consum-scope .ci-store-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+  max-height: 640px;
+}
+
+.consum-scope .ci-store-product-card {
+  padding: 0;
+  overflow: hidden;
+  background: #10131a;
+  transition: border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.consum-scope .ci-store-product-card:hover {
+  border-color: rgba(255, 112, 36, 0.48);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
+}
+
+.consum-scope .ci-store-photo-stage {
+  position: relative;
+  padding: 10px 10px 0;
+}
+
+.consum-scope .ci-store-photo-stage .pill {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.32);
+}
+
+.consum-scope .ci-storefront-photo {
+  min-height: 150px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 30%, rgba(255, 112, 36, 0.16), transparent 44%), #080a0f;
+}
+
+.consum-scope .ci-store-card-body {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+.consum-scope .ci-store-card-body .ci-name {
+  min-height: 42px;
+  color: #ffffff;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.consum-scope .ci-store-meta,
+.consum-scope .ci-store-fulfillment-row,
+.consum-scope .ci-store-cart-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.consum-scope .ci-store-price-row,
+.consum-scope .ci-store-fulfillment-row,
+.consum-scope .ci-store-buy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.consum-scope .ci-store-price-row b {
+  color: #ffffff;
+  font-family: "Courier New", monospace;
+  font-size: 20px;
+}
+
+.consum-scope .ci-store-price-row span {
+  color: #9fe6b4;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.consum-scope .ci-store-fulfillment-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.consum-scope .ci-store-fulfillment-row span {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consum-scope .ci-store-buy-row .ci-input {
+  min-height: 42px;
+}
+
+.consum-scope .ci-store-buy-row .ci-btn {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.consum-scope .ci-store-cart-card {
+  position: sticky;
+  top: 12px;
+}
+
+@media (max-width: 1180px) {
+  .consum-scope .ci-store-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .consum-scope .ci-store-banner {
+    align-items: stretch;
+  }
+
+  .consum-scope .ci-store-hero,
+  .consum-scope .ci-store-price-row,
+  .consum-scope .ci-store-buy-row {
+    grid-template-columns: 1fr;
+  }
+
+  .consum-scope .ci-store-cart-mini {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .consum-scope .ci-store-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .consum-scope .ci-storefront-photo {
+    min-height: 210px;
+  }
+
+  .consum-scope .ci-store-cart-card {
+    position: static;
+  }
+}

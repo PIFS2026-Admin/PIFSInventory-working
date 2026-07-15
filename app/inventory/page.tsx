@@ -196,6 +196,18 @@ type OrderForm = {
 type InventoryModuleView = "dashboard" | "orders" | "counter" | "approvals" | "reorder" | "items" | "tickets" | "documents" | "vendors";
 type DashboardPeriod = "week" | "lastWeek" | "month" | "quarter" | "year" | "all";
 
+const inventoryModuleViews: InventoryModuleView[] = [
+  "dashboard",
+  "orders",
+  "counter",
+  "approvals",
+  "reorder",
+  "items",
+  "tickets",
+  "documents",
+  "vendors",
+];
+
 type VendorForm = {
   id: string;
   vendorName: string;
@@ -563,6 +575,21 @@ export default function InventoryModulePage() {
   const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
 
+  function activateInventoryView(view: InventoryModuleView, syncUrl = true) {
+    setActiveView(view);
+
+    if (!syncUrl || typeof window === "undefined") return;
+
+    const nextUrl = new URL(window.location.href);
+    if (view === "dashboard") {
+      nextUrl.searchParams.delete("view");
+    } else {
+      nextUrl.searchParams.set("view", view);
+    }
+    window.history.replaceState(null, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+    window.dispatchEvent(new Event("titan-route-change"));
+  }
+
   const canUseInventory = hasInventoryAccess(role, moduleKeys, permissions);
   const canManageInventory = hasInventoryManagementAccess(role, permissions);
   const canPlaceInventoryOrders = hasInventoryOrderAccess(role, permissions);
@@ -595,6 +622,22 @@ export default function InventoryModulePage() {
     const timer = window.setTimeout(() => scanFieldRef.current?.focus(), 80);
     return () => window.clearTimeout(timer);
   }, [issueOpen, issueCart.length]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const applyViewFromUrl = () => {
+      const requestedView = new URLSearchParams(window.location.search).get("view") as InventoryModuleView | null;
+      if (requestedView && inventoryModuleViews.includes(requestedView)) {
+        setActiveView(requestedView);
+      }
+    };
+
+    applyViewFromUrl();
+    window.addEventListener("popstate", applyViewFromUrl);
+
+    return () => window.removeEventListener("popstate", applyViewFromUrl);
+  }, []);
 
   const categories = useMemo(
     () => Array.from(new Set(items.map((item) => item.category).filter(Boolean))).sort(),
@@ -3175,7 +3218,7 @@ export default function InventoryModulePage() {
             key={view}
             className={`ytab ${activeView === view ? "on" : ""}`}
             type="button"
-            onClick={() => setActiveView(view)}
+            onClick={() => activateInventoryView(view)}
           >
             {label}
             {count && <span className="yc">{count}</span>}
@@ -3441,12 +3484,26 @@ export default function InventoryModulePage() {
 
       {activeView === "orders" && (
         <>
-          <div className="preview-banner ci-banner no-print">
-            <div><b>Warehouse store.</b> Employees request consumables here. Stock is not reduced until the warehouse fulfills the request and TITAN creates the issue ticket.</div>
+          <div className="preview-banner ci-banner ci-store-banner no-print">
+            <div>
+              <b>Consumables Store.</b> Shop available warehouse supplies, build a cart, and submit one clean request to the warehouse.
+            </div>
+            <span>{orderCart.length.toLocaleString()} cart lines</span>
           </div>
-          <section className="ci-layout no-print">
-            <div className="card">
-              <h2><span className="dot"></span>Store catalog<span className="ct">{selectedInventoryYard?.name || "yard"}</span></h2>
+          <section className="ci-layout ci-storefront-layout no-print">
+            <div className="card ci-storefront-card">
+              <div className="ci-store-hero">
+                <div>
+                  <div className="ci-store-eyebrow">TITAN warehouse</div>
+                  <h2><span className="dot"></span>Consumables Store<span className="ct">{selectedInventoryYard?.name || "yard"}</span></h2>
+                  <p>Find supplies by photo, SKU, category, barcode, vendor, or bin. Add what you need and submit a request for fulfillment.</p>
+                </div>
+                <div className="ci-store-cart-mini">
+                  <span>Cart</span>
+                  <b>{orderCart.length.toLocaleString()}</b>
+                  <small>{money(orderValue)}</small>
+                </div>
+              </div>
               <div className="ci-scanbar">
                 <div className="order-search-picker">
                   <input
@@ -3511,6 +3568,25 @@ export default function InventoryModulePage() {
                   setStoreCategory("all");
                 }}>Clear</button>
               </div>
+              <div className="ci-store-category-strip">
+                <button
+                  className={storeCategory === "all" ? "on" : ""}
+                  type="button"
+                  onClick={() => setStoreCategory("all")}
+                >
+                  All
+                </button>
+                {categories.slice(0, 10).map((category) => (
+                  <button
+                    className={storeCategory === category ? "on" : ""}
+                    key={category}
+                    type="button"
+                    onClick={() => setStoreCategory(category)}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
               <input
                 ref={cameraFileRef}
                 className="hidden-file-input"
@@ -3530,6 +3606,10 @@ export default function InventoryModulePage() {
                 <button className="ci-btn" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
               </div>
               {cameraScanMessage && <div className="ci-notice">{cameraScanMessage}</div>}
+              <div className="ci-store-results-row">
+                <span>{storeItems.length.toLocaleString()} items</span>
+                <span>{storeCategory === "all" ? "All categories" : storeCategory}</span>
+              </div>
 
               {storeItems.length === 0 ? (
                 <div className="empty-pos-cart">
@@ -3538,36 +3618,41 @@ export default function InventoryModulePage() {
                 </div>
               ) : (
                 <div className="ci-store-grid">
-                  {storeItems.slice(0, 24).map((item) => {
+                  {storeItems.slice(0, 48).map((item) => {
                     const status = stockStatus(item);
                     const inCart = orderCart.find((line) => line.itemId === item.id);
                     const pillClass = status === "Available" ? "ok" : status === "Reorder" ? "warn" : "bad";
                     return (
-                      <article className="ci-store-item" key={item.id}>
-                        <div className="ci-store-card-head">
-                          {renderProductPhoto(item)}
-                          <div>
-                            <div className="ci-name" title={item.itemName}>{item.itemName}</div>
-                            <div className="ci-sub">{item.itemCode} · {item.category || "Uncategorized"} · {item.vendorName || "No vendor"}</div>
-                          </div>
+                      <article className="ci-store-item ci-store-product-card" key={item.id}>
+                        <div className="ci-store-photo-stage">
+                          {renderProductPhoto(item, "ci-product-photo ci-storefront-photo")}
                           <span className={`pill ${pillClass}`}>{status}</span>
                         </div>
-                        <div className="ci-request-summary">
-                          <div className="ci-micro"><div className="lab">On hand</div><div className="val">{item.qtyOnHand.toLocaleString()}</div></div>
-                          <div className="ci-micro"><div className="lab">Unit</div><div className="val compact-val">{item.uom || "-"}</div></div>
-                          <div className="ci-micro"><div className="lab">Bin</div><div className="val compact-val">{item.location || "-"}</div></div>
+                        <div className="ci-store-card-body">
+                          <div className="ci-store-sku">{item.itemCode}</div>
+                          <div className="ci-name" title={item.itemName}>{item.itemName}</div>
+                          <div className="ci-store-meta">{item.category || "Uncategorized"} · {item.vendorName || "No vendor"}</div>
+                          <div className="ci-store-price-row">
+                            <b>{money(item.unitPrice)}</b>
+                            <span>{item.qtyOnHand.toLocaleString()} on hand</span>
+                          </div>
+                          <div className="ci-store-fulfillment-row">
+                            <span>Bin {item.location || "-"}</span>
+                            <span>Min {item.minQuantity.toLocaleString()}</span>
+                            <span>{item.uom || "unit"}</span>
+                          </div>
+                          <div className="request ci-store-buy-row">
+                            <input
+                              className="ci-input mono"
+                              type="number"
+                              min="1"
+                              value={storeQuantities[item.id] || "1"}
+                              onChange={(event) => setStoreQuantities((current) => ({ ...current, [item.id]: event.target.value }))}
+                            />
+                            <button className="ci-btn pri" type="button" onClick={() => addStoreItemToCart(item)}>Add to Cart</button>
+                          </div>
+                          {inCart && <div className="ci-store-cart-note">In cart: {inCart.quantity.toLocaleString()} {item.uom || "units"}</div>}
                         </div>
-                        <div className="request">
-                          <input
-                            className="ci-input mono"
-                            type="number"
-                            min="1"
-                            value={storeQuantities[item.id] || "1"}
-                            onChange={(event) => setStoreQuantities((current) => ({ ...current, [item.id]: event.target.value }))}
-                          />
-                          <button className="ci-btn pri" type="button" onClick={() => addStoreItemToCart(item)}>Add</button>
-                        </div>
-                        {inCart && <div className="ci-sub">In cart: {inCart.quantity.toLocaleString()} {item.uom || "units"}</div>}
                       </article>
                     );
                   })}
@@ -3575,8 +3660,8 @@ export default function InventoryModulePage() {
               )}
             </div>
 
-            <div>
-              <div className="card">
+            <div className="ci-store-side">
+              <div className="card ci-store-cart-card">
                 <h2><span className="dot"></span>Request cart<span className="ct">employee order</span></h2>
                 <div className="ci-request-summary">
                   <div className="ci-micro"><div className="lab">Lines</div><div className="val">{orderCart.length.toLocaleString()}</div></div>
