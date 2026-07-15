@@ -1,6 +1,11 @@
-const TITAN_CACHE = "titan-pwa-shell-v1";
+const TITAN_CACHE = "titan-pwa-shell-v2";
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/maskable-icon-512.png",
+  "/apple-touch-icon.png",
+  "/apple-touch-icon-precomposed.png",
   "/icons/titan-icon-192.png",
   "/icons/titan-icon-512.png",
   "/icons/titan-maskable-512.png",
@@ -55,8 +60,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "TITAN";
   const options = {
     body: payload.body || "New TITAN notification",
-    icon: "/icons/titan-icon-192.png",
-    badge: "/icons/titan-icon-192.png",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
     tag: payload.tag || "titan-notification",
     data: {
       url: payload.url || payload.actionUrl || "/home",

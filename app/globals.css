@@ -7699,3 +7699,94 @@ th {
     flex: 1;
   }
 }
+
+/* TITAN mobile app chrome. */
+html.titan-mobile,
+html.titan-standalone {
+  background: #080a0d;
+}
+
+html.titan-mobile body {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+html.titan-standalone body {
+  overscroll-behavior-y: none;
+}
+
+.mobile-app-tabbar {
+  position: fixed;
+  z-index: 9998;
+  right: max(10px, env(safe-area-inset-right));
+  bottom: max(10px, env(safe-area-inset-bottom));
+  left: max(10px, env(safe-area-inset-left));
+  display: none;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(255, 112, 36, 0.28);
+  border-radius: 18px;
+  background: rgba(8, 10, 13, 0.94);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 0 26px rgba(255, 112, 36, 0.13);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-app-tabbar a {
+  min-width: 0;
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  color: rgba(226, 232, 240, 0.68);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+.mobile-app-tabbar a.active {
+  border-color: rgba(255, 112, 36, 0.45);
+  color: #ffffff;
+  background: rgba(255, 112, 36, 0.14);
+}
+
+.mobile-app-tabbar-dot {
+  width: 17px;
+  height: 17px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 3px rgba(255, 112, 36, 0.12);
+}
+
+.mobile-app-tabbar a.active .mobile-app-tabbar-dot {
+  background: linear-gradient(135deg, #ff6b1a, #f2c56b);
+  border-color: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 18px rgba(255, 112, 36, 0.42);
+}
+
+@media (max-width: 760px) {
+  body {
+    padding-bottom: calc(82px + env(safe-area-inset-bottom));
+  }
+
+  .mobile-app-tabbar {
+    display: grid;
+  }
+
+  .pwa-install-card {
+    right: 12px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    left: 12px;
+    max-width: none;
+  }
+}
+
+@media print {
+  .mobile-app-tabbar,
+  .pwa-install-card {
+    display: none !important;
+  }
+}

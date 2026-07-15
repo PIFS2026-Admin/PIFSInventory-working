@@ -28,6 +28,13 @@ function isMobileViewport() {
   return window.matchMedia("(max-width: 860px)").matches || /android|iphone|ipad|ipod/i.test(navigator.userAgent);
 }
 
+function syncAppChromeClasses() {
+  if (typeof document === "undefined") return;
+
+  document.documentElement.classList.toggle("titan-standalone", isStandaloneDisplay());
+  document.documentElement.classList.toggle("titan-mobile", isMobileViewport());
+}
+
 export default function PwaRegistrar() {
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(true);
@@ -43,6 +50,7 @@ export default function PwaRegistrar() {
     if (typeof window === "undefined") return;
 
     const syncTimer = window.setTimeout(() => {
+      syncAppChromeClasses();
       setStandalone(isStandaloneDisplay());
       setDismissed(window.localStorage.getItem(dismissKey) === "true");
     }, 0);
@@ -53,25 +61,33 @@ export default function PwaRegistrar() {
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
+      syncAppChromeClasses();
       setInstallEvent(event as BeforeInstallPromptEvent);
       setStandalone(isStandaloneDisplay());
       setDismissed(window.localStorage.getItem(dismissKey) === "true");
     };
 
     const onAppInstalled = () => {
+      syncAppChromeClasses();
       setStandalone(true);
       setInstallEvent(null);
       window.localStorage.setItem(dismissKey, "true");
       setDismissed(true);
     };
 
+    const onViewportChange = () => syncAppChromeClasses();
+
     window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
     window.addEventListener("appinstalled", onAppInstalled);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("orientationchange", onViewportChange);
 
     return () => {
       window.clearTimeout(syncTimer);
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("orientationchange", onViewportChange);
     };
   }, []);
 
