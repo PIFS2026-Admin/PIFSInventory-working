@@ -3,6 +3,7 @@ import MobileAppChrome from "../components/MobileAppChrome";
 import PwaRegistrar from "../components/PwaRegistrar";
 import "./globals.css";
 import "./titan-branding.css";
+import "./notification-bell.css";
 
 export const metadata: Metadata = {
   title: "TITAN",

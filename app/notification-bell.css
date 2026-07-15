@@ -1,0 +1,83 @@
+.notification-button {
+  position: relative;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.notification-bell-icon {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notification-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.notification-count {
+  top: -5px;
+  right: -5px;
+}
+
+.mobile-app-alerts {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .notification-center {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  .notification-button {
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
+    min-height: 46px;
+    backdrop-filter: blur(18px);
+  }
+
+  .notification-panel {
+    position: fixed;
+    top: calc(66px + env(safe-area-inset-top));
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100dvh - 160px);
+  }
+
+  .mobile-app-alerts {
+    position: fixed;
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+    z-index: 9999;
+    display: flex;
+  }
+
+  .communications-page .comm-mobile-head-actions .notification-center {
+    width: auto;
+  }
+}
+
+@media print {
+  .mobile-app-alerts {
+    display: none !important;
+  }
+}

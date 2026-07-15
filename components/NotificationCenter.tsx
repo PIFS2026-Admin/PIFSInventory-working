@@ -139,12 +139,18 @@ export default function NotificationCenter() {
       <button
         className="button notification-button"
         type="button"
+        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        title="Notifications"
         onClick={() => {
           setOpen((current) => !current);
           if (!open) loadNotifications();
         }}
       >
-        Alerts
+        <svg className="notification-bell-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        <span className="notification-label">Notifications</span>
         {unreadCount > 0 && <span className="notification-count">{unreadCount}</span>}
       </button>
 
