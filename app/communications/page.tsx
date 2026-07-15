@@ -831,6 +831,21 @@ export default function CommunicationsPage() {
     await loadData();
   }
 
+  async function triggerPushForMessage(messageId: string) {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+
+    await fetch("/api/communications/push", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messageId }),
+    }).catch(() => undefined);
+  }
+
   async function sendMessage() {
     if (!currentUser || !selectedConversation) return;
     const text = draft.trim();
@@ -880,6 +895,8 @@ export default function CommunicationsPage() {
         if (attachmentError) setMessage(`Attachment uploaded, but metadata failed: ${attachmentError.message}`);
       }
     }
+
+    void triggerPushForMessage(insertedMessage.id);
 
     setDraft("");
     setReplyToId(null);

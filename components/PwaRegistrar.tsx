@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getTitanPushState, subscribeToTitanPush } from "../lib/clientPush";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -8,6 +9,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 const dismissKey = "titan_pwa_install_dismissed_v1";
+const pushDismissKey = "titan_push_prompt_dismissed_v1";
 
 function isStandaloneDisplay() {
   if (typeof window === "undefined") return false;
@@ -39,12 +41,18 @@ export default function PwaRegistrar() {
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(true);
   const [standalone, setStandalone] = useState(true);
+  const [pushPrompt, setPushPrompt] = useState({
+    show: false,
+    busy: false,
+    message: "",
+  });
 
   const shouldShowInstallPrompt = useMemo(() => {
     return !standalone && !dismissed && isMobileViewport();
   }, [dismissed, standalone]);
 
   const appleInstructions = shouldShowInstallPrompt && isAppleMobile() && !installEvent;
+  const shouldShowPushPrompt = pushPrompt.show && !shouldShowInstallPrompt;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -58,6 +66,30 @@ export default function PwaRegistrar() {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/service-worker.js").catch(() => undefined);
     }
+
+    const pushTimer = window.setTimeout(() => {
+      getTitanPushState()
+        .then((state) => {
+          const pushDismissed = window.localStorage.getItem(pushDismissKey) === "true";
+          const appleNeedsStandalone = isAppleMobile() && !isStandaloneDisplay();
+          const shouldOffer =
+            state.supported &&
+            state.configured &&
+            state.hasSession &&
+            !state.subscribed &&
+            state.permission !== "denied" &&
+            !pushDismissed &&
+            !appleNeedsStandalone &&
+            isMobileViewport();
+
+          setPushPrompt({
+            show: shouldOffer,
+            busy: false,
+            message: state.reason ?? "",
+          });
+        })
+        .catch(() => undefined);
+    }, 900);
 
     const onBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
@@ -84,6 +116,7 @@ export default function PwaRegistrar() {
 
     return () => {
       window.clearTimeout(syncTimer);
+      window.clearTimeout(pushTimer);
       window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
       window.removeEventListener("appinstalled", onAppInstalled);
       window.removeEventListener("resize", onViewportChange);
@@ -110,7 +143,47 @@ export default function PwaRegistrar() {
     setDismissed(true);
   }
 
-  if (!shouldShowInstallPrompt) return null;
+  async function enablePush() {
+    setPushPrompt((current) => ({ ...current, busy: true, message: "" }));
+
+    try {
+      await subscribeToTitanPush();
+      window.localStorage.setItem(pushDismissKey, "true");
+      setPushPrompt({ show: false, busy: false, message: "" });
+    } catch (error: unknown) {
+      setPushPrompt((current) => ({
+        ...current,
+        busy: false,
+        message: error instanceof Error ? error.message : "Push notifications could not be enabled.",
+      }));
+    }
+  }
+
+  function dismissPushPrompt() {
+    window.localStorage.setItem(pushDismissKey, "true");
+    setPushPrompt({ show: false, busy: false, message: "" });
+  }
+
+  if (!shouldShowInstallPrompt && !shouldShowPushPrompt) return null;
+
+  if (shouldShowPushPrompt) {
+    return (
+      <aside className="pwa-install-card" aria-label="Enable TITAN alerts">
+        <div>
+          <strong>Enable TITAN Alerts</strong>
+          <span>{pushPrompt.message || "Get Communications notifications on this phone when new messages arrive."}</span>
+        </div>
+        <div className="pwa-install-actions">
+          <button type="button" onClick={enablePush} disabled={pushPrompt.busy}>
+            {pushPrompt.busy ? "Enabling" : "Enable"}
+          </button>
+          <button type="button" className="ghost" onClick={dismissPushPrompt}>
+            Later
+          </button>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="pwa-install-card" aria-label="Install TITAN">

@@ -1,4 +1,4 @@
-const TITAN_CACHE = "titan-pwa-shell-v2";
+const TITAN_CACHE = "titan-pwa-shell-v3";
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icon-192.png",
@@ -63,9 +63,14 @@ self.addEventListener("push", (event) => {
     icon: "/icon-192.png",
     badge: "/icon-192.png",
     tag: payload.tag || "titan-notification",
+    renotify: true,
+    timestamp: Date.now(),
     data: {
       url: payload.url || payload.actionUrl || "/home",
+      conversationId: payload.conversationId || null,
+      messageId: payload.messageId || null,
     },
+    actions: [{ action: "open", title: "Open TITAN" }],
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

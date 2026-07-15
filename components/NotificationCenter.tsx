@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { getTitanPushState, subscribeToTitanPush, type TitanPushState } from "../lib/clientPush";
 import { supabase } from "../lib/supabase";
 
 type TitanNotification = {
@@ -31,6 +32,9 @@ export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [pushMessage, setPushMessage] = useState("");
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushState, setPushState] = useState<TitanPushState | null>(null);
   const [notifications, setNotifications] = useState<TitanNotification[]>([]);
 
   const unreadCount = useMemo(() => {
@@ -39,9 +43,15 @@ export default function NotificationCenter() {
 
   useEffect(() => {
     loadNotifications();
+    refreshPushState();
     const interval = window.setInterval(loadNotifications, 60000);
     return () => window.clearInterval(interval);
   }, []);
+
+  async function refreshPushState() {
+    const state = await getTitanPushState().catch(() => null);
+    setPushState(state);
+  }
 
   async function loadNotifications() {
     setLoading(true);
@@ -99,6 +109,21 @@ export default function NotificationCenter() {
     setNotifications((current) => current.map((item) => ({ ...item, read_at: item.read_at ?? readAt })));
   }
 
+  async function enablePushNotifications() {
+    setPushBusy(true);
+    setPushMessage("");
+
+    try {
+      await subscribeToTitanPush();
+      setPushMessage("Push notifications are on for this device.");
+      await refreshPushState();
+    } catch (error: unknown) {
+      setPushMessage(error instanceof Error ? error.message : "Push notifications could not be enabled.");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
   async function openNotification(item: TitanNotification) {
     if (!item.read_at) {
       await markRead(item.id);
@@ -134,6 +159,16 @@ export default function NotificationCenter() {
               <button className="button tiny" type="button" onClick={loadNotifications} disabled={loading}>
                 Refresh
               </button>
+              {pushState?.supported && pushState.configured && (
+                <button
+                  className="button tiny"
+                  type="button"
+                  onClick={enablePushNotifications}
+                  disabled={pushBusy || pushState.subscribed || pushState.permission === "denied"}
+                >
+                  {pushState.subscribed ? "Push On" : "Enable Push"}
+                </button>
+              )}
               <button className="button tiny" type="button" onClick={markAllRead} disabled={unreadCount === 0}>
                 Mark Read
               </button>
@@ -141,6 +176,7 @@ export default function NotificationCenter() {
           </div>
 
           {message && <div className="modal-message compact">{message}</div>}
+          {pushMessage && <div className="modal-message compact">{pushMessage}</div>}
 
           <div className="notification-list">
             {notifications.length === 0 && (

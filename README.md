@@ -34,3 +34,24 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## TITAN Communications Push Notifications
+
+Communications push notifications use Web Push through the existing TITAN service worker and the `push_subscriptions` Supabase table.
+
+Generate VAPID keys with:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Configure these environment variables in the deployed TITAN environment:
+
+```bash
+VAPID_PUBLIC_KEY=your-vapid-public-key
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PRIVATE_KEY=your-vapid-private-key
+VAPID_SUBJECT=mailto:notifications@pifstitan.com
+```
+
+Do not commit the private key. Phone push delivery will stay disabled until the VAPID keys are configured.
