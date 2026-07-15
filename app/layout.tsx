@@ -6,6 +6,7 @@ import "./globals.css";
 import "./titan-branding.css";
 import "./notification-bell.css";
 import "./inventory-cart.css";
+import "./communications-presence.css";
 
 export const metadata: Metadata = {
   title: "TITAN",

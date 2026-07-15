@@ -114,6 +114,13 @@ type CommunicationTask = {
   status: string;
 };
 
+type TypingUser = {
+  userId: string;
+  conversationId: string;
+  name: string;
+  lastSeen: number;
+};
+
 const modes: Array<{ key: ModeKey; label: string; types: ConversationType[] }> = [
   { key: "groups", label: "Groups", types: ["group", "yard", "department"] },
   { key: "directs", label: "DMs", types: ["direct"] },
@@ -172,6 +179,7 @@ export default function CommunicationsPage() {
   const [acks, setAcks] = useState<Acknowledgement[]>([]);
   const [tasks, setTasks] = useState<CommunicationTask[]>([]);
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string>>({});
+  const [typingUsers, setTypingUsers] = useState<Record<string, TypingUser>>({});
 
   const [selectedId, setSelectedId] = useState("");
   const [mode, setMode] = useState<ModeKey>("groups");
@@ -195,6 +203,8 @@ export default function CommunicationsPage() {
   const [busyConversationId, setBusyConversationId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingBroadcastRef = useRef(0);
 
   const canUseCommunications = canView(permissions, "communications");
   const canCreateConversations = canCreate(permissions, "communications");
@@ -327,6 +337,11 @@ export default function CommunicationsPage() {
   const selectedMessages = useMemo(() => {
     return selectedConversation ? messagesByConversation.get(selectedConversation.id) ?? [] : [];
   }, [messagesByConversation, selectedConversation]);
+
+  const selectedTypingUsers = useMemo(() => {
+    if (!selectedConversation) return [];
+    return Object.values(typingUsers).filter((user) => user.conversationId === selectedConversation.id);
+  }, [selectedConversation, typingUsers]);
 
   const selectedTasks = useMemo(() => {
     if (!selectedConversation) return [];
@@ -548,6 +563,46 @@ export default function CommunicationsPage() {
   }, [conversations, currentUser, loadData]);
 
   useEffect(() => {
+    if (!currentUser) return;
+
+    const channel = supabase
+      .channel("communications-typing")
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const conversationId = typeof payload?.conversationId === "string" ? payload.conversationId : "";
+        const userId = typeof payload?.userId === "string" ? payload.userId : "";
+        const name = typeof payload?.name === "string" ? payload.name : "TITAN User";
+
+        if (!conversationId || !userId || userId === currentUser.id) return;
+
+        setTypingUsers((current) => ({
+          ...current,
+          [`${conversationId}:${userId}`]: {
+            conversationId,
+            userId,
+            name,
+            lastSeen: Date.now(),
+          },
+        }));
+      })
+      .subscribe();
+
+    typingChannelRef.current = channel;
+
+    const pruneTimer = window.setInterval(() => {
+      const cutoff = Date.now() - 4500;
+      setTypingUsers((current) =>
+        Object.fromEntries(Object.entries(current).filter(([, user]) => user.lastSeen > cutoff))
+      );
+    }, 1500);
+
+    return () => {
+      window.clearInterval(pruneTimer);
+      typingChannelRef.current = null;
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser]);
+
+  useEffect(() => {
     attachments.forEach((attachment) => {
       if (attachmentUrls[attachment.id]) return;
       supabase.storage
@@ -597,6 +652,55 @@ export default function CommunicationsPage() {
     }
     if (conversation.department) return `${conversation.department} · ${memberCount} members`;
     return `${memberCount} members`;
+  }
+
+  function notifyTyping() {
+    if (!currentUser || !selectedConversation) return;
+
+    const now = Date.now();
+    if (now - lastTypingBroadcastRef.current < 1200) return;
+    lastTypingBroadcastRef.current = now;
+
+    void typingChannelRef.current?.send({
+      type: "broadcast",
+      event: "typing",
+      payload: {
+        conversationId: selectedConversation.id,
+        userId: currentUser.id,
+        name: currentUser.name,
+      },
+    });
+  }
+
+  function typingLabel() {
+    if (selectedTypingUsers.length === 0) return "";
+    const names = selectedTypingUsers.map((user) => user.name.split(/\s+/)[0] || user.name);
+    if (names.length === 1) return `${names[0]} is typing`;
+    if (names.length === 2) return `${names[0]} and ${names[1]} are typing`;
+    return `${names[0]} and ${names.length - 1} others are typing`;
+  }
+
+  function readStatusForMessage(item: Message) {
+    if (!currentUser || item.sender_id !== currentUser.id) return "";
+
+    const peers = (membersByConversation.get(item.conversation_id) ?? []).filter((member) => {
+      return member.user_id !== currentUser.id && !member.removed_at;
+    });
+
+    if (peers.length === 0) return item.status || "Delivered";
+
+    const createdAt = new Date(item.created_at).getTime();
+    const readers = peers
+      .filter((member) => {
+        const readAt = member.last_read_at ? new Date(member.last_read_at).getTime() : 0;
+        return readAt >= createdAt;
+      })
+      .map((member) => contactById.get(member.user_id)?.name ?? "TITAN User");
+
+    if (readers.length === 0) return item.status || "Delivered";
+    if (readers.length >= peers.length) return peers.length === 1 ? `Read by ${readers[0].split(/\s+/)[0]}` : "Read by everyone";
+    if (readers.length === 1) return `Read by ${readers[0].split(/\s+/)[0]}`;
+    return `Read by ${readers.length}`;
   }
 
   function openConversation(conversation: Conversation) {
@@ -1490,6 +1594,7 @@ export default function CommunicationsPage() {
     const acked = acks.some((ack) => ack.message_id === item.id && ack.user_id === currentUser?.id);
     const tasked = tasks.some((task) => task.source_message_id === item.id);
     const canDeleteThis = own || canDeleteMessages;
+    const readStatus = readStatusForMessage(item);
 
     return (
       <div key={item.id} className={`comm-msg ${own ? "own" : ""}`}>
@@ -1525,9 +1630,7 @@ export default function CommunicationsPage() {
               </button>
             )}
           </div>
-          <div className="comm-status-line">
-            {own ? `${item.status || "Delivered"} · read receipts update when opened` : "Seen"}
-          </div>
+          {own && readStatus && <div className="comm-read-status">{readStatus}</div>}
         </div>
       </div>
     );
@@ -1816,6 +1919,19 @@ export default function CommunicationsPage() {
                     ) : (
                       <div className="empty">No messages yet.</div>
                     )}
+                    {selectedTypingUsers.length > 0 && (
+                      <div className="comm-typing-row" aria-live="polite">
+                        <span className={`comm-avatar sm ${selectedConversation.color || "orange"}`}>
+                          {initials(selectedTypingUsers[0]?.name ?? "TITAN User")}
+                        </span>
+                        <div className="comm-typing-bubble" aria-hidden="true">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <span className="comm-typing-label">{typingLabel()}</span>
+                      </div>
+                    )}
                   </div>
 
                   {selectedConversation.is_locked && !canManageSelected ? (
@@ -1842,7 +1958,10 @@ export default function CommunicationsPage() {
                         )}
                         <textarea
                           value={draft}
-                          onChange={(event) => setDraft(event.target.value)}
+                          onChange={(event) => {
+                            setDraft(event.target.value);
+                            notifyTyping();
+                          }}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" && !event.shiftKey) {
                               event.preventDefault();
