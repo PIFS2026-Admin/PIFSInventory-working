@@ -215,10 +215,12 @@ export default function CommunicationsPage() {
   const [busyConversationId, setBusyConversationId] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
   const currentUserRef = useRef<CurrentUser | null>(null);
   const appliedRequestedConversationRef = useRef(false);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingBroadcastRef = useRef(0);
+  const lastReadWriteRef = useRef<Record<string, number>>({});
 
   const canUseCommunications = canView(permissions, "communications");
   const canCreateConversations = canCreate(permissions, "communications");
@@ -377,6 +379,11 @@ export default function CommunicationsPage() {
     });
     return map;
   }, [attachments]);
+
+  const selectedConversationAttachments = useMemo(() => {
+    if (!selectedConversation) return [];
+    return attachments.filter((attachment) => attachment.conversation_id === selectedConversation.id);
+  }, [attachments, selectedConversation]);
 
   const messageById = useMemo(() => {
     const map = new Map<string, Message>();
@@ -647,7 +654,14 @@ export default function CommunicationsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "message_attachments" }, () => {
         loadData().catch((error) => setMessage(error.message));
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_members" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversation_members" }, (payload) => {
+        const row = payload.new as Partial<Member> | null;
+        const ownRecentReadUpdate =
+          payload.eventType === "UPDATE" &&
+          row?.user_id === currentUser.id &&
+          row?.conversation_id &&
+          Date.now() - (lastReadWriteRef.current[row.conversation_id] ?? 0) < 2500;
+        if (ownRecentReadUpdate) return;
         loadData().catch((error) => setMessage(error.message));
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
@@ -701,18 +715,38 @@ export default function CommunicationsPage() {
   }, [currentUser]);
 
   useEffect(() => {
-    attachments.forEach((attachment) => {
-      if (attachmentUrls[attachment.id]) return;
-      supabase.storage
-        .from(attachment.storage_bucket || "communication-attachments")
-        .createSignedUrl(attachment.file_path, 60 * 60)
-        .then(({ data, error }) => {
-          if (!error && data?.signedUrl) {
-            setAttachmentUrls((current) => ({ ...current, [attachment.id]: data.signedUrl }));
-          }
-        });
+    const missing = selectedConversationAttachments.filter((attachment) => !attachmentUrls[attachment.id]);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    Promise.all(
+      missing.map(async (attachment) => {
+        const { data, error } = await supabase.storage
+          .from(attachment.storage_bucket || "communication-attachments")
+          .createSignedUrl(attachment.file_path, 60 * 60);
+        return !error && data?.signedUrl ? [attachment.id, data.signedUrl] : null;
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      const urls = Object.fromEntries(entries.filter(Boolean) as Array<[string, string]>);
+      if (Object.keys(urls).length > 0) {
+        setAttachmentUrls((current) => ({ ...current, ...urls }));
+      }
     });
-  }, [attachments, attachmentUrls]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attachmentUrls, selectedConversationAttachments]);
+
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || !selectedConversation) return;
+    const frame = window.requestAnimationFrame(() => {
+      feed.scrollTop = feed.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedConversation, selectedMessages.length]);
 
   function selectedMemberNames(conversation: Conversation) {
     return (membersByConversation.get(conversation.id) ?? []).map((member) => contactById.get(member.user_id)?.name ?? "TITAN User");
@@ -802,6 +836,11 @@ export default function CommunicationsPage() {
   }
 
   function openConversation(conversation: Conversation) {
+    if (conversation.id === selectedId) {
+      setMobileThreadOpen(true);
+      return;
+    }
+
     setSelectedId(conversation.id);
     setMode(modeForConversationType(conversation.conversation_type));
     setMobileThreadOpen(true);
@@ -819,6 +858,7 @@ export default function CommunicationsPage() {
   const markRead = useCallback(async (conversationId: string) => {
     if (!currentUser) return;
     const readAt = new Date().toISOString();
+    lastReadWriteRef.current[conversationId] = Date.now();
     await supabase
       .from("conversation_members")
       .update({ last_read_at: readAt })
@@ -849,7 +889,7 @@ export default function CommunicationsPage() {
     if (!selectedConversation || !currentUser) return;
     const timer = window.setTimeout(() => {
       markRead(selectedConversation.id).catch(() => undefined);
-    }, 0);
+    }, 300);
 
     return () => window.clearTimeout(timer);
   }, [currentUser, markRead, selectedConversation]);
@@ -2013,7 +2053,7 @@ export default function CommunicationsPage() {
                     {selectedConversation.is_locked && <span className="comm-chip">Locked</span>}
                   </div>
 
-                  <div className="comm-feed" id="commFeed">
+                  <div className="comm-feed" id="commFeed" ref={feedRef}>
                     {selectedMessages.length ? (
                       <>
                         <div className="comm-day">Today</div>
