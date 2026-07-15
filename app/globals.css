@@ -7627,3 +7627,75 @@ th {
     text-align: left;
   }
 }
+
+/* TITAN private app / PWA install prompt. */
+.pwa-install-card {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 1000;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: min(420px, calc(100vw - 28px));
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  border-radius: 12px;
+  padding: 13px;
+  background: rgba(13, 15, 19, 0.96);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.42);
+  color: #f8fafc;
+}
+
+.pwa-install-card strong,
+.pwa-install-card span {
+  display: block;
+}
+
+.pwa-install-card strong {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.pwa-install-card span {
+  margin-top: 3px;
+  color: #aab2c0;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pwa-install-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pwa-install-actions button {
+  min-height: 36px;
+  border: 1px solid rgba(249, 115, 22, 0.58);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #f97316;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pwa-install-actions button.ghost {
+  background: #171b22;
+  color: #d6dae2;
+}
+
+@media (max-width: 560px) {
+  .pwa-install-card {
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    grid-template-columns: 1fr;
+  }
+
+  .pwa-install-actions button {
+    flex: 1;
+  }
+}
