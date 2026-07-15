@@ -2,13 +2,31 @@
 
 import { useEffect, useState } from "react";
 
+type AppTab = {
+  href: string;
+  label: string;
+  match: string[];
+  view?: string | string[];
+  excludeView?: string | string[];
+};
+
 const appTabs = [
   { href: "/home", label: "Home", match: ["/home", "/dashboard"] },
-  { href: "/inventory", label: "Inventory", match: ["/inventory", "/purchase-orders"], excludeView: "orders" },
+  { href: "/inventory", label: "Inventory", match: ["/inventory", "/purchase-orders"], excludeView: ["orders", "cart"] },
   { href: "/communications", label: "Comms", match: ["/communications"] },
-  { href: "/inventory?view=orders", label: "Store", match: ["/inventory"], view: "orders" },
+  { href: "/inventory?view=orders", label: "Store", match: ["/inventory"], view: ["orders", "cart"] },
   { href: "/admin", label: "Admin", match: ["/admin"] },
-];
+] satisfies AppTab[];
+
+function viewMatches(actual: string | null, expected?: string | string[]) {
+  if (!expected) return true;
+  return Array.isArray(expected) ? expected.includes(actual || "") : actual === expected;
+}
+
+function viewExcluded(actual: string | null, excluded?: string | string[]) {
+  if (!excluded) return false;
+  return Array.isArray(excluded) ? excluded.includes(actual || "") : actual === excluded;
+}
 
 const hiddenRoutes = ["/login", "/print", "/ticket-print"];
 
@@ -41,7 +59,7 @@ export default function MobileAppChrome() {
       {appTabs.map((tab) => {
         const viewParam = new URLSearchParams(search).get("view");
         const routeMatch = tab.match.some((route) => path === route || path.startsWith(`${route}/`));
-        const active = routeMatch && (!tab.view || viewParam === tab.view) && (!tab.excludeView || viewParam !== tab.excludeView);
+        const active = routeMatch && viewMatches(viewParam, tab.view) && !viewExcluded(viewParam, tab.excludeView);
 
         return (
           <a key={tab.href} className={active ? "active" : ""} href={tab.href} aria-current={active ? "page" : undefined}>

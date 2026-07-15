@@ -5,6 +5,7 @@ import PwaRegistrar from "../components/PwaRegistrar";
 import "./globals.css";
 import "./titan-branding.css";
 import "./notification-bell.css";
+import "./inventory-cart.css";
 
 export const metadata: Metadata = {
   title: "TITAN",

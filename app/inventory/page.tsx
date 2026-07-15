@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 import { supabase } from "../../lib/supabase";
 import {
   canCreate,
@@ -94,6 +94,21 @@ type IssueTicketLine = {
   lineValue: number;
   unitTruck: string;
   pickedBy: string;
+};
+
+type IssueTicketLineRow = {
+  id: string;
+  issue_ticket_id?: string | null;
+  ticket_number?: string | null;
+  item_id?: string | null;
+  item_code?: string | null;
+  item_name?: string | null;
+  department?: string | null;
+  qty_issued?: number | string | null;
+  unit_cost?: number | string | null;
+  line_value?: number | string | null;
+  unit_truck?: string | null;
+  picked_by?: string | null;
 };
 
 type IssueCartLine = {
@@ -193,12 +208,13 @@ type OrderForm = {
   emailTo: string;
 };
 
-type InventoryModuleView = "dashboard" | "orders" | "counter" | "approvals" | "reorder" | "items" | "tickets" | "documents" | "vendors";
+type InventoryModuleView = "dashboard" | "orders" | "cart" | "counter" | "approvals" | "reorder" | "items" | "tickets" | "documents" | "vendors";
 type DashboardPeriod = "week" | "lastWeek" | "month" | "quarter" | "year" | "all";
 
 const inventoryModuleViews: InventoryModuleView[] = [
   "dashboard",
   "orders",
+  "cart",
   "counter",
   "approvals",
   "reorder",
@@ -573,7 +589,7 @@ export default function InventoryModulePage() {
   const itemPhotoCameraRef = useRef<HTMLInputElement | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const barcodeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
-  const barcodeControlsRef = useRef<{ stop: () => void } | null>(null);
+  const barcodeControlsRef = useRef<IScannerControls | null>(null);
 
   function activateInventoryView(view: InventoryModuleView, syncUrl = true) {
     setActiveView(view);
@@ -1006,14 +1022,6 @@ export default function InventoryModulePage() {
     [dashboardPoRows],
   );
 
-  useEffect(() => {
-    loadPage();
-  }, []);
-
-  useEffect(() => {
-    return () => stopCameraScanner();
-  }, []);
-
   async function loadPage() {
     setLoading(true);
     setMessage("Loading inventory...");
@@ -1021,7 +1029,7 @@ export default function InventoryModulePage() {
     const { data: sessionData } = await supabase.auth.getSession();
     const user = sessionData.session?.user;
     if (!user) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -1316,7 +1324,7 @@ export default function InventoryModulePage() {
     yardList = inventoryYards,
     scopedTickets = tickets,
   ) {
-    const mapLine = (row: any): IssueTicketLine => ({
+    const mapLine = (row: IssueTicketLineRow): IssueTicketLine => ({
       id: row.id,
       issueTicketId: row.issue_ticket_id || "",
       ticketNumber: row.ticket_number || "",
@@ -1332,7 +1340,7 @@ export default function InventoryModulePage() {
     });
     const lineMap = new Map<string, IssueTicketLine>();
     const errors: string[] = [];
-    const addRows = (rows: any[] | null) => {
+    const addRows = (rows: IssueTicketLineRow[] | null) => {
       (rows || []).forEach((row) => {
         const mapped = mapLine(row);
         lineMap.set(mapped.id, mapped);
@@ -1701,7 +1709,7 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "item-photo.jpg";
-    const filePath = `inventory-items/${selectedInventoryYardId || "yard"}/${itemForm.id}/${Date.now()}-${safeName}`;
+    const filePath = `inventory-items/${selectedInventoryYardId || "yard"}/${itemForm.id}/${file.lastModified}-${safeName}`;
     const { error: uploadError } = await supabase.storage.from("ticket-attachments").upload(filePath, file, {
       upsert: true,
       contentType: file.type || "image/jpeg",
@@ -2091,7 +2099,7 @@ export default function InventoryModulePage() {
 
       setCameraScanning(true);
       setCameraScanMessage("Point the camera at the barcode.");
-      const controls = await (barcodeReaderRef.current as any).decodeFromConstraints(
+      const controls = await barcodeReaderRef.current.decodeFromConstraints(
         {
           audio: false,
           video: {
@@ -2101,7 +2109,7 @@ export default function InventoryModulePage() {
           },
         },
         video,
-        (result: any) => {
+        (result) => {
           const barcode = result?.getText?.().trim();
           if (!barcode) return;
 
@@ -2109,8 +2117,8 @@ export default function InventoryModulePage() {
           stopCameraScanner();
         },
       );
-      barcodeControlsRef.current = controls as { stop: () => void };
-    } catch (error: any) {
+      barcodeControlsRef.current = controls;
+    } catch {
       stopCameraScanner();
       setCameraScanning(false);
       setCameraScanMessage("Camera scanning is not available in this browser. Opening photo scanner instead.");
@@ -2140,7 +2148,7 @@ export default function InventoryModulePage() {
       }
 
       addBarcodeToActiveCart(barcode);
-    } catch (error: any) {
+    } catch {
       setCameraScanMessage("No barcode was found. Try a closer, brighter photo with the barcode filling most of the screen.");
     } finally {
       setCameraScanning(false);
@@ -2148,6 +2156,18 @@ export default function InventoryModulePage() {
       if (cameraFileRef.current) cameraFileRef.current.value = "";
     }
   }
+
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => {
+      void loadPage();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
+  }, []);
+
+  useEffect(() => {
+    return () => stopCameraScanner();
+  }, []);
 
   function updateCartQuantity(itemId: string, value: string) {
     const qty = Math.max(0, Math.floor(numberValue(value)));
@@ -2176,7 +2196,7 @@ export default function InventoryModulePage() {
     const target = item || selectedItem;
     setOrderForm((current) => ({ ...current, requestedBy: current.requestedBy || userName }));
     if (target) addItemToOrderCart(target);
-    setActiveView("orders");
+    activateInventoryView("orders");
   }
 
   function addItemToOrderCart(item: InventoryItem, quantity = 1) {
@@ -2242,13 +2262,22 @@ export default function InventoryModulePage() {
       unitPrice: item.unitPrice,
       quantityOrdered: quantity,
     }));
-    window.location.href = "/purchase-orders";
+    window.location.assign("/purchase-orders");
   }
 
   function addStoreItemToCart(item: InventoryItem) {
     const qty = Math.max(1, Math.floor(numberValue(storeQuantities[item.id] || "1")));
     addItemToOrderCart(item, qty);
     setStoreQuantities((current) => ({ ...current, [item.id]: "1" }));
+  }
+
+  function openStoreCart() {
+    setOrderForm((current) => ({ ...current, requestedBy: current.requestedBy || userName }));
+    activateInventoryView("cart");
+  }
+
+  function returnToStore() {
+    activateInventoryView("orders");
   }
 
   function addScannedItemToOrder() {
@@ -2371,6 +2400,7 @@ export default function InventoryModulePage() {
     await Promise.all([loadOrders(selectedInventoryYardId), loadOrderLines(selectedInventoryYardId)]);
     setExpandedOrderId(order.id);
     setMessage(`Consumable order ${orderNumber} submitted.`);
+    activateInventoryView("orders");
     setSaving(false);
   }
 
@@ -2393,7 +2423,7 @@ export default function InventoryModulePage() {
       setActiveView("orders");
       return;
     }
-    window.location.href = "/purchase-orders";
+    window.location.assign("/purchase-orders");
   }
 
   function printInventoryDocument(document: { action: string; sourceId: string }) {
@@ -2407,7 +2437,7 @@ export default function InventoryModulePage() {
       if (order) printOrder(order);
       return;
     }
-    window.location.href = "/purchase-orders";
+    window.location.assign("/purchase-orders");
   }
 
   function pickTicketNumber(order: InventoryOrder) {
@@ -3142,7 +3172,7 @@ export default function InventoryModulePage() {
   }
 
   return (
-    <main className={`module-shell inventory-module consum-scope ${activeView === "orders" ? "store-mode" : ""}`}>
+    <main className={`module-shell inventory-module consum-scope ${activeView === "orders" || activeView === "cart" ? "store-mode" : ""}`}>
       <section className="page-head no-print">
         <div>
           <div className="pt">Consumables — Inventory Control</div>
@@ -3176,7 +3206,7 @@ export default function InventoryModulePage() {
 
       {message && <div className="modal-message">{message}</div>}
 
-      {activeView !== "orders" && (
+      {activeView !== "orders" && activeView !== "cart" && (
         <section className="kpis k5 inventory-top-kpis">
           <article className="kpi warn">
             <div className="lab">Issue tickets</div>
@@ -3352,26 +3382,96 @@ export default function InventoryModulePage() {
                 {pendingOrders.length === 0 && <p className="muted-text">No Consumables Store requests are waiting.</p>}
                 {pendingOrders.slice(0, 6).map((order) => {
                   const lines = linesForOrder(order);
+                  const expanded = expandedOrderId === order.id;
                   const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
+                  const fulfilledQty = lines.reduce((sum, line) => sum + (expanded ? fulfillmentQtyForLine(line) : line.qtyFulfilled), 0);
+                  const closedOrder = orderIsClosed(order);
+                  const relatedIssueTicket = issueTicketForOrder(order);
+                  const orderStatus = (order.status || "Submitted").toLowerCase();
                   return (
-                    <button
-                      className="ci-line click-row"
-                      type="button"
-                      key={order.id}
-                      onClick={() => {
-                        setActiveView("orders");
-                        setExpandedOrderId(order.id);
-                      }}
-                    >
-                      <div>
-                        <b>{order.orderNumber}</b>
-                        <span>{order.requestedBy || "-"} · {order.department || "-"} · {order.orderDate || "-"}</span>
+                    <article className={`ci-request-card ${expanded ? "focus" : ""}`} key={order.id}>
+                      <button className="ci-detail-head request-summary-button" type="button" onClick={() => setExpandedOrderId(expanded ? "" : order.id)}>
+                        <div>
+                          <div className="ci-detail-title">{order.orderNumber}</div>
+                          <div className="ci-sub">{order.requestedBy || "-"} · {order.department || "-"} · {order.orderDate || "-"}</div>
+                        </div>
+                        <span className={`pill ${closedOrder ? "neu" : orderStatus === "rejected" ? "bad" : orderStatus === "fulfilled" ? "ok" : "warn"}`}>{order.status || "Submitted"}</span>
+                      </button>
+                      <div className="ci-status-rail">
+                        <span className="pill neu">{lines.length.toLocaleString()} lines</span>
+                        <span className="pill neu">{requestedQty.toLocaleString()} requested</span>
+                        <span className="pill neu">{fulfilledQty.toLocaleString()} fulfilled</span>
+                        <span className="pill neu">{money(order.totalValue)}</span>
+                        {relatedIssueTicket && <span className="pill ok">{relatedIssueTicket.ticketNumber}</span>}
                       </div>
-                      <div className="ci-num">
-                        {requestedQty.toLocaleString()} req
-                        <span>{money(order.totalValue)}</span>
-                      </div>
-                    </button>
+                      {expanded && (
+                        <>
+                          <div className="ci-table-wrap compact-table-wrap">
+                            <table className="dt">
+                              <thead><tr><th>Line</th><th className="num">Requested</th><th className="num">Fulfilled</th><th className="num">Value</th></tr></thead>
+                              <tbody>
+                                {lines.length === 0 && <tr><td colSpan={4}>No line items found for this order.</td></tr>}
+                                {lines.map((line) => (
+                                  <tr key={line.id}>
+                                    <td><b>{line.itemCode || "-"}</b><div className="ci-sub">{line.itemName || "-"}</div></td>
+                                    <td className="mono num">{line.qtyRequested.toLocaleString()}</td>
+                                    <td className="mono num">
+                                      {canManageInventory && !closedOrder ? (
+                                        <input
+                                          className="qty-input fulfillment-qty-input"
+                                          type="number"
+                                          min="0"
+                                          max={line.qtyRequested}
+                                          value={orderFulfillmentDrafts[line.id] ?? String(line.qtyFulfilled || line.qtyRequested || 0)}
+                                          onChange={(event) => updateFulfillmentDraft(line, event.target.value)}
+                                        />
+                                      ) : (
+                                        line.qtyFulfilled.toLocaleString()
+                                      )}
+                                    </td>
+                                    <td className="mono num">{money(line.lineValue)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {order.notes && <div className="ci-notice">{order.notes}</div>}
+                          <div className="ci-actions">
+                            <button className="ci-btn mini" type="button" onClick={() => printOrder(order)}>Print request</button>
+                            <button className="ci-btn mini" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
+                              {emailingOrderId === order.id ? "Emailing..." : "Email"}
+                            </button>
+                            {relatedIssueTicket && (
+                              <button className="ci-btn mini" type="button" onClick={() => {
+                                setExpandedTicketId(relatedIssueTicket.id);
+                                activateInventoryView("tickets");
+                              }}>View issue ticket</button>
+                            )}
+                            {canManageInventory && !closedOrder && (
+                              <>
+                                {orderStatus === "submitted" && (
+                                  <>
+                                    <button className="ci-btn mini green" type="button" onClick={() => updateOrderStatus(order, "Approved")} disabled={saving}>Approve</button>
+                                    <button className="ci-btn mini red" type="button" onClick={() => updateOrderStatus(order, "Rejected")} disabled={saving}>Reject</button>
+                                  </>
+                                )}
+                                {orderStatus === "approved" && (
+                                  <button className="ci-btn mini" type="button" onClick={() => updateOrderStatus(order, "Picking")} disabled={saving}>Create pick ticket</button>
+                                )}
+                                {orderStatus === "picking" && (
+                                  <>
+                                    <button className="ci-btn mini" type="button" onClick={() => printPickTicket(order)}>Print pick ticket</button>
+                                    <button className="ci-btn mini" type="button" onClick={() => saveFulfillmentAmounts(order)} disabled={saving}>Save amounts</button>
+                                    <button className="ci-btn mini green" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>Fulfill &amp; open receipt</button>
+                                  </>
+                                )}
+                                <button className="ci-btn mini red" type="button" onClick={() => cancelOrder(order)} disabled={saving}>Cancel request</button>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </article>
                   );
                 })}
               </div>
@@ -3486,7 +3586,7 @@ export default function InventoryModulePage() {
 
       {activeView === "orders" && (
         <>
-          <section className="ci-layout ci-storefront-layout no-print">
+          <section className="ci-layout ci-storefront-layout ci-storefront-only no-print">
             <div className="card ci-storefront-card">
               <div className="ci-store-shopping-head">
                 <div>
@@ -3494,11 +3594,11 @@ export default function InventoryModulePage() {
                   <h2>Consumables</h2>
                   <small>{selectedInventoryYard?.name || "Yard"} warehouse</small>
                 </div>
-                <div className="ci-store-cart-mini">
+                <button className="ci-store-cart-mini ci-store-cart-button" type="button" onClick={openStoreCart} aria-label="Open consumables cart">
                   <span>Cart</span>
                   <b>{orderCart.length.toLocaleString()}</b>
                   <small>{money(orderValue)}</small>
-                </div>
+                </button>
               </div>
 
               <div className="ci-store-search-row">
@@ -3664,166 +3764,84 @@ export default function InventoryModulePage() {
               )}
             </div>
 
-            <div className="ci-store-side">
-              <div className="card ci-store-cart-card">
-                <h2><span className="dot"></span>Request cart<span className="ct">employee order</span></h2>
-                <div className="ci-request-summary">
-                  <div className="ci-micro"><div className="lab">Lines</div><div className="val">{orderCart.length.toLocaleString()}</div></div>
-                  <div className="ci-micro"><div className="lab">Quantity</div><div className="val">{orderQuantity.toLocaleString()}</div></div>
-                  <div className="ci-micro"><div className="lab">Est. value</div><div className="val">{money(orderValue)}</div></div>
-                </div>
-                {orderCart.length === 0 ? (
-                  <div className="empty-pos-cart">
-                    <strong>No items in this request yet.</strong>
-                    <span>Add items from the warehouse store catalog.</span>
-                  </div>
-                ) : (
-                  <div className="ci-table-wrap compact-table-wrap">
-                    <table className="dt">
-                      <thead>
-                        <tr><th>Item</th><th className="num">On hand</th><th className="num">Request</th><th className="num">Value</th><th></th></tr>
-                      </thead>
-                      <tbody>
-                        {orderCart.map((line) => (
-                          <tr key={line.itemId}>
-                            <td><b>{line.itemCode}</b><div className="ci-sub">{line.itemName} · {line.location || "-"}</div></td>
-                            <td className="mono num">{line.qtyOnHand.toLocaleString()}</td>
-                            <td className="mono num">
-                              <input
-                                className="qty-input"
-                                type="number"
-                                min="1"
-                                value={line.quantity}
-                                onChange={(event) => updateOrderCartQuantity(line.itemId, event.target.value)}
-                              />
-                            </td>
-                            <td className="mono num">{money(line.lineValue)}</td>
-                            <td><button className="ci-btn mini" onClick={() => removeOrderCartLine(line.itemId)}>Remove</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <div className="ci-ticket-grid request-form-grid">
-                  <input className="ci-input" value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} placeholder="Requested by / crew lead" />
-                  <input className="ci-input" value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="Department" />
-                  <input className="ci-input" value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} placeholder="Unit / truck" />
-                  <input className="ci-input" value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} placeholder="Job number" />
-                  <input className="ci-input" value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional email recipient" />
-                  <input className="ci-input" value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} placeholder="Notes" />
-                </div>
-                <div className="ci-actions">
-                  <button className="ci-btn" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
-                  <button className="ci-btn pri" onClick={saveInventoryOrder} disabled={saving || orderCart.length === 0}>
-                    {saving ? "Submitting..." : "Submit consumable order"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="card request-queue-card">
-                <h2><span className="dot"></span>Consumables Store queue<span className="ct">{pendingOrders.length.toLocaleString()} open</span></h2>
-                <div className="ci-queue">
-                  {orders.length === 0 && <p className="muted-text">No consumable orders found for this yard.</p>}
-                  {orders.map((order) => {
-                    const lines = linesForOrder(order);
-                    const expanded = expandedOrderId === order.id;
-                    const requestedQty = lines.reduce((sum, line) => sum + line.qtyRequested, 0);
-                    const fulfilledQty = lines.reduce((sum, line) => sum + (expanded ? fulfillmentQtyForLine(line) : line.qtyFulfilled), 0);
-                    const closedOrder = orderIsClosed(order);
-                    const relatedIssueTicket = issueTicketForOrder(order);
-                    const orderStatus = (order.status || "Submitted").toLowerCase();
-
-                    return (
-                      <article className={`ci-request-card ${expanded ? "focus" : ""}`} key={order.id}>
-                        <button className="ci-detail-head request-summary-button" type="button" onClick={() => setExpandedOrderId(expanded ? "" : order.id)}>
-                          <div>
-                            <div className="ci-detail-title">{order.orderNumber}</div>
-                            <div className="ci-sub">{order.requestedBy || "-"} · {order.department || "-"} · {order.orderDate || "-"}</div>
-                          </div>
-                          <span className={`pill ${closedOrder ? "neu" : orderStatus === "rejected" ? "bad" : orderStatus === "fulfilled" ? "ok" : "warn"}`}>{order.status || "Submitted"}</span>
-                        </button>
-                        <div className="ci-status-rail">
-                          <span className="pill neu">{lines.length.toLocaleString()} lines</span>
-                          <span className="pill neu">{requestedQty.toLocaleString()} requested</span>
-                          <span className="pill neu">{fulfilledQty.toLocaleString()} fulfilled</span>
-                          {relatedIssueTicket && <span className="pill ok">{relatedIssueTicket.ticketNumber}</span>}
-                        </div>
-                        {expanded && (
-                          <>
-                            <div className="ci-table-wrap compact-table-wrap">
-                              <table className="dt">
-                                <thead><tr><th>Line</th><th className="num">Requested</th><th className="num">Fulfilled</th><th className="num">Value</th></tr></thead>
-                                <tbody>
-                                  {lines.length === 0 && <tr><td colSpan={4}>No line items found for this order.</td></tr>}
-                                  {lines.map((line) => (
-                                    <tr key={line.id}>
-                                      <td><b>{line.itemCode || "-"}</b><div className="ci-sub">{line.itemName || "-"}</div></td>
-                                      <td className="mono num">{line.qtyRequested.toLocaleString()}</td>
-                                      <td className="mono num">
-                                        {canManageInventory && !closedOrder ? (
-                                          <input
-                                            className="qty-input fulfillment-qty-input"
-                                            type="number"
-                                            min="0"
-                                            max={line.qtyRequested}
-                                            value={orderFulfillmentDrafts[line.id] ?? String(line.qtyFulfilled || line.qtyRequested || 0)}
-                                            onChange={(event) => updateFulfillmentDraft(line, event.target.value)}
-                                          />
-                                        ) : (
-                                          line.qtyFulfilled.toLocaleString()
-                                        )}
-                                      </td>
-                                      <td className="mono num">{money(line.lineValue)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                            {order.notes && <div className="ci-notice">{order.notes}</div>}
-                            <div className="ci-actions">
-                              <button className="ci-btn mini" type="button" onClick={() => printOrder(order)}>Print request</button>
-                              <button className="ci-btn mini" type="button" onClick={() => emailOrder(order)} disabled={emailingOrderId === order.id}>
-                                {emailingOrderId === order.id ? "Emailing..." : "Email"}
-                              </button>
-                              {relatedIssueTicket && (
-                                <button className="ci-btn mini" type="button" onClick={() => {
-                                  setExpandedTicketId(relatedIssueTicket.id);
-                                  setActiveView("tickets");
-                                }}>View issue ticket</button>
-                              )}
-                              {canManageInventory && !closedOrder && (
-                                <>
-                                  {orderStatus === "submitted" && (
-                                    <>
-                                      <button className="ci-btn mini green" type="button" onClick={() => updateOrderStatus(order, "Approved")} disabled={saving}>Approve</button>
-                                      <button className="ci-btn mini red" type="button" onClick={() => updateOrderStatus(order, "Rejected")} disabled={saving}>Reject</button>
-                                    </>
-                                  )}
-                                  {orderStatus === "approved" && (
-                                    <button className="ci-btn mini" type="button" onClick={() => updateOrderStatus(order, "Picking")} disabled={saving}>Create pick ticket</button>
-                                  )}
-                                  {orderStatus === "picking" && (
-                                    <>
-                                      <button className="ci-btn mini" type="button" onClick={() => printPickTicket(order)}>Print pick ticket</button>
-                                      <button className="ci-btn mini" type="button" onClick={() => saveFulfillmentAmounts(order)} disabled={saving}>Save amounts</button>
-                                      <button className="ci-btn mini green" type="button" onClick={() => fulfillOrder(order)} disabled={saving}>Fulfill &amp; open receipt</button>
-                                    </>
-                                  )}
-                                  <button className="ci-btn mini red" type="button" onClick={() => cancelOrder(order)} disabled={saving}>Cancel request</button>
-                                </>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </article>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
           </section>
         </>
+      )}
+
+      {activeView === "cart" && (
+        <section className="ci-cart-page no-print">
+          <div className="card ci-cart-page-card">
+            <div className="ci-cart-page-head">
+              <button className="ci-btn" type="button" onClick={returnToStore}>Back to store</button>
+              <div>
+                <span>TITAN Store</span>
+                <h2>Request Cart</h2>
+                <small>Review quantities and submit one clean warehouse request.</small>
+              </div>
+            </div>
+
+            <div className="ci-request-summary">
+              <div className="ci-micro"><div className="lab">Lines</div><div className="val">{orderCart.length.toLocaleString()}</div></div>
+              <div className="ci-micro"><div className="lab">Quantity</div><div className="val">{orderQuantity.toLocaleString()}</div></div>
+              <div className="ci-micro"><div className="lab">Est. value</div><div className="val">{money(orderValue)}</div></div>
+            </div>
+
+            {orderCart.length === 0 ? (
+              <div className="empty-pos-cart ci-cart-empty">
+                <strong>Your cart is empty.</strong>
+                <span>Add items from the Consumables Store before submitting a warehouse request.</span>
+                <button className="ci-btn pri" type="button" onClick={returnToStore}>Shop consumables</button>
+              </div>
+            ) : (
+              <div className="ci-table-wrap compact-table-wrap ci-cart-table-wrap">
+                <table className="dt ci-cart-table">
+                  <thead>
+                    <tr><th>Item</th><th className="num">On hand</th><th className="num">Quantity</th><th className="num">Value</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    {orderCart.map((line) => (
+                      <tr key={line.itemId}>
+                        <td><b>{line.itemCode}</b><div className="ci-sub">{line.itemName} · Bin {line.location || "-"}</div></td>
+                        <td className="mono num">{line.qtyOnHand.toLocaleString()}</td>
+                        <td className="mono num">
+                          <input
+                            className="qty-input ci-cart-qty-input"
+                            type="number"
+                            min="1"
+                            value={line.quantity}
+                            onChange={(event) => updateOrderCartQuantity(line.itemId, event.target.value)}
+                            aria-label={`Quantity for ${line.itemCode}`}
+                          />
+                        </td>
+                        <td className="mono num">{money(line.lineValue)}</td>
+                        <td><button className="ci-btn mini" type="button" onClick={() => removeOrderCartLine(line.itemId)}>Remove</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="ci-cart-request-panel">
+              <h2><span className="dot"></span>Request details<span className="ct">required before submit</span></h2>
+              <div className="ci-ticket-grid request-form-grid">
+                <input className="ci-input" value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} placeholder="Requested by / crew lead" />
+                <input className="ci-input" value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="Department" />
+                <input className="ci-input" value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} placeholder="Unit / truck" />
+                <input className="ci-input" value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} placeholder="Job number" />
+                <input className="ci-input" value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional email recipient" />
+                <input className="ci-input" value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} placeholder="Notes" />
+              </div>
+            </div>
+
+            <div className="ci-actions ci-cart-submit-row">
+              <button className="ci-btn" type="button" onClick={clearOrderCart} disabled={orderCart.length === 0}>Clear cart</button>
+              <button className="ci-btn pri" type="button" onClick={saveInventoryOrder} disabled={saving || orderCart.length === 0}>
+                {saving ? "Submitting..." : "Submit order"}
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       {activeView === "counter" && (
