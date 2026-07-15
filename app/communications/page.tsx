@@ -483,6 +483,11 @@ export default function CommunicationsPage() {
     const safeConversationList = conversationList.filter((conversation) => currentMembershipIds.has(conversation.id));
     const safeConversationIds = safeConversationList.map((conversation) => conversation.id);
     const safeConversationIdSet = new Set(safeConversationIds);
+    const defaultGroupConversation = safeConversationList.find(
+      (conversation) => typesForMode("groups").includes(conversation.conversation_type) && !conversation.is_archived
+    );
+    const defaultConversation =
+      defaultGroupConversation ?? safeConversationList.find((conversation) => !conversation.is_archived) ?? safeConversationList[0];
 
     setConversations(safeConversationList);
 
@@ -499,9 +504,9 @@ export default function CommunicationsPage() {
       setSelectedId(requestedConversation.id);
       setMode(modeForConversationType(requestedConversation.conversation_type));
       setMobileThreadOpen(true);
-    } else if ((!selectedId || !safeConversationIdSet.has(selectedId)) && safeConversationList[0]) {
-      setSelectedId(safeConversationList[0].id);
-      setMode(modeForConversationType(safeConversationList[0].conversation_type));
+    } else if ((!selectedId || !safeConversationIdSet.has(selectedId)) && defaultConversation) {
+      setSelectedId(defaultConversation.id);
+      setMode(defaultGroupConversation ? "groups" : modeForConversationType(defaultConversation.conversation_type));
     } else if (selectedId && !safeConversationIdSet.has(selectedId)) {
       setSelectedId("");
     }
@@ -1760,19 +1765,6 @@ export default function CommunicationsPage() {
     return (
       <main className="communications-page">
         <section className="module">
-          <div className="page-head">
-            <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
-              <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
-              <div>
-                <div className="brand-title">TITAN</div>
-                <div className="brand-subtitle">Communications</div>
-              </div>
-            </button>
-            <div className="statusline">
-              <span className="pill ok">Opening Chats</span>
-            </div>
-          </div>
-
           <div id="commsRoot">
             <div className="comms loading">
               <aside className="comm-sidebar">
@@ -1790,33 +1782,27 @@ export default function CommunicationsPage() {
                     </button>
                   ))}
                 </div>
-                <div className="comm-group-list">
-                  {["Company Alerts", "Yard Operations", "Direct Messages"].map((label) => (
-                    <div key={label} className="comm-group skeleton">
-                      <span className="comm-avatar orange">{initials(label)}</span>
-                      <span className="comm-group-main">
-                        <span className="comm-group-title">
-                          <span>{label}</span>
-                        </span>
-                        <span className="comm-group-last">Syncing messages...</span>
-                      </span>
-                    </div>
-                  ))}
+                <div className="comm-empty-state">
+                  <span className="comm-avatar orange">G</span>
+                  <div>
+                    <b>Opening Groups</b>
+                    <p>Loading your TITAN group conversations.</p>
+                  </div>
                 </div>
               </aside>
 
               <main className="comm-main">
                 <div className="comm-thread-head">
                   <div className="comm-thread-title">
-                    <span className="comm-avatar orange">T</span>
+                    <span className="comm-avatar orange">G</span>
                     <div>
-                      <h2>Opening TITAN Communications</h2>
-                      <p>Loading groups, direct messages, and alerts.</p>
+                      <h2>Opening Groups</h2>
+                      <p>Loading TITAN Communications.</p>
                     </div>
                   </div>
                 </div>
                 <div className="comm-feed">
-                  <div className="comm-loading">Getting your chats ready...</div>
+                  <div className="comm-loading">Getting your groups ready...</div>
                 </div>
               </main>
 
