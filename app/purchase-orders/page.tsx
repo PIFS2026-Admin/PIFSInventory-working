@@ -384,6 +384,11 @@ export default function PurchaseOrdersPage() {
     );
   }, [auditLogs, auditSearch]);
 
+  const recentAuditLogs = useMemo(
+    () => auditLogs.filter((log) => !log.action.toLowerCase().startsWith("migration")).slice(0, 8),
+    [auditLogs],
+  );
+
   async function loadPage() {
     setLoading(true);
     setMessage("Loading purchase orders...");
@@ -962,13 +967,13 @@ export default function PurchaseOrdersPage() {
           <article className="ticket-card">
             <h3>Recent Activity</h3>
             <div className="po-list-mini">
-              {auditLogs.slice(0, 8).map((log) => (
+              {recentAuditLogs.map((log) => (
                 <button key={log.id} type="button" onClick={() => setActiveTab("audit")}>
                   <strong>{log.action.replaceAll("_", " ")}</strong>
                   <span>{log.userName || "System"} / {new Date(log.timestamp).toLocaleString()}</span>
                 </button>
               ))}
-              {auditLogs.length === 0 && <p className="muted-text">No audit activity yet.</p>}
+              {recentAuditLogs.length === 0 && <p className="muted-text">No user PO activity yet.</p>}
             </div>
           </article>
         </section>
