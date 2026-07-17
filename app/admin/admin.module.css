@@ -1,0 +1,176 @@
+.scope {
+  --admin-border: rgba(148, 163, 184, 0.22);
+}
+
+.scope :global(.admin-control-launch-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.scope :global(.admin-control-launch-card) {
+  width: 100%;
+  min-height: 172px;
+  text-align: left;
+  border-radius: 10px;
+  border: 1px solid var(--admin-border);
+  background:
+    linear-gradient(145deg, rgba(249, 115, 22, 0.12), rgba(15, 23, 42, 0.88) 42%),
+    rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+
+.scope :global(.admin-control-launch-card:hover) {
+  border-color: rgba(249, 115, 22, 0.72);
+  transform: translateY(-1px);
+  background:
+    linear-gradient(145deg, rgba(249, 115, 22, 0.18), rgba(15, 23, 42, 0.9) 42%),
+    rgba(15, 23, 42, 0.95);
+}
+
+.scope :global(.admin-control-launch-card span) {
+  color: #fb923c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.scope :global(.admin-control-launch-card strong) {
+  color: #fff;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+.scope :global(.admin-control-launch-card p) {
+  color: #b6c2d2;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.scope :global(.admin-control-launch-card small) {
+  align-self: end;
+  justify-self: start;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 999px;
+  color: #dbeafe;
+  padding: 5px 9px;
+  font-weight: 800;
+}
+
+.scope :global(.admin-active-control-bar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.scope :global(.admin-active-control-bar div) {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.scope :global(.admin-active-control-bar strong) {
+  color: #fff;
+}
+
+.scope :global(.admin-active-control-bar span) {
+  color: #fb923c;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.scope[data-active-control="home"] :global(.admin-control-section) {
+  display: none;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-launch-grid) {
+  display: none;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-grid) {
+  display: block;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-section) {
+  margin-top: 0;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-section > summary) {
+  display: none;
+}
+
+.scope[data-active-control="create-company"] :global(.admin-control-section:not([data-admin-control="create-company"])),
+.scope[data-active-control="create-user"] :global(.admin-control-section:not([data-admin-control="create-user"])),
+.scope[data-active-control="inspectors"] :global(.admin-control-section:not([data-admin-control="inspectors"])),
+.scope[data-active-control="part-numbers"] :global(.admin-control-section:not([data-admin-control="part-numbers"])),
+.scope[data-active-control="status-condition"] :global(.admin-control-section:not([data-admin-control="status-condition"])),
+.scope[data-active-control="companies"] :global(.admin-control-section:not([data-admin-control="companies"])),
+.scope[data-active-control="users"] :global(.admin-control-section:not([data-admin-control="users"])),
+.scope[data-active-control="yard-access"] :global(.admin-control-section:not([data-admin-control="yard-access"])),
+.scope[data-active-control="permissions"] :global(.admin-control-section:not([data-admin-control="permissions"])),
+.scope[data-active-control="email-notifications"] :global(.admin-control-section:not([data-admin-control="email-notifications"])),
+.scope[data-active-control="yard-setup"] :global(.admin-control-section:not([data-admin-control="yard-setup"])) {
+  display: none;
+}
+
+.scope :global(.admin-control-section[open] > .admin-collapsible-body) {
+  display: grid;
+  gap: 16px;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-section[open]) {
+  width: 100%;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-section[open] .table-wrap) {
+  max-width: 100%;
+}
+
+.scope:not([data-active-control="home"]) :global(.admin-control-section[open] table) {
+  width: 100%;
+}
+
+.scope[data-active-control="permissions"] :global(.inventory-table) {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+.scope[data-active-control="permissions"] :global(.inventory-table th:not(:first-child)),
+.scope[data-active-control="permissions"] :global(.inventory-table td:not(:first-child)) {
+  text-align: center;
+  width: 92px;
+}
+
+.scope[data-active-control="users"] :global(td:last-child),
+.scope[data-active-control="companies"] :global(td:last-child),
+.scope[data-active-control="yard-setup"] :global(td:last-child) {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .scope :global(.admin-active-control-bar) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .scope :global(.admin-active-control-bar div) {
+    text-align: left;
+  }
+
+  .scope :global(.admin-control-launch-card) {
+    min-height: 150px;
+  }
+}

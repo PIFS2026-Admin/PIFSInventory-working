@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
+import styles from "./admin.module.css";
 import {
   allRoleOptions,
   ModuleKey,
@@ -120,6 +121,19 @@ type InventoryOption = {
   sortOrder: number;
   isActive: boolean;
 };
+
+type AdminControlKey =
+  | "create-company"
+  | "create-user"
+  | "inspectors"
+  | "part-numbers"
+  | "status-condition"
+  | "companies"
+  | "users"
+  | "yard-access"
+  | "permissions"
+  | "email-notifications"
+  | "yard-setup";
 
 type AdminUserForm = {
   email: string;
@@ -267,6 +281,84 @@ const defaultInventoryOptions: InventoryOption[] = [
   ...defaultConditionInventoryOptions,
 ];
 
+const adminControls: Array<{
+  key: AdminControlKey;
+  title: string;
+  description: string;
+  group: string;
+}> = [
+  {
+    key: "create-company",
+    title: "Create Company",
+    description: "Add customer companies and account numbers.",
+    group: "Customers",
+  },
+  {
+    key: "companies",
+    title: "Companies",
+    description: "Manage company status, names, and logos.",
+    group: "Customers",
+  },
+  {
+    key: "create-user",
+    title: "Create User",
+    description: "Add employees or customers with yard and screen access.",
+    group: "Users",
+  },
+  {
+    key: "users",
+    title: "Users",
+    description: "Update roles, customer company links, and access shortcuts.",
+    group: "Users",
+  },
+  {
+    key: "yard-access",
+    title: "Inventory / PO Yard Access",
+    description: "Assign internal users to the yards they can work in.",
+    group: "Users",
+  },
+  {
+    key: "permissions",
+    title: "Permission Management",
+    description: "Review role defaults and set user screen overrides.",
+    group: "Security",
+  },
+  {
+    key: "email-notifications",
+    title: "Email Notification Settings",
+    description: "Choose recipients for automatic operational emails.",
+    group: "Security",
+  },
+  {
+    key: "inspectors",
+    title: "Inspector Manager",
+    description: "Maintain approved DTI lead and Level 2 inspector lists.",
+    group: "Setup",
+  },
+  {
+    key: "part-numbers",
+    title: "Part Number Manager",
+    description: "Maintain saved tubular part descriptions.",
+    group: "Setup",
+  },
+  {
+    key: "status-condition",
+    title: "Status & Condition Manager",
+    description: "Maintain inventory dropdown options.",
+    group: "Setup",
+  },
+  {
+    key: "yard-setup",
+    title: "Yard Setup",
+    description: "Manage racks and work zones by yard.",
+    group: "Setup",
+  },
+];
+
+function isAdminControlKey(value: string): value is AdminControlKey {
+  return adminControls.some((control) => control.key === value);
+}
+
 function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
   return value === "Range 3" ? "Range 3" : "Range 2";
 }
@@ -360,6 +452,7 @@ function mapEmailNotificationUsers(rows: any[]): EmailNotificationUser[] {
 }
 
 export default function AdminPage() {
+  const [activeControl, setActiveControl] = useState<AdminControlKey | "">("");
   const [companies, setCompanies] = useState<Company[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [yards, setYards] = useState<Yard[]>([]);
@@ -442,9 +535,50 @@ export default function AdminPage() {
     [permissionRolePreview]
   );
 
+  const activeControlDetails = useMemo(
+    () => adminControls.find((control) => control.key === activeControl) || null,
+    [activeControl]
+  );
+
   useEffect(() => {
     setEditableRolePermissions(rolePermissionPreview);
   }, [rolePermissionPreview]);
+
+  function readControlFromUrl() {
+    const control = new URLSearchParams(window.location.search).get("control") || "";
+    return isAdminControlKey(control) ? control : "";
+  }
+
+  function openAdminControl(control: AdminControlKey) {
+    setActiveControl(control);
+    const url = new URL(window.location.href);
+    url.searchParams.set("control", control);
+    window.history.pushState({}, "", url);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeAdminControl() {
+    setActiveControl("");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("control");
+    window.history.pushState({}, "", url);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function adminControlStat(control: AdminControlKey) {
+    if (control === "create-company") return `${activeCompanies.length} active`;
+    if (control === "companies") return `${companies.length} companies`;
+    if (control === "create-user") return `${profiles.length} users`;
+    if (control === "users") return `${profiles.length} users`;
+    if (control === "yard-access") return `${yards.length} yards`;
+    if (control === "permissions") return `${moduleAccessOptions.length} screens`;
+    if (control === "email-notifications") return `${emailNotificationTypes.length} notice types`;
+    if (control === "inspectors") return `${inspectors.length} inspectors`;
+    if (control === "part-numbers") return `${partNumbers.length} parts`;
+    if (control === "status-condition") return `${inventoryOptions.length} options`;
+    if (control === "yard-setup") return `${racks.length} racks / ${zones.length} zones`;
+    return "";
+  }
 
   function toggleRolePermission(moduleKey: PermissionModuleKey, action: PermissionAction) {
     setEditableRolePermissions((currentPermissions) => ({
@@ -1716,11 +1850,21 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    loadAdmin();
+    const syncControlFromUrl = () => {
+      setActiveControl(readControlFromUrl());
+    };
+
+    window.setTimeout(syncControlFromUrl, 0);
+    window.setTimeout(() => {
+      void loadAdmin();
+    }, 0);
+    window.addEventListener("popstate", syncControlFromUrl);
+    return () => window.removeEventListener("popstate", syncControlFromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <main className="customer-shell">
+    <main className={`customer-shell ${styles.scope}`} data-active-control={activeControl || "home"}>
       <header className="customer-topbar">
         <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
@@ -1749,13 +1893,46 @@ export default function AdminPage() {
       {message && <div className="modal-message">{message}</div>}
 
       <section className="customer-welcome">
-        <span>Welcome</span>
-        <h1>{currentUserName}</h1>
-        <p>Admin tools for companies, users, inspectors, racks, work zones, and part numbers.</p>
+        <span>{activeControlDetails ? "Admin Control" : "Welcome"}</span>
+        <h1>{activeControlDetails?.title || currentUserName}</h1>
+        <p>
+          {activeControlDetails?.description ||
+            "Choose one admin control below. Each area opens on its own focused page so you are not fighting one giant scrolling admin screen."}
+        </p>
       </section>
 
+      {!activeControl && (
+        <section className="admin-control-launch-grid">
+          {adminControls.map((control) => (
+            <button
+              key={control.key}
+              type="button"
+              className="ticket-card admin-control-launch-card"
+              onClick={() => openAdminControl(control.key)}
+            >
+              <span>{control.group}</span>
+              <strong>{control.title}</strong>
+              <p>{control.description}</p>
+              <small>{adminControlStat(control.key)}</small>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {activeControlDetails && (
+        <section className="ticket-card admin-active-control-bar">
+          <button className="button" type="button" onClick={closeAdminControl}>
+            Back to Admin Controls
+          </button>
+          <div>
+            <strong>{activeControlDetails.title}</strong>
+            <span>{activeControlDetails.group}</span>
+          </div>
+        </section>
+      )}
+
       <section className="admin-grid">
-        <details className="ticket-card admin-card admin-collapsible">
+        <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="create-company" open={activeControl === "create-company"}>
           <summary>
             <h3>Create Company</h3>
             <span>Open / close</span>
@@ -1786,7 +1963,7 @@ export default function AdminPage() {
           </div>
         </details>
 
-        <details className="ticket-card admin-card admin-collapsible">
+        <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="create-user" open={activeControl === "create-user"}>
           <summary>
             <h3>Create User</h3>
             <span>Open / close</span>
@@ -1989,7 +2166,7 @@ export default function AdminPage() {
         </details>
       </section>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="inspectors" open={activeControl === "inspectors"}>
         <summary>
           <div>
             <h3>Inspector Manager</h3>
@@ -2058,7 +2235,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="part-numbers" open={activeControl === "part-numbers"}>
         <summary>
           <div>
             <h3>Part Number Manager</h3>
@@ -2175,7 +2352,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="status-condition" open={activeControl === "status-condition"}>
         <summary>
           <div>
             <h3>Status & Condition Manager</h3>
@@ -2249,7 +2426,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="companies" open={activeControl === "companies"}>
         <summary>
           <h3>Companies</h3>
           <span>Open / close</span>
@@ -2325,7 +2502,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="users" open={activeControl === "users"}>
         <summary>
           <h3>Users</h3>
           <span>Open / close</span>
@@ -2410,7 +2587,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="yard-access" open={activeControl === "yard-access"}>
         <summary>
           <div>
             <h3>Inventory / PO Yard Access</h3>
@@ -2480,7 +2657,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="permissions" open={activeControl === "permissions"}>
         <summary>
           <div>
             <h3>Permission Management</h3>
@@ -2631,7 +2808,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="email-notifications" open={activeControl === "email-notifications"}>
         <summary>
           <div>
             <h3>Email Notification Settings</h3>
@@ -2688,7 +2865,7 @@ export default function AdminPage() {
         </div>
       </details>
 
-      <details className="ticket-card admin-card admin-collapsible">
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="yard-setup" open={activeControl === "yard-setup"}>
         <summary>
           <h3>Yard Setup</h3>
           <span>Open / close</span>
