@@ -86,7 +86,7 @@
 .actionCard {
   display: grid;
   gap: 8px;
-  min-height: 112px;
+  min-height: 82px;
   padding: 18px;
   border: 1px solid rgba(70, 82, 101, 0.88);
   border-radius: 14px;
@@ -134,7 +134,7 @@
 
 @media (max-width: 760px) {
   .shell {
-    padding: calc(12px + env(safe-area-inset-top)) 12px calc(96px + env(safe-area-inset-bottom));
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(var(--titan-mobile-bottom-space, 96px) + 12px);
   }
 
   .topbar {
@@ -171,7 +171,7 @@
   }
 
   .actionCard {
-    min-height: 84px;
+    min-height: 66px;
     padding: 15px;
   }
 }

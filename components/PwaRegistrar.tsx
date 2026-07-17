@@ -35,6 +35,7 @@ function syncAppChromeClasses() {
 
   document.documentElement.classList.toggle("titan-standalone", isStandaloneDisplay());
   document.documentElement.classList.toggle("titan-mobile", isMobileViewport());
+  document.documentElement.classList.toggle("titan-ios", isAppleMobile());
 }
 
 export default function PwaRegistrar() {

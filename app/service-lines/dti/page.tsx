@@ -8,8 +8,8 @@ export default function DtiServiceLinePage() {
       subtitle="Open the DTI workspace you need."
       backHref="/service-lines"
       actions={[
-        { title: "DTI Jobs", href: "/dti", detail: "Jobs, scorecards, red flags, and closeout" },
-        { title: "Daily Summaries", href: "/dti-summary", detail: "Inspection summaries, print, email, and saved records" },
+        { title: "DTI Jobs", href: "/dti" },
+        { title: "Daily Summaries", href: "/dti-summary" },
       ]}
     />
   );

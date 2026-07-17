@@ -1,0 +1,408 @@
+:root {
+  --titan-mobile-gutter-left: max(12px, env(safe-area-inset-left));
+  --titan-mobile-gutter-right: max(12px, env(safe-area-inset-right));
+  --titan-mobile-tabbar-height: calc(66px + env(safe-area-inset-bottom));
+  --titan-mobile-bottom-space: calc(var(--titan-mobile-tabbar-height) + 14px);
+  --titan-mobile-top-space: max(10px, env(safe-area-inset-top));
+}
+
+@media (max-width: 760px) {
+  html,
+  body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden !important;
+    background: #080a0d;
+  }
+
+  @supports (overflow: clip) {
+    html,
+    body {
+      overflow-x: clip !important;
+    }
+  }
+
+  body {
+    min-height: 100dvh;
+    padding-bottom: var(--titan-mobile-bottom-space) !important;
+    overscroll-behavior-y: contain;
+  }
+
+  *,
+  *::before,
+  *::after {
+    min-width: 0;
+  }
+
+  body > main:not(.login-page):not(.print-page):not(.print-shell),
+  .module-shell,
+  .app-shell,
+  .page-shell,
+  .inventory-module,
+  .po-module,
+  .dashboard-shell,
+  .internal-dashboard-shell,
+  .hardband-shell,
+  .dti-shell,
+  .daily-summary-shell,
+  .financials-scope,
+  .communications-page,
+  .customer-shell,
+  .service-lines-shell {
+    width: 100% !important;
+    max-width: 100vw !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+    padding-left: var(--titan-mobile-gutter-left) !important;
+    padding-right: var(--titan-mobile-gutter-right) !important;
+    padding-bottom: var(--titan-mobile-bottom-space) !important;
+    box-sizing: border-box;
+  }
+
+  html.titan-mobile body > main:not(.login-page):not(.print-page):not(.print-shell),
+  html.titan-standalone body > main:not(.login-page):not(.print-page):not(.print-shell),
+  html.titan-ios body > main:not(.login-page):not(.print-page):not(.print-shell) {
+    padding-top: calc(8px + env(safe-area-inset-top)) !important;
+  }
+
+  .global-titan-nav,
+  .mobile-app-tabbar {
+    display: none !important;
+  }
+
+  .titan-mobile-tabbar {
+    right: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: auto !important;
+    max-width: 100vw !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 2px !important;
+    padding: 5px max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)) !important;
+    border-right: 0 !important;
+    border-bottom: 0 !important;
+    border-left: 0 !important;
+    border-radius: 18px 18px 0 0 !important;
+  }
+
+  .titan-mobile-tabbar a {
+    min-height: 48px !important;
+    border-radius: 12px !important;
+  }
+
+  .titan-mobile-tabbar-icon,
+  .titan-mobile-tabbar-icon svg {
+    width: 21px !important;
+    height: 21px !important;
+  }
+
+  .global-notification-bell {
+    top: max(10px, env(safe-area-inset-top)) !important;
+    right: max(10px, env(safe-area-inset-right)) !important;
+    z-index: 10090 !important;
+  }
+
+  .notification-panel {
+    top: calc(60px + env(safe-area-inset-top)) !important;
+    right: var(--titan-mobile-gutter-right) !important;
+    left: var(--titan-mobile-gutter-left) !important;
+    width: auto !important;
+    max-height: calc(100dvh - var(--titan-mobile-bottom-space) - 72px) !important;
+  }
+
+  .page-head,
+  .topbar,
+  .customer-topbar,
+  .section-heading,
+  .module-grid,
+  .dashboard-grid,
+  .internal-dashboard-content,
+  .ci-layout,
+  .po-two-column,
+  .po-filter-grid,
+  .po-kpi-grid,
+  .financials-scope .kpis,
+  .communications-page .comms,
+  .communications-page .comm-main,
+  .communications-page .comm-sidebar,
+  .communications-page .comm-roster,
+  .yardMapHeader,
+  .yardCustomerFilter,
+  .yardTopDock,
+  .yardMainPanel,
+  .yardMapShell {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box;
+  }
+
+  .internal-dashboard-shell {
+    display: block !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .internal-sidebar {
+    display: none !important;
+  }
+
+  .internal-dashboard-content {
+    width: 100% !important;
+    padding: 0 !important;
+  }
+
+  .internal-dashboard-header {
+    display: grid !important;
+    gap: 12px !important;
+  }
+
+  .internal-dashboard-header h1 {
+    max-width: calc(100vw - 78px);
+    font-size: clamp(32px, 10vw, 44px) !important;
+    overflow-wrap: anywhere;
+  }
+
+  .internal-dashboard-actions,
+  .dashboard-filter-bar,
+  .dashboard-metric-grid,
+  .dashboard-widget-grid,
+  .dashboard-lead-grid {
+    grid-template-columns: 1fr !important;
+    width: 100% !important;
+  }
+
+  .page-head,
+  .topbar,
+  .customer-topbar,
+  .section-heading,
+  .yardMapHeader,
+  .communications-page .page-head,
+  .communications-page .comm-thread-head {
+    overflow: visible !important;
+  }
+
+  .topbar-actions,
+  .page-actions,
+  .ci-actions,
+  .po-tab-bar,
+  .po-row-actions,
+  .comm-toolbar,
+  .comm-mode-tabs,
+  .comm-thread-actions,
+  .yardPrimaryActions,
+  .yardMapHeaderActions {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .topbar-actions::-webkit-scrollbar,
+  .page-actions::-webkit-scrollbar,
+  .ci-actions::-webkit-scrollbar,
+  .po-tab-bar::-webkit-scrollbar,
+  .po-row-actions::-webkit-scrollbar,
+  .comm-toolbar::-webkit-scrollbar,
+  .comm-mode-tabs::-webkit-scrollbar,
+  .comm-thread-actions::-webkit-scrollbar,
+  .yardPrimaryActions::-webkit-scrollbar,
+  .yardMapHeaderActions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar-actions > *,
+  .page-actions > *,
+  .ci-actions > *,
+  .po-tab-bar > *,
+  .po-row-actions > *,
+  .comm-toolbar > *,
+  .comm-mode-tabs > *,
+  .comm-thread-actions > *,
+  .yardPrimaryActions > *,
+  .yardMapHeaderActions > * {
+    flex: 0 0 auto;
+  }
+
+  .field,
+  .input,
+  .select,
+  input,
+  select,
+  textarea,
+  button,
+  .button,
+  .ci-btn,
+  .comm-btn {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .table-wrap,
+  .compact-table-wrap,
+  .ci-table-wrap,
+  .po-table-wrap,
+  .financials-table-wrap,
+  .timesheet-entry-wrap,
+  .invoice-line-wrap,
+  .rackDetailTableWrap,
+  .document-register-wrap,
+  .item-master-table-wrap,
+  .reorder-table-wrap {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-padding-bottom: var(--titan-mobile-bottom-space);
+  }
+
+  .table-wrap table,
+  .ci-table-wrap table,
+  .po-table-wrap table,
+  .financials-table-wrap table,
+  .rackDetailTableWrap table {
+    max-width: none;
+  }
+
+  .card,
+  .panel,
+  .ticket-card,
+  .section-card,
+  .ci-storefront-card,
+  .ci-cart-page-card,
+  .po-receive-card,
+  .invoice-preview,
+  .comm-filter-panel,
+  .comm-side-panel,
+  .comm-new,
+  .comm-ops-summary {
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  .slide-over,
+  .wide-slide,
+  .rack-detail-screen,
+  .modal-message,
+  .inspection-summary-wrap {
+    width: 100% !important;
+    max-width: 100vw !important;
+    max-height: 100dvh !important;
+    overflow: auto !important;
+    padding-bottom: var(--titan-mobile-bottom-space) !important;
+    scroll-padding-bottom: var(--titan-mobile-bottom-space);
+    box-sizing: border-box;
+  }
+
+  .communications-page {
+    min-height: 100dvh;
+  }
+
+  .communications-page .module,
+  .communications-page .comms,
+  .communications-page .comm-sidebar,
+  .communications-page .comm-main {
+    width: 100% !important;
+  }
+
+  .communications-page .comm-group,
+  .communications-page .comm-contact,
+  .communications-page .comm-bubble,
+  .communications-page .comm-msg-body,
+  .communications-page .comm-thread-title,
+  .communications-page .comm-group-main,
+  .communications-page .comm-contact-main {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .communications-page .comm-feed {
+    max-width: 100% !important;
+    padding-bottom: calc(var(--titan-mobile-bottom-space) + 82px) !important;
+    overflow-x: hidden !important;
+  }
+
+  .communications-page .comm-composer {
+    right: var(--titan-mobile-gutter-right) !important;
+    bottom: calc(var(--titan-mobile-tabbar-height) + 8px) !important;
+    left: var(--titan-mobile-gutter-left) !important;
+    max-width: none !important;
+    box-sizing: border-box;
+  }
+
+  .consum-scope.store-mode .page-head {
+    display: none !important;
+  }
+
+  .consum-scope.store-mode .ci-storefront-layout,
+  .consum-scope.store-mode .ci-storefront-card,
+  .consum-scope .ci-cart-page,
+  .consum-scope .ci-cart-page-card {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .consum-scope .ci-store-grid {
+    width: 100% !important;
+    max-width: 100% !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .consum-scope .ci-store-search-row,
+  .consum-scope .ci-store-results-row,
+  .consum-scope .ci-store-buy-row,
+  .consum-scope .ci-store-price-row,
+  .consum-scope .ci-cart-page-head,
+  .consum-scope .ci-cart-submit-row {
+    max-width: 100% !important;
+  }
+
+  .yardMapShell {
+    width: 100% !important;
+    overflow: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  .yardMapViewport {
+    max-width: none !important;
+  }
+
+  .rackHoverCard {
+    max-width: min(360px, calc(100vw - 32px)) !important;
+    pointer-events: none;
+  }
+
+  .mobile-pull-refresh {
+    max-width: calc(100vw - 24px);
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 390px) {
+  :root {
+    --titan-mobile-tabbar-height: calc(62px + env(safe-area-inset-bottom));
+    --titan-mobile-bottom-space: calc(var(--titan-mobile-tabbar-height) + 10px);
+  }
+
+  .titan-mobile-tabbar a {
+    min-height: 46px !important;
+    font-size: 8px !important;
+  }
+
+  .notification-button {
+    width: 42px !important;
+    min-width: 42px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+  }
+}
+
+@media print {
+  .titan-mobile-tabbar,
+  .mobile-pull-refresh {
+    display: none !important;
+  }
+}

@@ -8,7 +8,7 @@ export default function TubingServiceLinePage() {
       subtitle="Tubing module workspace."
       backHref="/service-lines"
       actions={[
-        { title: "Tubing Buildout Pending", href: "/service-lines", detail: "This screen is ready for the Tubing module." },
+        { title: "Tubing Buildout Pending", href: "/service-lines" },
       ]}
     />
   );

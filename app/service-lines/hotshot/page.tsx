@@ -8,7 +8,7 @@ export default function HotshotServiceLinePage() {
       subtitle="Hotshot module workspace."
       backHref="/service-lines"
       actions={[
-        { title: "Hotshot Buildout Pending", href: "/service-lines", detail: "This screen is ready for the Hotshot module." },
+        { title: "Hotshot Buildout Pending", href: "/service-lines" },
       ]}
     />
   );

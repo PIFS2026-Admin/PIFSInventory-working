@@ -11,6 +11,7 @@ import "./inventory-cart.css";
 import "./communications-presence.css";
 import "./global-titan-nav.css";
 import "./mobile-app-chrome.css";
+import "./mobile-hardening.css";
 
 export const metadata: Metadata = {
   title: "TITAN",
