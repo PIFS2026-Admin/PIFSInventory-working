@@ -4,6 +4,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 import { defaultModulesForRole } from "../lib/modulePermissions";
+import { shouldShowPageMessage } from "../lib/pageMessages";
 import styles from "./yard-view.module.css";
 
 type Role = "admin" | "customer" | "sales";
@@ -4863,7 +4864,7 @@ export default function Home() {
           </div>
         </section>
 
-        {message && <div className="modal-message">{message}</div>}
+        {shouldShowPageMessage(message) && <div className="modal-message">{message}</div>}
 
         <header className={styles.yardMapHeader}>
           <div>

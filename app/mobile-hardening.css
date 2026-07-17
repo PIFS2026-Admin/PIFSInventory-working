@@ -491,7 +491,6 @@
   .slide-over,
   .wide-slide,
   .rack-detail-screen,
-  .modal-message,
   .inspection-summary-wrap {
     width: 100% !important;
     max-width: 100vw !important;
@@ -499,6 +498,15 @@
     overflow: auto !important;
     padding-bottom: var(--titan-mobile-bottom-space) !important;
     scroll-padding-bottom: var(--titan-mobile-bottom-space);
+    box-sizing: border-box;
+  }
+
+  .modal-message {
+    width: auto !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 10px 12px !important;
     box-sizing: border-box;
   }
 

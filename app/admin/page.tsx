@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
 import PoApprovalMatrixManager from "../../components/PoApprovalMatrixManager";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 import styles from "./admin.module.css";
 import {
   allRoleOptions,
@@ -1926,6 +1927,8 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className={`customer-shell ${styles.scope}`} data-active-control={visibleActiveControl || "home"}>
       <header className="customer-topbar">
@@ -1953,7 +1956,7 @@ export default function AdminPage() {
         </div>
       </header>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="customer-welcome">
         <span>{visibleActiveControlDetails ? "Admin Control" : "Welcome"}</span>

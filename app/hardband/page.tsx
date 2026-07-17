@@ -2,6 +2,7 @@
 
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 
 type PipeRange = "Range 2" | "Range 3";
 
@@ -828,6 +829,8 @@ export default function HardbandPage() {
     );
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className="hardband-shell">
       <header className="hardband-header">
@@ -855,7 +858,7 @@ export default function HardbandPage() {
         <p>Create and close out Hardband jobs with every serial number tied to the work order.</p>
       </section>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="hardband-work-order-grid">
         <section className="ticket-card">

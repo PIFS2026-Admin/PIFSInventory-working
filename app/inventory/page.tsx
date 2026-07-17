@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 import { supabase } from "../../lib/supabase";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 import {
   canCreate,
   canDelete,
@@ -3170,6 +3171,8 @@ export default function InventoryModulePage() {
     );
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className={`module-shell inventory-module consum-scope ${activeView === "orders" || activeView === "cart" ? "store-mode" : ""}`}>
       <section className="page-head no-print">
@@ -3177,11 +3180,11 @@ export default function InventoryModulePage() {
           <div className="pt">Consumables — Inventory Control</div>
           <div className="ps">
             Live TITAN warehouse and shop inventory.{" "}
-            <span>{selectedInventoryYard?.name || "Loading yard"}</span>
+            <span>{selectedInventoryYard?.name || "Syncing yard"}</span>
           </div>
         </div>
         <div className="statusline">
-          <span className="pill ok">Live TITAN data</span>
+          <span className={`pill ${loading ? "" : "ok"}`}>{loading ? "Syncing TITAN data" : "Live TITAN data"}</span>
           <label className="branch-inline">
             <span>Yard</span>
             <select
@@ -3203,7 +3206,7 @@ export default function InventoryModulePage() {
         </div>
       </section>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       {activeView !== "orders" && activeView !== "cart" && (
         <section className="kpis k5 inventory-top-kpis">

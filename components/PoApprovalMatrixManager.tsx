@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { shouldShowPageMessage } from "../lib/pageMessages";
 import { formatPoMoney } from "../lib/purchaseOrderLifecycle";
 import styles from "../app/purchase-orders/purchase-orders.module.css";
 
@@ -277,9 +278,11 @@ export default function PoApprovalMatrixManager() {
     return <p className="modal-message">{message}</p>;
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <section className={styles.scope}>
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
       {setupMissing && (
         <p className="po-warning">
           Approval matrix table is not installed yet. Run <strong>supabase/titan_po_approval_matrix.sql</strong>, then refresh.

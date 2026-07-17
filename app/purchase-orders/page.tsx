@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 import styles from "./purchase-orders.module.css";
 import {
   approvalPlanForAmount,
@@ -975,6 +976,8 @@ export default function PurchaseOrdersPage() {
     );
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className={`module-shell po-module po-lifecycle ${styles.scope}`}>
       <section className="module-header">
@@ -982,7 +985,7 @@ export default function PurchaseOrdersPage() {
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
             <div className="brand-title">Purchase Orders</div>
-            <div className="brand-subtitle">Full PO lifecycle / {selectedYard?.name || "Loading yard"}</div>
+            <div className="brand-subtitle">Full PO lifecycle / {selectedYard?.name || "Syncing yard"}</div>
           </div>
         </button>
         <div className="module-actions no-print">
@@ -998,7 +1001,7 @@ export default function PurchaseOrdersPage() {
         </div>
       </section>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="po-tab-bar no-print">
         {tabs.map((tab) => (

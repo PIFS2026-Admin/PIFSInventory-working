@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 
 type Profile = {
   fullName: string;
@@ -312,6 +313,7 @@ export default function DashboardPage() {
   }, [inventory]);
 
   const maxZoneJoints = Math.max(1, ...workZoneSummary.map((line) => line.joints));
+  const showPageMessage = shouldShowPageMessage(message);
 
   if (loading) {
     return (
@@ -360,7 +362,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="dashboard-hero">
         <span>Welcome</span>

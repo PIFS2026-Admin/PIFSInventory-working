@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 
 type Role =
   | "admin"
@@ -861,6 +862,7 @@ export default function DtiDailySummaryPage() {
   }
 
   const readOnly = !canEdit || saving;
+  const showPageMessage = shouldShowPageMessage(message);
 
   return (
     <main className="dashboard-shell daily-summary-shell">
@@ -890,7 +892,7 @@ export default function DtiDailySummaryPage() {
         <p>Replace the paper inspection summary with a clean digital form.</p>
       </section>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="summary-workspace">
         <aside className="summary-list-panel">

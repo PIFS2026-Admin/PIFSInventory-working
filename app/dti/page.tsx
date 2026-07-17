@@ -2,6 +2,7 @@
 
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 
 type UserRole =
   | "admin"
@@ -1514,6 +1515,8 @@ export default function DtiPage() {
     }
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className="dashboard-shell dti-shell">
       <header className="dashboard-header">
@@ -1535,7 +1538,7 @@ export default function DtiPage() {
         </div>
       </header>
 
-      {message && <div className="modal-message">{message}</div>}
+      {showPageMessage && <div className="modal-message">{message}</div>}
 
       <section className="dashboard-hero">
         <span>Welcome</span>

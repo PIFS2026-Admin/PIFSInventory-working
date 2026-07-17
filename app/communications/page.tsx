@@ -11,6 +11,7 @@ import {
   defaultModulesForRole,
 } from "../../lib/modulePermissions";
 import type { PermissionMap } from "../../lib/modulePermissions";
+import { shouldShowPageMessage } from "../../lib/pageMessages";
 import { supabase } from "../../lib/supabase";
 
 type CurrentUser = {
@@ -1890,6 +1891,8 @@ export default function CommunicationsPage() {
     );
   }
 
+  const showPageMessage = shouldShowPageMessage(message);
+
   return (
     <main className={`communications-page ${mobileThreadOpen ? "thread-open" : ""}`}>
       <datalist id="comm-contact-options">
@@ -1934,7 +1937,7 @@ export default function CommunicationsPage() {
           </div>
         </div>
 
-        {message && <div className="modal-message dashboard-message">{message}</div>}
+        {showPageMessage && <div className="modal-message dashboard-message">{message}</div>}
         {setupRequired && (
           <div className="modal-message dashboard-message">
             Communications tables are not available yet. Run <b>supabase/communications.sql</b> in TITAN Supabase, then refresh.
