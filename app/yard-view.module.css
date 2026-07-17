@@ -83,6 +83,11 @@
   filter: grayscale(0.65) saturate(0.55);
 }
 
+.rackTileShell:hover,
+.rackTileShell:focus-within {
+  z-index: 1000 !important;
+}
+
 .rackFilterBadge {
   position: absolute;
   left: 50%;
@@ -109,7 +114,7 @@
   position: absolute;
   left: calc(100% + 10px);
   top: -8px;
-  z-index: 120;
+  z-index: 1001;
   width: min(460px, 82vw);
   max-height: 410px;
   overflow: auto;

@@ -4858,14 +4858,13 @@ export default function Home() {
               return (
                 <div
                   key={rack.id}
-                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${selectedLayoutRackLabel === rack.label ? "selected-layout-rack" : ""} ${joints > 0 ? "has-inventory" : ""} ${customerMatch ? styles.customerMatch : ""} ${customerDim ? styles.customerDim : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
+                  className={`rack-tile compact-rack ${styles.rackTileShell} ${selectedLocation === rack.label ? "active" : ""} ${selectedLayoutRackLabel === rack.label ? "selected-layout-rack" : ""} ${joints > 0 ? "has-inventory" : ""} ${customerMatch ? styles.customerMatch : ""} ${customerDim ? styles.customerDim : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
                   draggable={layoutMode}
                   onDragStart={() => setDraggedRack(rack.label)}
                   onDragEnd={() => setDraggedRack(null)}
                   onClick={() => {
                     if (layoutMode) setSelectedLayoutRackLabel(rack.label);
                   }}
-                  title={`${rack.label} / ${joints}/${rack.capacity} joints / ${rack.rotation === 90 ? "vertical" : "horizontal"}`}
                   style={{
                     position: "absolute",
                     left: snapRackPosition(rack.layoutX, rack.layoutY).x,
@@ -5140,7 +5139,6 @@ export default function Home() {
                   <thead>
                     <tr>
                       <th>Select</th>
-                      <th>Actions</th>
                       <th>Company</th>
                       <th>Operator</th>
                       <th>Rig</th>
@@ -5163,13 +5161,6 @@ export default function Home() {
                           <td>
                             <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
                           </td>
-                          <td>
-                            <div className="quick-actions">
-                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickTransfer(row)}>Transfer</button>
-                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickShip(row)}>Ship</button>
-                              <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickAdjust(row)}>Adjust</button>
-                            </div>
-                          </td>
                           <td>{row.company}</td>
                           <td>{row.operator || "-"}</td>
                           <td>{row.rig || "-"}</td>
@@ -5189,7 +5180,7 @@ export default function Home() {
 
                     {selectedRackInventory.length === 0 && (
                       <tr>
-                        <td colSpan={15} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                        <td colSpan={14} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
                       </tr>
                     )}
                   </tbody>
