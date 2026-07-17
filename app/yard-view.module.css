@@ -602,6 +602,212 @@
   text-align: right;
 }
 
+.inventoryRegisterScreen {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+  padding: 14px clamp(12px, 1.35vw, 22px);
+}
+
+.inventoryRegisterScreen :global(.slide-header) {
+  align-items: center;
+  min-height: 0;
+  padding-bottom: 6px;
+}
+
+.inventoryRegisterScreen :global(.slide-header h2) {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 30px);
+}
+
+.inventoryRegisterScreen :global(.slide-header p) {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.inventoryRegisterActions {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+}
+
+.inventoryRegisterActions :global(.button) {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.inventoryRegisterMetrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.inventoryRegisterMetrics > div {
+  min-height: 62px;
+  padding: 10px 12px;
+}
+
+.inventoryRegisterMetrics span,
+.inventoryRegisterMetrics small {
+  font-size: 11px;
+}
+
+.inventoryRegisterMetrics strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.inventoryRegisterLines {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.inventoryRegisterLines h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.inventoryRegisterTableWrap {
+  min-height: 0;
+  overflow: auto;
+}
+
+.inventoryRegisterTableWrap table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.inventoryRegisterTableWrap th,
+.inventoryRegisterTableWrap td {
+  padding: 8px 9px;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  vertical-align: middle;
+}
+
+.inventoryRegisterTableWrap th {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.inventoryRegisterTableWrap td {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.inventoryRegisterTableWrap th:nth-child(1),
+.inventoryRegisterTableWrap td:nth-child(1) {
+  width: 46px;
+  min-width: 46px;
+  text-align: center;
+}
+
+.inventoryRegisterTableWrap th:nth-child(2),
+.inventoryRegisterTableWrap td:nth-child(2) {
+  min-width: 170px;
+  max-width: 220px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(3),
+.inventoryRegisterTableWrap td:nth-child(3) {
+  min-width: 112px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(4),
+.inventoryRegisterTableWrap td:nth-child(4) {
+  min-width: 120px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(5),
+.inventoryRegisterTableWrap td:nth-child(5) {
+  width: 72px;
+  min-width: 72px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(6),
+.inventoryRegisterTableWrap td:nth-child(6) {
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(7),
+.inventoryRegisterTableWrap td:nth-child(7) {
+  width: 72px;
+  min-width: 72px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(8),
+.inventoryRegisterTableWrap td:nth-child(8) {
+  width: 76px;
+  min-width: 76px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(9),
+.inventoryRegisterTableWrap td:nth-child(9) {
+  width: 94px;
+  min-width: 94px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(10),
+.inventoryRegisterTableWrap td:nth-child(10) {
+  width: 82px;
+  min-width: 82px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(11),
+.inventoryRegisterTableWrap td:nth-child(11) {
+  width: 112px;
+  min-width: 112px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(12),
+.inventoryRegisterTableWrap td:nth-child(12) {
+  width: 88px;
+  min-width: 88px;
+}
+
+.inventoryRegisterTableWrap th:nth-child(13),
+.inventoryRegisterTableWrap td:nth-child(13) {
+  width: 92px;
+  min-width: 92px;
+  text-align: left;
+}
+
+.inventoryRegisterTableWrap th:nth-child(14),
+.inventoryRegisterTableWrap td:nth-child(14),
+.inventoryRegisterTableWrap th:nth-child(15),
+.inventoryRegisterTableWrap td:nth-child(15) {
+  width: 84px;
+  min-width: 84px;
+  text-align: right;
+}
+
+.inventoryRegisterTableWrap :global(.badge) {
+  display: inline-flex;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 96px;
+  min-height: 22px;
+  padding: 4px 6px;
+  white-space: normal;
+  line-height: 1.05;
+}
+
+.inventoryRegisterTableWrap td:nth-child(2),
+.inventoryRegisterTableWrap td:nth-child(6) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 800px) {
   .yardMainPanel {
     width: 100%;

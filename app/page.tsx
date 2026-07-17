@@ -5144,7 +5144,7 @@ export default function Home() {
 
       {inventoryRegisterOpen && (
         <div className={`modal-backdrop rack-detail-backdrop ${styles.rackDetailBackdrop}`}>
-          <section className={`rack-detail-screen ${styles.rackDetailScreen}`}>
+          <section className={`rack-detail-screen ${styles.rackDetailScreen} ${styles.inventoryRegisterScreen}`}>
             <div className="slide-header">
               <div>
                 <h2>{inventoryRegisterTitle}</h2>
@@ -5156,7 +5156,7 @@ export default function Home() {
               <button className="icon-button" onClick={closeInventoryRegister}>X</button>
             </div>
 
-            <div className="rack-detail-actions">
+            <div className={`rack-detail-actions ${styles.inventoryRegisterActions}`}>
               <button className="button" onClick={closeInventoryRegister}>Back to Yard</button>
               <button className="button" onClick={exportInventoryRegisterCsv}>Export CSV</button>
               <button
@@ -5182,7 +5182,7 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="rack-detail-metrics">
+            <div className={`rack-detail-metrics ${styles.inventoryRegisterMetrics}`}>
               <div>
                 <span>Line Items</span>
                 <strong>{inventoryRegisterTotals.lines.toLocaleString()}</strong>
@@ -5205,7 +5205,7 @@ export default function Home() {
               </div>
             </div>
 
-            <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines}`}>
+            <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines} ${styles.inventoryRegisterLines}`}>
               <h3>{inventoryRegisterTitle} Line Items</h3>
               <div className={`table-wrap ${styles.rackDetailTableWrap} ${styles.inventoryRegisterTableWrap}`}>
                 <table>

@@ -8,7 +8,6 @@ import {
   defaultModulesForRole,
   moduleHrefToKey,
 } from "../../lib/modulePermissions";
-import styles from "./home.module.css";
 
 type Profile = {
   fullName: string;
@@ -25,13 +24,6 @@ type YardOption = {
 type LaunchCard = {
   title: string;
   href: string;
-};
-
-type ServiceLineCard = {
-  title: string;
-  href?: string;
-  disabled?: boolean;
-  children?: LaunchCard[];
 };
 
 type BreakdownLine = {
@@ -225,7 +217,7 @@ const launchCards: LaunchCard[] = [
     href: "/",
   },
   {
-    title: "Inventory",
+    title: "Consumables",
     href: "/inventory",
   },
   {
@@ -235,6 +227,10 @@ const launchCards: LaunchCard[] = [
   {
     title: "Document Control",
     href: "/document-control",
+  },
+  {
+    title: "Service Lines",
+    href: "/service-lines",
   },
   {
     title: "Communications",
@@ -254,34 +250,8 @@ const launchCards: LaunchCard[] = [
   },
 ];
 
-const serviceLineCards: ServiceLineCard[] = [
-  {
-    title: "DTI",
-    href: "/dti",
-    children: [
-      { title: "DTI Jobs", href: "/dti" },
-      { title: "Daily Summaries", href: "/dti-summary" },
-    ],
-  },
-  {
-    title: "Hardbanding",
-    href: "/hardband",
-  },
-  {
-    title: "CDT",
-    disabled: true,
-  },
-  {
-    title: "Tubing",
-    disabled: true,
-  },
-  {
-    title: "Hotshot",
-    disabled: true,
-  },
-];
-
 const departmentOptions = ["All Departments", "Yard", "Inventory", "Purchase Orders", "DTI", "Hardband"];
+const serviceLineModuleKeys: ModuleKey[] = ["dti", "dti_summary", "hardband"];
 
 function normalizeRole(role: unknown) {
   return typeof role === "string" ? role.toLowerCase() : "customer";
@@ -290,20 +260,13 @@ function normalizeRole(role: unknown) {
 function canOpenHref(modules: ModuleKey[], href?: string) {
   if (!href) return false;
   if (href === "/home") return true;
+  if (href === "/service-lines") return modules.some((module) => serviceLineModuleKeys.includes(module));
   const moduleKey = moduleHrefToKey(href);
   return !moduleKey || modules.includes(moduleKey);
 }
 
 function canOpenLaunchCard(modules: ModuleKey[], card: LaunchCard) {
   return canOpenHref(modules, card.href);
-}
-
-function getVisibleServiceLineCard(card: ServiceLineCard, modules: ModuleKey[]): ServiceLineCard | null {
-  const children = card.children?.filter((child) => canOpenLaunchCard(modules, child)) ?? [];
-  const canOpenMain = canOpenHref(modules, card.href);
-
-  if (!card.disabled && !canOpenMain && children.length === 0) return null;
-  return { ...card, children };
 }
 
 function toNumber(value: unknown) {
@@ -948,13 +911,6 @@ export default function InternalHomePage() {
     return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
   }, [profile]);
 
-  const visibleServiceLineCards = useMemo(() => {
-    const modules = profile?.modules ?? defaultModulesForRole("admin");
-    return serviceLineCards
-      .map((card) => getVisibleServiceLineCard(card, modules))
-      .filter((card): card is ServiceLineCard => Boolean(card));
-  }, [profile]);
-
   async function loadProfileAndYards() {
     setLoading(true);
     setMessage("Loading TITAN dashboard...");
@@ -1581,43 +1537,6 @@ export default function InternalHomePage() {
             </button>
           ))}
 
-          {visibleServiceLineCards.length > 0 && (
-            <section className={styles.serviceLines} aria-label="Service lines">
-              <div className={styles.serviceLinesHeading}>Service Lines</div>
-              <div className={styles.serviceLinesList}>
-                {visibleServiceLineCards.map((serviceLine) => (
-                  <div
-                    key={serviceLine.title}
-                    className={`${styles.serviceLineItem} ${serviceLine.disabled ? styles.disabled : ""}`}
-                  >
-                    <button
-                      className={styles.serviceLineButton}
-                      type="button"
-                      disabled={serviceLine.disabled || !serviceLine.href}
-                      onClick={() => serviceLine.href && (window.location.href = serviceLine.href)}
-                    >
-                      <span>{serviceLine.title}</span>
-                    </button>
-
-                    {serviceLine.children && serviceLine.children.length > 0 && (
-                      <div className={styles.serviceLineChildren}>
-                        {serviceLine.children.map((child) => (
-                          <button
-                            key={`${serviceLine.title}-${child.href}`}
-                            className={styles.serviceLineChild}
-                            type="button"
-                            onClick={() => (window.location.href = child.href)}
-                          >
-                            {child.title}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </nav>
 
         <div className="internal-sidebar-footer">
