@@ -6,18 +6,18 @@ type AppTab = {
   href: string;
   label: string;
   match: string[];
-  icon: "home" | "inventory" | "chat" | "store" | "admin";
+  icon: "home" | "service" | "chat" | "store" | "admin";
   view?: string | string[];
   excludeView?: string | string[];
 };
 
-const appTabs = [
+const appTabs: AppTab[] = [
   { href: "/home", label: "Home", icon: "home", match: ["/home", "/dashboard"] },
-  { href: "/inventory", label: "Consumables", icon: "inventory", match: ["/inventory", "/purchase-orders"], excludeView: ["orders", "cart"] },
+  { href: "/service-lines", label: "Services", icon: "service", match: ["/service-lines", "/dti", "/dti-summary", "/hardband"] },
   { href: "/communications", label: "Comms", icon: "chat", match: ["/communications"] },
   { href: "/inventory?view=orders", label: "Store", icon: "store", match: ["/inventory"], view: ["orders", "cart"] },
   { href: "/admin", label: "Admin", icon: "admin", match: ["/admin"] },
-] satisfies AppTab[];
+];
 
 function viewMatches(actual: string | null, expected?: string | string[]) {
   if (!expected) return true;
@@ -42,13 +42,14 @@ function TabIcon({ icon }: { icon: AppTab["icon"] }) {
     );
   }
 
-  if (icon === "inventory") {
+  if (icon === "service") {
     return (
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 4h14v16H5z" />
-        <path d="M8 8h8" />
-        <path d="M8 12h8" />
-        <path d="M8 16h5" />
+        <path d="M4 6.5h16" />
+        <path d="M6.5 6.5v11h11v-11" />
+        <path d="M9 11h6" />
+        <path d="M9 15h4" />
+        <path d="M8 3.5h8" />
       </svg>
     );
   }

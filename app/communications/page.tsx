@@ -1828,54 +1828,42 @@ export default function CommunicationsPage() {
     return (
       <main className="communications-page">
         <section className="module">
-          <div id="commsRoot">
-            <div className="comms loading">
-              <aside className="comm-sidebar">
-                <div className="comm-sidebar-head">
-                  <b>Groups</b>
-                  <button className="comm-btn ghost" type="button" disabled>
-                    + New
-                  </button>
+          <div className="comm-loading-screen" id="commsRoot">
+            <div className="comm-mobile-app-head">
+              <h1>Chat</h1>
+              <div className="comm-mobile-head-actions">
+                <NotificationCenter />
+              </div>
+            </div>
+            <div className="comm-mode-tabs comm-loading-tabs">
+              {modes.map((item) => (
+                <button key={item.key} className={`comm-mode ${item.key === "groups" ? "on" : ""}`} type="button" disabled>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="comm-loading-list" aria-live="polite" aria-busy="true">
+              <div className="comm-loading-row">
+                <span className="comm-avatar orange">G</span>
+                <div>
+                  <b>Syncing chats</b>
+                  <p>Messages and groups are loading.</p>
                 </div>
-                <div className="comm-sidebar-note">Loading your TITAN conversations...</div>
-                <div className="comm-mode-tabs">
-                  {modes.map((item) => (
-                    <button key={item.key} className={`comm-mode ${item.key === "groups" ? "on" : ""}`} type="button" disabled>
-                      {item.label}
-                    </button>
-                  ))}
+              </div>
+              <div className="comm-loading-row muted">
+                <span className="comm-avatar">DM</span>
+                <div>
+                  <b>Direct messages</b>
+                  <p>Checking employee conversations.</p>
                 </div>
-                <div className="comm-empty-state">
-                  <span className="comm-avatar orange">G</span>
-                  <div>
-                    <b>Opening Groups</b>
-                    <p>Loading your TITAN group conversations.</p>
-                  </div>
+              </div>
+              <div className="comm-loading-row muted">
+                <span className="comm-avatar">A</span>
+                <div>
+                  <b>Alerts</b>
+                  <p>Preparing yard alerts.</p>
                 </div>
-              </aside>
-
-              <main className="comm-main">
-                <div className="comm-thread-head">
-                  <div className="comm-thread-title">
-                    <span className="comm-avatar orange">G</span>
-                    <div>
-                      <h2>Opening Groups</h2>
-                      <p>Loading TITAN Communications.</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="comm-feed">
-                  <div className="comm-loading">Getting your groups ready...</div>
-                </div>
-              </main>
-
-              <aside className="comm-roster">
-                <h3>Thread Tools</h3>
-                <div className="comm-side-panel">
-                  <h4>Notifications</h4>
-                  <div className="comm-status-line">Preferences and members appear once the chat opens.</div>
-                </div>
-              </aside>
+              </div>
             </div>
           </div>
         </section>
@@ -1891,7 +1879,7 @@ export default function CommunicationsPage() {
             <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
               <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
               <div>
-                <div className="brand-title">TITAN</div>
+                <div className="brand-title">TITAN by Pathfinder Inspections</div>
                 <div className="brand-subtitle">Communications</div>
               </div>
             </button>
@@ -1928,7 +1916,7 @@ export default function CommunicationsPage() {
           <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
             <div>
-              <div className="brand-title">TITAN</div>
+              <div className="brand-title">TITAN by Pathfinder Inspections</div>
               <div className="brand-subtitle">Communications</div>
             </div>
           </button>

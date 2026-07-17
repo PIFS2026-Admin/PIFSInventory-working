@@ -317,7 +317,7 @@ export default function DashboardPage() {
     return (
       <main className="dashboard-shell">
         <section className="empty-state">
-          <h1>TITAN Command Center</h1>
+          <h1>Command Center</h1>
           <p>{message}</p>
         </section>
       </main>
@@ -330,8 +330,8 @@ export default function DashboardPage() {
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>
-            <div className="brand-title">TITAN Command Center</div>
-            <div className="brand-subtitle">Weekly transactions, work zones, and yard movement</div>
+            <div className="brand-title">TITAN by Pathfinder Inspections</div>
+            <div className="brand-subtitle">Command Center</div>
           </div>
         </button>
         <div className="dashboard-actions">

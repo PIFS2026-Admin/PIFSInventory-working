@@ -55,7 +55,7 @@ export default function GlobalTitanNavigation() {
 
       <button className="global-titan-nav-home" type="button" onClick={() => (window.location.href = "/home")}>
         <img src="/titan_logo.jpg" alt="" aria-hidden="true" />
-        <strong>TITAN Home</strong>
+        <strong>TITAN by Pathfinder Inspections</strong>
       </button>
     </nav>
   );

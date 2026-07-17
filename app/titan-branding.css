@@ -12,33 +12,27 @@
 }
 
 .brand-title {
-  font-size: 0 !important;
-  line-height: 1.1 !important;
-}
-
-.brand-title::after {
-  content: "TITAN";
-  display: block;
   color: var(--text);
-  font-size: 20px;
-  line-height: 1.1;
+  font-size: 20px !important;
+  line-height: 1.1 !important;
   font-weight: 900;
   letter-spacing: 0;
 }
 
+.brand-title::after {
+  content: none !important;
+}
+
 .brand-subtitle {
-  font-size: 0 !important;
+  color: var(--muted);
+  font-size: 13px !important;
   line-height: 1.25 !important;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .brand-subtitle::after {
-  content: "Tubular Inventory Tracking & Asset Navigation";
-  display: block;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.25;
-  font-weight: 500;
-  letter-spacing: 0;
+  content: none !important;
 }
 
 .brand-logo {

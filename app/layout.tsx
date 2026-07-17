@@ -15,7 +15,7 @@ import "./mobile-hardening.css";
 
 export const metadata: Metadata = {
   title: "TITAN",
-  description: "Tubular Inventory Tracking & Asset Navigation.",
+  description: "TITAN by Pathfinder Inspections.",
   applicationName: "TITAN",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

@@ -210,7 +210,7 @@ const emptyData: DashboardData = {
 const launchCards: LaunchCard[] = [
   {
     title: "Command Center",
-    href: "/home",
+    href: "/dashboard",
   },
   {
     title: "Yard View",
@@ -253,7 +253,7 @@ const launchCards: LaunchCard[] = [
 const mobileLaunchCards: LaunchCard[] = [
   {
     title: "Command Center",
-    href: "/home#command-center",
+    href: "/dashboard",
   },
   {
     title: "Yard View",
@@ -921,12 +921,6 @@ export default function InternalHomePage() {
     loadProfileAndYards();
   }, []);
 
-  useEffect(() => {
-    if (selectedYardId) {
-      loadDashboardData(selectedYardId);
-    }
-  }, [selectedYardId, filters.startDate, filters.endDate]);
-
   const selectedYard = yardOptions.find((yard) => yard.id === selectedYardId);
 
   const filteredPipeInventory = useMemo(() => {
@@ -1572,17 +1566,9 @@ export default function InternalHomePage() {
 
   async function refreshCommandCenter() {
     await loadProfileAndYards();
-    if (selectedYardId) {
-      await loadDashboardData(selectedYardId);
-    }
   }
 
   function openMobileLaunchCard(card: LaunchCard) {
-    if (card.href === "/home#command-center") {
-      document.getElementById("command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-
     window.location.href = card.href;
   }
 
@@ -1592,8 +1578,7 @@ export default function InternalHomePage() {
         <button className="brand compact brand-home-link internal-sidebar-brand" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
-            <div className="brand-title">TITAN</div>
-            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+            <div className="brand-title">TITAN by Pathfinder Inspections</div>
           </div>
         </button>
 
@@ -1629,8 +1614,7 @@ export default function InternalHomePage() {
           <button className="brand compact brand-home-link mobile-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
             <div>
-              <div className="brand-title">TITAN</div>
-              <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+              <div className="brand-title">TITAN by Pathfinder Inspections</div>
             </div>
           </button>
 
@@ -1664,102 +1648,6 @@ export default function InternalHomePage() {
             Sign Out
           </button>
         </div>
-      </section>
-
-      <section id="command-center" className="internal-dashboard-content">
-        <header className="internal-dashboard-header">
-          <div>
-            <span className="dashboard-eyebrow">Command Center</span>
-            <h1>TITAN Command Center</h1>
-            <p>{selectedYard?.name ?? "Select a yard"} live operating snapshot.</p>
-          </div>
-          <div className="internal-dashboard-actions">
-            <button className="button primary" type="button" onClick={refreshCommandCenter} disabled={loading || !selectedYardId}>
-              Refresh
-            </button>
-            <NotificationCenter />
-          </div>
-        </header>
-
-        {message && <div className="modal-message dashboard-message">{message}</div>}
-        {data.warnings.length > 0 && (
-          <div className="dashboard-warning-stack">
-            {data.warnings.map((warning) => (
-              <div key={warning} className="modal-message dashboard-message">
-                {warning}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <section className="dashboard-filter-bar">
-          <label>
-            Yard
-            <select value={selectedYardId} onChange={(event) => changeYard(event.target.value)}>
-              {yardOptions.map((yard) => (
-                <option key={yard.id} value={yard.id}>
-                  {yard.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Start Date
-            <input type="date" value={filters.startDate} onChange={(event) => updateFilter("startDate", event.target.value)} />
-          </label>
-          <label>
-            End Date
-            <input type="date" value={filters.endDate} onChange={(event) => updateFilter("endDate", event.target.value)} />
-          </label>
-          <label>
-            Customer
-            <select value={filters.customer} onChange={(event) => updateFilter("customer", event.target.value)}>
-              {customerOptions.map((customer) => (
-                <option key={customer} value={customer}>
-                  {customer}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Department
-            <select value={filters.department} onChange={(event) => updateFilter("department", event.target.value)}>
-              {departmentOptions.map((department) => (
-                <option key={department} value={department}>
-                  {department}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Lead
-            <select value={filters.lead} onChange={(event) => updateFilter("lead", event.target.value)}>
-              {leadOptions.map((lead) => (
-                <option key={lead} value={lead}>
-                  {lead}
-                </option>
-              ))}
-            </select>
-          </label>
-        </section>
-
-        {/* Add future dashboard widgets by appending another reusable DashboardSection below. */}
-        <TubularInventorySection inventory={filteredPipeInventory} activity={filteredPipeActivity} />
-        <ConsumableInventorySection
-          items={data.consumableItems}
-          issueTickets={data.issueTickets}
-          issueTicketLines={data.issueTicketLines}
-          storeRequests={data.storeRequests}
-          filters={filters}
-        />
-        <PurchaseOrderSection orders={data.purchaseOrders} filters={filters} />
-        <LeadScorecardSection leads={filteredLeads} />
-        <LeadScorecardSection
-          leads={filteredPreJobPerformance}
-          title="Pre-Job Management Performance"
-          subtitle="Pre-job scores are separated from lead inspector scoring and rank the person completing management pre-job work."
-          nameLabel="Pre-Job Owner"
-        />
       </section>
     </main>
   );

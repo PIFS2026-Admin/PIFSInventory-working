@@ -3161,8 +3161,7 @@ export default function InventoryModulePage() {
           <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
             <div>
-              <div className="brand-title">TITAN</div>
-              <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+              <div className="brand-title">TITAN by Pathfinder Inspections</div>
             </div>
           </button>
         </section>
