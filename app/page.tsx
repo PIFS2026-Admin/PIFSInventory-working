@@ -4706,10 +4706,15 @@ export default function Home() {
 
   if (loadingSetup) {
     return (
-      <main className="app-shell">
-        <section className="empty-state">
-          <h1>TITAN</h1>
-          <p>Loading yard setup...</p>
+      <main className={`app-shell ${styles.yardLoadingShell}`}>
+        <section className={styles.yardLoadingCard}>
+          <img src="/titan_logo.jpg" alt="TITAN" />
+          <span>Yard View</span>
+          <h1>Loading TITAN Yard</h1>
+          <p>Building the rack map, yard access, and live inventory view.</p>
+          <div className={styles.yardLoadingBar} aria-hidden="true">
+            <i />
+          </div>
         </section>
       </main>
     );
