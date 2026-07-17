@@ -5,7 +5,6 @@ import NotificationCenter from "../../components/NotificationCenter";
 import {
   canApprove,
   canCreate,
-  canDelete,
   canExport,
   canManageSettings,
   canView,
@@ -226,7 +225,6 @@ export default function CommunicationsPage() {
   const canCreateConversations = canCreate(permissions, "communications");
   const canModerate = canManageSettings(permissions, "communications") || canApprove(permissions, "communications");
   const canExportLogs = canExport(permissions, "communications");
-  const canDeleteMessages = canDelete(permissions, "communications");
 
   const contactById = useMemo(() => {
     const map = new Map<string, Contact>();
@@ -285,6 +283,7 @@ export default function CommunicationsPage() {
   }, [currentUser, membersByConversation, selectedConversation]);
 
   const canManageSelected = Boolean(canModerate || currentMember?.is_admin);
+  const canAdminDeleteMessages = Boolean(["admin", "owner"].includes(currentUser?.role ?? "") || currentMember?.is_admin);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -1427,12 +1426,36 @@ export default function CommunicationsPage() {
     if (!currentUser) return;
     const target = messageById.get(messageId);
     if (!target) return;
-    if (target.sender_id !== currentUser.id && !canDeleteMessages) return;
+    if (target.sender_id !== currentUser.id && !canAdminDeleteMessages) {
+      setMessage("Only admins or the sender can delete messages.");
+      return;
+    }
 
-    await supabase
-      .from("messages")
-      .update({ deleted_at: new Date().toISOString(), body: "Message deleted." })
-      .eq("id", messageId);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      setMessage("Your session expired. Please sign in again.");
+      return;
+    }
+
+    const response = await fetch(`/api/communications/messages/${encodeURIComponent(messageId)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setMessage(String(payload.error ?? "Message could not be deleted."));
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((item) =>
+        item.id === messageId ? { ...item, deleted_at: new Date().toISOString(), body: "Message deleted." } : item
+      )
+    );
     await loadData();
   }
 
@@ -1758,7 +1781,7 @@ export default function CommunicationsPage() {
     const likeCount = reactions.filter((reaction) => reaction.message_id === item.id).length;
     const acked = acks.some((ack) => ack.message_id === item.id && ack.user_id === currentUser?.id);
     const tasked = tasks.some((task) => task.source_message_id === item.id);
-    const canDeleteThis = own || canDeleteMessages;
+    const canDeleteThis = own || canAdminDeleteMessages;
     const readStatus = readStatusForMessage(item);
 
     return (
