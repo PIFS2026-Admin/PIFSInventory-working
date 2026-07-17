@@ -813,7 +813,7 @@
     width: 100%;
     max-width: 100vw;
     overflow-x: hidden;
-    padding: 10px 10px calc(var(--mobile-tabbar-space, 92px) + 20px);
+    padding: 10px 10px calc(var(--mobile-tabbar-space, 78px) + 16px);
   }
 
   .yardTopDock {
@@ -949,7 +949,8 @@
   }
 
   .rackDetailScreen {
-    padding: 16px;
+    padding: 16px 16px calc(var(--mobile-tabbar-space, 78px) + 18px);
+    scroll-padding-bottom: calc(var(--mobile-tabbar-space, 78px) + 18px);
   }
 
   .rackDetailTableWrap {
