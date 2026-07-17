@@ -813,7 +813,7 @@
     width: 100%;
     max-width: 100vw;
     overflow-x: hidden;
-    padding: 10px 10px calc(112px + env(safe-area-inset-bottom));
+    padding: 10px 10px calc(var(--mobile-tabbar-space, 92px) + 20px);
   }
 
   .yardTopDock {

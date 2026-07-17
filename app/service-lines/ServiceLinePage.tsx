@@ -29,7 +29,7 @@ export default function ServiceLineScreen({
   actions,
 }: ServiceLineScreenProps) {
   return (
-    <main className={styles.shell}>
+    <main className={`${styles.shell} service-lines-shell`}>
       <header className={styles.topbar}>
         <button className={`brand compact brand-home-link ${styles.brand}`} type="button" onClick={() => navigate("/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />

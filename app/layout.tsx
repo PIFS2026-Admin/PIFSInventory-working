@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import GlobalNotificationBell from "../components/GlobalNotificationBell";
 import GlobalTitanNavigation from "../components/GlobalTitanNavigation";
+import MobileAppChrome from "../components/MobileAppChrome";
 import PwaRegistrar from "../components/PwaRegistrar";
 import "./globals.css";
 import "./titan-branding.css";
@@ -8,6 +9,7 @@ import "./notification-bell.css";
 import "./inventory-cart.css";
 import "./communications-presence.css";
 import "./global-titan-nav.css";
+import "./mobile-app-chrome.css";
 
 export const metadata: Metadata = {
   title: "TITAN",
@@ -60,6 +62,7 @@ export default function RootLayout({
         <GlobalTitanNavigation />
         {children}
         <GlobalNotificationBell />
+        <MobileAppChrome />
         <PwaRegistrar />
       </body>
     </html>

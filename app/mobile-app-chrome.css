@@ -1,0 +1,119 @@
+:root {
+  --mobile-tabbar-space: calc(92px + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 760px) {
+  body {
+    padding-bottom: var(--mobile-tabbar-space) !important;
+  }
+
+  .mobile-app-tabbar {
+    position: fixed !important;
+    z-index: 10060;
+    right: max(10px, env(safe-area-inset-right)) !important;
+    bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    left: max(10px, env(safe-area-inset-left)) !important;
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid rgba(255, 112, 36, 0.34);
+    border-radius: 18px;
+    background: rgba(7, 9, 12, 0.94);
+    box-shadow:
+      0 18px 42px rgba(0, 0, 0, 0.48),
+      0 0 24px rgba(255, 112, 36, 0.12);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .mobile-app-tabbar a {
+    min-width: 0;
+    min-height: 50px;
+    display: grid;
+    place-items: center;
+    gap: 3px;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    color: rgba(226, 232, 240, 0.7);
+    font-size: 9px;
+    font-weight: 850;
+    letter-spacing: 0;
+    line-height: 1;
+    text-decoration: none;
+  }
+
+  .mobile-app-tabbar a.active {
+    border-color: rgba(255, 112, 36, 0.58);
+    color: #fff;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255, 178, 60, 0.24), transparent 58%),
+      rgba(255, 112, 36, 0.16);
+  }
+
+  .mobile-app-tabbar-icon {
+    width: 23px;
+    height: 23px;
+    display: grid;
+    place-items: center;
+  }
+
+  .mobile-app-tabbar-icon svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .mobile-app-tabbar a.active .mobile-app-tabbar-icon {
+    color: var(--orange-2);
+  }
+
+  .module-shell,
+  .dashboard-shell,
+  .hardband-shell,
+  .financials-scope,
+  .communications-page,
+  .customer-shell,
+  .service-lines-shell,
+  .internal-dashboard-content {
+    padding-bottom: calc(var(--mobile-tabbar-space) + 24px) !important;
+  }
+
+  .yardMainPanel {
+    padding-bottom: calc(var(--mobile-tabbar-space) + 20px) !important;
+  }
+
+  .pwa-install-card {
+    bottom: calc(var(--mobile-tabbar-space) + 10px) !important;
+  }
+}
+
+@media (max-width: 390px) {
+  .mobile-app-tabbar {
+    right: max(6px, env(safe-area-inset-right)) !important;
+    left: max(6px, env(safe-area-inset-left)) !important;
+    gap: 2px;
+    padding: 5px;
+  }
+
+  .mobile-app-tabbar a {
+    min-height: 48px;
+    font-size: 8px;
+  }
+
+  .mobile-app-tabbar-icon,
+  .mobile-app-tabbar-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media print {
+  .mobile-app-tabbar {
+    display: none !important;
+  }
+}
