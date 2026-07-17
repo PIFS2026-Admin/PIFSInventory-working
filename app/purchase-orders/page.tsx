@@ -334,6 +334,11 @@ export default function PurchaseOrdersPage() {
       });
   }, [approvals, canManagePo, orders, role]);
 
+  const readyToCloseOrders = useMemo(
+    () => orders.filter((order) => normalizePoStatus(order.status) === "Invoiced"),
+    [orders],
+  );
+
   const dashboard = useMemo(() => {
     const openStatuses = new Set(["Draft", "Submitted", "Approved", "Sent to Vendor", "Partially Received", "Fully Received", "Invoiced"]);
     const openOrders = orders.filter((order) => openStatuses.has(normalizePoStatus(order.status)));
@@ -1173,6 +1178,17 @@ export default function PurchaseOrdersPage() {
                 );
               })}
               {invoices.filter((invoice) => invoice.matchStatus === "exception").length === 0 && <p className="muted-text">No invoice exceptions.</p>}
+            </div>
+            <h3 className="section-subhead">Ready to Close</h3>
+            <div className="po-list-mini">
+              {readyToCloseOrders.map((order) => (
+                <button key={order.id} type="button" onClick={() => setSelectedPoId(order.id)}>
+                  <strong>{order.poNumber} / {order.vendorName || "Vendor"}</strong>
+                  <span>{formatPoMoney(order.totalAmount)} / invoice matched</span>
+                  {canMatchPo && <em onClick={(event) => { event.stopPropagation(); runPoAction("close_po", order.id, "PO closed."); }}>Close PO</em>}
+                </button>
+              ))}
+              {readyToCloseOrders.length === 0 && <p className="muted-text">No invoiced POs are waiting to close.</p>}
             </div>
           </article>
         </section>

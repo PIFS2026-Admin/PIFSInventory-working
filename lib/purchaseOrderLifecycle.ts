@@ -35,17 +35,17 @@ export const approvalRequirements = {
   manager: {
     tier: 1,
     label: "Manager approval",
-    roleKeys: ["admin", "owner", "inventory_manager", "service_line_manager", "office_admin"],
+    roleKeys: ["admin", "owner", "manager", "inventory_manager", "service_line_manager", "office_admin"],
   },
   director: {
     tier: 1,
     label: "Director approval",
-    roleKeys: ["admin", "owner", "service_line_manager"],
+    roleKeys: ["admin", "owner", "director", "service_line_manager"],
   },
   finance: {
     tier: 2,
     label: "Finance approval",
-    roleKeys: ["admin", "owner", "office_admin"],
+    roleKeys: ["admin", "owner", "finance", "accounts_payable", "ap", "office_admin"],
   },
 } satisfies Record<string, ApprovalRequirement>;
 
@@ -104,12 +104,12 @@ export function roleCanRequestPurchaseOrders(role: unknown) {
 
 export function roleCanReceivePurchaseOrders(role: unknown) {
   const normalized = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-  return ["admin", "owner", "inventory_manager", "inventory_specialist", "warehouse_employee", "office_admin"].includes(normalized);
+  return ["admin", "owner", "inventory_manager", "inventory_specialist", "warehouse_employee", "accounts_payable", "ap", "office_admin"].includes(normalized);
 }
 
 export function roleCanMatchInvoices(role: unknown) {
   const normalized = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
-  return ["admin", "owner", "office_admin", "inventory_manager"].includes(normalized);
+  return ["admin", "owner", "finance", "accounts_payable", "ap", "office_admin", "inventory_manager"].includes(normalized);
 }
 
 export type InvoiceMatchInput = {
