@@ -26,7 +26,7 @@ export default function GlobalTitanNavigation() {
     };
   }, []);
 
-  if (!path || isHiddenRoute(path)) return null;
+  if (!path || path === "/home" || isHiddenRoute(path)) return null;
 
   const showBack = path !== "/home";
 
