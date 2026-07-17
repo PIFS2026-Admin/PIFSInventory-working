@@ -90,6 +90,56 @@
   .pwa-install-card {
     bottom: calc(var(--mobile-tabbar-space) + 10px) !important;
   }
+
+  .mobile-pull-refresh {
+    position: fixed;
+    z-index: 10070;
+    top: max(8px, env(safe-area-inset-top));
+    left: 50%;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px;
+    border: 1px solid rgba(255, 112, 36, 0.4);
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(7, 9, 12, 0.94);
+    box-shadow:
+      0 14px 34px rgba(0, 0, 0, 0.42),
+      0 0 18px rgba(255, 112, 36, 0.16);
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease, border-color 140ms ease, background 140ms ease;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .mobile-pull-refresh.visible {
+    opacity: 1;
+  }
+
+  .mobile-pull-refresh.ready {
+    border-color: rgba(255, 112, 36, 0.78);
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255, 178, 60, 0.22), transparent 62%),
+      rgba(7, 9, 12, 0.96);
+  }
+
+  .mobile-pull-refresh-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.22);
+    border-top-color: var(--orange-2);
+    border-radius: 999px;
+  }
+
+  .mobile-pull-refresh.ready .mobile-pull-refresh-spinner {
+    animation: titanPullRefreshSpin 700ms linear infinite;
+  }
 }
 
 @media (max-width: 390px) {
@@ -113,7 +163,14 @@
 }
 
 @media print {
-  .mobile-app-tabbar {
+  .mobile-app-tabbar,
+  .mobile-pull-refresh {
     display: none !important;
+  }
+}
+
+@keyframes titanPullRefreshSpin {
+  to {
+    transform: rotate(360deg);
   }
 }
