@@ -113,7 +113,7 @@ export default function MobileAppChrome() {
   if (!isMobile || !path || path.includes("/print") || hiddenRoutes.some((route) => path.startsWith(route))) return null;
 
   return (
-    <nav className="mobile-app-tabbar" aria-label="TITAN mobile navigation">
+    <nav className="titan-mobile-tabbar" aria-label="TITAN mobile navigation">
       {appTabs.map((tab) => {
         const viewParam = new URLSearchParams(search).get("view");
         const routeMatch = tab.match.some((route) => path === route || path.startsWith(`${route}/`));
@@ -121,7 +121,7 @@ export default function MobileAppChrome() {
 
         return (
           <a key={tab.href} className={active ? "active" : ""} href={tab.href} aria-current={active ? "page" : undefined}>
-            <span className="mobile-app-tabbar-icon">
+            <span className="titan-mobile-tabbar-icon">
               <TabIcon icon={tab.icon} />
             </span>
             <span>{tab.label}</span>

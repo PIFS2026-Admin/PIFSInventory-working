@@ -7,7 +7,7 @@
     padding-bottom: var(--mobile-tabbar-space) !important;
   }
 
-  .mobile-app-tabbar {
+  .titan-mobile-tabbar {
     position: fixed !important;
     z-index: 10060;
     right: max(10px, env(safe-area-inset-right)) !important;
@@ -28,7 +28,7 @@
     -webkit-backdrop-filter: blur(18px);
   }
 
-  .mobile-app-tabbar a {
+  .titan-mobile-tabbar a {
     min-width: 0;
     min-height: 50px;
     display: grid;
@@ -44,7 +44,7 @@
     text-decoration: none;
   }
 
-  .mobile-app-tabbar a.active {
+  .titan-mobile-tabbar a.active {
     border-color: rgba(255, 112, 36, 0.58);
     color: #fff;
     background:
@@ -52,14 +52,14 @@
       rgba(255, 112, 36, 0.16);
   }
 
-  .mobile-app-tabbar-icon {
+  .titan-mobile-tabbar-icon {
     width: 23px;
     height: 23px;
     display: grid;
     place-items: center;
   }
 
-  .mobile-app-tabbar-icon svg {
+  .titan-mobile-tabbar-icon svg {
     width: 22px;
     height: 22px;
     fill: none;
@@ -69,7 +69,7 @@
     stroke-linejoin: round;
   }
 
-  .mobile-app-tabbar a.active .mobile-app-tabbar-icon {
+  .titan-mobile-tabbar a.active .titan-mobile-tabbar-icon {
     color: var(--orange-2);
   }
 
@@ -169,27 +169,27 @@
 }
 
 @media (max-width: 390px) {
-  .mobile-app-tabbar {
+  .titan-mobile-tabbar {
     right: max(6px, env(safe-area-inset-right)) !important;
     left: max(6px, env(safe-area-inset-left)) !important;
     gap: 2px;
     padding: 5px 5px max(5px, env(safe-area-inset-bottom));
   }
 
-  .mobile-app-tabbar a {
+  .titan-mobile-tabbar a {
     min-height: 48px;
     font-size: 8px;
   }
 
-  .mobile-app-tabbar-icon,
-  .mobile-app-tabbar-icon svg {
+  .titan-mobile-tabbar-icon,
+  .titan-mobile-tabbar-icon svg {
     width: 20px;
     height: 20px;
   }
 }
 
 @media print {
-  .mobile-app-tabbar,
+  .titan-mobile-tabbar,
   .mobile-pull-refresh {
     display: none !important;
   }
