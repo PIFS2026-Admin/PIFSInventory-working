@@ -272,8 +272,19 @@
   height: clamp(560px, calc(100dvh - 280px), 820px);
   max-height: none !important;
   min-height: 540px;
+  overflow: auto;
   background: rgba(7, 9, 12, 0.82);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 20px 60px rgba(0, 0, 0, 0.32);
+  overscroll-behavior: contain;
+}
+
+.layoutMapShell {
+  overflow: auto;
+}
+
+.yardMapViewport {
+  position: relative;
+  min-width: 100%;
 }
 
 .rackJoints,
@@ -349,6 +360,16 @@
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.92), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   color: #fff;
   pointer-events: none;
+}
+
+.rackHoverCardLeft {
+  right: calc(100% + 10px);
+  left: auto;
+}
+
+.rackHoverCardUp {
+  top: auto;
+  bottom: -8px;
 }
 
 :global(.rack-tile):hover .rackHoverCard,
@@ -496,7 +517,9 @@
 
   .rackHoverCard {
     left: 0;
+    right: auto;
     top: calc(100% + 8px);
+    bottom: auto;
     width: min(420px, 86vw);
   }
 

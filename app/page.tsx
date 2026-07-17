@@ -973,6 +973,8 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const isReadOnlyRole = profileRole === "sales" || role === "customer";
   const canUseAdminTools = profileRole === "admin" || profileRole === "employee";
+  const mapShellRef = useRef<HTMLDivElement | null>(null);
+  const [yardMapScale, setYardMapScale] = useState(1);
 
   const selectedTransferRow = useMemo(() => {
     if (selectedRows.length !== 1) return null;
@@ -1208,6 +1210,40 @@ export default function Home() {
       { width: 1220, height: 820 }
     );
   }, [layoutMode, rackLayout]);
+
+  const displayedYardMapSize = useMemo(
+    () => ({
+      width: Math.ceil(yardMapSize.width * yardMapScale),
+      height: Math.ceil(yardMapSize.height * yardMapScale),
+    }),
+    [yardMapScale, yardMapSize.height, yardMapSize.width]
+  );
+
+  useEffect(() => {
+    const shell = mapShellRef.current;
+    if (!shell) return;
+
+    const updateMapScale = () => {
+      if (layoutMode) {
+        setYardMapScale(1);
+        return;
+      }
+
+      const availableWidth = Math.max(320, shell.clientWidth - 6);
+      const nextScale = Math.max(0.65, availableWidth / yardMapSize.width);
+      setYardMapScale((currentScale) => {
+        const roundedScale = Math.round(nextScale * 10000) / 10000;
+        return Math.abs(currentScale - roundedScale) > 0.002 ? roundedScale : currentScale;
+      });
+    };
+
+    updateMapScale();
+
+    const observer = new ResizeObserver(updateMapScale);
+    observer.observe(shell);
+
+    return () => observer.disconnect();
+  }, [layoutMode, yardMapSize.width]);
 
   const selectedRackInventory = useMemo(() => {
     if (!selectedRackDetail) return [];
@@ -4863,30 +4899,40 @@ export default function Home() {
             </div>
           )}
 
-          <div className={`yard-map-shell ${styles.yardMapShell}`}>
+          <div ref={mapShellRef} className={`yard-map-shell ${styles.yardMapShell} ${layoutMode ? styles.layoutMapShell : ""}`}>
             <div
-              className="yard-map wtx-yard-map"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={moveRackOnMap}
+              className={styles.yardMapViewport}
               style={{
-                position: "relative",
-                minHeight: `${yardMapSize.height}px`,
-                minWidth: `${yardMapSize.width}px`,
-                width: `${yardMapSize.width}px`,
-                overflow: "hidden",
-                border: "1px solid #303846",
-                borderRadius: "10px",
-                backgroundImage:
-                  selectedYard?.code === "PIFS"
-                    ? "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')"
-                    : "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(135deg, rgba(249,115,22,0.08), rgba(15,23,42,0.94))",
-                backgroundSize: "74px 74px, 74px 74px, 100% 100%",
-                backgroundPosition: "26px 70px, 26px 70px, center",
-                backgroundRepeat: "repeat, repeat, no-repeat",
-                boxSizing: "border-box",
-                padding: "12px",
+                width: `${displayedYardMapSize.width}px`,
+                height: `${displayedYardMapSize.height}px`,
               }}
             >
+              <div
+                className="yard-map wtx-yard-map"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={moveRackOnMap}
+                style={{
+                  position: "relative",
+                  minHeight: `${yardMapSize.height}px`,
+                  minWidth: `${yardMapSize.width}px`,
+                  height: `${yardMapSize.height}px`,
+                  width: `${yardMapSize.width}px`,
+                  overflow: "hidden",
+                  border: "1px solid #303846",
+                  borderRadius: "10px",
+                  backgroundImage:
+                    selectedYard?.code === "PIFS"
+                      ? "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), url('/wtx-yard-map.jpg')"
+                      : "linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px), linear-gradient(135deg, rgba(249,115,22,0.08), rgba(15,23,42,0.94))",
+                  backgroundSize: "74px 74px, 74px 74px, 100% 100%",
+                  backgroundPosition: "26px 70px, 26px 70px, center",
+                  backgroundRepeat: "repeat, repeat, no-repeat",
+                  boxSizing: "border-box",
+                  padding: "12px",
+                  transform: `scale(${yardMapScale})`,
+                  transformOrigin: "top left",
+                }}
+              >
             {rackLayout.filter((rack) => layoutMode || rack.enabled).map((rack) => {
               const allRackInventory = rackInventoryMap.get(rack.label) ?? [];
               const rackSearchInventory = allRackInventory.filter((row) => {
@@ -4908,6 +4954,11 @@ export default function Home() {
               const customerBadge = customerMatch ? rackCustomerMatchLabel(allRackInventory, activeCustomerSearch) : "";
               const rackCustomerLines = buildReport(allRackInventory, (row) => row.company);
               const rackPipeLines = [...allRackInventory].sort((left, right) => right.joints - left.joints);
+              const rackPosition = snapRackPosition(rack.layoutX, rack.layoutY);
+              const rackWidth = rack.layoutWidth ?? rackTileSize.width;
+              const rackHeight = rack.layoutHeight ?? rackTileSize.height;
+              const hoverOpensLeft = rackPosition.x + rackWidth + 500 > yardMapSize.width;
+              const hoverOpensUp = rackPosition.y + 430 > yardMapSize.height;
 
               return (
                 <div
@@ -4921,12 +4972,12 @@ export default function Home() {
                   }}
                   style={{
                     position: "absolute",
-                    left: snapRackPosition(rack.layoutX, rack.layoutY).x,
-                    top: snapRackPosition(rack.layoutX, rack.layoutY).y,
-                    width: `${rack.layoutWidth ?? rackTileSize.width}px`,
+                    left: rackPosition.x,
+                    top: rackPosition.y,
+                    width: `${rackWidth}px`,
                     minWidth: "34px",
                     minHeight: "26px",
-                    height: `${rack.layoutHeight ?? rackTileSize.height}px`,
+                    height: `${rackHeight}px`,
                     overflow: layoutMode ? "hidden" : "visible",
                     cursor: layoutMode ? "grab" : "pointer",
                     borderColor: !rack.enabled ? "#7f1d1d" : customerMatch ? "#22c55e" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
@@ -4964,7 +5015,9 @@ export default function Home() {
                   </button>
                   {customerBadge && <span className={styles.rackFilterBadge}>{customerBadge}</span>}
                   {!layoutMode && (
-                    <div className={styles.rackHoverCard}>
+                    <div
+                      className={`${styles.rackHoverCard} ${hoverOpensLeft ? styles.rackHoverCardLeft : ""} ${hoverOpensUp ? styles.rackHoverCardUp : ""}`}
+                    >
                       <h4>{rack.label}</h4>
                       {allRackInventory.length === 0 ? (
                         <div className={styles.rackHoverEmpty}>
@@ -5001,6 +5054,7 @@ export default function Home() {
                 </div>
               );
             })}
+              </div>
             </div>
           </div>
         </section>
