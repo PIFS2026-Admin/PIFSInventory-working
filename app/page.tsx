@@ -4,6 +4,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 import { defaultModulesForRole } from "../lib/modulePermissions";
+import styles from "./yard-view.module.css";
 
 type Role = "admin" | "customer" | "sales";
 type LocationType = "rack" | "zone";
@@ -687,6 +688,43 @@ function buildReport(rows: InventoryRow[], getter: (row: InventoryRow) => string
   }
 
   return Array.from(report.values()).sort((a, b) => b.joints - a.joints);
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function customerMatchesTerm(customer: string, term: string) {
+  const normalizedTerm = normalizeSearchText(term);
+  if (!normalizedTerm) return true;
+  return normalizeSearchText(customer).includes(normalizedTerm);
+}
+
+function rackCustomerSummaryText(rows: InventoryRow[]) {
+  if (rows.length === 0) return "Empty rack";
+
+  const summary = buildReport(rows, (row) => row.company)
+    .slice(0, 2)
+    .map((line) => `${line.label.replace(" Energy", "")} ${line.joints.toLocaleString()}`);
+
+  const extra = buildReport(rows, (row) => row.company).length - summary.length;
+  return `${summary.join(" / ")}${extra > 0 ? ` +${extra}` : ""}`;
+}
+
+function rackCustomerMatchLabel(rows: InventoryRow[], term: string) {
+  if (!term) return "";
+
+  const matches = buildReport(
+    rows.filter((row) => customerMatchesTerm(row.company, term)),
+    (row) => row.company
+  );
+
+  if (matches.length === 0) return "";
+  return `${matches[0].label.replace(" Energy", "")} ${matches.reduce((sum, line) => sum + line.joints, 0).toLocaleString()} jts`;
+}
+
+function rackPipeDescription(row: InventoryRow) {
+  return [row.size, row.grade, row.connection].filter(Boolean).join(" ") || row.partNumber || "Pipe";
 }
 
 function csvEscape(value: string | number | null | undefined) {
@@ -2494,6 +2532,37 @@ export default function Home() {
     return Array.from(new Set(inventory.map((row) => row.company).filter(Boolean))).sort();
   }, [inventory]);
 
+  const activeCustomerSearch = customerFilter === "all" ? "" : customerFilter.trim();
+
+  const rackInventoryMap = useMemo(() => {
+    const map = new Map<string, InventoryRow[]>();
+
+    for (const row of inventory) {
+      if (row.locationType !== "rack" || !row.rackId) continue;
+      const current = map.get(row.rackId) ?? [];
+      current.push(row);
+      map.set(row.rackId, current);
+    }
+
+    return map;
+  }, [inventory]);
+
+  const yardCustomerFilterStatus = useMemo(() => {
+    if (!activeCustomerSearch) return "All customers shown";
+
+    let matchingRacks = 0;
+    let matchingJoints = 0;
+
+    for (const rows of rackInventoryMap.values()) {
+      const matchingRows = rows.filter((row) => customerMatchesTerm(row.company, activeCustomerSearch));
+      if (matchingRows.length === 0) continue;
+      matchingRacks += 1;
+      matchingJoints += matchingRows.reduce((sum, row) => sum + row.joints, 0);
+    }
+
+    return `${matchingRacks.toLocaleString()} rack${matchingRacks === 1 ? "" : "s"} / ${matchingJoints.toLocaleString()} joints match ${activeCustomerSearch}`;
+  }, [activeCustomerSearch, rackInventoryMap]);
+
   const customerNameOptions = useMemo(() => {
     return Array.from(
       new Set([
@@ -2521,7 +2590,7 @@ export default function Home() {
   }, [inventory, inventoryOptions]);
 
   function rowMatchesQuickFilters(row: InventoryRow) {
-    const matchesCustomer = customerFilter === "all" || normalizeFilter(row.company) === normalizeFilter(customerFilter);
+    const matchesCustomer = customerFilter === "all" || normalizeFilter(row.company).includes(normalizeFilter(customerFilter));
     const matchesStatus = statusFilter === "all" || normalizeFilter(row.status) === normalizeFilter(statusFilter);
     const matchesCondition = conditionFilter === "all" || normalizeFilter(row.condition) === normalizeFilter(conditionFilter);
 
@@ -2995,6 +3064,100 @@ export default function Home() {
     });
     setShipQuantities({ [row.id]: String(row.joints) });
     setShipOpen(true);
+  }
+
+  function getRackRows(label: string) {
+    return inventory.filter((row) => row.locationType === "rack" && row.rackId === label);
+  }
+
+  function openRackReceive(label: string) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot receive inventory.");
+      return;
+    }
+
+    setMessage("");
+    setSelectedRows([]);
+    setActiveReceiveTicketId("");
+    setActiveReceiveTicketNumber("");
+    setReceiveTruckLines([]);
+    setReceiveFiles([]);
+    setReceiveForm({ ...emptyReceiveForm, destination: `rack:${label}` });
+    setRackDetailOpen(false);
+    setReceiveOpen(true);
+  }
+
+  function openRackInitialInventory(label: string) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot add inventory.");
+      return;
+    }
+
+    setMessage("");
+    setSelectedRows([]);
+    setReceiveForm({
+      ...emptyReceiveForm,
+      destination: `rack:${label}`,
+      status: "Available",
+      condition: "Used",
+      notes: "Initial inventory entry",
+    });
+    setRackDetailOpen(false);
+    setInitialInventoryOpen(true);
+  }
+
+  async function openRackShip(label: string) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot ship inventory.");
+      return;
+    }
+
+    const rows = getRackRows(label);
+    if (rows.length === 0) {
+      setMessage(`Rack ${label} has no pipe to ship.`);
+      return;
+    }
+
+    const customerNames = Array.from(new Set(rows.map((row) => row.company).filter(Boolean)));
+    if (customerNames.length > 1) {
+      setSelectedRows([]);
+      setMessage(`Rack ${label} has multiple customers. Select one customer's line items below, then Ship.`);
+      return;
+    }
+
+    setMessage("");
+    setSelectedRows(rows.map((row) => row.id));
+    setShipForm({
+      ...emptyShipForm,
+      shipTo: rows[0]?.company ?? "",
+      bolNumber: await makeTicketNumber("BOL", "bol"),
+    });
+    setShipQuantities(Object.fromEntries(rows.map((row) => [row.id, String(row.joints)])));
+    setShipFiles([]);
+    setRackDetailOpen(false);
+    setShipOpen(true);
+  }
+
+  function openRackTransfer(label: string) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot transfer inventory.");
+      return;
+    }
+
+    const rows = getRackRows(label);
+    if (rows.length === 0) {
+      setMessage(`Rack ${label} has no pipe to transfer.`);
+      return;
+    }
+
+    if (rows.length > 1) {
+      setSelectedRows([]);
+      setMessage(`Rack ${label} has ${rows.length} inventory lines. Select one line below, then Transfer.`);
+      return;
+    }
+
+    quickTransfer(rows[0]);
+    setRackDetailOpen(false);
   }
 
   function quickAdjust(row: InventoryRow) {
@@ -4457,6 +4620,11 @@ export default function Home() {
           <option key={customer} value={customer} />
         ))}
       </datalist>
+      <datalist id="yard-customer-filter-options">
+        {customerOptions.map((customer) => (
+          <option key={customer} value={customer} />
+        ))}
+      </datalist>
 
       <aside className="side-panel">
         <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
@@ -4570,6 +4738,50 @@ export default function Home() {
             <p>{layoutMode ? "Select a rack, then use the editor controls. Dragging still snaps to the yard grid." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
           </div>
 
+          <div className={styles.yardCustomerFilter}>
+            <label>
+              <span>Customer search</span>
+              <input
+                list="yard-customer-filter-options"
+                value={activeCustomerSearch}
+                onChange={(event) => setCustomerFilter(event.target.value.trim() || "all")}
+                placeholder="Type customer name"
+              />
+            </label>
+            <label>
+              <span>Customer dropdown</span>
+              <select
+                value={customerOptions.includes(customerFilter) ? customerFilter : ""}
+                onChange={(event) => setCustomerFilter(event.target.value || "all")}
+              >
+                <option value="">All customers</option>
+                {customerOptions.map((customer) => (
+                  <option key={customer} value={customer}>{customer}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Inventory lookup</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="TU#, part, grade, rack, condition"
+              />
+            </label>
+            <div className={styles.filterStatus}>{yardCustomerFilterStatus}</div>
+            <button
+              className="button"
+              onClick={() => {
+                setCustomerFilter("all");
+                setSearch("");
+                setSelectedLocation("all");
+                setRackDetailOpen(false);
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
           {layoutMode && selectedLayoutRack && (
             <div className="rack-editor-panel">
               <div>
@@ -4622,7 +4834,8 @@ export default function Home() {
               }}
             >
             {rackLayout.filter((rack) => layoutMode || rack.enabled).map((rack) => {
-              const rackInventory = inventory.filter((row) => {
+              const allRackInventory = rackInventoryMap.get(rack.label) ?? [];
+              const rackSearchInventory = allRackInventory.filter((row) => {
                 const searchText = search.toLowerCase().trim();
                 const matchesSearch =
                   !searchText ||
@@ -4631,15 +4844,21 @@ export default function Home() {
                     .toLowerCase()
                     .includes(searchText);
 
-                return row.rackId === rack.label && rowMatchesQuickFilters(row) && matchesSearch;
+                return rowMatchesQuickFilters(row) && matchesSearch;
               });
-              const joints = rackInventory.reduce((sum, row) => sum + row.joints, 0);
+              const joints = allRackInventory.reduce((sum, row) => sum + row.joints, 0);
+              const visibleJoints = rackSearchInventory.reduce((sum, row) => sum + row.joints, 0);
               const fill = rack.capacity > 0 ? Math.min(100, Math.round((joints / rack.capacity) * 100)) : 0;
+              const customerMatch = Boolean(activeCustomerSearch) && allRackInventory.some((row) => customerMatchesTerm(row.company, activeCustomerSearch));
+              const customerDim = Boolean(activeCustomerSearch) && !customerMatch;
+              const customerBadge = customerMatch ? rackCustomerMatchLabel(allRackInventory, activeCustomerSearch) : "";
+              const rackCustomerLines = buildReport(allRackInventory, (row) => row.company);
+              const rackPipeLines = [...allRackInventory].sort((left, right) => right.joints - left.joints);
 
               return (
                 <div
                   key={rack.id}
-                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${selectedLayoutRackLabel === rack.label ? "selected-layout-rack" : ""} ${joints > 0 ? "has-inventory" : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
+                  className={`rack-tile compact-rack ${selectedLocation === rack.label ? "active" : ""} ${selectedLayoutRackLabel === rack.label ? "selected-layout-rack" : ""} ${joints > 0 ? "has-inventory" : ""} ${customerMatch ? styles.customerMatch : ""} ${customerDim ? styles.customerDim : ""} ${layoutMode ? "layout-mode" : ""} ${!rack.enabled ? "disabled-rack" : ""} ${rack.rotation === 90 ? "vertical-rack" : "horizontal-rack"}`}
                   draggable={layoutMode}
                   onDragStart={() => setDraggedRack(rack.label)}
                   onDragEnd={() => setDraggedRack(null)}
@@ -4655,12 +4874,12 @@ export default function Home() {
                     minWidth: "34px",
                     minHeight: "26px",
                     height: `${rack.layoutHeight ?? rackTileSize.height}px`,
-                    overflow: "hidden",
+                    overflow: layoutMode ? "hidden" : "visible",
                     cursor: layoutMode ? "grab" : "pointer",
-                    borderColor: !rack.enabled ? "#7f1d1d" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
-                    background: !rack.enabled ? "rgba(127, 29, 29, 0.25)" : joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
-                    opacity: !rack.enabled ? 0.45 : 1,
-                    zIndex: selectedLocation === rack.label ? 3 : 2,
+                    borderColor: !rack.enabled ? "#7f1d1d" : customerMatch ? "#22c55e" : selectedLocation === rack.label ? "#f97316" : joints > 0 ? "#f97316" : "#303846",
+                    background: !rack.enabled ? "rgba(127, 29, 29, 0.25)" : customerMatch ? "rgba(34, 197, 94, 0.2)" : joints > 0 ? "rgba(249, 115, 22, 0.18)" : "#1b2027",
+                    opacity: !rack.enabled ? 0.45 : customerDim ? 0.24 : 1,
+                    zIndex: customerMatch ? 4 : selectedLocation === rack.label ? 3 : 2,
                   }}
                 >
                   <button
@@ -4684,10 +4903,40 @@ export default function Home() {
                     }}
                   >
                     <span className="rack-code" style={{ fontSize: "13px", lineHeight: "1", textAlign: "center" }}>{rack.label}</span>
+                    <span className={styles.rackJoints}>{joints.toLocaleString()} jts{search ? ` / ${visibleJoints.toLocaleString()} visible` : ""}</span>
+                    <span className={styles.rackCustomers}>{rackCustomerSummaryText(allRackInventory)}</span>
                     <span className="rack-meter" style={{ height: "3px", marginTop: "2px", width: "100%" }}>
                       <span style={{ width: `${fill}%`, background: joints > 0 ? "#f97316" : "#303846" }} />
                     </span>
                   </button>
+                  {customerBadge && <span className={styles.rackFilterBadge}>{customerBadge}</span>}
+                  {!layoutMode && (
+                    <div className={styles.rackHoverCard}>
+                      <h4>{rack.label}</h4>
+                      {allRackInventory.length === 0 ? (
+                        <div className={styles.rackHoverEmpty}>
+                          Empty rack
+                          <span>Click Receive to add pipe here.</span>
+                        </div>
+                      ) : (
+                        <>
+                          {rackCustomerLines.map((line) => (
+                            <div key={line.label} className={styles.rackHoverRow}>
+                              <strong>{line.label}</strong>
+                              <span>{line.joints.toLocaleString()} jts</span>
+                            </div>
+                          ))}
+                          <div className={styles.rackHoverSubtitle}>Pipe in this rack</div>
+                          {rackPipeLines.map((row) => (
+                            <div key={row.id} className={styles.rackHoverRow}>
+                              <span>{rackPipeDescription(row)} / {row.condition || row.status || "-"}</span>
+                              <strong>{row.joints.toLocaleString()}</strong>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
                   {layoutMode && (
                     <span
                       className="rack-resize-handle"
@@ -4793,28 +5042,41 @@ export default function Home() {
               <button
                 className="button primary"
                 disabled={isReadOnlyRole}
-                onClick={() => {
-                  setReceiveForm({ ...emptyReceiveForm, destination: `rack:${selectedRackDetail.label}` });
-                  setReceiveOpen(true);
-                }}
+                onClick={() => openRackReceive(selectedRackDetail.label)}
               >
-                Receive Into Rack
+                Receive
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRackInventory.length === 0}
+                onClick={() => openRackShip(selectedRackDetail.label)}
+              >
+                Ship
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRackInventory.length === 0}
+                onClick={() => openRackTransfer(selectedRackDetail.label)}
+              >
+                Transfer
               </button>
               <button
                 className="button"
                 disabled={isReadOnlyRole}
-                onClick={() => {
-                  setReceiveForm({
-                    ...emptyReceiveForm,
-                    destination: `rack:${selectedRackDetail.label}`,
-                    status: "Available",
-                    condition: "Used",
-                    notes: "Initial inventory entry",
-                  });
-                  setInitialInventoryOpen(true);
-                }}
+                onClick={() => openRackInitialInventory(selectedRackDetail.label)}
               >
                 Add Initial Inventory
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRackInventory.length !== 1}
+                onClick={() => {
+                  if (!selectedRackInventory[0]) return;
+                  quickAdjust(selectedRackInventory[0]);
+                  setRackDetailOpen(false);
+                }}
+              >
+                Adjust
               </button>
             </div>
 
