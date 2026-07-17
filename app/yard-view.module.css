@@ -179,6 +179,92 @@
   font-weight: 700;
 }
 
+.rackDetailBackdrop {
+  padding: 0 !important;
+}
+
+.rackDetailScreen {
+  width: 100vw !important;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0 !important;
+  padding: 24px clamp(18px, 2.2vw, 34px);
+}
+
+.rackDetailLines {
+  max-width: 100%;
+}
+
+.rackDetailTableWrap {
+  overflow-x: hidden;
+}
+
+.rackDetailTableWrap table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.rackDetailTableWrap th,
+.rackDetailTableWrap td {
+  padding: 10px 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.rackDetailTableWrap th {
+  font-size: 10px;
+  line-height: 1.15;
+}
+
+.rackDetailTableWrap td {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.rackDetailTableWrap th:nth-child(1),
+.rackDetailTableWrap td:nth-child(1) {
+  width: 54px;
+}
+
+.rackDetailTableWrap th:nth-child(5),
+.rackDetailTableWrap td:nth-child(5) {
+  width: 58px;
+}
+
+.rackDetailTableWrap th:nth-child(7),
+.rackDetailTableWrap td:nth-child(7) {
+  width: 58px;
+}
+
+.rackDetailTableWrap th:nth-child(8),
+.rackDetailTableWrap td:nth-child(8),
+.rackDetailTableWrap th:nth-child(9),
+.rackDetailTableWrap td:nth-child(9),
+.rackDetailTableWrap th:nth-child(10),
+.rackDetailTableWrap td:nth-child(10) {
+  width: 76px;
+}
+
+.rackDetailTableWrap th:nth-child(11),
+.rackDetailTableWrap td:nth-child(11),
+.rackDetailTableWrap th:nth-child(12),
+.rackDetailTableWrap td:nth-child(12) {
+  width: 90px;
+}
+
+.rackDetailTableWrap th:nth-child(13),
+.rackDetailTableWrap td:nth-child(13),
+.rackDetailTableWrap th:nth-child(14),
+.rackDetailTableWrap td:nth-child(14) {
+  width: 72px;
+  text-align: right;
+}
+
 @media (max-width: 800px) {
   .yardCustomerFilter {
     grid-template-columns: 1fr;
@@ -188,5 +274,18 @@
     left: 0;
     top: calc(100% + 8px);
     width: min(420px, 86vw);
+  }
+
+  .rackDetailScreen {
+    padding: 16px;
+  }
+
+  .rackDetailTableWrap {
+    overflow-x: auto;
+  }
+
+  .rackDetailTableWrap table {
+    min-width: 980px;
+    table-layout: auto;
   }
 }

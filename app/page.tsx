@@ -5023,8 +5023,8 @@ export default function Home() {
       </section>
 
       {rackDetailOpen && selectedRackDetail && (
-        <div className="modal-backdrop rack-detail-backdrop">
-          <section className="rack-detail-screen">
+        <div className={`modal-backdrop rack-detail-backdrop ${styles.rackDetailBackdrop}`}>
+          <section className={`rack-detail-screen ${styles.rackDetailScreen}`}>
             <div className="slide-header">
               <div>
                 <h2>Rack {selectedRackDetail.label}</h2>
@@ -5132,9 +5132,9 @@ export default function Home() {
               </section>
             </div>
 
-            <section className="ticket-card rack-detail-lines">
+            <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines}`}>
               <h3>Rack Line Items</h3>
-              <div className="table-wrap">
+              <div className={`table-wrap ${styles.rackDetailTableWrap}`}>
                 <table>
                   <thead>
                     <tr>
