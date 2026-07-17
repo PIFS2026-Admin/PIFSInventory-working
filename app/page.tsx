@@ -4614,7 +4614,7 @@ export default function Home() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${styles.yardViewShell}`}>
       <datalist id="customer-name-options">
         {customerNameOptions.map((customer) => (
           <option key={customer} value={customer} />
@@ -4626,104 +4626,89 @@ export default function Home() {
         ))}
       </datalist>
 
-      <aside className="side-panel">
-        <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
-          <div className="brand-mark">PF</div>
-          <div>
-            <div className="brand-title">TITAN</div>
-            <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+      <section className={`main-panel ${styles.yardMainPanel}`}>
+        <section className={styles.yardTopDock}>
+          <button className={`brand brand-home-link ${styles.yardBrand}`} type="button" onClick={() => (window.location.href = "/home")}>
+            <div className="brand-mark">PF</div>
+            <div>
+              <div className="brand-title">TITAN</div>
+              <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+            </div>
+          </button>
+
+          <label className={styles.yardSelectControl}>
+            <span>Yard</span>
+            <select
+              className="field"
+              value={selectedYard?.id ?? ""}
+              onChange={(event) => {
+                setSelectedRows([]);
+                setSelectedLocation("all");
+                loadYardSetup(event.target.value);
+              }}
+              disabled={loadingSetup || yardOptions.length < 2}
+            >
+              {yardOptions.length === 0 && <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>}
+              {yardOptions.map((yard) => (
+                <option key={yard.id} value={yard.id}>
+                  {yard.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className={styles.yardPrimaryActions}>
+            <button className="button primary" disabled={isReadOnlyRole} onClick={openNewReceive}>Receive</button>
+            <button className="button" disabled={isReadOnlyRole} onClick={openShip}>Ship</button>
+            <button className="button" disabled={isReadOnlyRole} onClick={openTransfer}>Transfer</button>
+            <button className="button" disabled={isReadOnlyRole || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
+            <button className="button" onClick={refreshYardView}>Refresh</button>
+
+            <details className={styles.yardMoreActions}>
+              <summary>More</summary>
+              <div>
+                <button className="button" onClick={() => window.print()}>Print</button>
+                <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
+                <button className="button" disabled={isReadOnlyRole || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
+                <button className="button" disabled={isReadOnlyRole || selectedRows.length < 2} onClick={combineSelectedInventoryLines}>
+                  Combine Lines
+                </button>
+                <button
+                  className="button"
+                  disabled={isReadOnlyRole}
+                  onClick={() => {
+                    setReceiveForm({
+                      ...emptyReceiveForm,
+                      status: "Available",
+                      condition: "Used",
+                      destination: selectedRackDetail ? `rack:${selectedRackDetail.label}` : emptyReceiveForm.destination,
+                      notes: "Initial inventory entry",
+                    });
+                    setInitialInventoryOpen(true);
+                  }}
+                >
+                  Initial Inventory
+                </button>
+                <button className="button" onClick={openTickets}>Tickets</button>
+                <button className="button" onClick={openReports}>Reports</button>
+                <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
+                <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
+                <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
+              </div>
+            </details>
           </div>
-        </button>
-
-        <select
-          className="field"
-          value={selectedYard?.id ?? ""}
-          onChange={(event) => {
-            setSelectedRows([]);
-            setSelectedLocation("all");
-            loadYardSetup(event.target.value);
-          }}
-          disabled={loadingSetup || yardOptions.length < 2}
-        >
-          {yardOptions.length === 0 && <option>{selectedYard?.name ?? "Pathfinder Yard"}</option>}
-          {yardOptions.map((yard) => (
-            <option key={yard.id} value={yard.id}>
-              {yard.name}
-            </option>
-          ))}
-        </select>
-
-        <div className="button-grid">
-          <button className="button" onClick={() => window.print()}>Print</button>
-          <button className="button" onClick={exportInventoryCsv}>Export CSV</button>
-          <button className="button" onClick={refreshYardView}>Refresh</button>
-          <button className="button" disabled={isReadOnlyRole || selectedRows.length === 0} onClick={completeSelectedRows}>Complete</button>
-          <button className="button" disabled={isReadOnlyRole} onClick={openTransfer}>Transfer</button>
-          <button className="button" disabled={isReadOnlyRole || selectedRows.length < 2} onClick={combineSelectedInventoryLines}>
-            Combine Lines
-          </button>
-          <button className="button primary" disabled={isReadOnlyRole} onClick={openNewReceive}>Receive</button>
-          <button
-            className="button"
-            disabled={isReadOnlyRole}
-            onClick={() => {
-              setReceiveForm({
-                ...emptyReceiveForm,
-                status: "Available",
-                condition: "Used",
-                destination: selectedRackDetail ? `rack:${selectedRackDetail.label}` : emptyReceiveForm.destination,
-                notes: "Initial inventory entry",
-              });
-              setInitialInventoryOpen(true);
-            }}
-          >
-            Initial Inventory
-          </button>
-          <button className="button" disabled={isReadOnlyRole} onClick={openShip}>Ship</button>
-          <button className="button" disabled={isReadOnlyRole || selectedRows.length !== 1} onClick={openEdit}>Adjust</button>
-          <button className="button" onClick={openTickets}>Tickets</button>
-          <button className="button" onClick={openReports}>Reports</button>
-          <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
-          <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
-          <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
-        </div>
+        </section>
 
         {message && <div className="modal-message">{message}</div>}
 
-        <section className="panel">
-          <div className="panel-title">Work Zones</div>
-          <div className="zone-list">
-            {zones.map((zone) => (
-              <button
-                key={zone.id}
-                className={`zone-card ${selectedLocation === zone.code ? "active" : ""}`}
-              onClick={() => {
-                setSelectedLocation(zone.code);
-                setRackDetailOpen(false);
-              }}
-              >
-                <span>{zone.name}</span>
-                <small>{zone.code}</small>
-              </button>
-            ))}
-          </div>
-        </section>
-      </aside>
-
-      <section className="main-panel">
-        <section className="customer-welcome">
-          <span>Welcome</span>
-          <h1>{currentUserName}</h1>
-          <p>{selectedYard?.name ?? "Pathfinder Yard"} inventory, rack map, tickets, and activity.</p>
-        </section>
-
-        <header className="topbar">
+        <header className={styles.yardMapHeader}>
           <div>
-            <h1>Yard View</h1>
-            <p>{selectedYard?.name} / {filteredInventory.length} visible line items</p>
+            <span>Yard View</span>
+            <h1>{selectedYard?.name ?? "Pathfinder Yard"}</h1>
+            <p>{filteredInventory.length} visible line items / {selectedTotals.joints.toLocaleString()} selected joints / {selectedTotals.footage.toLocaleString()} selected ft</p>
           </div>
 
-          <div className="topbar-actions">
+          <div className={styles.yardMapHeaderActions}>
             <button className="button" onClick={() => { setSelectedLocation("all"); setRackDetailOpen(false); }}>Show All</button>
             {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
@@ -4732,33 +4717,40 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="rack-section">
-          <div className="section-heading">
-            <h2>Yard Map</h2>
-            <p>{layoutMode ? "Select a rack, then use the editor controls. Dragging still snaps to the yard grid." : "Select a rack to view inventory. Orange racks have matching inventory."}</p>
+        <section className={styles.yardZoneStrip}>
+          <span>Work zones</span>
+          <div>
+            {zones.map((zone) => (
+              <button
+                key={zone.id}
+                className={selectedLocation === zone.code ? styles.activeZoneChip : ""}
+                onClick={() => {
+                  setSelectedLocation(zone.code);
+                  setRackDetailOpen(false);
+                }}
+              >
+                {zone.name}
+                <small>{zone.code}</small>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className={`rack-section ${styles.yardMapSection}`}>
+          <div className={styles.yardMapInstruction}>
+            <strong>{layoutMode ? "Layout editor" : "Rack map"}</strong>
+            <span>{layoutMode ? "Select, move, resize, name, and save racks." : "Click a rack for details. Hover shows customer and pipe contents."}</span>
           </div>
 
           <div className={styles.yardCustomerFilter}>
             <label>
-              <span>Customer search</span>
+              <span>Customer lookup</span>
               <input
                 list="yard-customer-filter-options"
                 value={activeCustomerSearch}
                 onChange={(event) => setCustomerFilter(event.target.value.trim() || "all")}
-                placeholder="Type customer name"
+                placeholder="Type or select customer"
               />
-            </label>
-            <label>
-              <span>Customer dropdown</span>
-              <select
-                value={customerOptions.includes(customerFilter) ? customerFilter : ""}
-                onChange={(event) => setCustomerFilter(event.target.value || "all")}
-              >
-                <option value="">All customers</option>
-                {customerOptions.map((customer) => (
-                  <option key={customer} value={customer}>{customer}</option>
-                ))}
-              </select>
             </label>
             <label>
               <span>Inventory lookup</span>
@@ -4809,7 +4801,7 @@ export default function Home() {
             </div>
           )}
 
-          <div className="yard-map-shell">
+          <div className={`yard-map-shell ${styles.yardMapShell}`}>
             <div
               className="yard-map wtx-yard-map"
               onDragOver={(event) => event.preventDefault()}

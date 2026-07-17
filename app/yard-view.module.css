@@ -1,13 +1,233 @@
-.yardCustomerFilter {
+.yardViewShell {
+  display: block !important;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249, 115, 22, 0.16), transparent 30%),
+    linear-gradient(180deg, #101318 0%, #080a0d 100%);
+}
+
+.yardMainPanel {
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 14px clamp(14px, 1.8vw, 28px) 28px;
+}
+
+.yardTopDock {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(190px, 280px) minmax(220px, 1fr) minmax(180px, auto) auto;
-  gap: 10px;
-  align-items: end;
-  margin-bottom: 14px;
-  padding: 12px;
+  grid-template-columns: minmax(250px, auto) minmax(220px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin: -14px 0 14px;
+  padding: 10px clamp(14px, 1.8vw, 28px);
+  border-bottom: 1px solid rgba(48, 56, 70, 0.9);
+  background: rgba(12, 15, 19, 0.96);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.yardBrand {
+  margin: 0 !important;
+}
+
+.yardSelectControl {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.yardSelectControl :global(.field) {
+  height: 40px;
+  margin: 0;
+}
+
+.yardPrimaryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.yardPrimaryActions :global(.button) {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.yardMoreActions {
+  position: relative;
+}
+
+.yardMoreActions summary {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0 14px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-weight: 900;
+  list-style: none;
+  cursor: pointer;
+}
+
+.yardMoreActions summary::-webkit-details-marker {
+  display: none;
+}
+
+.yardMoreActions[open] summary {
+  border-color: var(--orange);
+  color: var(--orange-2);
+}
+
+.yardMoreActions > div {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
+  width: min(430px, calc(100vw - 28px));
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgba(16, 19, 24, 0.92);
+  background: rgba(15, 18, 23, 0.98);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.52);
+}
+
+.yardMapHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+  margin-bottom: 12px;
+  padding: 2px 0 12px;
+  border-bottom: 1px solid rgba(48, 56, 70, 0.82);
+}
+
+.yardMapHeader span {
+  display: block;
+  color: var(--orange-2);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.yardMapHeader h1 {
+  margin: 3px 0 4px;
+  font-size: clamp(28px, 3vw, 46px);
+  line-height: 1;
+}
+
+.yardMapHeader p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.yardMapHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.yardMapHeaderActions :global(.button) {
+  min-height: 40px;
+}
+
+.yardZoneStrip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.yardZoneStrip > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.yardZoneStrip > div {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.yardZoneStrip button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(20, 23, 28, 0.84);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.yardZoneStrip button small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.yardZoneStrip .activeZoneChip {
+  border-color: var(--orange);
+  background: rgba(249, 115, 22, 0.16);
+  color: var(--orange-2);
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
+.yardMapSection {
+  margin-top: 0 !important;
+}
+
+.yardMapInstruction {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.yardMapInstruction strong {
+  font-size: 18px;
+}
+
+.yardMapInstruction span {
+  color: var(--muted);
+}
+
+.yardCustomerFilter {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.2fr) minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(16, 19, 24, 0.72);
 }
 
 .yardCustomerFilter label,
@@ -44,12 +264,20 @@
 }
 
 .filterStatus {
-  min-height: 38px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+}
+
+.yardMapShell {
+  height: clamp(560px, calc(100dvh - 280px), 820px);
+  max-height: none !important;
+  min-height: 540px;
+  background: rgba(7, 9, 12, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 20px 60px rgba(0, 0, 0, 0.32);
 }
 
 .rackJoints,
