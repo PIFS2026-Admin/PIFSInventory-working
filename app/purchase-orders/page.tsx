@@ -11,6 +11,7 @@ import {
   formatPoMoney,
   normalizePoStatus,
   poStatuses,
+  roleCanApproveRoleKey,
   roleCanManagePurchaseOrders,
   roleCanMatchInvoices,
   roleCanReceivePurchaseOrders,
@@ -112,6 +113,28 @@ type AuditLog = {
   afterValue: unknown;
 };
 
+type InternalUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+};
+
+type ApprovalMatrixRule = {
+  id: string;
+  yardId: string;
+  department: string;
+  costCenter: string;
+  minAmount: number;
+  maxAmount: number | null;
+  tier: number;
+  approverRole: string;
+  approverId: string;
+  approverName: string;
+  active: boolean;
+  notes: string;
+};
+
 type PoForm = {
   poId: string;
   poNumber: string;
@@ -150,6 +173,20 @@ type InvoiceForm = {
   tolerancePercent: string;
 };
 
+type MatrixForm = {
+  ruleId: string;
+  yardId: string;
+  department: string;
+  costCenter: string;
+  minAmount: string;
+  maxAmount: string;
+  tier: string;
+  approverRole: string;
+  approverId: string;
+  notes: string;
+  active: boolean;
+};
+
 type TabKey =
   | "dashboard"
   | "list"
@@ -157,6 +194,7 @@ type TabKey =
   | "approvals"
   | "receiving"
   | "invoices"
+  | "matrix"
   | "vendors"
   | "budget"
   | "audit";
@@ -168,6 +206,7 @@ const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "approvals", label: "Approval Queue" },
   { key: "receiving", label: "Receiving" },
   { key: "invoices", label: "Invoice Match" },
+  { key: "matrix", label: "Approval Matrix" },
   { key: "vendors", label: "Vendors" },
   { key: "budget", label: "Budget" },
   { key: "audit", label: "Audit Trail" },
@@ -209,6 +248,19 @@ const emptyInvoiceForm: InvoiceForm = {
   vendorInvoiceNumber: "",
   amount: "",
   tolerancePercent: "5",
+};
+const emptyMatrixForm: MatrixForm = {
+  ruleId: "",
+  yardId: "",
+  department: "",
+  costCenter: "",
+  minAmount: "0",
+  maxAmount: "",
+  tier: "1",
+  approverRole: "manager",
+  approverId: "",
+  notes: "",
+  active: true,
 };
 
 function numberValue(value: unknown) {
@@ -255,6 +307,7 @@ function auditSummary(value: unknown) {
 }
 
 export default function PurchaseOrdersPage() {
+  const [userId, setUserId] = useState("");
   const [role, setRole] = useState("customer");
   const [userName, setUserName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -271,11 +324,16 @@ export default function PurchaseOrdersPage() {
   const [receiptCount, setReceiptCount] = useState(0);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [internalUsers, setInternalUsers] = useState<InternalUser[]>([]);
+  const [matrixRules, setMatrixRules] = useState<ApprovalMatrixRule[]>([]);
+  const [matrixSetupMissing, setMatrixSetupMissing] = useState(false);
   const [selectedPoId, setSelectedPoId] = useState("");
   const [poForm, setPoForm] = useState<PoForm>(emptyPoForm);
   const [lineForm, setLineForm] = useState<LineForm>(emptyLineForm);
   const [vendorForm, setVendorForm] = useState<VendorForm>(emptyVendorForm);
   const [invoiceForm, setInvoiceForm] = useState<InvoiceForm>(emptyInvoiceForm);
+  const [matrixForm, setMatrixForm] = useState<MatrixForm>(emptyMatrixForm);
+  const [emailingPoId, setEmailingPoId] = useState("");
   const [receiveQuantities, setReceiveQuantities] = useState<Record<string, string>>({});
   const [receiveNotes, setReceiveNotes] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState({ status: "all", vendor: "all", department: "all", dateFrom: "", dateTo: "", search: "" });
@@ -329,10 +387,12 @@ export default function PurchaseOrdersPage() {
         if (!pending) return [];
         const plan = approvalPlanForAmount(order.totalAmount);
         const requirement = plan.find((item) => item.tier === pending.tier && item.label.toLowerCase().includes(pending.approverRole || "manager"));
-        const isMine = canManagePo || !requirement || requirement.roleKeys.includes(role);
+        const isMine = canManagePo ||
+          (pending.approverId && pending.approverId === userId) ||
+          (requirement ? requirement.roleKeys.includes(role) : roleCanApproveRoleKey(role, pending.approverRole));
         return isMine ? [{ order, approval: pending }] : [];
       });
-  }, [approvals, canManagePo, orders, role]);
+  }, [approvals, canManagePo, orders, role, userId]);
 
   const readyToCloseOrders = useMemo(
     () => orders.filter((order) => normalizePoStatus(order.status) === "Invoiced"),
@@ -413,6 +473,7 @@ export default function PurchaseOrdersPage() {
 
     const nextRole = normalizeRole(profileData?.role);
     const nextUserName = profileData?.full_name || user.email || "TITAN User";
+    setUserId(user.id);
     setRole(nextRole);
     setUserName(nextUserName);
     setPoForm((current) => ({ ...current, requestedBy: current.requestedBy || nextUserName }));
@@ -484,6 +545,8 @@ export default function PurchaseOrdersPage() {
       loadReceipts(),
       loadInvoices(),
       loadAuditLogs(),
+      loadInternalUsers(),
+      loadApprovalMatrix(),
     ]);
   }
 
@@ -606,6 +669,53 @@ export default function PurchaseOrdersPage() {
         status: row.status || "pending",
         comments: row.comments || "",
         timestamp: row.timestamp || "",
+      })),
+    );
+  }
+
+  async function loadInternalUsers() {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, role")
+      .neq("role", "customer")
+      .order("full_name");
+    if (error) return;
+    setInternalUsers(
+      (data || []).map((row) => ({
+        id: row.id,
+        name: row.full_name || row.email || "TITAN User",
+        email: row.email || "",
+        role: normalizeRole(row.role),
+      })),
+    );
+  }
+
+  async function loadApprovalMatrix() {
+    const { data, error } = await supabase
+      .from("purchase_order_approval_matrix")
+      .select("*")
+      .order("tier", { ascending: true })
+      .order("min_amount", { ascending: true });
+    if (error) {
+      setMatrixSetupMissing(true);
+      setMatrixRules([]);
+      return;
+    }
+    setMatrixSetupMissing(false);
+    setMatrixRules(
+      (data || []).map((row) => ({
+        id: row.id,
+        yardId: row.yard_id || "",
+        department: row.department || "",
+        costCenter: row.cost_center || "",
+        minAmount: numberValue(row.min_amount),
+        maxAmount: row.max_amount === null || row.max_amount === undefined ? null : numberValue(row.max_amount),
+        tier: Number(row.tier || 1),
+        approverRole: normalizeRole(row.approver_role || "manager"),
+        approverId: row.approver_id || "",
+        approverName: row.approver_name || "",
+        active: row.active !== false,
+        notes: row.notes || "",
       })),
     );
   }
@@ -795,6 +905,41 @@ export default function PurchaseOrdersPage() {
     }
   }
 
+  function openPoPrint(order: PurchaseOrder) {
+    window.open(`/purchase-orders/print?id=${encodeURIComponent(order.id)}`, "_blank");
+  }
+
+  async function emailPo(order: PurchaseOrder) {
+    const fallbackEmail = order.vendorEmail || vendors.find((vendor) => vendor.id === order.vendorId)?.email || "";
+    const recipientEmail = window.prompt("Email this PO to:", fallbackEmail);
+    if (!recipientEmail?.trim()) return;
+    const note = window.prompt("Optional message to include:") || "";
+
+    setEmailingPoId(order.id);
+    setMessage("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Your login session expired. Sign in again.");
+      const response = await fetch("/api/purchase-order-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ poId: order.id, recipientEmail: recipientEmail.trim(), note }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Email failed.");
+      await loadAuditLogs();
+      setMessage(`PO ${order.poNumber} emailed to ${recipientEmail.trim()}.`);
+    } catch (error) {
+      setMessage(`PO email failed: ${error instanceof Error ? error.message : "Unknown error."}`);
+    } finally {
+      setEmailingPoId("");
+    }
+  }
+
   async function approvalDecision(poId: string, decision: "approve" | "reject") {
     const comments = decision === "reject" ? window.prompt("Rejection reason:") : window.prompt("Optional approval comment:");
     if (decision === "reject" && !comments?.trim()) {
@@ -832,6 +977,58 @@ export default function PurchaseOrdersPage() {
       setMessage("Invoice recorded and matched if it met tolerance.");
     } catch (error) {
       setMessage(`Invoice save failed: ${error instanceof Error ? error.message : "Unknown error."}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function editMatrixRule(rule: ApprovalMatrixRule) {
+    setMatrixForm({
+      ruleId: rule.id,
+      yardId: rule.yardId,
+      department: rule.department,
+      costCenter: rule.costCenter,
+      minAmount: String(rule.minAmount),
+      maxAmount: rule.maxAmount === null ? "" : String(rule.maxAmount),
+      tier: String(rule.tier),
+      approverRole: rule.approverRole || "manager",
+      approverId: rule.approverId,
+      notes: rule.notes,
+      active: rule.active,
+    });
+  }
+
+  async function saveMatrixRule() {
+    const approver = internalUsers.find((user) => user.id === matrixForm.approverId);
+    setSaving(true);
+    setMessage("");
+    try {
+      await lifecycleAction("save_approval_matrix_rule", {
+        ...matrixForm,
+        approverName: approver?.name || "",
+      });
+      await loadApprovalMatrix();
+      await loadAuditLogs();
+      setMatrixForm(emptyMatrixForm);
+      setMessage("Approval matrix rule saved.");
+    } catch (error) {
+      setMessage(`Approval matrix save failed: ${error instanceof Error ? error.message : "Unknown error."}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deactivateMatrixRule(rule: ApprovalMatrixRule) {
+    if (!window.confirm(`Deactivate this approval rule for tier ${rule.tier}?`)) return;
+    setSaving(true);
+    setMessage("");
+    try {
+      await lifecycleAction("deactivate_approval_matrix_rule", { ruleId: rule.id });
+      await loadApprovalMatrix();
+      await loadAuditLogs();
+      setMessage("Approval matrix rule deactivated.");
+    } catch (error) {
+      setMessage(`Approval matrix deactivate failed: ${error instanceof Error ? error.message : "Unknown error."}`);
     } finally {
       setSaving(false);
     }
@@ -1020,6 +1217,10 @@ export default function PurchaseOrdersPage() {
                     <td>{formatPoMoney(order.totalAmount)}</td>
                     <td className="po-row-actions">
                       <button className="mini-button" onClick={() => editOrder(order)}>Open</button>
+                      <button className="mini-button" onClick={() => openPoPrint(order)}>Print</button>
+                      <button className="mini-button" onClick={() => emailPo(order)} disabled={emailingPoId === order.id}>
+                        {emailingPoId === order.id ? "Emailing" : "Email"}
+                      </button>
                       {normalizePoStatus(order.status) === "Draft" && <button className="mini-button" onClick={() => runPoAction("submit_po", order.id, "PO submitted.")}>Submit</button>}
                       {normalizePoStatus(order.status) === "Approved" && canManagePo && <button className="mini-button" onClick={() => runPoAction("send_vendor", order.id, "PO sent to vendor.")}>Send</button>}
                     </td>
@@ -1189,6 +1390,98 @@ export default function PurchaseOrdersPage() {
                 </button>
               ))}
               {readyToCloseOrders.length === 0 && <p className="muted-text">No invoiced POs are waiting to close.</p>}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {activeTab === "matrix" && (
+        <section className="po-two-column wide-left">
+          <article className="ticket-card">
+            <div className="detail-title-row">
+              <div>
+                <h3>Approval Matrix</h3>
+                <p>Route approvals by yard, department, cost center, dollar range, tier, role, and named approver.</p>
+              </div>
+              <button className="button" type="button" onClick={() => setMatrixForm(emptyMatrixForm)}>Blank Rule</button>
+            </div>
+            {matrixSetupMissing && (
+              <p className="po-warning">
+                Approval matrix table is not installed yet. Run <strong>supabase/titan_po_approval_matrix.sql</strong>, then refresh.
+              </p>
+            )}
+            <div className="form-grid">
+              <label>Yard
+                <select value={matrixForm.yardId} onChange={(event) => setMatrixForm({ ...matrixForm, yardId: event.target.value })}>
+                  <option value="">All yards</option>
+                  {yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}
+                </select>
+              </label>
+              <label>Department<input value={matrixForm.department} placeholder="Blank = all departments" onChange={(event) => setMatrixForm({ ...matrixForm, department: event.target.value })} /></label>
+              <label>Cost Center<input value={matrixForm.costCenter} placeholder="Blank = all cost centers" onChange={(event) => setMatrixForm({ ...matrixForm, costCenter: event.target.value })} /></label>
+              <label>Min Amount<input type="number" value={matrixForm.minAmount} onChange={(event) => setMatrixForm({ ...matrixForm, minAmount: event.target.value })} /></label>
+              <label>Max Amount<input type="number" value={matrixForm.maxAmount} placeholder="No max" onChange={(event) => setMatrixForm({ ...matrixForm, maxAmount: event.target.value })} /></label>
+              <label>Tier<input type="number" value={matrixForm.tier} onChange={(event) => setMatrixForm({ ...matrixForm, tier: event.target.value })} /></label>
+              <label>Approver Role
+                <select value={matrixForm.approverRole} onChange={(event) => setMatrixForm({ ...matrixForm, approverRole: event.target.value })}>
+                  <option value="manager">Manager</option>
+                  <option value="director">Director</option>
+                  <option value="finance">Finance / AP</option>
+                  <option value="inventory_manager">Inventory Manager</option>
+                  <option value="office_admin">Office Admin</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label>Named Approver
+                <select value={matrixForm.approverId} onChange={(event) => setMatrixForm({ ...matrixForm, approverId: event.target.value })}>
+                  <option value="">Role-based approval</option>
+                  {internalUsers.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name} / {user.role.replaceAll("_", " ")}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="checkbox-line"><input type="checkbox" checked={matrixForm.active} onChange={(event) => setMatrixForm({ ...matrixForm, active: event.target.checked })} /> Active rule</label>
+              <label className="full">Notes<textarea value={matrixForm.notes} onChange={(event) => setMatrixForm({ ...matrixForm, notes: event.target.value })} /></label>
+            </div>
+            <div className="slide-actions">
+              <button className="button primary" onClick={saveMatrixRule} disabled={saving || !canManagePo || matrixSetupMissing}>
+                {matrixForm.ruleId ? "Update Rule" : "Save Rule"}
+              </button>
+              <button className="button" onClick={() => setMatrixForm(emptyMatrixForm)}>Clear</button>
+            </div>
+          </article>
+          <article className="ticket-card">
+            <h3>Active Routing Rules</h3>
+            <div className="po-table-wrap">
+              <table className="po-table">
+                <thead><tr><th>Scope</th><th>Amount</th><th>Tier</th><th>Approver</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {matrixRules.map((rule) => {
+                    const yard = yards.find((item) => item.id === rule.yardId);
+                    const user = internalUsers.find((item) => item.id === rule.approverId);
+                    return (
+                      <tr key={rule.id}>
+                        <td>
+                          <strong>{yard?.name || "All yards"}</strong><br />
+                          <span>{rule.department || "All departments"} / {rule.costCenter || "All cost centers"}</span>
+                        </td>
+                        <td>{formatPoMoney(rule.minAmount)} - {rule.maxAmount === null ? "No max" : formatPoMoney(rule.maxAmount)}</td>
+                        <td>{rule.tier}</td>
+                        <td>
+                          <strong>{user?.name || rule.approverName || rule.approverRole.replaceAll("_", " ")}</strong><br />
+                          <span>{rule.approverRole.replaceAll("_", " ")}</span>
+                        </td>
+                        <td>{rule.active ? "Active" : "Inactive"}</td>
+                        <td className="po-row-actions">
+                          <button className="mini-button" onClick={() => editMatrixRule(rule)}>Edit</button>
+                          {rule.active && <button className="mini-button danger" onClick={() => deactivateMatrixRule(rule)} disabled={!canManagePo}>Deactivate</button>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {matrixRules.length === 0 && <tr><td colSpan={6}>No approval matrix rules yet. The dollar-tier fallback is still active.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </article>
         </section>

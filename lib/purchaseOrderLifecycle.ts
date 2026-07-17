@@ -92,6 +92,16 @@ export function roleCanApproveTier(role: unknown, requirement: Pick<ApprovalRequ
   return Boolean(requirement?.roleKeys.includes(normalized));
 }
 
+export function roleCanApproveRoleKey(role: unknown, approvalRole: unknown) {
+  const normalizedRole = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  const normalizedApprovalRole = String(approvalRole ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+  if (!normalizedRole || !normalizedApprovalRole) return false;
+  if (normalizedApprovalRole === "manager") return roleCanApproveTier(normalizedRole, approvalRequirements.manager);
+  if (normalizedApprovalRole === "director") return roleCanApproveTier(normalizedRole, approvalRequirements.director);
+  if (normalizedApprovalRole === "finance") return roleCanApproveTier(normalizedRole, approvalRequirements.finance);
+  return normalizedRole === normalizedApprovalRole;
+}
+
 export function roleCanManagePurchaseOrders(role: unknown) {
   const normalized = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
   return ["admin", "owner", "inventory_manager", "office_admin"].includes(normalized);

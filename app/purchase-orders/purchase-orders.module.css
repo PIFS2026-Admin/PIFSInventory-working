@@ -108,6 +108,14 @@
   border-top: 1px solid rgba(148, 163, 184, 0.22);
 }
 
+.scope :global(.po-warning) {
+  border: 1px solid rgba(251, 146, 60, 0.45);
+  border-radius: 8px;
+  background: rgba(124, 45, 18, 0.18);
+  color: #fed7aa;
+  padding: 10px 12px;
+}
+
 .scope :global(.po-filter-grid) {
   display: grid;
   grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(140px, 1fr));

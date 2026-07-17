@@ -6,6 +6,7 @@ import {
   canTransitionPo,
   evaluateInvoiceMatch,
   normalizePoStatus,
+  roleCanApproveRoleKey,
   roleCanApproveTier,
   roleCanManagePurchaseOrders,
   roleCanMatchInvoices,
@@ -30,6 +31,15 @@ type Actor = {
 
 type PurchaseOrderRecord = Record<string, any>;
 type LineRecord = Record<string, any>;
+type ApprovalRouteRow = {
+  po_id: string;
+  tier: number;
+  approver_role: string;
+  approver_id: string | null;
+  status: string;
+  comments: string | null;
+  timestamp: string | null;
+};
 
 function messageFromError(error: unknown) {
   if (!error) return "Unknown error.";
@@ -183,11 +193,85 @@ function roleKeyForApprovalLabel(label: string) {
   return "manager";
 }
 
+function normalizedText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function approvalRuleSpecificity(rule: Record<string, any>, order: PurchaseOrderRecord) {
+  let score = 0;
+  if (rule.yard_id && rule.yard_id === order.yard_id) score += 8;
+  if (normalizedText(rule.department)) score += 4;
+  if (normalizedText(rule.cost_center)) score += 2;
+  if (rule.approver_id) score += 1;
+  return score;
+}
+
+async function matrixApprovalRows(poId: string, totalAmount: number, order: PurchaseOrderRecord): Promise<ApprovalRouteRow[] | null> {
+  const supabase = ensureAdminClient();
+  const { data, error } = await supabase
+    .from("purchase_order_approval_matrix")
+    .select("*")
+    .eq("active", true)
+    .order("tier", { ascending: true });
+
+  if (error) return null;
+
+  const orderDepartment = normalizedText(order.department);
+  const orderCostCenter = normalizedText(order.cost_center || order.budget_code);
+  const matching = (data ?? [])
+    .filter((rule) => {
+      const minAmount = numberValue(rule.min_amount);
+      const maxAmount = rule.max_amount === null || rule.max_amount === undefined ? null : numberValue(rule.max_amount);
+      const department = normalizedText(rule.department);
+      const costCenter = normalizedText(rule.cost_center);
+      return (
+        (!rule.yard_id || rule.yard_id === order.yard_id) &&
+        (!department || department === orderDepartment) &&
+        (!costCenter || costCenter === orderCostCenter) &&
+        totalAmount >= minAmount &&
+        (maxAmount === null || totalAmount <= maxAmount)
+      );
+    })
+    .sort((a, b) => {
+      const tierDelta = numberValue(a.tier) - numberValue(b.tier);
+      if (tierDelta !== 0) return tierDelta;
+      return approvalRuleSpecificity(b, order) - approvalRuleSpecificity(a, order);
+    });
+
+  const selectedByTier = new Map<number, Record<string, any>>();
+  matching.forEach((rule) => {
+    const tier = Math.max(1, Number(rule.tier || 1));
+    if (!selectedByTier.has(tier)) selectedByTier.set(tier, rule);
+  });
+
+  const rows: ApprovalRouteRow[] = Array.from(selectedByTier.values())
+    .sort((a, b) => Number(a.tier || 1) - Number(b.tier || 1))
+    .map((rule) => ({
+      po_id: poId,
+      tier: Math.max(1, Number(rule.tier || 1)),
+      approver_role: normalizeRole(rule.approver_role || "manager"),
+      approver_id: rule.approver_id || null,
+      status: "pending",
+      comments: rule.approver_name ? `Matrix approver: ${rule.approver_name}` : "Matrix approval rule.",
+      timestamp: null,
+    }));
+
+  return rows.length > 0 ? rows : null;
+}
+
 async function rebuildApprovals(poId: string, totalAmount: number, actor: Actor) {
   const supabase = ensureAdminClient();
+  const order = await getOrder(poId);
+  const matrixRows = await matrixApprovalRows(poId, totalAmount, order);
   const plan = approvalPlanForAmount(totalAmount);
 
-  if (plan.length === 0) {
+  await supabase
+    .from("purchase_order_approvals")
+    .update({ status: "skipped", comments: "Replaced by latest approval routing.", timestamp: new Date().toISOString() })
+    .eq("po_id", poId)
+    .eq("status", "pending");
+
+  if (!matrixRows && plan.length === 0) {
     await supabase.from("purchase_order_approvals").upsert(
       {
         po_id: poId,
@@ -203,10 +287,11 @@ async function rebuildApprovals(poId: string, totalAmount: number, actor: Actor)
     return [];
   }
 
-  const rows = plan.map((requirement) => ({
+  const rows: ApprovalRouteRow[] = matrixRows ?? plan.map((requirement) => ({
     po_id: poId,
     tier: requirement.tier,
     approver_role: roleKeyForApprovalLabel(requirement.label),
+    approver_id: null,
     status: "pending",
     comments: null,
     timestamp: null,
@@ -216,7 +301,7 @@ async function rebuildApprovals(poId: string, totalAmount: number, actor: Actor)
     onConflict: "po_id,tier,approver_role",
   });
   if (error) throw new Error(error.message);
-  await writeAudit("purchase_order", poId, "approval_plan_created", actor, null, { approvals: rows });
+  await writeAudit("purchase_order", poId, matrixRows ? "approval_matrix_plan_created" : "approval_plan_created", actor, null, { approvals: rows });
   return rows;
 }
 
@@ -350,7 +435,11 @@ async function handleApprovalDecision(body: Record<string, any>, actor: Actor) {
   const requirement = approvalPlanForAmount(numberValue(order.total_amount ?? order.total_value)).find(
     (item) => item.tier === Number(pending.tier) && roleKeyForApprovalLabel(item.label) === pending.approver_role,
   );
-  if (!roleCanApproveTier(actor.role, requirement) && !roleCanManagePurchaseOrders(actor.role)) {
+  const isNamedApprover = pending.approver_id && pending.approver_id === actor.id;
+  const isRoleApprover = requirement
+    ? roleCanApproveTier(actor.role, requirement)
+    : roleCanApproveRoleKey(actor.role, pending.approver_role);
+  if (!isNamedApprover && !isRoleApprover && !roleCanManagePurchaseOrders(actor.role)) {
     throw new Error("This PO is not waiting on your approval tier.");
   }
 
@@ -606,6 +695,79 @@ async function handleSaveVendor(body: Record<string, any>, actor: Actor) {
   return data;
 }
 
+async function handleSaveApprovalMatrixRule(body: Record<string, any>, actor: Actor) {
+  const supabase = ensureAdminClient();
+  if (!roleCanManagePurchaseOrders(actor.role)) throw new Error("Only admins and PO managers can manage approval routing.");
+
+  const ruleId = String(body.ruleId ?? "").trim();
+  const approverId = String(body.approverId ?? "").trim() || null;
+  let approverName = String(body.approverName ?? "").trim() || null;
+
+  if (approverId && !approverName) {
+    const { data: approver } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", approverId)
+      .single();
+    approverName = String(approver?.full_name ?? approver?.email ?? "").trim() || null;
+  }
+
+  const payload = {
+    yard_id: String(body.yardId ?? "").trim() || null,
+    department: String(body.department ?? "").trim() || null,
+    cost_center: String(body.costCenter ?? "").trim() || null,
+    min_amount: Math.max(0, numberValue(body.minAmount)),
+    max_amount: String(body.maxAmount ?? "").trim() ? Math.max(0, numberValue(body.maxAmount)) : null,
+    tier: Math.max(1, Math.round(numberValue(body.tier || 1))),
+    approver_role: normalizeRole(body.approverRole || "manager"),
+    approver_id: approverId,
+    approver_name: approverName,
+    active: body.active !== false,
+    notes: String(body.notes ?? "").trim() || null,
+    created_by: actor.id,
+  };
+
+  if (!payload.approver_role && !payload.approver_id) {
+    throw new Error("Choose an approver role or a named approver.");
+  }
+
+  const before = ruleId
+    ? (await supabase.from("purchase_order_approval_matrix").select("*").eq("id", ruleId).single()).data
+    : null;
+
+  const request = ruleId
+    ? supabase.from("purchase_order_approval_matrix").update(payload).eq("id", ruleId).select("*").single()
+    : supabase.from("purchase_order_approval_matrix").insert(payload).select("*").single();
+
+  const { data, error } = await request;
+  if (error || !data) {
+    throw new Error(error?.message ?? "Approval matrix save failed. Run supabase/titan_po_approval_matrix.sql if the table is missing.");
+  }
+
+  await writeAudit("purchase_order_approval_matrix", data.id, ruleId ? "approval_matrix_rule_updated" : "approval_matrix_rule_created", actor, before, data);
+  return data;
+}
+
+async function handleDeactivateApprovalMatrixRule(body: Record<string, any>, actor: Actor) {
+  const supabase = ensureAdminClient();
+  if (!roleCanManagePurchaseOrders(actor.role)) throw new Error("Only admins and PO managers can manage approval routing.");
+
+  const ruleId = String(body.ruleId ?? "").trim();
+  if (!ruleId) throw new Error("Approval matrix rule is required.");
+
+  const { data: before } = await supabase.from("purchase_order_approval_matrix").select("*").eq("id", ruleId).single();
+  const { data, error } = await supabase
+    .from("purchase_order_approval_matrix")
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq("id", ruleId)
+    .select("*")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Approval matrix deactivation failed.");
+
+  await writeAudit("purchase_order_approval_matrix", data.id, "approval_matrix_rule_deactivated", actor, before, data);
+  return data;
+}
+
 export async function POST(request: Request) {
   try {
     ensureAdminClient();
@@ -666,6 +828,14 @@ export async function POST(request: Request) {
 
     if (action === "save_vendor") {
       return Response.json({ vendor: await handleSaveVendor(body, actor) });
+    }
+
+    if (action === "save_approval_matrix_rule") {
+      return Response.json({ rule: await handleSaveApprovalMatrixRule(body, actor) });
+    }
+
+    if (action === "deactivate_approval_matrix_rule") {
+      return Response.json({ rule: await handleDeactivateApprovalMatrixRule(body, actor) });
     }
 
     if (action === "deactivate_vendor") {

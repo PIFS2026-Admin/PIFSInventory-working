@@ -1,0 +1,171 @@
+.shell {
+  min-height: 100vh;
+  background: #111827;
+  padding: 24px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 980px;
+  margin: 0 auto 14px;
+}
+
+.sheet {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 2px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.35);
+  padding: 34px 40px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 24px;
+  align-items: center;
+  border-bottom: 3px solid #111827;
+  padding-bottom: 18px;
+}
+
+.header img {
+  width: 180px;
+  max-height: 92px;
+  object-fit: contain;
+}
+
+.header p {
+  margin: 0;
+  color: #f97316;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.header h1 {
+  margin: 6px 0;
+  color: #111827;
+  font-size: 38px;
+  letter-spacing: 0;
+}
+
+.header span {
+  display: inline-flex;
+  border: 1px solid #9ca3af;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 22px 0;
+}
+
+.metaGrid div {
+  border: 1px solid #d1d5db;
+  padding: 10px 12px;
+}
+
+.metaGrid span,
+.notes span {
+  display: block;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metaGrid strong {
+  display: block;
+  margin-top: 4px;
+  color: #111827;
+  font-size: 15px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  background: #111827;
+  color: #ffffff;
+  text-align: left;
+  padding: 9px;
+}
+
+.table td {
+  border: 1px solid #d1d5db;
+  padding: 9px;
+  vertical-align: top;
+}
+
+.table tfoot td {
+  font-weight: 800;
+  background: #f3f4f6;
+}
+
+.notes {
+  margin-top: 18px;
+  border: 1px solid #d1d5db;
+  padding: 12px;
+}
+
+.notes p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+}
+
+.footer {
+  margin-top: 24px;
+  border-top: 2px solid #111827;
+  padding-top: 12px;
+  display: grid;
+  gap: 4px;
+  color: #374151;
+  font-size: 12px;
+}
+
+@media print {
+  .shell {
+    min-height: auto;
+    background: #ffffff;
+    padding: 0;
+  }
+
+  .actions {
+    display: none;
+  }
+
+  .sheet {
+    width: 100%;
+    box-shadow: none;
+    padding: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .shell {
+    padding: 12px;
+  }
+
+  .sheet {
+    padding: 22px;
+  }
+
+  .header,
+  .metaGrid {
+    grid-template-columns: 1fr;
+  }
+}

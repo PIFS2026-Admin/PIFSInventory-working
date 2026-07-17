@@ -1,4 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { createClient } from "@supabase/supabase-js";
+import {
+  roleCanManagePurchaseOrders,
+  roleCanRequestPurchaseOrders,
+} from "../../../lib/purchaseOrderLifecycle";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -138,8 +144,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "Your user profile could not be loaded." }, { status: 403 });
     }
 
-    const allowedRoles = ["admin", "inventory_specialist", "inventory_manager"];
-    if (!allowedRoles.includes(String(profile.role))) {
+    const userRole = String(profile.role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (!roleCanRequestPurchaseOrders(userRole)) {
       return Response.json({ error: "You do not have permission to email purchase orders." }, { status: 403 });
     }
 
@@ -158,7 +164,7 @@ export async function POST(request: Request) {
 
     const { data: order, error: orderError } = await adminClient
       .from("purchase_orders")
-      .select("id, po_number, vendor_name, order_date, requested_by, status, notes, total_value")
+      .select("id, po_number, vendor_name, vendor_email, order_date, requested_by, requester_id, department, budget_code, cost_center, status, notes, total_value, total_amount")
       .eq("id", poId)
       .single();
 
@@ -166,9 +172,13 @@ export async function POST(request: Request) {
       return Response.json({ error: orderError?.message ?? "Purchase order not found." }, { status: 404 });
     }
 
+    if (!roleCanManagePurchaseOrders(userRole) && order.requester_id !== userData.user.id) {
+      return Response.json({ error: "You can only email POs you requested." }, { status: 403 });
+    }
+
     const { data: lines, error: linesError } = await adminClient
       .from("purchase_order_lines")
-      .select("item_code, item_name, quantity_ordered, quantity_received, unit_cost, line_total")
+      .select("item_code, item_name, description, quantity_ordered, quantity_received, unit_cost, unit_price, line_total, gl_code")
       .eq("purchase_order_id", order.id);
 
     if (linesError) {
@@ -180,10 +190,10 @@ export async function POST(request: Request) {
         (line) => `
           <tr>
             <td>${escapeHtml(line.item_code || "-")}</td>
-            <td>${escapeHtml(line.item_name || "-")}</td>
+            <td>${escapeHtml(line.description || line.item_name || "-")}</td>
             <td>${Number(line.quantity_ordered || 0).toLocaleString()}</td>
             <td>${Number(line.quantity_received || 0).toLocaleString()}</td>
-            <td>${money(line.unit_cost)}</td>
+            <td>${money(line.unit_price ?? line.unit_cost)}</td>
             <td>${money(line.line_total)}</td>
           </tr>
         `,
@@ -194,6 +204,7 @@ export async function POST(request: Request) {
     const totalReceived = (lines || []).reduce((sum, line) => sum + Number(line.quantity_received || 0), 0);
     const siteUrl = getSiteUrl();
     const subject = `TITAN Purchase Order - ${order.po_number}`;
+    const poTotal = order.total_amount ?? order.total_value;
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 6px">TITAN Purchase Order</h2>
@@ -203,8 +214,10 @@ export async function POST(request: Request) {
           <strong>Date:</strong> ${escapeHtml(order.order_date || "-")}<br />
           <strong>Vendor:</strong> ${escapeHtml(order.vendor_name || "-")}<br />
           <strong>Requested By:</strong> ${escapeHtml(order.requested_by || "-")}<br />
+          <strong>Department:</strong> ${escapeHtml(order.department || "-")}<br />
+          <strong>Cost Center:</strong> ${escapeHtml(order.cost_center || order.budget_code || "-")}<br />
           <strong>Status:</strong> ${escapeHtml(order.status || "-")}<br />
-          <strong>Total:</strong> ${money(order.total_value)}
+          <strong>Total:</strong> ${money(poTotal)}
         </p>
         ${note ? `<p><strong>Message:</strong><br />${escapeHtml(note).replace(/\n/g, "<br />")}</p>` : ""}
         <table style="border-collapse:collapse;width:100%;font-size:13px">
@@ -225,11 +238,11 @@ export async function POST(request: Request) {
               <td style="border:1px solid #d1d5db;padding:8px;font-weight:700">${totalOrdered.toLocaleString()}</td>
               <td style="border:1px solid #d1d5db;padding:8px;font-weight:700">${totalReceived.toLocaleString()}</td>
               <td style="border:1px solid #d1d5db;padding:8px"></td>
-              <td style="border:1px solid #d1d5db;padding:8px;font-weight:700">${money(order.total_value)}</td>
+              <td style="border:1px solid #d1d5db;padding:8px;font-weight:700">${money(poTotal)}</td>
             </tr>
           </tfoot>
         </table>
-        <p style="font-size:12px;color:#6b7280">TITAN Purchase Orders: <a href="${siteUrl}/purchase-orders">${siteUrl}/purchase-orders</a></p>
+        <p style="font-size:12px;color:#6b7280">Print / PDF: <a href="${siteUrl}/purchase-orders/print?id=${encodeURIComponent(order.id)}">${siteUrl}/purchase-orders/print?id=${encodeURIComponent(order.id)}</a></p>
         <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
           <strong>Pathfinder Inspections &amp; Field Services</strong><br />
           7501 Groening St.<br />
@@ -241,6 +254,16 @@ export async function POST(request: Request) {
     `;
 
     await sendMicrosoftEmail({ to: recipientEmail, subject, html });
+
+    await adminClient.from("purchase_order_audit_logs").insert({
+      entity_type: "purchase_order",
+      entity_id: order.id,
+      action: "po_emailed",
+      user_id: userData.user.id,
+      user_name: profile.full_name || userData.user.email || "TITAN user",
+      before_value: null,
+      after_value: { recipientEmail, note: note || null },
+    });
 
     return Response.json({ ok: true, emailed: true, recipientEmail });
   } catch (error: any) {
