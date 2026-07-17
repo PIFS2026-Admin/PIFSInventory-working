@@ -58,8 +58,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {children}
         <GlobalTitanNavigation />
+        {children}
         <GlobalNotificationBell />
         <MobileAppChrome />
         <PwaRegistrar />
