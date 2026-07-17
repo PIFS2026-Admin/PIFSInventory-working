@@ -603,8 +603,132 @@
 }
 
 @media (max-width: 800px) {
+  .yardMainPanel {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    padding: 10px 10px calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .yardTopDock {
+    position: sticky;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: stretch;
+    margin: -10px -10px 12px;
+    padding: calc(10px + env(safe-area-inset-top)) 10px 10px;
+  }
+
+  .yardBrand {
+    width: 100% !important;
+    min-width: 0;
+    justify-content: flex-start !important;
+  }
+
+  .yardBrand :global(.brand-logo),
+  .yardBrand :global(.brand-mark) {
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
+  }
+
+  .yardBrand :global(.brand-title) {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .yardBrand :global(.brand-subtitle) {
+    max-width: 22ch;
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .yardSelectControl {
+    width: 100%;
+  }
+
+  .yardSelectControl :global(.field) {
+    width: 100%;
+    height: 44px;
+  }
+
+  .yardPrimaryActions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .yardPrimaryActions :global(.button),
+  .yardMoreActions summary {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 0 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .yardMoreActions {
+    min-width: 0;
+  }
+
+  .yardMoreActions > div {
+    right: 0;
+    left: auto;
+    grid-template-columns: 1fr;
+    width: min(320px, calc(100vw - 20px));
+  }
+
+  .yardMapHeader {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .yardMapHeader h1 {
+    font-size: clamp(30px, 10vw, 42px);
+  }
+
+  .yardMapHeaderActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .yardMapHeaderActions :global(.button) {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .yardZoneStrip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .yardZoneStrip > div {
+    margin-right: -10px;
+    padding-right: 10px;
+  }
+
+  .yardMapInstruction {
+    display: grid;
+    gap: 5px;
+  }
+
   .yardCustomerFilter {
     grid-template-columns: 1fr;
+  }
+
+  .filterStatus {
+    min-height: 0;
+  }
+
+  .yardMapShell {
+    height: min(68dvh, 640px);
+    min-height: 420px;
+    max-width: calc(100vw - 20px);
   }
 
   .rackHoverCard {
