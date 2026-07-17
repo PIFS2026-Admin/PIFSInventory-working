@@ -215,7 +215,7 @@ export async function POST(request: Request) {
           <strong>Vendor:</strong> ${escapeHtml(order.vendor_name || "-")}<br />
           <strong>Requested By:</strong> ${escapeHtml(order.requested_by || "-")}<br />
           <strong>Department:</strong> ${escapeHtml(order.department || "-")}<br />
-          <strong>Cost Center:</strong> ${escapeHtml(order.cost_center || order.budget_code || "-")}<br />
+          <strong>Cost Code:</strong> ${escapeHtml(order.cost_center || order.budget_code || "-")}<br />
           <strong>Status:</strong> ${escapeHtml(order.status || "-")}<br />
           <strong>Total:</strong> ${money(poTotal)}
         </p>

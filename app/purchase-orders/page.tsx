@@ -212,6 +212,10 @@ const tabs: Array<{ key: TabKey; label: string }> = [
   { key: "audit", label: "Audit Trail" },
 ];
 
+function isTabKey(value: string): value is TabKey {
+  return tabs.some((tab) => tab.key === value);
+}
+
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
@@ -360,7 +364,7 @@ export default function PurchaseOrdersPage() {
       const matchesDepartment = filters.department === "all" || order.department === filters.department;
       const matchesDateFrom = !filters.dateFrom || order.orderDate >= filters.dateFrom;
       const matchesDateTo = !filters.dateTo || order.orderDate <= filters.dateTo;
-      const haystack = [order.poNumber, order.vendorName, order.requestedBy, order.department, order.costCenter, order.notes]
+      const haystack = [order.poNumber, order.vendorName, order.requestedBy, order.department, order.costCenter, order.budgetCode, order.notes]
         .join(" ")
         .toLowerCase();
       return matchesStatus && matchesVendor && matchesDepartment && matchesDateFrom && matchesDateTo && (!term || haystack.includes(term));
@@ -422,10 +426,10 @@ export default function PurchaseOrdersPage() {
   const budgetRows = useMemo(() => {
     const map = new Map<string, { department: string; costCenter: string; committed: number; actual: number; open: number; count: number }>();
     orders.forEach((order) => {
-      const key = `${order.department || "Unassigned"}|${order.costCenter || order.budgetCode || "No Cost Center"}`;
+      const key = `${order.department || "Unassigned"}|${order.costCenter || order.budgetCode || "No Cost Code"}`;
       const row = map.get(key) ?? {
         department: order.department || "Unassigned",
-        costCenter: order.costCenter || order.budgetCode || "No Cost Center",
+        costCenter: order.costCenter || order.budgetCode || "No Cost Code",
         committed: 0,
         actual: 0,
         open: 0,
@@ -453,6 +457,14 @@ export default function PurchaseOrdersPage() {
     () => auditLogs.filter((log) => !log.action.toLowerCase().startsWith("migration")).slice(0, 8),
     [auditLogs],
   );
+
+  function openTab(tab: TabKey) {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    if (tab === "dashboard") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", tab);
+    window.history.pushState({}, "", url);
+  }
 
   async function loadPage() {
     setLoading(true);
@@ -727,10 +739,19 @@ export default function PurchaseOrdersPage() {
   }
 
   useEffect(() => {
+    const syncTabFromUrl = () => {
+      const tab = new URLSearchParams(window.location.search).get("tab") || "";
+      setActiveTab(isTabKey(tab) ? tab : "dashboard");
+    };
     const timer = window.setTimeout(() => {
+      syncTabFromUrl();
       void loadPage();
     }, 0);
-    return () => window.clearTimeout(timer);
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("popstate", syncTabFromUrl);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -812,14 +833,14 @@ export default function PurchaseOrdersPage() {
       notes: order.notes,
     });
     setLineForm(emptyLineForm);
-    setActiveTab("edit");
+    openTab("edit");
   }
 
   function startNewPo() {
     setSelectedPoId("");
     setPoForm({ ...emptyPoForm, requestedBy: userName });
     setLineForm(emptyLineForm);
-    setActiveTab("edit");
+    openTab("edit");
   }
 
   async function savePo() {
@@ -1053,7 +1074,7 @@ export default function PurchaseOrdersPage() {
       taxId: vendor.taxId,
       active: vendor.active,
     });
-    setActiveTab("vendors");
+    openTab("vendors");
   }
 
   async function saveVendor() {
@@ -1080,13 +1101,13 @@ export default function PurchaseOrdersPage() {
   function exportOrders() {
     downloadCsv(
       "titan-purchase-orders.csv",
-      ["PO Number", "Status", "Vendor", "Department", "Cost Center", "Date", "Requested By", "Total", "Notes"],
+      ["PO Number", "Status", "Vendor", "Department", "Cost Code", "Date", "Requested By", "Total", "Notes"],
       filteredOrders.map((order) => [
         order.poNumber,
         order.status,
         order.vendorName,
         order.department,
-        order.costCenter,
+        order.costCenter || order.budgetCode,
         order.orderDate,
         order.requestedBy,
         order.totalAmount,
@@ -1139,7 +1160,7 @@ export default function PurchaseOrdersPage() {
 
       <section className="po-tab-bar no-print">
         {tabs.map((tab) => (
-          <button key={tab.key} className={activeTab === tab.key ? "active" : ""} type="button" onClick={() => setActiveTab(tab.key)}>
+          <button key={tab.key} className={activeTab === tab.key ? "active" : ""} type="button" onClick={() => openTab(tab.key)}>
             {tab.label}
           </button>
         ))}
@@ -1170,7 +1191,7 @@ export default function PurchaseOrdersPage() {
             <h3>Recent Activity</h3>
             <div className="po-list-mini">
               {recentAuditLogs.map((log) => (
-                <button key={log.id} type="button" onClick={() => setActiveTab("audit")}>
+                <button key={log.id} type="button" onClick={() => openTab("audit")}>
                   <strong>{log.action.replaceAll("_", " ")}</strong>
                   <span>{log.userName || "System"} / {new Date(log.timestamp).toLocaleString()}</span>
                 </button>
@@ -1199,7 +1220,7 @@ export default function PurchaseOrdersPage() {
                   <th>Status</th>
                   <th>Vendor</th>
                   <th>Department</th>
-                  <th>Cost Center</th>
+                  <th>Cost Code</th>
                   <th>Date</th>
                   <th>Amount</th>
                   <th>Actions</th>
@@ -1254,8 +1275,8 @@ export default function PurchaseOrdersPage() {
               <label>Order Date<input type="date" value={poForm.orderDate} onChange={(event) => setPoForm({ ...poForm, orderDate: event.target.value })} /></label>
               <label>Requester<input value={poForm.requestedBy} onChange={(event) => setPoForm({ ...poForm, requestedBy: event.target.value })} /></label>
               <label>Department<input value={poForm.department} placeholder="Inventory, DTI, Hardband..." onChange={(event) => setPoForm({ ...poForm, department: event.target.value })} /></label>
-              <label>Budget Code<input value={poForm.budgetCode} onChange={(event) => setPoForm({ ...poForm, budgetCode: event.target.value })} /></label>
-              <label>Cost Center<input value={poForm.costCenter} onChange={(event) => setPoForm({ ...poForm, costCenter: event.target.value })} /></label>
+              <label>Cost Code<input value={poForm.costCenter} placeholder="Accounting, job, or cost code" onChange={(event) => setPoForm({ ...poForm, costCenter: event.target.value })} /></label>
+              <label>Budget Code<input value={poForm.budgetCode} placeholder="Optional budget bucket" onChange={(event) => setPoForm({ ...poForm, budgetCode: event.target.value })} /></label>
               <label className="full">Notes<textarea value={poForm.notes} onChange={(event) => setPoForm({ ...poForm, notes: event.target.value })} /></label>
             </div>
             <div className="slide-actions">
@@ -1401,7 +1422,7 @@ export default function PurchaseOrdersPage() {
             <div className="detail-title-row">
               <div>
                 <h3>Approval Matrix</h3>
-                <p>Route approvals by yard, department, cost center, dollar range, tier, role, and named approver.</p>
+                <p>Route approvals by yard, department, cost code, dollar range, tier, role, and named approver.</p>
               </div>
               <button className="button" type="button" onClick={() => setMatrixForm(emptyMatrixForm)}>Blank Rule</button>
             </div>
@@ -1418,7 +1439,7 @@ export default function PurchaseOrdersPage() {
                 </select>
               </label>
               <label>Department<input value={matrixForm.department} placeholder="Blank = all departments" onChange={(event) => setMatrixForm({ ...matrixForm, department: event.target.value })} /></label>
-              <label>Cost Center<input value={matrixForm.costCenter} placeholder="Blank = all cost centers" onChange={(event) => setMatrixForm({ ...matrixForm, costCenter: event.target.value })} /></label>
+              <label>Cost Code<input value={matrixForm.costCenter} placeholder="Blank = all cost codes" onChange={(event) => setMatrixForm({ ...matrixForm, costCenter: event.target.value })} /></label>
               <label>Min Amount<input type="number" value={matrixForm.minAmount} onChange={(event) => setMatrixForm({ ...matrixForm, minAmount: event.target.value })} /></label>
               <label>Max Amount<input type="number" value={matrixForm.maxAmount} placeholder="No max" onChange={(event) => setMatrixForm({ ...matrixForm, maxAmount: event.target.value })} /></label>
               <label>Tier<input type="number" value={matrixForm.tier} onChange={(event) => setMatrixForm({ ...matrixForm, tier: event.target.value })} /></label>
@@ -1463,7 +1484,7 @@ export default function PurchaseOrdersPage() {
                       <tr key={rule.id}>
                         <td>
                           <strong>{yard?.name || "All yards"}</strong><br />
-                          <span>{rule.department || "All departments"} / {rule.costCenter || "All cost centers"}</span>
+                          <span>{rule.department || "All departments"} / {rule.costCenter || "All cost codes"}</span>
                         </td>
                         <td>{formatPoMoney(rule.minAmount)} - {rule.maxAmount === null ? "No max" : formatPoMoney(rule.maxAmount)}</td>
                         <td>{rule.tier}</td>
@@ -1535,7 +1556,7 @@ export default function PurchaseOrdersPage() {
           <p className="muted-text">Committed spend is approved/sent/received PO value. Actual is invoiced/closed PO value.</p>
           <div className="po-table-wrap">
             <table className="po-table">
-              <thead><tr><th>Department</th><th>Cost Center</th><th>POs</th><th>Committed</th><th>Actual</th><th>Open Exposure</th></tr></thead>
+              <thead><tr><th>Department</th><th>Cost Code</th><th>POs</th><th>Committed</th><th>Actual</th><th>Open Exposure</th></tr></thead>
               <tbody>
                 {budgetRows.map((row) => (
                   <tr key={`${row.department}-${row.costCenter}`}>

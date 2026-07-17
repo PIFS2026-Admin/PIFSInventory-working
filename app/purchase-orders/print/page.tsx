@@ -149,7 +149,7 @@ function PurchaseOrderPrintContent() {
           <div><span>Order Date</span><strong>{order.orderDate}</strong></div>
           <div><span>Requested By</span><strong>{order.requestedBy || "-"}</strong></div>
           <div><span>Department</span><strong>{order.department || "-"}</strong></div>
-          <div><span>Cost Center</span><strong>{order.costCenter || order.budgetCode || "-"}</strong></div>
+          <div><span>Cost Code</span><strong>{order.costCenter || order.budgetCode || "-"}</strong></div>
         </section>
 
         <table className={styles.table}>

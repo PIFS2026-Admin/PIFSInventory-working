@@ -135,6 +135,22 @@ type AdminControlKey =
   | "email-notifications"
   | "yard-setup";
 
+type AdminControlCard =
+  | {
+      key: AdminControlKey;
+      title: string;
+      description: string;
+      group: string;
+      href?: undefined;
+    }
+  | {
+      key: "po-approval-matrix";
+      title: string;
+      description: string;
+      group: string;
+      href: string;
+    };
+
 type AdminUserForm = {
   email: string;
   password: string;
@@ -281,12 +297,21 @@ const defaultInventoryOptions: InventoryOption[] = [
   ...defaultConditionInventoryOptions,
 ];
 
-const adminControls: Array<{
-  key: AdminControlKey;
-  title: string;
-  description: string;
-  group: string;
-}> = [
+const adminSectionControlKeys: AdminControlKey[] = [
+  "create-company",
+  "create-user",
+  "inspectors",
+  "part-numbers",
+  "status-condition",
+  "companies",
+  "users",
+  "yard-access",
+  "permissions",
+  "email-notifications",
+  "yard-setup",
+];
+
+const adminControls: AdminControlCard[] = [
   {
     key: "create-company",
     title: "Create Company",
@@ -330,6 +355,13 @@ const adminControls: Array<{
     group: "Security",
   },
   {
+    key: "po-approval-matrix",
+    title: "PO Approval Matrix",
+    description: "Set who approves purchase orders by yard, department, cost code, amount, and tier.",
+    group: "Purchasing",
+    href: "/purchase-orders?tab=matrix",
+  },
+  {
     key: "inspectors",
     title: "Inspector Manager",
     description: "Maintain approved DTI lead and Level 2 inspector lists.",
@@ -356,7 +388,7 @@ const adminControls: Array<{
 ];
 
 function isAdminControlKey(value: string): value is AdminControlKey {
-  return adminControls.some((control) => control.key === value);
+  return adminSectionControlKeys.includes(value as AdminControlKey);
 }
 
 function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
@@ -578,6 +610,11 @@ export default function AdminPage() {
     if (control === "status-condition") return `${inventoryOptions.length} options`;
     if (control === "yard-setup") return `${racks.length} racks / ${zones.length} zones`;
     return "";
+  }
+
+  function adminControlCardStat(control: AdminControlCard) {
+    if (control.href) return "Open matrix";
+    return adminControlStat(control.key as AdminControlKey);
   }
 
   function toggleRolePermission(moduleKey: PermissionModuleKey, action: PermissionAction) {
@@ -1908,12 +1945,18 @@ export default function AdminPage() {
               key={control.key}
               type="button"
               className="ticket-card admin-control-launch-card"
-              onClick={() => openAdminControl(control.key)}
+              onClick={() => {
+                if (control.href) {
+                  window.location.href = control.href;
+                  return;
+                }
+                openAdminControl(control.key as AdminControlKey);
+              }}
             >
               <span>{control.group}</span>
               <strong>{control.title}</strong>
               <p>{control.description}</p>
-              <small>{adminControlStat(control.key)}</small>
+              <small>{adminControlCardStat(control)}</small>
             </button>
           ))}
         </section>
