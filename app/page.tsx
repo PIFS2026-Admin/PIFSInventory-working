@@ -4730,7 +4730,6 @@ export default function Home() {
                 }}
               >
                 {zone.name}
-                <small>{zone.code}</small>
               </button>
             ))}
           </div>

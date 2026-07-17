@@ -175,6 +175,7 @@
   min-height: 36px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -184,11 +185,6 @@
   color: var(--text);
   font-size: 12px;
   font-weight: 900;
-}
-
-.yardZoneStrip button small {
-  color: var(--muted);
-  font-size: 10px;
 }
 
 .yardZoneStrip .activeZoneChip {
