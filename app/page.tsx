@@ -927,6 +927,8 @@ export default function Home() {
   const [activityType, setActivityType] = useState("all");
   const [activityDate, setActivityDate] = useState("");
   const [rackDetailOpen, setRackDetailOpen] = useState(false);
+  const [zoneDetailOpen, setZoneDetailOpen] = useState(false);
+  const [selectedZoneDetailCode, setSelectedZoneDetailCode] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
 
@@ -1230,6 +1232,35 @@ export default function Home() {
   const selectedRackStatusSummary = useMemo(() => {
     return buildReport(selectedRackInventory, (row) => row.status);
   }, [selectedRackInventory]);
+
+  const selectedZoneDetail = useMemo(() => {
+    if (!selectedZoneDetailCode) return null;
+    return zones.find((zone) => zone.code === selectedZoneDetailCode) ?? null;
+  }, [selectedZoneDetailCode, zones]);
+
+  const selectedZoneInventory = useMemo(() => {
+    if (!selectedZoneDetail) return [];
+    return inventory.filter((row) => row.locationType === "zone" && row.zoneId === selectedZoneDetail.code);
+  }, [inventory, selectedZoneDetail]);
+
+  const selectedZoneTotals = useMemo(() => {
+    return selectedZoneInventory.reduce(
+      (totals, row) => ({
+        lines: totals.lines + 1,
+        joints: totals.joints + row.joints,
+        footage: totals.footage + row.footage,
+      }),
+      { lines: 0, joints: 0, footage: 0 }
+    );
+  }, [selectedZoneInventory]);
+
+  const selectedZoneCustomerSummary = useMemo(() => {
+    return buildReport(selectedZoneInventory, (row) => row.company);
+  }, [selectedZoneInventory]);
+
+  const selectedZoneStatusSummary = useMemo(() => {
+    return buildReport(selectedZoneInventory, (row) => row.status);
+  }, [selectedZoneInventory]);
 
   async function loadInventory(yardId: string, racks: RackConfig[], zoneList: ZoneConfig[]) {
     const { data, error } = await supabase
@@ -3446,6 +3477,33 @@ export default function Home() {
     setRackDetailOpen(false);
   }
 
+  function openZoneDetail(zone: ZoneConfig) {
+    setSelectedLocation(zone.code);
+    setSelectedRows([]);
+    setSelectedZoneDetailCode(zone.code);
+    setZoneDetailOpen(true);
+    setRackDetailOpen(false);
+  }
+
+  function closeZoneDetail() {
+    setZoneDetailOpen(false);
+    setSelectedRows([]);
+  }
+
+  function openZoneReceive(zone: ZoneConfig) {
+    setMessage("");
+    setActiveReceiveTicketId("");
+    setActiveReceiveTicketNumber("");
+    setReceiveForm({
+      ...emptyReceiveForm,
+      destination: `zone:${zone.code}`,
+    });
+    setReceiveTruckLines([]);
+    setReceiveFiles([]);
+    setZoneDetailOpen(false);
+    setReceiveOpen(true);
+  }
+
   async function deleteRack(label: string) {
     const rack = rackLayout.find((item) => item.label === label);
     if (!rack) return;
@@ -4436,8 +4494,8 @@ export default function Home() {
   }
 
 
-  function exportInventoryCsv() {
-    if (filteredInventory.length === 0) {
+  function exportInventoryRowsCsv(rowsToExport: InventoryRow[], locationName: string) {
+    if (rowsToExport.length === 0) {
       setMessage("No inventory rows to export.");
       return;
     }
@@ -4460,7 +4518,7 @@ export default function Home() {
       "Calculated Footage",
     ];
 
-    const rows = filteredInventory.map((row) => {
+    const rows = rowsToExport.map((row) => {
       const location = row.locationType === "rack" ? row.rackId : row.zoneId;
 
       return [
@@ -4482,11 +4540,19 @@ export default function Home() {
       ];
     });
 
-    const locationName = selectedLocation === "all" ? "all-locations" : selectedLocation;
-
     downloadCsv(`titan-inventory-${locationName}-${today}.csv`, headers, rows);
 
-    setMessage(`Exported ${filteredInventory.length} inventory rows.`);
+    setMessage(`Exported ${rowsToExport.length} inventory rows.`);
+  }
+
+  function exportInventoryCsv() {
+    const locationName = selectedLocation === "all" ? "all-locations" : selectedLocation;
+    exportInventoryRowsCsv(filteredInventory, locationName);
+  }
+
+  function exportZoneInventoryCsv() {
+    const zoneName = selectedZoneDetail?.code ?? "work-zone";
+    exportInventoryRowsCsv(selectedZoneInventory, `zone-${zoneName}`);
   }
 
   function exportReportsCsv() {
@@ -4724,10 +4790,7 @@ export default function Home() {
               <button
                 key={zone.id}
                 className={selectedLocation === zone.code ? styles.activeZoneChip : ""}
-                onClick={() => {
-                  setSelectedLocation(zone.code);
-                  setRackDetailOpen(false);
-                }}
+                onClick={() => openZoneDetail(zone)}
               >
                 {zone.name}
               </button>
@@ -5172,6 +5235,158 @@ export default function Home() {
                     {selectedRackInventory.length === 0 && (
                       <tr>
                         <td colSpan={14} className="empty-cell">No inventory found in rack {selectedRackDetail.label}.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      )}
+
+      {zoneDetailOpen && selectedZoneDetail && (
+        <div className={`modal-backdrop rack-detail-backdrop ${styles.rackDetailBackdrop}`}>
+          <section className={`rack-detail-screen ${styles.rackDetailScreen}`}>
+            <div className="slide-header">
+              <div>
+                <h2>{selectedZoneDetail.name}</h2>
+                <p>
+                  {selectedZoneTotals.lines} line items / {selectedZoneTotals.joints.toLocaleString()} joints / {selectedZoneTotals.footage.toLocaleString()} ft
+                </p>
+              </div>
+              <button className="icon-button" onClick={closeZoneDetail}>X</button>
+            </div>
+
+            <div className="rack-detail-actions">
+              <button className="button" onClick={closeZoneDetail}>Back to Yard</button>
+              <button className="button" onClick={exportZoneInventoryCsv}>Export Zone CSV</button>
+              <button
+                className="button primary"
+                disabled={isReadOnlyRole}
+                onClick={() => openZoneReceive(selectedZoneDetail)}
+              >
+                Receive
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length === 0}
+                onClick={openShip}
+              >
+                Ship
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length !== 1}
+                onClick={openTransfer}
+              >
+                Transfer
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length !== 1}
+                onClick={openEdit}
+              >
+                Adjust
+              </button>
+            </div>
+
+            <div className="rack-detail-metrics">
+              <div>
+                <span>Line Items</span>
+                <strong>{selectedZoneTotals.lines}</strong>
+                <small>active records</small>
+              </div>
+              <div>
+                <span>Total Joints</span>
+                <strong>{selectedZoneTotals.joints.toLocaleString()}</strong>
+                <small>in this work zone</small>
+              </div>
+              <div>
+                <span>Footage</span>
+                <strong>{selectedZoneTotals.footage.toLocaleString()}</strong>
+                <small>calculated ft</small>
+              </div>
+              <div>
+                <span>Selected</span>
+                <strong>{selectedRows.length}</strong>
+                <small>line{selectedRows.length === 1 ? "" : "s"} selected</small>
+              </div>
+            </div>
+
+            <div className="rack-detail-grid">
+              <section className="ticket-card">
+                <h3>Inventory By Customer</h3>
+                {selectedZoneCustomerSummary.length === 0 && <p className="muted-text">No customer inventory in this work zone.</p>}
+                {selectedZoneCustomerSummary.map((line) => (
+                  <div key={line.label} className="report-row">
+                    <span>{line.label}</span>
+                    <strong>{line.joints.toLocaleString()} joints</strong>
+                    <small>{line.footage.toLocaleString()} ft / {line.lines} lines</small>
+                  </div>
+                ))}
+              </section>
+
+              <section className="ticket-card">
+                <h3>Inventory By Status</h3>
+                {selectedZoneStatusSummary.length === 0 && <p className="muted-text">No status totals in this work zone.</p>}
+                {selectedZoneStatusSummary.map((line) => (
+                  <div key={line.label} className="report-row">
+                    <span>{line.label}</span>
+                    <strong>{line.joints.toLocaleString()} joints</strong>
+                    <small>{line.footage.toLocaleString()} ft / {line.lines} lines</small>
+                  </div>
+                ))}
+              </section>
+            </div>
+
+            <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines}`}>
+              <h3>Work Zone Line Items</h3>
+              <div className={`table-wrap ${styles.rackDetailTableWrap}`}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Select</th>
+                      <th>Company</th>
+                      <th>Operator</th>
+                      <th>Rig</th>
+                      <th>TU#</th>
+                      <th>Part Number</th>
+                      <th>Size</th>
+                      <th>Grade</th>
+                      <th>Connection</th>
+                      <th>Range</th>
+                      <th>Status</th>
+                      <th>Condition</th>
+                      <th>Joints</th>
+                      <th>Footage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedZoneInventory.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
+                        </td>
+                        <td>{row.company}</td>
+                        <td>{row.operator || "-"}</td>
+                        <td>{row.rig || "-"}</td>
+                        <td>{row.afe}</td>
+                        <td>{row.partNumber}</td>
+                        <td>{row.size}</td>
+                        <td>{row.grade}</td>
+                        <td>{row.connection}</td>
+                        <td>{row.pipeRange}</td>
+                        <td><span className="badge">{row.status}</span></td>
+                        <td>{row.condition}</td>
+                        <td>{row.joints}</td>
+                        <td>{row.footage.toLocaleString()}</td>
+                      </tr>
+                    ))}
+
+                    {selectedZoneInventory.length === 0 && (
+                      <tr>
+                        <td colSpan={14} className="empty-cell">No inventory found in {selectedZoneDetail.name}.</td>
                       </tr>
                     )}
                   </tbody>
