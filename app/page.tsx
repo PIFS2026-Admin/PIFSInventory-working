@@ -929,6 +929,8 @@ export default function Home() {
   const [rackDetailOpen, setRackDetailOpen] = useState(false);
   const [zoneDetailOpen, setZoneDetailOpen] = useState(false);
   const [selectedZoneDetailCode, setSelectedZoneDetailCode] = useState("");
+  const [inventoryRegisterOpen, setInventoryRegisterOpen] = useState(false);
+  const [inventoryRegisterScope, setInventoryRegisterScope] = useState("all");
   const [editOpen, setEditOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
 
@@ -2695,6 +2697,58 @@ export default function Home() {
     });
   }, [conditionFilter, customerFilter, inventory, search, selectedLocation, statusFilter]);
 
+  const inventoryRegisterRows = useMemo(() => {
+    const searchText = search.toLowerCase().trim();
+
+    return inventory.filter((row) => {
+      const matchesScope =
+        inventoryRegisterScope === "all" ||
+        (row.locationType === "zone" && row.zoneId === inventoryRegisterScope);
+      const matchesCustomer = customerFilter === "all" || normalizeFilter(row.company).includes(normalizeFilter(customerFilter));
+      const matchesStatus = statusFilter === "all" || normalizeFilter(row.status) === normalizeFilter(statusFilter);
+      const matchesCondition = conditionFilter === "all" || normalizeFilter(row.condition) === normalizeFilter(conditionFilter);
+      const matchesSearch =
+        !searchText ||
+        [
+          row.company,
+          row.operator,
+          row.rig,
+          row.afe,
+          row.partNumber,
+          row.size,
+          row.grade,
+          row.connection,
+          row.status,
+          row.condition,
+          row.rackId ?? "",
+          row.zoneId ?? "",
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(searchText);
+
+      return matchesScope && matchesCustomer && matchesStatus && matchesCondition && matchesSearch;
+    });
+  }, [conditionFilter, customerFilter, inventory, inventoryRegisterScope, search, statusFilter]);
+
+  const inventoryRegisterTotals = useMemo(() => {
+    return inventoryRegisterRows.reduce(
+      (totals, row) => ({
+        lines: totals.lines + 1,
+        joints: totals.joints + row.joints,
+        footage: totals.footage + row.footage,
+      }),
+      { lines: 0, joints: 0, footage: 0 }
+    );
+  }, [inventoryRegisterRows]);
+
+  const inventoryRegisterZone = useMemo(() => {
+    return zones.find((zone) => zone.code === inventoryRegisterScope) ?? null;
+  }, [inventoryRegisterScope, zones]);
+
+  const inventoryRegisterTitle =
+    inventoryRegisterScope === "all" ? "All Tubulars" : (inventoryRegisterZone?.name ?? "Work Zone Inventory");
+
   const selectedTotals = useMemo(() => {
     return selectedShipRows.reduce(
       (totals, row) => ({
@@ -3235,24 +3289,6 @@ export default function Home() {
     setEditOpen(true);
   }
 
-  function quickActivity(row: InventoryRow) {
-    setMessage("");
-    setActivityOpen(true);
-    setActivityType("all");
-    setActivityDate("");
-    setActivitySearch([row.id, row.company, row.afe, row.partNumber].filter(Boolean).join(" "));
-    loadReports();
-  }
-
-  function quickTickets(row: InventoryRow) {
-    setMessage("");
-    setTicketsOpen(true);
-    setTicketFilter("all");
-    setTicketDate("");
-    setTicketSearch([row.company, row.afe, row.partNumber].filter(Boolean).join(" "));
-    loadTickets();
-  }
-
   function moveRack(targetRack: string) {
     if (!draggedRack || draggedRack === targetRack) return;
 
@@ -3506,6 +3542,7 @@ export default function Home() {
   function openRackDetail(label: string) {
     setSelectedLocation(label);
     setSelectedRows([]);
+    setInventoryRegisterOpen(false);
     setRackDetailOpen(true);
   }
 
@@ -3513,10 +3550,25 @@ export default function Home() {
     setRackDetailOpen(false);
   }
 
+  function openInventoryRegister(scope = "all") {
+    setInventoryRegisterScope(scope);
+    setSelectedLocation(scope === "all" ? "all" : scope);
+    setSelectedRows([]);
+    setRackDetailOpen(false);
+    setZoneDetailOpen(false);
+    setInventoryRegisterOpen(true);
+  }
+
+  function closeInventoryRegister() {
+    setInventoryRegisterOpen(false);
+    setSelectedRows([]);
+  }
+
   function openZoneDetail(zone: ZoneConfig) {
     setSelectedLocation(zone.code);
     setSelectedRows([]);
     setSelectedZoneDetailCode(zone.code);
+    setInventoryRegisterOpen(false);
     setZoneDetailOpen(true);
     setRackDetailOpen(false);
   }
@@ -4591,6 +4643,11 @@ export default function Home() {
     exportInventoryRowsCsv(selectedZoneInventory, `zone-${zoneName}`);
   }
 
+  function exportInventoryRegisterCsv() {
+    const fileName = inventoryRegisterScope === "all" ? "all-tubulars" : `zone-${inventoryRegisterScope}`;
+    exportInventoryRowsCsv(inventoryRegisterRows, fileName);
+  }
+
   function exportReportsCsv() {
     const headers = [
       "Report",
@@ -4751,6 +4808,7 @@ export default function Home() {
               onChange={(event) => {
                 setSelectedRows([]);
                 setSelectedLocation("all");
+                setInventoryRegisterOpen(false);
                 loadYardSetup(event.target.value);
               }}
               disabled={loadingSetup || yardOptions.length < 2}
@@ -4816,7 +4874,17 @@ export default function Home() {
           </div>
 
           <div className={styles.yardMapHeaderActions}>
-            <button className="button" onClick={() => { setSelectedLocation("all"); setRackDetailOpen(false); }}>Show All</button>
+            <button
+              className="button"
+              onClick={() => {
+                setSelectedLocation("all");
+                setRackDetailOpen(false);
+                setZoneDetailOpen(false);
+                setInventoryRegisterOpen(false);
+              }}
+            >
+              Show All
+            </button>
             {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
             <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
               {layoutMode ? "Done Layout" : "Edit Layout"}
@@ -4827,6 +4895,12 @@ export default function Home() {
         <section className={styles.yardZoneStrip}>
           <span>Work zones</span>
           <div>
+            <button
+              className={inventoryRegisterOpen && inventoryRegisterScope === "all" ? styles.activeZoneChip : ""}
+              onClick={() => openInventoryRegister("all")}
+            >
+              All Tubulars
+            </button>
             {zones.map((zone) => (
               <button
                 key={zone.id}
@@ -4871,6 +4945,8 @@ export default function Home() {
                 setSearch("");
                 setSelectedLocation("all");
                 setRackDetailOpen(false);
+                setZoneDetailOpen(false);
+                setInventoryRegisterOpen(false);
               }}
             >
               Clear
@@ -5064,76 +5140,133 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="inventory-panel">
-          <div className="section-heading">
-            <h2>Inventory at {selectedLocation === "all" ? "All Locations" : selectedLocation}</h2>
-            <p>{filteredInventory.length} visible lines / {selectedTotals.joints} selected joints / {selectedTotals.footage.toLocaleString()} selected footage</p>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Select</th>
-                  <th>Actions</th>
-                  <th>Date Created</th>
-                  <th>Company</th>
-                  <th>Operator</th>
-                  <th>Rig</th>
-                  <th>TU#</th>
-                  <th>Part Number</th>
-                  <th>Range</th>
-                  <th>Status</th>
-                  <th>Condition</th>
-                  <th>Rack/Location</th>
-                  <th>Joints</th>
-                  <th>Calculated Footage</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInventory.map((row) => {
-                  const location = row.locationType === "rack" ? row.rackId : row.zoneId;
-
-                  return (
-                    <tr key={row.id}>
-                      <td>
-                        <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
-                      </td>
-                      <td>
-                        <div className="quick-actions">
-                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickTransfer(row)}>Transfer</button>
-                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickShip(row)}>Ship</button>
-                          <button className="mini-action" disabled={isReadOnlyRole} onClick={() => quickAdjust(row)}>Adjust</button>
-                          <button className="mini-action" onClick={() => quickTickets(row)}>Tickets</button>
-                          <button className="mini-action" onClick={() => quickActivity(row)}>History</button>
-                        </div>
-                      </td>
-                      <td>{row.createdAt}</td>
-                      <td>{row.company}</td>
-                      <td>{row.operator || "-"}</td>
-                      <td>{row.rig || "-"}</td>
-                      <td>{row.afe}</td>
-                      <td>{row.partNumber}</td>
-                      <td>{row.pipeRange}</td>
-                      <td><span className="badge">{row.status}</span></td>
-                      <td>{row.condition}</td>
-                      <td>{location}</td>
-                      <td>{row.joints}</td>
-                      <td>{row.footage.toLocaleString()}</td>
-                    </tr>
-                  );
-                })}
-
-                {filteredInventory.length === 0 && (
-                  <tr>
-                    <td colSpan={14} className="empty-cell">No inventory found for this location.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
       </section>
+
+      {inventoryRegisterOpen && (
+        <div className={`modal-backdrop rack-detail-backdrop ${styles.rackDetailBackdrop}`}>
+          <section className={`rack-detail-screen ${styles.rackDetailScreen}`}>
+            <div className="slide-header">
+              <div>
+                <h2>{inventoryRegisterTitle}</h2>
+                <p>
+                  {inventoryRegisterTotals.lines.toLocaleString()} line items / {inventoryRegisterTotals.joints.toLocaleString()} joints /{" "}
+                  {inventoryRegisterTotals.footage.toLocaleString()} ft
+                </p>
+              </div>
+              <button className="icon-button" onClick={closeInventoryRegister}>X</button>
+            </div>
+
+            <div className="rack-detail-actions">
+              <button className="button" onClick={closeInventoryRegister}>Back to Yard</button>
+              <button className="button" onClick={exportInventoryRegisterCsv}>Export CSV</button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length === 0}
+                onClick={openShip}
+              >
+                Ship
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length !== 1}
+                onClick={openTransfer}
+              >
+                Transfer
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRows.length !== 1}
+                onClick={openEdit}
+              >
+                Adjust
+              </button>
+            </div>
+
+            <div className="rack-detail-metrics">
+              <div>
+                <span>Line Items</span>
+                <strong>{inventoryRegisterTotals.lines.toLocaleString()}</strong>
+                <small>visible records</small>
+              </div>
+              <div>
+                <span>Total Joints</span>
+                <strong>{inventoryRegisterTotals.joints.toLocaleString()}</strong>
+                <small>in this view</small>
+              </div>
+              <div>
+                <span>Footage</span>
+                <strong>{inventoryRegisterTotals.footage.toLocaleString()}</strong>
+                <small>calculated ft</small>
+              </div>
+              <div>
+                <span>Selected</span>
+                <strong>{selectedRows.length}</strong>
+                <small>line{selectedRows.length === 1 ? "" : "s"} selected</small>
+              </div>
+            </div>
+
+            <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines}`}>
+              <h3>{inventoryRegisterTitle} Line Items</h3>
+              <div className={`table-wrap ${styles.rackDetailTableWrap} ${styles.inventoryRegisterTableWrap}`}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Select</th>
+                      <th>Company</th>
+                      <th>Operator</th>
+                      <th>Rig</th>
+                      <th>TU#</th>
+                      <th>Part Number</th>
+                      <th>Size</th>
+                      <th>Grade</th>
+                      <th>Connection</th>
+                      <th>Range</th>
+                      <th>Status</th>
+                      <th>Condition</th>
+                      <th>Location</th>
+                      <th>Joints</th>
+                      <th>Footage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventoryRegisterRows.map((row) => {
+                      const location = row.locationType === "rack" ? row.rackId : row.zoneId;
+
+                      return (
+                        <tr key={row.id}>
+                          <td>
+                            <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
+                          </td>
+                          <td>{row.company}</td>
+                          <td>{row.operator || "-"}</td>
+                          <td>{row.rig || "-"}</td>
+                          <td>{row.afe}</td>
+                          <td>{row.partNumber}</td>
+                          <td>{row.size}</td>
+                          <td>{row.grade}</td>
+                          <td>{row.connection}</td>
+                          <td>{row.pipeRange}</td>
+                          <td><span className="badge">{row.status}</span></td>
+                          <td>{row.condition}</td>
+                          <td>{location}</td>
+                          <td>{row.joints}</td>
+                          <td>{row.footage.toLocaleString()}</td>
+                        </tr>
+                      );
+                    })}
+
+                    {inventoryRegisterRows.length === 0 && (
+                      <tr>
+                        <td colSpan={15} className="empty-cell">No inventory found in this view.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </section>
+        </div>
+      )}
 
       {rackDetailOpen && selectedRackDetail && (
         <div className={`modal-backdrop rack-detail-backdrop ${styles.rackDetailBackdrop}`}>

@@ -588,6 +588,20 @@
   text-align: right;
 }
 
+.inventoryRegisterTableWrap th:nth-child(13),
+.inventoryRegisterTableWrap td:nth-child(13) {
+  width: 86px;
+  text-align: left;
+}
+
+.inventoryRegisterTableWrap th:nth-child(14),
+.inventoryRegisterTableWrap td:nth-child(14),
+.inventoryRegisterTableWrap th:nth-child(15),
+.inventoryRegisterTableWrap td:nth-child(15) {
+  width: 72px;
+  text-align: right;
+}
+
 @media (max-width: 800px) {
   .yardCustomerFilter {
     grid-template-columns: 1fr;
