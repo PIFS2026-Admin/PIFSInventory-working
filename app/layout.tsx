@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import GlobalNotificationBell from "../components/GlobalNotificationBell";
 import GlobalTitanNavigation from "../components/GlobalTitanNavigation";
-import MobileAppChrome from "../components/MobileAppChrome";
 import PwaRegistrar from "../components/PwaRegistrar";
 import "./globals.css";
 import "./titan-branding.css";
@@ -61,7 +60,6 @@ export default function RootLayout({
         <GlobalTitanNavigation />
         {children}
         <GlobalNotificationBell />
-        <MobileAppChrome />
         <PwaRegistrar />
       </body>
     </html>

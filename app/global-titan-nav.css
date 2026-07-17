@@ -64,8 +64,7 @@
 }
 
 @media (max-width: 760px) {
-  .global-titan-nav,
-  .mobile-app-tabbar {
+  .global-titan-nav {
     display: none !important;
   }
 
