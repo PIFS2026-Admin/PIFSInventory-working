@@ -209,7 +209,7 @@ const emptyData: DashboardData = {
 
 const launchCards: LaunchCard[] = [
   {
-    title: "Dashboard",
+    title: "Command Center",
     href: "/home",
   },
   {
@@ -250,6 +250,53 @@ const launchCards: LaunchCard[] = [
   },
 ];
 
+const mobileLaunchCards: LaunchCard[] = [
+  {
+    title: "Command Center",
+    href: "/home#command-center",
+  },
+  {
+    title: "Yard View",
+    href: "/",
+  },
+  {
+    title: "Consumables",
+    href: "/inventory",
+  },
+  {
+    title: "Consumables Store",
+    href: "/inventory?view=orders",
+  },
+  {
+    title: "Purchase Orders",
+    href: "/purchase-orders",
+  },
+  {
+    title: "Document Control",
+    href: "/document-control",
+  },
+  {
+    title: "Service Lines",
+    href: "/service-lines",
+  },
+  {
+    title: "Communications",
+    href: "/communications",
+  },
+  {
+    title: "Financials",
+    href: "/financials",
+  },
+  {
+    title: "Reports",
+    href: "/?open=reports",
+  },
+  {
+    title: "Admin Controls",
+    href: "/admin",
+  },
+];
+
 const departmentOptions = ["All Departments", "Yard", "Inventory", "Purchase Orders", "DTI", "Hardband"];
 const serviceLineModuleKeys: ModuleKey[] = ["dti", "dti_summary", "hardband"];
 
@@ -259,8 +306,9 @@ function normalizeRole(role: unknown) {
 
 function canOpenHref(modules: ModuleKey[], href?: string) {
   if (!href) return false;
-  if (href === "/home") return true;
+  if (href === "/home" || href.startsWith("/home#")) return true;
   if (href === "/service-lines") return modules.some((module) => serviceLineModuleKeys.includes(module));
+  if (href.startsWith("/inventory?")) return modules.includes("inventory");
   const moduleKey = moduleHrefToKey(href);
   return !moduleKey || modules.includes(moduleKey);
 }
@@ -284,6 +332,15 @@ function money(value: number) {
 
 function whole(value: number) {
   return Math.round(value).toLocaleString();
+}
+
+function moduleInitials(title: string) {
+  return title
+    .split(/[\s/&]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 function formatDate(value: unknown) {
@@ -858,7 +915,7 @@ export default function InternalHomePage() {
   });
   const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("Loading TITAN dashboard...");
+  const [message, setMessage] = useState("Loading TITAN command center...");
 
   useEffect(() => {
     loadProfileAndYards();
@@ -911,9 +968,14 @@ export default function InternalHomePage() {
     return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
   }, [profile]);
 
+  const visibleMobileLaunchCards = useMemo(() => {
+    if (!profile) return mobileLaunchCards;
+    return mobileLaunchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
+  }, [profile]);
+
   async function loadProfileAndYards() {
     setLoading(true);
-    setMessage("Loading TITAN dashboard...");
+    setMessage("Loading TITAN command center...");
 
     const { data: sessionData } = await supabase.auth.getSession();
     const user = sessionData.session?.user;
@@ -956,7 +1018,7 @@ export default function InternalHomePage() {
     setSelectedYardId(nextYardId);
 
     if (!nextYardId) {
-      setMessage("No yard access was found for this dashboard user.");
+      setMessage("No yard access was found for this Command Center user.");
       setLoading(false);
     } else {
       setMessage("");
@@ -1508,6 +1570,15 @@ export default function InternalHomePage() {
     setSelectedYardId(yardId);
   }
 
+  function openMobileLaunchCard(card: LaunchCard) {
+    if (card.href === "/home#command-center") {
+      document.getElementById("command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    window.location.href = card.href;
+  }
+
   return (
     <main className="internal-dashboard-shell">
       <aside className="internal-sidebar">
@@ -1547,10 +1618,51 @@ export default function InternalHomePage() {
         </div>
       </aside>
 
-      <section className="internal-dashboard-content">
+      <section className="mobile-home-landing" aria-label="TITAN mobile home">
+        <header className="mobile-home-hero">
+          <button className="brand compact brand-home-link mobile-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
+            <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
+            <div>
+              <div className="brand-title">TITAN</div>
+              <div className="brand-subtitle">Tubular Inventory Tracking & Asset Navigation</div>
+            </div>
+          </button>
+
+          <div className="mobile-home-welcome">
+            <span>Welcome</span>
+            <strong>{profile?.fullName ?? "TITAN"}</strong>
+            <small>{selectedYard?.name ?? "Select a yard"} / {profile?.role?.replace(/_/g, " ") ?? "Loading"}</small>
+          </div>
+        </header>
+
+        <section className="mobile-home-grid" aria-label="Available TITAN modules">
+          {visibleMobileLaunchCards.map((card) => (
+            <button
+              key={card.href}
+              className="mobile-home-module"
+              type="button"
+              onClick={() => openMobileLaunchCard(card)}
+            >
+              <span className="mobile-home-module-mark">{moduleInitials(card.title)}</span>
+              <strong>{card.title}</strong>
+            </button>
+          ))}
+        </section>
+
+        <div className="mobile-home-actions">
+          <button className="button" type="button" onClick={loadProfileAndYards} disabled={loading}>
+            Refresh Access
+          </button>
+          <button className="button" type="button" onClick={signOut}>
+            Sign Out
+          </button>
+        </div>
+      </section>
+
+      <section id="command-center" className="internal-dashboard-content">
         <header className="internal-dashboard-header">
           <div>
-            <span className="dashboard-eyebrow">Internal Dashboard</span>
+            <span className="dashboard-eyebrow">Command Center</span>
             <h1>TITAN Command Center</h1>
             <p>{selectedYard?.name ?? "Select a yard"} live operating snapshot.</p>
           </div>

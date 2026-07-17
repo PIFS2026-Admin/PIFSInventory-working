@@ -90,7 +90,7 @@ export default function DashboardPage() {
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [inventory, setInventory] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("Loading employee dashboard...");
+  const [message, setMessage] = useState("Loading employee command center...");
   const [passwordOpen, setPasswordOpen] = useState(false);
 
   async function signOut() {
@@ -100,7 +100,7 @@ export default function DashboardPage() {
 
   async function loadYardOptions() {
     setLoading(true);
-    setMessage("Loading employee dashboard...");
+    setMessage("Loading employee command center...");
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -129,7 +129,7 @@ export default function DashboardPage() {
     setSelectedYardId(nextYardId);
 
     if (!nextYardId) {
-      setMessage("No dashboard yard access was found for this user.");
+      setMessage("No Command Center yard access was found for this user.");
       setLoading(false);
     }
   }
@@ -138,7 +138,7 @@ export default function DashboardPage() {
     if (!selectedYardId) return;
 
     setLoading(true);
-    setMessage("Loading employee dashboard...");
+    setMessage("Loading employee command center...");
 
     const { data: sessionData } = await supabase.auth.getSession();
     const user = sessionData.session?.user;
@@ -219,7 +219,7 @@ export default function DashboardPage() {
     const { data: inventoryData, error: inventoryError } = await inventoryQuery;
 
     if (inventoryError) {
-      setMessage(`Inventory dashboard failed: ${inventoryError.message}`);
+      setMessage(`Inventory command center failed: ${inventoryError.message}`);
       setLoading(false);
       return;
     }
@@ -317,7 +317,7 @@ export default function DashboardPage() {
     return (
       <main className="dashboard-shell">
         <section className="empty-state">
-          <h1>TITAN Dashboard</h1>
+          <h1>TITAN Command Center</h1>
           <p>{message}</p>
         </section>
       </main>
@@ -330,7 +330,7 @@ export default function DashboardPage() {
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>
-            <div className="brand-title">TITAN Dashboard</div>
+            <div className="brand-title">TITAN Command Center</div>
             <div className="brand-subtitle">Weekly transactions, work zones, and yard movement</div>
           </div>
         </button>

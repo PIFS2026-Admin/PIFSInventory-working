@@ -116,7 +116,7 @@ export const permissionActions: PermissionAction[] = [
 ];
 
 export const permissionModules: ModulePermissionConfig[] = [
-  { key: "dashboard", label: "Dashboard", description: "Internal dashboard, charts, and operating overview." },
+  { key: "dashboard", label: "Command Center", description: "Internal command center, charts, and operating overview." },
   { key: "tubular_inventory", label: "Tubular Inventory", description: "Pipe yard inventory, rack map, and inventory records." },
   { key: "customer_portal", label: "Customer Portal", description: "Customer-facing inventory, tickets, and release forms." },
   { key: "release_requests", label: "Release Requests", description: "Customer release requests and release paperwork." },
@@ -281,7 +281,7 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
   },
   {
     key: "dashboard",
-    label: "Dashboard",
+    label: "Command Center",
     description: "Weekly activity, transaction counts, and management overview.",
   },
 ];

@@ -1528,7 +1528,7 @@ export default function DtiPage() {
         <div className="dashboard-actions">
           <button className="button" onClick={loadPage}>Refresh</button>
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
-          <button className="button" onClick={() => (window.location.href = "/dashboard")}>Dashboard</button>
+          <button className="button" onClick={() => (window.location.href = "/dashboard")}>Command Center</button>
           <button className="button" onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}>
             Sign Out
           </button>
