@@ -33,26 +33,31 @@ const hiddenRoutes = ["/login", "/print", "/ticket-print"];
 export default function MobileAppChrome() {
   const [path, setPath] = useState("");
   const [search, setSearch] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const syncPath = () => {
       setPath(window.location.pathname);
       setSearch(window.location.search);
     };
+    const syncViewport = () => setIsMobile(window.matchMedia("(max-width: 760px)").matches);
 
     syncPath();
+    syncViewport();
     window.addEventListener("popstate", syncPath);
     window.addEventListener("hashchange", syncPath);
     window.addEventListener("titan-route-change", syncPath);
+    window.addEventListener("resize", syncViewport);
 
     return () => {
       window.removeEventListener("popstate", syncPath);
       window.removeEventListener("hashchange", syncPath);
       window.removeEventListener("titan-route-change", syncPath);
+      window.removeEventListener("resize", syncViewport);
     };
   }, []);
 
-  if (!path || path.includes("/print") || hiddenRoutes.some((route) => path.startsWith(route))) return null;
+  if (isMobile || !path || path.includes("/print") || hiddenRoutes.some((route) => path.startsWith(route))) return null;
 
   return (
     <nav className="mobile-app-tabbar" aria-label="TITAN mobile navigation">

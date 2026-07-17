@@ -64,37 +64,13 @@
 }
 
 @media (max-width: 760px) {
-  .global-titan-nav {
-    display: none;
+  .global-titan-nav,
+  .mobile-app-tabbar {
+    display: none !important;
   }
 
   body {
-    padding-bottom: 0;
-  }
-
-  .mobile-app-tabbar {
-    position: sticky;
-    right: auto;
-    bottom: 0;
-    left: auto;
-    gap: 3px;
-    width: calc(100% - 16px);
-    margin: 20px 8px max(8px, env(safe-area-inset-bottom));
-    padding: 6px;
-    border-radius: 16px;
-  }
-
-  .mobile-app-tabbar a {
-    min-height: 44px;
-    gap: 3px;
-    border-radius: 12px;
-    font-size: 9px;
-  }
-
-  .mobile-app-tabbar-dot {
-    width: 15px;
-    height: 15px;
-    border-radius: 5px;
+    padding-bottom: 0 !important;
   }
 }
 

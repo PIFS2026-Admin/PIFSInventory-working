@@ -10,23 +10,28 @@ function isHiddenRoute(path: string) {
 
 export default function GlobalTitanNavigation() {
   const [path, setPath] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const syncPath = () => setPath(window.location.pathname);
+    const syncViewport = () => setIsMobile(window.matchMedia("(max-width: 760px)").matches);
 
     syncPath();
+    syncViewport();
     window.addEventListener("popstate", syncPath);
     window.addEventListener("hashchange", syncPath);
     window.addEventListener("titan-route-change", syncPath);
+    window.addEventListener("resize", syncViewport);
 
     return () => {
       window.removeEventListener("popstate", syncPath);
       window.removeEventListener("hashchange", syncPath);
       window.removeEventListener("titan-route-change", syncPath);
+      window.removeEventListener("resize", syncViewport);
     };
   }, []);
 
-  if (!path || path === "/home" || isHiddenRoute(path)) return null;
+  if (isMobile || !path || path === "/home" || isHiddenRoute(path)) return null;
 
   const showBack = path !== "/home";
 
