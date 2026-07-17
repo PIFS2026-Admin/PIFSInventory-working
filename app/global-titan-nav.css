@@ -1,0 +1,107 @@
+.global-titan-nav {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  z-index: 10015;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 118px);
+  padding: 5px;
+  border: 1px solid rgba(249, 115, 22, 0.26);
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.72);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(16px);
+}
+
+.global-titan-nav button {
+  min-height: 36px;
+  border: 1px solid rgba(70, 82, 101, 0.78);
+  border-radius: 999px;
+  background: rgba(19, 23, 30, 0.92);
+  color: #f8fafc;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.global-titan-nav button:hover {
+  border-color: rgba(249, 115, 22, 0.78);
+  background: rgba(249, 115, 22, 0.16);
+  transform: translateY(-1px);
+}
+
+.global-titan-nav-button,
+.global-titan-nav-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.global-titan-nav-button span {
+  margin-top: -2px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.global-titan-nav-home {
+  padding-left: 6px;
+  padding-right: 14px;
+}
+
+.global-titan-nav-home img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid rgba(249, 115, 22, 0.32);
+}
+
+@media (max-width: 760px) {
+  .global-titan-nav {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    gap: 6px;
+    max-width: calc(100vw - 96px);
+    padding: 4px;
+  }
+
+  .global-titan-nav button {
+    min-height: 34px;
+    font-size: 11px;
+  }
+
+  .global-titan-nav-button,
+  .global-titan-nav-home {
+    padding-inline: 9px;
+  }
+
+  .global-titan-nav-home {
+    padding-left: 5px;
+    padding-right: 10px;
+  }
+
+  .global-titan-nav-home img {
+    width: 26px;
+    height: 26px;
+  }
+
+  .global-titan-nav-home strong {
+    max-width: 82px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media print {
+  .global-titan-nav {
+    display: none !important;
+  }
+}

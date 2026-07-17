@@ -12,7 +12,7 @@ type AppTab = {
 
 const appTabs = [
   { href: "/home", label: "Home", match: ["/home", "/dashboard"] },
-  { href: "/inventory", label: "Inventory", match: ["/inventory", "/purchase-orders"], excludeView: ["orders", "cart"] },
+  { href: "/inventory", label: "Consumables", match: ["/inventory", "/purchase-orders"], excludeView: ["orders", "cart"] },
   { href: "/communications", label: "Comms", match: ["/communications"] },
   { href: "/inventory?view=orders", label: "Store", match: ["/inventory"], view: ["orders", "cart"] },
   { href: "/admin", label: "Admin", match: ["/admin"] },
