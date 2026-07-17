@@ -1570,6 +1570,13 @@ export default function InternalHomePage() {
     setSelectedYardId(yardId);
   }
 
+  async function refreshCommandCenter() {
+    await loadProfileAndYards();
+    if (selectedYardId) {
+      await loadDashboardData(selectedYardId);
+    }
+  }
+
   function openMobileLaunchCard(card: LaunchCard) {
     if (card.href === "/home#command-center") {
       document.getElementById("command-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1611,7 +1618,6 @@ export default function InternalHomePage() {
         </nav>
 
         <div className="internal-sidebar-footer">
-          <NotificationCenter />
           <button className="button" type="button" onClick={signOut}>
             Sign Out
           </button>
@@ -1650,8 +1656,9 @@ export default function InternalHomePage() {
         </section>
 
         <div className="mobile-home-actions">
-          <button className="button" type="button" onClick={loadProfileAndYards} disabled={loading}>
-            Refresh Access
+          <NotificationCenter />
+          <button className="button" type="button" onClick={refreshCommandCenter} disabled={loading}>
+            Refresh
           </button>
           <button className="button" type="button" onClick={signOut}>
             Sign Out
@@ -1667,12 +1674,10 @@ export default function InternalHomePage() {
             <p>{selectedYard?.name ?? "Select a yard"} live operating snapshot.</p>
           </div>
           <div className="internal-dashboard-actions">
-            <button className="button" type="button" onClick={loadProfileAndYards} disabled={loading}>
-              Refresh Access
+            <button className="button primary" type="button" onClick={refreshCommandCenter} disabled={loading || !selectedYardId}>
+              Refresh
             </button>
-            <button className="button primary" type="button" onClick={() => selectedYardId && loadDashboardData(selectedYardId)} disabled={loading || !selectedYardId}>
-              Refresh Data
-            </button>
+            <NotificationCenter />
           </div>
         </header>
 

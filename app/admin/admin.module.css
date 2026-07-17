@@ -120,6 +120,7 @@
 .scope[data-active-control="yard-access"] :global(.admin-control-section:not([data-admin-control="yard-access"])),
 .scope[data-active-control="permissions"] :global(.admin-control-section:not([data-admin-control="permissions"])),
 .scope[data-active-control="email-notifications"] :global(.admin-control-section:not([data-admin-control="email-notifications"])),
+.scope[data-active-control="po-approval-matrix"] :global(.admin-control-section:not([data-admin-control="po-approval-matrix"])),
 .scope[data-active-control="yard-setup"] :global(.admin-control-section:not([data-admin-control="yard-setup"])) {
   display: none;
 }

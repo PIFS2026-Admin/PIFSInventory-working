@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
+import PoApprovalMatrixManager from "../../components/PoApprovalMatrixManager";
 import styles from "./admin.module.css";
 import {
   allRoleOptions,
@@ -133,23 +134,15 @@ type AdminControlKey =
   | "yard-access"
   | "permissions"
   | "email-notifications"
+  | "po-approval-matrix"
   | "yard-setup";
 
-type AdminControlCard =
-  | {
-      key: AdminControlKey;
-      title: string;
-      description: string;
-      group: string;
-      href?: undefined;
-    }
-  | {
-      key: "po-approval-matrix";
-      title: string;
-      description: string;
-      group: string;
-      href: string;
-    };
+type AdminControlCard = {
+  key: AdminControlKey;
+  title: string;
+  description: string;
+  group: string;
+};
 
 type AdminUserForm = {
   email: string;
@@ -160,6 +153,7 @@ type AdminUserForm = {
 };
 
 type UserRole =
+  | "owner"
   | "admin"
   | "employee"
   | "customer"
@@ -192,6 +186,7 @@ const companyLogoBucket = "company-logos";
 
 const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const inventoryYardAssignableRoles: UserRole[] = [
+  "owner",
   "admin",
   "employee",
   "service_line_manager",
@@ -308,6 +303,7 @@ const adminSectionControlKeys: AdminControlKey[] = [
   "yard-access",
   "permissions",
   "email-notifications",
+  "po-approval-matrix",
   "yard-setup",
 ];
 
@@ -359,7 +355,6 @@ const adminControls: AdminControlCard[] = [
     title: "PO Approval Matrix",
     description: "Set who approves purchase orders by yard, department, cost code, amount, and tier.",
     group: "Purchasing",
-    href: "/purchase-orders?tab=matrix",
   },
   {
     key: "inspectors",
@@ -435,6 +430,21 @@ function sortInventoryYards(yards: Yard[]) {
 
 function canAssignInventoryYards(role: AdminUserForm["role"] | Profile["role"]) {
   return inventoryYardAssignableRoles.includes(role);
+}
+
+function canManagePoApprovalMatrix(fullName: string, email: string, role: string) {
+  const normalizedName = fullName.trim().toLowerCase();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedRole = String(role ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+
+  return (
+    normalizedRole === "owner" ||
+    normalizedName === "wade wisenor" ||
+    normalizedName === "nick grant" ||
+    normalizedEmail === "wade@pathfinderinspections.com" ||
+    normalizedEmail === "nick.grant@pathfinderinspections.com" ||
+    normalizedEmail === "ngrant@pathfinderinspections.com"
+  );
 }
 
 function mapInventoryUserYards(rows: any[]): InventoryUserYard[] {
@@ -523,6 +533,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [currentUserName, setCurrentUserName] = useState("User");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState("");
 
   const activeCompanies = useMemo(
     () => companies.filter((company) => company.isActive),
@@ -567,9 +579,21 @@ export default function AdminPage() {
     [permissionRolePreview]
   );
 
-  const activeControlDetails = useMemo(
-    () => adminControls.find((control) => control.key === activeControl) || null,
-    [activeControl]
+  const canOpenPoApprovalMatrix = useMemo(
+    () => canManagePoApprovalMatrix(currentUserName, currentUserEmail, currentUserRole),
+    [currentUserEmail, currentUserName, currentUserRole]
+  );
+
+  const visibleAdminControls = useMemo(
+    () => adminControls.filter((control) => control.key !== "po-approval-matrix" || canOpenPoApprovalMatrix),
+    [canOpenPoApprovalMatrix]
+  );
+
+  const visibleActiveControl = activeControl === "po-approval-matrix" && !canOpenPoApprovalMatrix ? "" : activeControl;
+
+  const visibleActiveControlDetails = useMemo(
+    () => adminControls.find((control) => control.key === visibleActiveControl) || null,
+    [visibleActiveControl]
   );
 
   useEffect(() => {
@@ -605,6 +629,7 @@ export default function AdminPage() {
     if (control === "yard-access") return `${yards.length} yards`;
     if (control === "permissions") return `${moduleAccessOptions.length} screens`;
     if (control === "email-notifications") return `${emailNotificationTypes.length} notice types`;
+    if (control === "po-approval-matrix") return "Routing rules";
     if (control === "inspectors") return `${inspectors.length} inspectors`;
     if (control === "part-numbers") return `${partNumbers.length} parts`;
     if (control === "status-condition") return `${inventoryOptions.length} options`;
@@ -613,8 +638,7 @@ export default function AdminPage() {
   }
 
   function adminControlCardStat(control: AdminControlCard) {
-    if (control.href) return "Open matrix";
-    return adminControlStat(control.key as AdminControlKey);
+    return adminControlStat(control.key);
   }
 
   function toggleRolePermission(moduleKey: PermissionModuleKey, action: PermissionAction) {
@@ -657,12 +681,14 @@ export default function AdminPage() {
       .eq("id", user.id)
       .single();
 
-    if (!profile || !["admin", "employee"].includes(profile.role)) {
+    if (!profile || !["admin", "employee", "owner"].includes(profile.role)) {
       setMessage("You do not have access to admin tools.");
       return;
     }
 
     setCurrentUserName(profile.full_name || user.email || "User");
+    setCurrentUserEmail(user.email || "");
+    setCurrentUserRole(profile.role || "");
     await Promise.all([
       loadCompanies(),
       loadProfiles(),
@@ -1901,7 +1927,7 @@ export default function AdminPage() {
   }, []);
 
   return (
-    <main className={`customer-shell ${styles.scope}`} data-active-control={activeControl || "home"}>
+    <main className={`customer-shell ${styles.scope}`} data-active-control={visibleActiveControl || "home"}>
       <header className="customer-topbar">
         <button className="brand brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
@@ -1930,28 +1956,22 @@ export default function AdminPage() {
       {message && <div className="modal-message">{message}</div>}
 
       <section className="customer-welcome">
-        <span>{activeControlDetails ? "Admin Control" : "Welcome"}</span>
-        <h1>{activeControlDetails?.title || currentUserName}</h1>
+        <span>{visibleActiveControlDetails ? "Admin Control" : "Welcome"}</span>
+        <h1>{visibleActiveControlDetails?.title || currentUserName}</h1>
         <p>
-          {activeControlDetails?.description ||
+          {visibleActiveControlDetails?.description ||
             "Choose one admin control below. Each area opens on its own focused page so you are not fighting one giant scrolling admin screen."}
         </p>
       </section>
 
-      {!activeControl && (
+      {!visibleActiveControl && (
         <section className="admin-control-launch-grid">
-          {adminControls.map((control) => (
+          {visibleAdminControls.map((control) => (
             <button
               key={control.key}
               type="button"
               className="ticket-card admin-control-launch-card"
-              onClick={() => {
-                if (control.href) {
-                  window.location.href = control.href;
-                  return;
-                }
-                openAdminControl(control.key as AdminControlKey);
-              }}
+              onClick={() => openAdminControl(control.key)}
             >
               <span>{control.group}</span>
               <strong>{control.title}</strong>
@@ -1962,14 +1982,14 @@ export default function AdminPage() {
         </section>
       )}
 
-      {activeControlDetails && (
+      {visibleActiveControlDetails && (
         <section className="ticket-card admin-active-control-bar">
           <button className="button" type="button" onClick={closeAdminControl}>
             Back to Admin Controls
           </button>
           <div>
-            <strong>{activeControlDetails.title}</strong>
-            <span>{activeControlDetails.group}</span>
+            <strong>{visibleActiveControlDetails.title}</strong>
+            <span>{visibleActiveControlDetails.group}</span>
           </div>
         </section>
       )}
@@ -2073,6 +2093,7 @@ export default function AdminPage() {
               <option value="inventory_specialist">Inventory Specialist</option>
               <option value="inventory_manager">Inventory Manager</option>
               <option value="operator">Hardband Operator</option>
+              <option value="owner">Owner</option>
               <option value="employee">Employee</option>
               <option value="admin">Admin</option>
             </select>
@@ -2595,6 +2616,7 @@ export default function AdminPage() {
                       <option value="inventory_specialist">Inventory Specialist</option>
                       <option value="inventory_manager">Inventory Manager</option>
                       <option value="operator">Hardband Operator</option>
+                      <option value="owner">Owner</option>
                       <option value="employee">Employee</option>
                       <option value="admin">Admin</option>
                     </select>
@@ -2905,6 +2927,19 @@ export default function AdminPage() {
               </section>
             );
           })}
+        </div>
+      </details>
+
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="po-approval-matrix" open={visibleActiveControl === "po-approval-matrix"}>
+        <summary>
+          <div>
+            <h3>PO Approval Matrix</h3>
+            <p>Set who approves purchase orders by yard, department, cost code, amount, and tier.</p>
+          </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+          <PoApprovalMatrixManager />
         </div>
       </details>
 

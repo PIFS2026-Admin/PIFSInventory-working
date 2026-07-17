@@ -56,6 +56,21 @@ function normalizeRole(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, "_");
 }
 
+function actorCanManageApprovalMatrix(actor: Actor) {
+  const normalizedRole = normalizeRole(actor.role);
+  const normalizedName = String(actor.fullName ?? "").trim().toLowerCase();
+  const normalizedEmail = String(actor.email ?? "").trim().toLowerCase();
+
+  return (
+    normalizedRole === "owner" ||
+    normalizedName === "wade wisenor" ||
+    normalizedName === "nick grant" ||
+    normalizedEmail === "wade@pathfinderinspections.com" ||
+    normalizedEmail === "nick.grant@pathfinderinspections.com" ||
+    normalizedEmail === "ngrant@pathfinderinspections.com"
+  );
+}
+
 function numberValue(value: unknown) {
   const parsed = Number(String(value ?? "0").replace(/[$,]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -697,7 +712,9 @@ async function handleSaveVendor(body: Record<string, any>, actor: Actor) {
 
 async function handleSaveApprovalMatrixRule(body: Record<string, any>, actor: Actor) {
   const supabase = ensureAdminClient();
-  if (!roleCanManagePurchaseOrders(actor.role)) throw new Error("Only admins and PO managers can manage approval routing.");
+  if (!actorCanManageApprovalMatrix(actor)) {
+    throw new Error("Only Wade Wisenor, Nick Grant, and Owners can manage approval routing.");
+  }
 
   const ruleId = String(body.ruleId ?? "").trim();
   const approverId = String(body.approverId ?? "").trim() || null;
@@ -750,7 +767,9 @@ async function handleSaveApprovalMatrixRule(body: Record<string, any>, actor: Ac
 
 async function handleDeactivateApprovalMatrixRule(body: Record<string, any>, actor: Actor) {
   const supabase = ensureAdminClient();
-  if (!roleCanManagePurchaseOrders(actor.role)) throw new Error("Only admins and PO managers can manage approval routing.");
+  if (!actorCanManageApprovalMatrix(actor)) {
+    throw new Error("Only Wade Wisenor, Nick Grant, and Owners can manage approval routing.");
+  }
 
   const ruleId = String(body.ruleId ?? "").trim();
   if (!ruleId) throw new Error("Approval matrix rule is required.");
