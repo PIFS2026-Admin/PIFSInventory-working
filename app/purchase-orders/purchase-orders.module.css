@@ -1,0 +1,250 @@
+.scope {
+  display: contents;
+}
+
+.scope:global(.po-lifecycle) {
+  gap: 18px;
+}
+
+.scope :global(.po-tab-bar) {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 0 2px;
+}
+
+.scope :global(.po-tab-bar button) {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(17, 24, 39, 0.86);
+  color: #dbeafe;
+  border-radius: 8px;
+  padding: 10px 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.scope :global(.po-tab-bar button.active) {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.16);
+  color: #fff7ed;
+  box-shadow: inset 0 -2px 0 #f97316;
+}
+
+.scope :global(.po-kpi-grid) {
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+}
+
+.scope :global(.po-two-column) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+  gap: 14px;
+}
+
+.scope :global(.po-two-column.wide-left) {
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+}
+
+.scope :global(.po-status-flow) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.scope :global(.po-status-flow div),
+.scope :global(.invoice-preview) {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.68);
+  padding: 12px;
+}
+
+.scope :global(.po-status-flow strong) {
+  display: block;
+  font-size: 28px;
+  color: #fff;
+}
+
+.scope :global(.po-status-flow span),
+.scope :global(.invoice-preview span),
+.scope :global(.invoice-preview small) {
+  display: block;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.scope :global(.po-list-mini) {
+  display: grid;
+  gap: 8px;
+}
+
+.scope :global(.po-list-mini button) {
+  text-align: left;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(2, 6, 23, 0.5);
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 11px 12px;
+}
+
+.scope :global(.po-list-mini button span),
+.scope :global(.po-list-mini button em) {
+  display: block;
+  color: #9ca3af;
+  margin-top: 4px;
+  font-style: normal;
+}
+
+.scope :global(.po-list-mini button em) {
+  color: #fb923c;
+  font-weight: 900;
+}
+
+.scope :global(.po-filter-grid) {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(5, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.scope :global(.po-table-wrap) {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+}
+
+.scope :global(.po-table) {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.scope :global(.po-table th),
+.scope :global(.po-table td) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 12px 13px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.scope :global(.po-table th) {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #10141c;
+  color: #bfdbfe;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scope :global(.po-table td) {
+  color: #f8fafc;
+}
+
+.scope :global(.po-table td span) {
+  color: #94a3b8;
+}
+
+.scope :global(.po-row-actions) {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scope :global(.po-status-pill) {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #e5e7eb;
+  background: rgba(31, 41, 55, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scope :global(.po-status-pill.status-draft) {
+  border-color: #64748b;
+}
+
+.scope :global(.po-status-pill.status-submitted),
+.scope :global(.po-status-pill.status-approved) {
+  border-color: #60a5fa;
+  color: #bfdbfe;
+}
+
+.scope :global(.po-status-pill.status-sent-to-vendor),
+.scope :global(.po-status-pill.status-partially-received) {
+  border-color: #fb923c;
+  color: #fed7aa;
+}
+
+.scope :global(.po-status-pill.status-fully-received),
+.scope :global(.po-status-pill.status-invoiced),
+.scope :global(.po-status-pill.status-closed) {
+  border-color: #34d399;
+  color: #bbf7d0;
+}
+
+.scope :global(.po-status-pill.status-rejected),
+.scope :global(.po-status-pill.status-cancelled) {
+  border-color: #f87171;
+  color: #fecaca;
+}
+
+.scope :global(.po-receive-card) {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  padding: 14px;
+  background: rgba(15, 23, 42, 0.45);
+  margin-top: 12px;
+}
+
+.scope :global(.compact-field) {
+  max-width: 110px;
+}
+
+.scope :global(.invoice-preview) {
+  margin-top: 14px;
+}
+
+.scope :global(.invoice-preview.matched) {
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+.scope :global(.invoice-preview.exception) {
+  border-color: rgba(248, 113, 113, 0.58);
+}
+
+.scope :global(.audit-cell) {
+  max-width: 320px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope :global(.checkbox-line) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+}
+
+@media (max-width: 900px) {
+  .scope :global(.po-kpi-grid),
+  .scope :global(.po-two-column),
+  .scope :global(.po-two-column.wide-left),
+  .scope :global(.po-filter-grid) {
+    grid-template-columns: 1fr;
+  }
+
+  .scope :global(.po-table) {
+    min-width: 760px;
+  }
+}
