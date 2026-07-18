@@ -121,7 +121,6 @@ type LaborForm = {
   technicianName: string;
   workDate: string;
   hours: string;
-  laborRate: string;
   notes: string;
 };
 
@@ -157,11 +156,12 @@ const emptyPartForm: PartForm = {
   notes: "",
 };
 
+const defaultLaborRate = 40;
+
 const emptyLaborForm: LaborForm = {
   technicianName: "",
   workDate: new Date().toISOString().slice(0, 10),
   hours: "1",
-  laborRate: "0",
   notes: "",
 };
 
@@ -910,7 +910,7 @@ export default function EquipmentRepairsPage() {
       return;
     }
     const hours = numberValue(laborForm.hours);
-    const rate = numberValue(laborForm.laborRate);
+    const rate = defaultLaborRate;
     if (!laborForm.technicianName.trim() || hours <= 0) {
       setMessage("Technician and hours are required.");
       return;
@@ -923,7 +923,7 @@ export default function EquipmentRepairsPage() {
       work_date: laborForm.workDate || new Date().toISOString().slice(0, 10),
       hours,
       labor_rate: rate,
-      line_total: hours * rate,
+      line_total: hours * defaultLaborRate,
       notes: laborForm.notes.trim() || null,
       created_by: userId || null,
     };
@@ -934,7 +934,7 @@ export default function EquipmentRepairsPage() {
       return;
     }
     await writeAudit(selectedWorkOrderId, "add_labor", payload).catch(() => undefined);
-    setLaborForm({ ...emptyLaborForm, technicianName: laborForm.technicianName, laborRate: laborForm.laborRate });
+    setLaborForm({ ...emptyLaborForm, technicianName: laborForm.technicianName });
     await loadWorkOrders(selectedYardId);
     setMessage("Repair time added.");
     setSaving(false);
@@ -1718,6 +1718,7 @@ export default function EquipmentRepairsPage() {
             <h2>
               <span className="dot"></span>Repair Time
             </h2>
+            <p className="muted-text repair-rate-help">Labor cost is automatically calculated at $40 per hour.</p>
             <div className="repair-inline-form">
               <label className="repair-entry-field">
                 <span>Technician</span>
@@ -1730,10 +1731,6 @@ export default function EquipmentRepairsPage() {
               <label className="repair-entry-field">
                 <span>Hours</span>
                 <input value={laborForm.hours} onChange={(event) => setLaborForm({ ...laborForm, hours: event.target.value })} placeholder="0.00" inputMode="decimal" />
-              </label>
-              <label className="repair-entry-field">
-                <span>Rate</span>
-                <input value={laborForm.laborRate} onChange={(event) => setLaborForm({ ...laborForm, laborRate: event.target.value })} placeholder="0.00" inputMode="decimal" />
               </label>
               <button className="ci-btn pri" type="button" onClick={addLaborEntry} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Time

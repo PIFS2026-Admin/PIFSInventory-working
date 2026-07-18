@@ -677,10 +677,14 @@
 
 .scope :global(.repair-inline-form) {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) 140px 100px 100px auto;
+  grid-template-columns: minmax(150px, 1fr) 140px 100px auto;
   align-items: end;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.scope :global(.repair-rate-help) {
+  margin: -2px 0 12px;
 }
 
 .scope :global(.repair-inline-form.parts) {
