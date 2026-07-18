@@ -11,6 +11,7 @@ create table if not exists public.user_module_permissions (
       'yard_view',
       'inventory',
       'purchase_orders',
+      'work_orders',
       'dti',
       'dti_summary',
       'hardband',

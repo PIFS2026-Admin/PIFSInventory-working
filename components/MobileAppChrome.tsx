@@ -13,7 +13,7 @@ type AppTab = {
 
 const appTabs: AppTab[] = [
   { href: "/home", label: "Home", icon: "home", match: ["/home", "/dashboard"] },
-  { href: "/service-lines", label: "Services", icon: "service", match: ["/service-lines", "/dti", "/dti-summary", "/hardband"] },
+  { href: "/service-lines", label: "Services", icon: "service", match: ["/service-lines", "/dti", "/dti-summary", "/hardband", "/equipment-repairs"] },
   { href: "/communications", label: "Comms", icon: "chat", match: ["/communications"] },
   { href: "/inventory?view=orders", label: "Store", icon: "store", match: ["/inventory"], view: ["orders", "cart"] },
   { href: "/admin", label: "Admin", icon: "admin", match: ["/admin"] },

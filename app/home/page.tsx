@@ -225,6 +225,10 @@ const launchCards: LaunchCard[] = [
     href: "/purchase-orders",
   },
   {
+    title: "Equipment Repairs",
+    href: "/equipment-repairs",
+  },
+  {
     title: "Document Control",
     href: "/document-control",
   },
@@ -270,6 +274,10 @@ const mobileLaunchCards: LaunchCard[] = [
   {
     title: "Purchase Orders",
     href: "/purchase-orders",
+  },
+  {
+    title: "Equipment Repairs",
+    href: "/equipment-repairs",
   },
   {
     title: "Document Control",

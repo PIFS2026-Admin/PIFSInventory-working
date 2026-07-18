@@ -89,6 +89,7 @@ export type ModuleKey =
   | "yard_view"
   | "inventory"
   | "purchase_orders"
+  | "work_orders"
   | "dti"
   | "dti_summary"
   | "hardband"
@@ -250,6 +251,11 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
     description: "Vendor purchase orders, receiving, approvals, and PO reports.",
   },
   {
+    key: "work_orders",
+    label: "Equipment Repairs",
+    description: "Equipment repair work orders, repair time, parts usage, and maintenance cost tracking.",
+  },
+  {
     key: "dti",
     label: "DTI",
     description: "DTI jobs, scorecards, red flags, and lead inspector performance.",
@@ -292,6 +298,7 @@ const legacyModuleRequirements: Record<ModuleKey, PermissionModuleKey[]> = {
   yard_view: ["tubular_inventory", "receiving", "shipping", "pipe_moves"],
   inventory: ["consumable_inventory", "issue_tickets"],
   purchase_orders: ["purchase_orders"],
+  work_orders: ["work_orders"],
   dti: ["dti", "lead_scorecards"],
   dti_summary: ["daily_summaries"],
   hardband: ["hardbanding"],
@@ -584,6 +591,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/home" || href === "/dashboard") return "dashboard";
   if (href === "/inventory") return "inventory";
   if (href === "/purchase-orders") return "purchase_orders";
+  if (href === "/equipment-repairs") return "work_orders";
   if (href === "/dti") return "dti";
   if (href === "/dti-summary") return "dti_summary";
   if (href === "/hardband") return "hardband";
