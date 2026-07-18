@@ -1608,13 +1608,17 @@ export default function AdminPage() {
     setLoading(false);
   }
 
-  function openYardAccess(profileId: string) {
+  function openYardAccess(profileId: string, navigateToControl = false) {
     setYardAccessUserId(profileId);
     setYardAccessSelection(
       inventoryUserYards
         .filter((assignment) => assignment.userId === profileId)
         .map((assignment) => assignment.yardId)
     );
+
+    if (navigateToControl) {
+      openAdminControl("yard-access");
+    }
   }
 
   function permissionsForProfile(profile: Profile) {
@@ -1627,10 +1631,14 @@ export default function AdminPage() {
       : defaultModulesForRole(profile.role);
   }
 
-  function openModuleAccess(profileId: string) {
+  function openModuleAccess(profileId: string, navigateToControl = false) {
     const profile = profiles.find((item) => item.id === profileId);
     setModuleAccessUserId(profileId);
     setModuleAccessSelection(profile ? permissionsForProfile(profile) : []);
+
+    if (navigateToControl) {
+      openAdminControl("permissions");
+    }
   }
 
   function toggleModuleAccess(moduleKey: ModuleKey) {
@@ -2637,12 +2645,12 @@ export default function AdminPage() {
                       </select>
                     )}
                     {canAssignInventoryYards(profile.role) && (
-                      <button className="button" onClick={() => openYardAccess(profile.id)}>
+                      <button className="button" type="button" onClick={() => openYardAccess(profile.id, true)}>
                         Yards
                       </button>
                     )}
                     {profile.role !== "customer" && (
-                      <button className="button" onClick={() => openModuleAccess(profile.id)}>
+                      <button className="button" type="button" onClick={() => openModuleAccess(profile.id, true)}>
                         Permissions
                       </button>
                     )}
