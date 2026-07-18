@@ -324,6 +324,7 @@ export default function EquipmentRepairsPage() {
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm);
   const [laborForm, setLaborForm] = useState<LaborForm>(emptyLaborForm);
   const [search, setSearch] = useState("");
+  const [partLookup, setPartLookup] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [technicianFilter, setTechnicianFilter] = useState("all");
@@ -424,6 +425,21 @@ export default function EquipmentRepairsPage() {
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .slice(0, 8);
   }, [workOrders]);
+
+  const partSearchResults = useMemo(() => {
+    const term = partLookup.trim().toLowerCase();
+    if (!term) return [];
+    return items
+      .filter((item) =>
+        [item.itemCode, item.itemName, item.category, item.location, item.uom]
+          .join(" ")
+          .toLowerCase()
+          .includes(term),
+      )
+      .slice(0, 8);
+  }, [items, partLookup]);
+
+  const selectedPartItem = items.find((item) => item.id === partForm.itemId) || null;
 
   useEffect(() => {
     loadPage();
@@ -793,9 +809,39 @@ export default function EquipmentRepairsPage() {
     }
     await writeAudit(selectedWorkOrderId, "add_part_line", payload).catch(() => undefined);
     setPartForm(emptyPartForm);
+    setPartLookup("");
     await loadWorkOrders(selectedYardId);
     setMessage("Part added. Post it when the part is actually used.");
     setSaving(false);
+  }
+
+  function setRepairView(next: { status?: string; priority?: string; technician?: string }) {
+    setStatusFilter(next.status ?? statusFilter);
+    setPriorityFilter(next.priority ?? priorityFilter);
+    setTechnicianFilter(next.technician ?? technicianFilter);
+    setActiveTab("orders");
+  }
+
+  function clearRepairView() {
+    setSearch("");
+    setStatusFilter("active");
+    setPriorityFilter("all");
+    setTechnicianFilter("all");
+  }
+
+  function handlePartLookupChange(value: string) {
+    setPartLookup(value);
+    const normalized = value.trim().toLowerCase();
+    const exact = items.find((item) => {
+      const label = `${item.itemCode} - ${item.itemName}`.toLowerCase();
+      return item.itemCode.toLowerCase() === normalized || item.itemName.toLowerCase() === normalized || label === normalized;
+    });
+    setPartForm((current) => ({ ...current, itemId: exact?.id || "" }));
+  }
+
+  function selectPartForRepair(item: InventoryItem) {
+    setPartLookup(`${item.itemCode} - ${item.itemName}`);
+    setPartForm((current) => ({ ...current, itemId: item.id }));
   }
 
   async function postPartToInventory(part: WorkOrderPart) {
@@ -1035,6 +1081,31 @@ export default function EquipmentRepairsPage() {
               ))}
             </select>
           </label>
+          <label className="ci-field">
+            <span className="lab">Priority</span>
+            <select className="ci-select" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
+              <option value="all">All Priority</option>
+              {priorities.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="ci-field">
+            <span className="lab">Technician</span>
+            <select className="ci-select" value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)}>
+              <option value="all">All Techs</option>
+              <option value="unassigned">Unassigned</option>
+              {technicianCounts
+                .filter(([technician]) => technician !== "Unassigned")
+                .map(([technician, count]) => (
+                  <option key={technician} value={technician}>
+                    {technician} ({whole(count)})
+                  </option>
+                ))}
+            </select>
+          </label>
           <label className="ci-field repair-search-field">
             <span className="lab">Lookup</span>
             <input
@@ -1046,110 +1117,42 @@ export default function EquipmentRepairsPage() {
           </label>
         </div>
         <div className="repair-quick-board">
-          <div className="repair-quick-lane">
-            <div className="repair-quick-title">Status</div>
-            <div className="repair-chip-row">
-              {[
-                ["active", "Active"],
-                ["Open", "Open"],
-                ["In Repair", "In Repair"],
-                ["Awaiting Parts", "Waiting Parts"],
-                ["Ready for Review", "Review"],
-                ["Closed", "Closed"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  className={`repair-chip ${statusFilter === value ? "on" : ""}`}
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(value);
-                    setActiveTab("orders");
-                  }}
-                >
-                  <span>{label}</span>
-                  <b>{whole(statusCounts.get(value) || 0)}</b>
-                </button>
-              ))}
-            </div>
+          <div className="repair-quick-head">
+            <div className="repair-quick-title">Quick Views</div>
+            <button className="repair-clear-view" type="button" onClick={clearRepairView}>
+              Clear View
+            </button>
           </div>
-          <div className="repair-quick-lane">
-            <div className="repair-quick-title">Priority</div>
-            <div className="repair-chip-row">
-              <button
-                className={`repair-chip ${priorityFilter === "all" ? "on" : ""}`}
-                type="button"
-                onClick={() => {
-                  setPriorityFilter("all");
-                  setActiveTab("orders");
-                }}
-              >
-                <span>All Priority</span>
-                <b>{whole(priorityCounts.get("all") || 0)}</b>
-              </button>
-              {priorities
-                .slice()
-                .reverse()
-                .map((priority) => (
-                  <button
-                    key={priority}
-                    className={`repair-chip priority-${statusClass(priority)} ${priorityFilter === priority ? "on" : ""}`}
-                    type="button"
-                    onClick={() => {
-                      setPriorityFilter(priority);
-                      setActiveTab("orders");
-                    }}
-                  >
-                    <span>{priority}</span>
-                    <b>{whole(priorityCounts.get(priority) || 0)}</b>
-                  </button>
-                ))}
-            </div>
+          <div className="repair-chip-row">
+            <button className={`repair-chip ${statusFilter === "active" && priorityFilter === "all" && technicianFilter === "all" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "all", technician: "all" })}>
+              <span>Active</span>
+              <b>{whole(statusCounts.get("active") || 0)}</b>
+            </button>
+            <button className={`repair-chip ${statusFilter === "Open" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "Open", priority: "all", technician: "all" })}>
+              <span>Open</span>
+              <b>{whole(statusCounts.get("Open") || 0)}</b>
+            </button>
+            <button className={`repair-chip ${statusFilter === "In Repair" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "In Repair", priority: "all", technician: "all" })}>
+              <span>In Repair</span>
+              <b>{whole(statusCounts.get("In Repair") || 0)}</b>
+            </button>
+            <button className={`repair-chip ${statusFilter === "Awaiting Parts" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "Awaiting Parts", priority: "all", technician: "all" })}>
+              <span>Waiting Parts</span>
+              <b>{whole(statusCounts.get("Awaiting Parts") || 0)}</b>
+            </button>
+            <button className={`repair-chip priority-critical ${priorityFilter === "Critical" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "Critical", technician: "all" })}>
+              <span>Critical</span>
+              <b>{whole(priorityCounts.get("Critical") || 0)}</b>
+            </button>
+            <button className={`repair-chip priority-high ${priorityFilter === "High" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "High", technician: "all" })}>
+              <span>High</span>
+              <b>{whole(priorityCounts.get("High") || 0)}</b>
+            </button>
+            <button className={`repair-chip ${technicianFilter === "unassigned" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "all", technician: "unassigned" })}>
+              <span>Unassigned</span>
+              <b>{whole(technicianCounts.find(([name]) => name === "Unassigned")?.[1] || 0)}</b>
+            </button>
           </div>
-          <div className="repair-quick-lane">
-            <div className="repair-quick-title">Technician</div>
-            <div className="repair-chip-row">
-              <button
-                className={`repair-chip ${technicianFilter === "all" ? "on" : ""}`}
-                type="button"
-                onClick={() => {
-                  setTechnicianFilter("all");
-                  setActiveTab("orders");
-                }}
-              >
-                <span>All Techs</span>
-                <b>{whole(workOrders.length)}</b>
-              </button>
-              {technicianCounts.map(([technician, count]) => {
-                const value = technician === "Unassigned" ? "unassigned" : technician;
-                return (
-                  <button
-                    key={technician}
-                    className={`repair-chip ${technicianFilter === value ? "on" : ""}`}
-                    type="button"
-                    onClick={() => {
-                      setTechnicianFilter(value);
-                      setActiveTab("orders");
-                    }}
-                  >
-                    <span>{technician}</span>
-                    <b>{whole(count)}</b>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <button
-            className="repair-clear-view"
-            type="button"
-            onClick={() => {
-              setSearch("");
-              setStatusFilter("active");
-              setPriorityFilter("all");
-              setTechnicianFilter("all");
-            }}
-          >
-            Clear View
-          </button>
         </div>
       </section>
 
@@ -1418,10 +1421,22 @@ export default function EquipmentRepairsPage() {
               <span className="dot"></span>Repair Time
             </h2>
             <div className="repair-inline-form">
-              <input value={laborForm.technicianName} onChange={(event) => setLaborForm({ ...laborForm, technicianName: event.target.value })} placeholder="Technician" />
-              <input type="date" value={laborForm.workDate} onChange={(event) => setLaborForm({ ...laborForm, workDate: event.target.value })} />
-              <input value={laborForm.hours} onChange={(event) => setLaborForm({ ...laborForm, hours: event.target.value })} placeholder="Hours" inputMode="decimal" />
-              <input value={laborForm.laborRate} onChange={(event) => setLaborForm({ ...laborForm, laborRate: event.target.value })} placeholder="Rate" inputMode="decimal" />
+              <label className="repair-entry-field">
+                <span>Technician</span>
+                <input value={laborForm.technicianName} onChange={(event) => setLaborForm({ ...laborForm, technicianName: event.target.value })} placeholder="Technician name" />
+              </label>
+              <label className="repair-entry-field">
+                <span>Date</span>
+                <input type="date" value={laborForm.workDate} onChange={(event) => setLaborForm({ ...laborForm, workDate: event.target.value })} />
+              </label>
+              <label className="repair-entry-field">
+                <span>Hours</span>
+                <input value={laborForm.hours} onChange={(event) => setLaborForm({ ...laborForm, hours: event.target.value })} placeholder="0.00" inputMode="decimal" />
+              </label>
+              <label className="repair-entry-field">
+                <span>Rate</span>
+                <input value={laborForm.laborRate} onChange={(event) => setLaborForm({ ...laborForm, laborRate: event.target.value })} placeholder="0.00" inputMode="decimal" />
+              </label>
               <button className="ci-btn pri" type="button" onClick={addLaborEntry} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Time
               </button>
@@ -1463,15 +1478,41 @@ export default function EquipmentRepairsPage() {
               <span className="dot"></span>Parts From Consumables
             </h2>
             <div className="repair-inline-form parts">
-              <select value={partForm.itemId} onChange={(event) => setPartForm({ ...partForm, itemId: event.target.value })}>
-                <option value="">Select part from consumables inventory</option>
-                {items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.itemCode} - {item.itemName} ({decimal(item.qtyOnHand)} on hand)
-                  </option>
-                ))}
-              </select>
-              <input value={partForm.quantity} onChange={(event) => setPartForm({ ...partForm, quantity: event.target.value })} placeholder="Qty" inputMode="decimal" />
+              <div className="repair-part-lookup">
+                <label className="repair-entry-field">
+                  <span>Consumable Part</span>
+                  <input
+                    value={partLookup}
+                    onChange={(event) => handlePartLookupChange(event.target.value)}
+                    placeholder="Search SKU, item, category, bin..."
+                  />
+                </label>
+                {!selectedPartItem && partSearchResults.length > 0 && (
+                  <div className="repair-part-results">
+                    {partSearchResults.map((item) => (
+                      <button key={item.id} type="button" onClick={() => selectPartForRepair(item)}>
+                        <strong>{item.itemCode}</strong>
+                        <span>{item.itemName}</span>
+                        <em>{decimal(item.qtyOnHand)} on hand / {money(item.unitPrice)}</em>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {partLookup.trim() && partSearchResults.length === 0 && !selectedPartItem && (
+                  <div className="repair-part-empty">No matching consumable parts found.</div>
+                )}
+                {selectedPartItem && (
+                  <div className="repair-selected-part">
+                    <strong>{selectedPartItem.itemCode}</strong>
+                    <span>{selectedPartItem.itemName}</span>
+                    <em>{decimal(selectedPartItem.qtyOnHand)} on hand / {money(selectedPartItem.unitPrice)}</em>
+                  </div>
+                )}
+              </div>
+              <label className="repair-entry-field">
+                <span>Qty Used</span>
+                <input value={partForm.quantity} onChange={(event) => setPartForm({ ...partForm, quantity: event.target.value })} placeholder="0" inputMode="decimal" />
+              </label>
               <button className="ci-btn pri" type="button" onClick={addPartLine} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Part
               </button>
