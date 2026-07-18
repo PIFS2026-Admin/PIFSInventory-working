@@ -18,7 +18,7 @@ import {
 import {
   equipmentAssetLabel,
   equipmentAssetSearchText,
-  titanEquipmentAssets,
+  mergeEquipmentAssetRows,
   type TitanEquipmentAsset,
 } from "../../lib/titanEquipmentAssets";
 import styles from "./equipment-repairs.module.css";
@@ -391,14 +391,17 @@ function normalizeEquipmentLookup(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function findEquipmentAssetForWorkOrder(form: Pick<WorkOrderForm, "equipmentName" | "equipmentNumber" | "equipmentType">) {
+function findEquipmentAssetForWorkOrder(
+  assets: TitanEquipmentAsset[],
+  form: Pick<WorkOrderForm, "equipmentName" | "equipmentNumber" | "equipmentType">,
+) {
   const equipmentName = normalizeEquipmentLookup(form.equipmentName);
   const equipmentNumber = normalizeEquipmentLookup(form.equipmentNumber);
   const equipmentType = normalizeEquipmentLookup(form.equipmentType);
   if (!equipmentName && !equipmentNumber) return null;
 
   return (
-    titanEquipmentAssets.find((asset) => {
+    assets.find((asset) => {
       const nameMatches = equipmentName && normalizeEquipmentLookup(asset.name) === equipmentName;
       const unitMatches = equipmentName && normalizeEquipmentLookup(asset.unitNumber) === equipmentName;
       const tagMatches = equipmentNumber && normalizeEquipmentLookup(asset.assetTag) === equipmentNumber;
@@ -595,6 +598,7 @@ export default function EquipmentRepairsPage() {
   const [laborForm, setLaborForm] = useState<LaborForm>(emptyLaborForm);
   const [search, setSearch] = useState("");
   const [equipmentLookup, setEquipmentLookup] = useState("");
+  const [equipmentAssets, setEquipmentAssets] = useState<TitanEquipmentAsset[]>(() => mergeEquipmentAssetRows([]));
   const [selectedEquipmentAssetId, setSelectedEquipmentAssetId] = useState("");
   const [showEquipmentResults, setShowEquipmentResults] = useState(false);
   const [partLookup, setPartLookup] = useState("");
@@ -633,14 +637,14 @@ export default function EquipmentRepairsPage() {
   const selectedWorkOrder = visibleWorkOrders.find((order) => order.id === selectedWorkOrderId) || null;
   const selectedParts = selectedWorkOrder ? visibleParts.filter((part) => part.workOrderId === selectedWorkOrder.id) : [];
   const selectedLabor = selectedWorkOrder ? laborEntries.filter((entry) => entry.workOrderId === selectedWorkOrder.id) : [];
-  const selectedEquipmentAsset = titanEquipmentAssets.find((asset) => asset.id === selectedEquipmentAssetId) || null;
+  const selectedEquipmentAsset = equipmentAssets.find((asset) => asset.id === selectedEquipmentAssetId) || null;
   const filteredEquipmentAssets = useMemo(() => {
     const term = normalizeEquipmentLookup(equipmentLookup);
     const matches = term
-      ? titanEquipmentAssets.filter((asset) => equipmentAssetSearchText(asset).includes(term))
-      : titanEquipmentAssets;
+      ? equipmentAssets.filter((asset) => equipmentAssetSearchText(asset).includes(term))
+      : equipmentAssets;
     return matches.slice(0, 12);
-  }, [equipmentLookup]);
+  }, [equipmentAssets, equipmentLookup]);
   const assigneeOptions = useMemo(() => {
     const options = [...repairAssignees].sort((left, right) => left.name.localeCompare(right.name));
     const selectedName = workOrderForm.assignedTo.trim();
@@ -890,7 +894,24 @@ export default function EquipmentRepairsPage() {
   async function reloadModuleData(yardId = selectedYardId) {
     if (!yardId) return;
     setMessage("");
-    await Promise.all([loadWorkOrders(yardId), loadItems(yardId)]);
+    await Promise.all([loadWorkOrders(yardId), loadItems(yardId), loadEquipmentAssets()]);
+  }
+
+  async function loadEquipmentAssets() {
+    const { data, error } = await supabase
+      .from("equipment_assets")
+      .select("id, source_key, equipment_name, equipment_number, equipment_type, department, is_active")
+      .order("equipment_name", { ascending: true });
+
+    if (error) {
+      setEquipmentAssets(mergeEquipmentAssetRows([]));
+      if (!rowMissingSchema(error.message, "equipment_assets")) {
+        setMessage(`Equipment master list failed: ${error.message}`);
+      }
+      return;
+    }
+
+    setEquipmentAssets(mergeEquipmentAssetRows((data || []) as Record<string, unknown>[]));
   }
 
   async function loadWorkOrders(yardId = selectedYardId) {
@@ -1031,7 +1052,7 @@ export default function EquipmentRepairsPage() {
       downtimeEnd: dateTimeLocal(order.downtimeEnd),
     };
     setWorkOrderForm(nextForm);
-    const equipmentAsset = findEquipmentAssetForWorkOrder(nextForm);
+    const equipmentAsset = findEquipmentAssetForWorkOrder(equipmentAssets, nextForm);
     setSelectedEquipmentAssetId(equipmentAsset?.id || "");
     setEquipmentLookup(equipmentAsset ? equipmentAssetLabel(equipmentAsset) : "");
     setLaborForm({ ...emptyLaborForm, technicianName: order.assignedTo || userName });

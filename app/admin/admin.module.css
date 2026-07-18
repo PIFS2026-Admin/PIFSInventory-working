@@ -114,6 +114,7 @@
 .scope[data-active-control="create-user"] :global(.admin-control-section:not([data-admin-control="create-user"])),
 .scope[data-active-control="inspectors"] :global(.admin-control-section:not([data-admin-control="inspectors"])),
 .scope[data-active-control="part-numbers"] :global(.admin-control-section:not([data-admin-control="part-numbers"])),
+.scope[data-active-control="equipment-assets"] :global(.admin-control-section:not([data-admin-control="equipment-assets"])),
 .scope[data-active-control="status-condition"] :global(.admin-control-section:not([data-admin-control="status-condition"])),
 .scope[data-active-control="companies"] :global(.admin-control-section:not([data-admin-control="companies"])),
 .scope[data-active-control="users"] :global(.admin-control-section:not([data-admin-control="users"])),
@@ -155,10 +156,35 @@
 
 .scope[data-active-control="users"] :global(td:last-child),
 .scope[data-active-control="companies"] :global(td:last-child),
+.scope[data-active-control="equipment-assets"] :global(td:last-child),
 .scope[data-active-control="yard-setup"] :global(td:last-child) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.scope :global(.inline-check) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.scope :global(.inline-check input) {
+  width: auto;
+}
+
+.scope :global(.admin-search-line) {
+  display: grid;
+  gap: 7px;
+  padding: 0 14px;
+  color: #c7d2fe;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 @media (max-width: 760px) {

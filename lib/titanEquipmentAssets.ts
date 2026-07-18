@@ -1,11 +1,14 @@
 export type TitanEquipmentAsset = {
   id: string;
+  databaseId?: string;
+  sourceKey?: string;
   assetTag: string;
   unitNumber: string;
   name: string;
   equipmentType: string;
   department: string;
   currentAssignment: string;
+  isActive?: boolean;
 };
 
 function asset(
@@ -18,6 +21,10 @@ function asset(
   currentAssignment = "",
 ): TitanEquipmentAsset {
   return { id, assetTag, unitNumber, name, equipmentType, department, currentAssignment };
+}
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
 }
 
 export const titanEquipmentAssets: TitanEquipmentAsset[] = [
@@ -130,6 +137,72 @@ export function equipmentAssetLabel(asset: TitanEquipmentAsset) {
   return `${unit}${tag} / ${asset.equipmentType}${assignment}`;
 }
 
+export function mapEquipmentAssetRow(row: Record<string, unknown>): TitanEquipmentAsset {
+  const sourceKey = text(row.source_key ?? row.sourceKey);
+  const databaseId = text(row.id);
+  const equipmentNumber = text(row.equipment_number ?? row.equipmentNumber ?? row.asset_tag ?? row.assetTag);
+  const equipmentName = text(row.equipment_name ?? row.equipmentName ?? row.name) || equipmentNumber;
+  const equipmentType = text(row.equipment_type ?? row.equipmentType);
+  const department = text(row.department);
+
+  return {
+    id: sourceKey || databaseId || equipmentNumber || equipmentName,
+    databaseId,
+    sourceKey,
+    assetTag: equipmentNumber,
+    unitNumber: equipmentNumber,
+    name: equipmentName,
+    equipmentType,
+    department,
+    currentAssignment: text(row.current_assignment ?? row.currentAssignment),
+    isActive: row.is_active !== false && row.isActive !== false,
+  };
+}
+
+export function equipmentAssetSourceKey(asset: TitanEquipmentAsset) {
+  return asset.sourceKey || asset.id;
+}
+
+export function mergeEquipmentAssetRows(
+  rows: Record<string, unknown>[] = [],
+  options: { includeInactive?: boolean } = {},
+) {
+  const merged = new Map<string, TitanEquipmentAsset>();
+
+  titanEquipmentAssets.forEach((asset) => {
+    const sourceKey = equipmentAssetSourceKey(asset);
+    merged.set(sourceKey, {
+      ...asset,
+      id: sourceKey,
+      sourceKey,
+      isActive: asset.isActive !== false,
+    });
+  });
+
+  rows.forEach((row) => {
+    const mapped = mapEquipmentAssetRow(row);
+    const sourceKey = mapped.sourceKey;
+    const mergeKey = sourceKey || mapped.databaseId || mapped.id;
+    const base = sourceKey ? merged.get(sourceKey) : null;
+
+    merged.set(mergeKey, {
+      ...(base || {}),
+      ...mapped,
+      id: base?.id || mapped.id,
+      sourceKey: sourceKey || base?.sourceKey,
+      databaseId: mapped.databaseId,
+    });
+  });
+
+  const assets = Array.from(merged.values()).sort((left, right) => {
+    const leftText = `${left.department} ${left.equipmentType} ${left.name} ${left.assetTag}`;
+    const rightText = `${right.department} ${right.equipmentType} ${right.name} ${right.assetTag}`;
+    return leftText.localeCompare(rightText);
+  });
+
+  return options.includeInactive ? assets : assets.filter((asset) => asset.isActive !== false);
+}
+
 export function equipmentAssetSearchText(asset: TitanEquipmentAsset) {
   return [
     asset.assetTag,
@@ -138,6 +211,7 @@ export function equipmentAssetSearchText(asset: TitanEquipmentAsset) {
     asset.equipmentType,
     asset.department,
     asset.currentAssignment,
+    asset.sourceKey,
     equipmentAssetLabel(asset),
   ]
     .join(" ")

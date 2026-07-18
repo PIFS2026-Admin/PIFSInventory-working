@@ -18,6 +18,11 @@ import {
   RoleKey,
   moduleAccessOptions,
 } from "../../lib/modulePermissions";
+import {
+  equipmentAssetSearchText,
+  mergeEquipmentAssetRows,
+  type TitanEquipmentAsset,
+} from "../../lib/titanEquipmentAssets";
 
 type Company = {
   id: string;
@@ -124,11 +129,22 @@ type InventoryOption = {
   isActive: boolean;
 };
 
+type EquipmentAssetForm = {
+  databaseId: string;
+  sourceKey: string;
+  equipmentName: string;
+  equipmentNumber: string;
+  equipmentType: string;
+  department: string;
+  isActive: boolean;
+};
+
 type AdminControlKey =
   | "create-company"
   | "create-user"
   | "inspectors"
   | "part-numbers"
+  | "equipment-assets"
   | "status-condition"
   | "companies"
   | "users"
@@ -196,6 +212,8 @@ const modulePermissionSetupMessage =
   "User module permissions table is missing. Run supabase/user_module_permissions.sql in Supabase SQL Editor, then refresh this page.";
 const emailNotificationSetupMessage =
   "Admin email notification tables are missing. Run supabase/admin_security_and_notifications.sql in Supabase SQL Editor, then refresh this page.";
+const equipmentAssetSetupMessage =
+  "Equipment master list table is missing. Run supabase/equipment_master_list.sql in Supabase SQL Editor, then refresh this page.";
 
 const emptyRackForm = {
   rackCode: "",
@@ -230,6 +248,16 @@ const emptyOptionForm = {
   id: "",
   optionType: "status" as InventoryOptionType,
   label: "",
+};
+
+const emptyEquipmentAssetForm: EquipmentAssetForm = {
+  databaseId: "",
+  sourceKey: "",
+  equipmentName: "",
+  equipmentNumber: "",
+  equipmentType: "",
+  department: "",
+  isActive: true,
 };
 
 const defaultStatusInventoryOptions: InventoryOption[] = [
@@ -289,6 +317,7 @@ const adminSectionControlKeys: AdminControlKey[] = [
   "create-user",
   "inspectors",
   "part-numbers",
+  "equipment-assets",
   "status-condition",
   "companies",
   "users",
@@ -361,6 +390,12 @@ const adminControls: AdminControlCard[] = [
     group: "Setup",
   },
   {
+    key: "equipment-assets",
+    title: "Equipment Master List",
+    description: "Maintain equipment names, numbers, types, and departments used by repair work orders.",
+    group: "Setup",
+  },
+  {
     key: "status-condition",
     title: "Status & Condition Manager",
     description: "Maintain inventory dropdown options.",
@@ -394,6 +429,17 @@ function makeCode(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function tableMissing(errorMessage: string, tableName: string) {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    normalized.includes(tableName.toLowerCase()) &&
+    (normalized.includes("does not exist") ||
+      normalized.includes("schema cache") ||
+      normalized.includes("could not find") ||
+      normalized.includes("relation"))
+  );
 }
 
 function getCompanyName(value: unknown) {
@@ -497,6 +543,9 @@ export default function AdminPage() {
   const [partNumbers, setPartNumbers] = useState<PartNumber[]>([]);
   const [inspectors, setInspectors] = useState<Inspector[]>([]);
   const [inventoryOptions, setInventoryOptions] = useState<InventoryOption[]>(defaultInventoryOptions);
+  const [equipmentAssets, setEquipmentAssets] = useState<TitanEquipmentAsset[]>(() =>
+    mergeEquipmentAssetRows([], { includeInactive: true })
+  );
 
   const [companyForm, setCompanyForm] = useState(emptyCompanyForm);
   const [userForm, setUserForm] = useState<AdminUserForm>(emptyUserForm);
@@ -505,6 +554,9 @@ export default function AdminPage() {
   const [partForm, setPartForm] = useState(emptyPartForm);
   const [inspectorForm, setInspectorForm] = useState(emptyInspectorForm);
   const [optionForm, setOptionForm] = useState(emptyOptionForm);
+  const [equipmentAssetForm, setEquipmentAssetForm] = useState<EquipmentAssetForm>(emptyEquipmentAssetForm);
+  const [equipmentAssetSearch, setEquipmentAssetSearch] = useState("");
+  const [equipmentAssetSetupRequired, setEquipmentAssetSetupRequired] = useState(false);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [yardAccessUserId, setYardAccessUserId] = useState("");
   const [yardAccessSelection, setYardAccessSelection] = useState<string[]>([]);
@@ -542,6 +594,12 @@ export default function AdminPage() {
     () => inventoryOptions.filter((option) => option.optionType === "condition"),
     [inventoryOptions]
   );
+
+  const filteredEquipmentAssets = useMemo(() => {
+    const term = equipmentAssetSearch.trim().toLowerCase();
+    if (!term) return equipmentAssets;
+    return equipmentAssets.filter((asset) => equipmentAssetSearchText(asset).includes(term));
+  }, [equipmentAssets, equipmentAssetSearch]);
 
   const yardAccessUsers = useMemo(
     () =>
@@ -624,6 +682,7 @@ export default function AdminPage() {
     if (control === "po-approval-matrix") return "Routing rules";
     if (control === "inspectors") return `${inspectors.length} inspectors`;
     if (control === "part-numbers") return `${partNumbers.length} parts`;
+    if (control === "equipment-assets") return `${equipmentAssets.length} assets`;
     if (control === "status-condition") return `${inventoryOptions.length} options`;
     if (control === "yard-setup") return `${racks.length} racks / ${zones.length} zones`;
     return "";
@@ -686,6 +745,7 @@ export default function AdminPage() {
       loadProfiles(),
       loadYards(),
       loadPartNumbers(),
+      loadEquipmentAssets(),
       loadInspectors(),
       loadInventoryOptions(),
       loadModulePermissions(),
@@ -1078,6 +1138,7 @@ export default function AdminPage() {
       loadProfiles(),
       loadYards(),
       loadPartNumbers(),
+      loadEquipmentAssets(),
       loadInspectors(),
       loadInventoryOptions(),
       loadModulePermissions(),
@@ -1410,6 +1471,128 @@ export default function AdminPage() {
     if (partForm.id === part.id) setPartForm(emptyPartForm);
     await loadPartNumbers();
     setMessage("Part number deleted.");
+    setLoading(false);
+  }
+
+  async function loadEquipmentAssets() {
+    const { data, error } = await supabase
+      .from("equipment_assets")
+      .select("id, source_key, equipment_name, equipment_number, equipment_type, department, is_active")
+      .order("equipment_name", { ascending: true });
+
+    if (error) {
+      setEquipmentAssets(mergeEquipmentAssetRows([], { includeInactive: true }));
+      setEquipmentAssetSetupRequired(true);
+      if (!tableMissing(error.message, "equipment_assets")) {
+        setMessage(`Equipment master list failed: ${error.message}`);
+      }
+      return;
+    }
+
+    setEquipmentAssetSetupRequired(false);
+    setEquipmentAssets(mergeEquipmentAssetRows((data || []) as Record<string, unknown>[], { includeInactive: true }));
+  }
+
+  async function saveEquipmentAsset() {
+    const equipmentName = equipmentAssetForm.equipmentName.trim();
+    const equipmentNumber = equipmentAssetForm.equipmentNumber.trim();
+    const equipmentType = equipmentAssetForm.equipmentType.trim();
+    const department = equipmentAssetForm.department.trim();
+
+    if (!equipmentName || !equipmentNumber || !equipmentType || !department) {
+      setMessage("Equipment name, equipment number, equipment type, and department are required.");
+      return;
+    }
+
+    if (equipmentAssetSetupRequired) {
+      setMessage(equipmentAssetSetupMessage);
+      return;
+    }
+
+    setMessage("");
+    setLoading(true);
+
+    const payload = {
+      source_key: equipmentAssetForm.sourceKey || null,
+      equipment_name: equipmentName,
+      equipment_number: equipmentNumber,
+      equipment_type: equipmentType,
+      department,
+      is_active: equipmentAssetForm.isActive,
+      updated_at: new Date().toISOString(),
+    };
+
+    const request = equipmentAssetForm.databaseId
+      ? supabase.from("equipment_assets").update(payload).eq("id", equipmentAssetForm.databaseId)
+      : equipmentAssetForm.sourceKey
+        ? supabase.from("equipment_assets").upsert(payload, { onConflict: "source_key" })
+        : supabase.from("equipment_assets").insert(payload);
+
+    const { error } = await request;
+
+    if (error) {
+      setMessage(`Equipment save failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    setEquipmentAssetForm(emptyEquipmentAssetForm);
+    await loadEquipmentAssets();
+    setMessage("Equipment master list updated.");
+    setLoading(false);
+  }
+
+  function editEquipmentAsset(asset: TitanEquipmentAsset) {
+    setEquipmentAssetForm({
+      databaseId: asset.databaseId || "",
+      sourceKey: asset.sourceKey || "",
+      equipmentName: asset.name,
+      equipmentNumber: asset.assetTag || asset.unitNumber,
+      equipmentType: asset.equipmentType,
+      department: asset.department,
+      isActive: asset.isActive !== false,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function toggleEquipmentAsset(asset: TitanEquipmentAsset) {
+    if (equipmentAssetSetupRequired) {
+      setMessage(equipmentAssetSetupMessage);
+      return;
+    }
+
+    setMessage("");
+    setLoading(true);
+
+    const payload = {
+      source_key: asset.sourceKey || null,
+      equipment_name: asset.name,
+      equipment_number: asset.assetTag || asset.unitNumber || asset.name,
+      equipment_type: asset.equipmentType,
+      department: asset.department,
+      is_active: asset.isActive === false,
+      updated_at: new Date().toISOString(),
+    };
+
+    const request = asset.databaseId
+      ? supabase.from("equipment_assets").update(payload).eq("id", asset.databaseId)
+      : asset.sourceKey
+        ? supabase.from("equipment_assets").upsert(payload, { onConflict: "source_key" })
+        : supabase.from("equipment_assets").insert(payload);
+
+    const { error } = await request;
+
+    if (error) {
+      setMessage(`Equipment status failed: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    if (equipmentAssetForm.databaseId === asset.databaseId || equipmentAssetForm.sourceKey === asset.sourceKey) {
+      setEquipmentAssetForm(emptyEquipmentAssetForm);
+    }
+    await loadEquipmentAssets();
+    setMessage(`${asset.name} ${asset.isActive === false ? "enabled" : "disabled"}.`);
     setLoading(false);
   }
 
@@ -2405,6 +2588,137 @@ export default function AdminPage() {
             </article>
           ))}
         </div>
+        </div>
+      </details>
+
+      <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="equipment-assets" open={activeControl === "equipment-assets"}>
+        <summary>
+          <div>
+            <h3>Equipment Master List</h3>
+            <p>Maintain the equipment names, numbers, types, and departments used by repair work orders.</p>
+          </div>
+          <span>Open / close</span>
+        </summary>
+        <div className="admin-collapsible-body">
+          {equipmentAssetSetupRequired && (
+            <div className="modal-message">
+              {equipmentAssetSetupMessage}
+            </div>
+          )}
+
+          <div className="admin-section-title compact-title">
+            <div>
+              <strong>{equipmentAssetForm.databaseId || equipmentAssetForm.sourceKey ? "Edit Equipment" : "Add Equipment"}</strong>
+              <span>{filteredEquipmentAssets.length} shown / {equipmentAssets.length} total</span>
+            </div>
+            {(equipmentAssetForm.databaseId || equipmentAssetForm.sourceKey) && (
+              <button className="button" onClick={() => setEquipmentAssetForm(emptyEquipmentAssetForm)}>
+                New Equipment
+              </button>
+            )}
+          </div>
+
+          <div className="form-grid admin-form-grid">
+            <label>
+              Equipment Name
+              <input
+                value={equipmentAssetForm.equipmentName}
+                onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, equipmentName: event.target.value })}
+                placeholder="TXTRK#220, Forklift 2, Blue EMI Unit"
+              />
+            </label>
+
+            <label>
+              Equipment Number
+              <input
+                value={equipmentAssetForm.equipmentNumber}
+                onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, equipmentNumber: event.target.value })}
+                placeholder="P78237, L00780, T02080"
+              />
+            </label>
+
+            <label>
+              Equipment Type
+              <input
+                value={equipmentAssetForm.equipmentType}
+                onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, equipmentType: event.target.value })}
+                placeholder="DTI Truck, Loader, HB Trailer"
+              />
+            </label>
+
+            <label>
+              Department
+              <input
+                value={equipmentAssetForm.department}
+                onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, department: event.target.value })}
+                placeholder="DTI, Hardband, Yard, Shop"
+              />
+            </label>
+          </div>
+
+          <div className="admin-section-title compact-title">
+            <button className="button primary" onClick={saveEquipmentAsset} disabled={loading || equipmentAssetSetupRequired}>
+              {equipmentAssetForm.databaseId || equipmentAssetForm.sourceKey ? "Save Equipment" : "Add Equipment"}
+            </button>
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={equipmentAssetForm.isActive}
+                onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, isActive: event.target.checked })}
+              />
+              Active in lookup
+            </label>
+          </div>
+
+          <label className="admin-search-line">
+            Search Equipment
+            <input
+              value={equipmentAssetSearch}
+              onChange={(event) => setEquipmentAssetSearch(event.target.value)}
+              placeholder="Search name, number, type, or department"
+            />
+          </label>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Equipment Name</th>
+                  <th>Equipment Number</th>
+                  <th>Equipment Type</th>
+                  <th>Department</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEquipmentAssets.length === 0 && (
+                  <tr>
+                    <td colSpan={6}>No equipment matches that search.</td>
+                  </tr>
+                )}
+                {filteredEquipmentAssets.map((asset) => (
+                  <tr key={`${asset.sourceKey || asset.id}-${asset.databaseId || "fallback"}`}>
+                    <td>{asset.name}</td>
+                    <td>{asset.assetTag || asset.unitNumber}</td>
+                    <td>{asset.equipmentType}</td>
+                    <td>{asset.department}</td>
+                    <td>{asset.isActive === false ? "Disabled" : "Active"}</td>
+                    <td>
+                      <div className="part-number-actions">
+                        <button className="button" onClick={() => editEquipmentAsset(asset)}>
+                          Edit
+                        </button>
+                        <button className="button" onClick={() => toggleEquipmentAsset(asset)} disabled={loading || equipmentAssetSetupRequired}>
+                          {asset.isActive === false ? "Enable" : "Disable"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </details>
 
