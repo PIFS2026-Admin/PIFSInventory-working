@@ -47,6 +47,7 @@ type WorkOrder = {
   totalLaborCost: number;
   totalPartsCost: number;
   totalCost: number;
+  createdAt: string;
   openedAt: string;
   completedAt: string;
   closedAt: string;
@@ -98,6 +99,9 @@ type InventoryItem = {
 
 type WorkOrderForm = {
   id: string;
+  workOrderNumber: string;
+  createdAt: string;
+  openedAt: string;
   equipmentNumber: string;
   equipmentName: string;
   equipmentType: string;
@@ -137,6 +141,9 @@ const priorities: WorkOrderPriority[] = ["Low", "Normal", "High", "Critical"];
 
 const emptyWorkOrderForm: WorkOrderForm = {
   id: "",
+  workOrderNumber: "",
+  createdAt: "",
+  openedAt: "",
   equipmentNumber: "",
   equipmentName: "",
   equipmentType: "",
@@ -235,8 +242,18 @@ function rowMissingSchema(errorMessage: string, tableName: string) {
 }
 
 function generateWorkOrderNumber() {
-  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-  return `RWO-${stamp}`;
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 17);
+  return `RWO-${stamp.slice(0, 8)}-${stamp.slice(8, 14)}-${stamp.slice(14)}`;
+}
+
+function newWorkOrderDraft(): WorkOrderForm {
+  const now = new Date().toISOString();
+  return {
+    ...emptyWorkOrderForm,
+    workOrderNumber: generateWorkOrderNumber(),
+    createdAt: now,
+    openedAt: now,
+  };
 }
 
 function mapWorkOrder(row: Record<string, unknown>): WorkOrder {
@@ -260,6 +277,7 @@ function mapWorkOrder(row: Record<string, unknown>): WorkOrder {
     totalLaborCost: numberValue(row.total_labor_cost),
     totalPartsCost: numberValue(row.total_parts_cost),
     totalCost: numberValue(row.total_cost),
+    createdAt: String(row.created_at || ""),
     openedAt: String(row.opened_at || ""),
     completedAt: String(row.completed_at || ""),
     closedAt: String(row.closed_at || ""),
@@ -788,7 +806,7 @@ export default function EquipmentRepairsPage() {
 
   function startNewWorkOrder() {
     setSelectedWorkOrderId("");
-    setWorkOrderForm(emptyWorkOrderForm);
+    setWorkOrderForm(newWorkOrderDraft());
     setPartForm(emptyPartForm);
     setLaborForm({ ...emptyLaborForm, technicianName: userName });
     setActiveTab("details");
@@ -798,6 +816,9 @@ export default function EquipmentRepairsPage() {
     setSelectedWorkOrderId(order.id);
     setWorkOrderForm({
       id: order.id,
+      workOrderNumber: order.workOrderNumber,
+      createdAt: order.createdAt,
+      openedAt: order.openedAt,
       equipmentNumber: order.equipmentNumber,
       equipmentName: order.equipmentName,
       equipmentType: order.equipmentType,
@@ -838,6 +859,10 @@ export default function EquipmentRepairsPage() {
     setMessage("");
     const status = workOrderForm.status;
     const now = new Date().toISOString();
+    const draftCreatedAt = workOrderForm.createdAt || now;
+    const draftOpenedAt = workOrderForm.openedAt || draftCreatedAt;
+    const nextCompletedAt = status === "Ready for Review" || status === "Closed" ? selectedWorkOrder?.completedAt || now : null;
+    const nextClosedAt = status === "Closed" ? selectedWorkOrder?.closedAt || now : null;
     const payload = {
       yard_id: selectedYardId,
       status,
@@ -852,8 +877,8 @@ export default function EquipmentRepairsPage() {
       repair_notes: workOrderForm.repairNotes.trim() || null,
       downtime_start: toIsoFromLocal(workOrderForm.downtimeStart),
       downtime_end: toIsoFromLocal(workOrderForm.downtimeEnd),
-      completed_at: status === "Ready for Review" || status === "Closed" ? now : null,
-      closed_at: status === "Closed" ? now : null,
+      completed_at: nextCompletedAt,
+      closed_at: nextClosedAt,
     };
 
     if (workOrderForm.id) {
@@ -873,11 +898,13 @@ export default function EquipmentRepairsPage() {
       await writeAudit(workOrderForm.id, "update_work_order", payload).catch(() => undefined);
       const order = mapWorkOrder(data as Record<string, unknown>);
       setSelectedWorkOrderId(order.id);
-      setWorkOrderForm({ ...workOrderForm, id: order.id });
+      setWorkOrderForm({ ...workOrderForm, id: order.id, workOrderNumber: order.workOrderNumber, createdAt: order.createdAt, openedAt: order.openedAt });
     } else {
       const insertPayload = {
         ...payload,
-        work_order_number: generateWorkOrderNumber(),
+        work_order_number: workOrderForm.workOrderNumber || generateWorkOrderNumber(),
+        created_at: draftCreatedAt,
+        opened_at: draftOpenedAt,
         requested_by: userId || null,
         created_by: userId || null,
       };
@@ -896,7 +923,7 @@ export default function EquipmentRepairsPage() {
       const order = mapWorkOrder(data as Record<string, unknown>);
       await writeAudit(order.id, "create_work_order", insertPayload).catch(() => undefined);
       setSelectedWorkOrderId(order.id);
-      setWorkOrderForm({ ...workOrderForm, id: order.id });
+      setWorkOrderForm({ ...workOrderForm, id: order.id, workOrderNumber: order.workOrderNumber, createdAt: order.createdAt, openedAt: order.openedAt });
     }
 
     await loadWorkOrders(selectedYardId);
@@ -1086,9 +1113,10 @@ export default function EquipmentRepairsPage() {
     if (!selectedWorkOrder || !canCloseWorkOrders) return;
     setSaving(true);
     const now = new Date().toISOString();
+    const closedAt = selectedWorkOrder.closedAt || now;
     const { error } = await supabase
       .from("equipment_repair_work_orders")
-      .update({ status: "Closed", closed_at: now, completed_at: selectedWorkOrder.completedAt || now, downtime_end: selectedWorkOrder.downtimeEnd || now })
+      .update({ status: "Closed", closed_at: closedAt, completed_at: selectedWorkOrder.completedAt || closedAt, downtime_end: selectedWorkOrder.downtimeEnd || closedAt })
       .eq("id", selectedWorkOrder.id);
     if (error) {
       setMessage(`Close failed: ${error.message}`);
@@ -1560,7 +1588,7 @@ export default function EquipmentRepairsPage() {
               <div>
                 <div className="repair-form-eyebrow">Equipment Repair Work Order</div>
                 <h2>
-                  <span className="dot"></span>{selectedWorkOrder ? selectedWorkOrder.workOrderNumber : "New Work Order"}
+                  <span className="dot"></span>{selectedWorkOrder?.workOrderNumber || workOrderForm.workOrderNumber || "New Work Order"}
                   {selectedWorkOrder && <span className="ct">{selectedWorkOrder.status}</span>}
                 </h2>
                 <p>{selectedWorkOrder ? `${selectedWorkOrder.equipmentName} repair packet` : "Create the work order form first, then add labor and parts."}</p>
@@ -1580,6 +1608,33 @@ export default function EquipmentRepairsPage() {
                     Close WO
                   </button>
                 )}
+              </div>
+            </div>
+
+            <div className="repair-form-summary no-print">
+              <div>
+                <span>Work Order #</span>
+                <strong>{selectedWorkOrder?.workOrderNumber || workOrderForm.workOrderNumber || "-"}</strong>
+              </div>
+              <div>
+                <span>Created</span>
+                <strong>{dateTimeText(selectedWorkOrder?.createdAt || workOrderForm.createdAt || workOrderForm.openedAt)}</strong>
+              </div>
+              <div>
+                <span>Closed</span>
+                <strong>{selectedWorkOrder?.closedAt ? dateTimeText(selectedWorkOrder.closedAt) : "Not closed"}</strong>
+              </div>
+              <div>
+                <span>Requested By</span>
+                <strong>{selectedWorkOrder?.requestedByName || userName}</strong>
+              </div>
+              <div>
+                <span>Yard</span>
+                <strong>{selectedYard?.name || "-"}</strong>
+              </div>
+              <div>
+                <span>Parts Posted</span>
+                <strong>{selectedParts.filter((part) => part.postedToInventory).length} / {selectedParts.length}</strong>
               </div>
             </div>
 
@@ -1665,21 +1720,6 @@ export default function EquipmentRepairsPage() {
                 </label>
               </div>
             </section>
-
-            <div className="repair-form-summary no-print">
-              <div>
-                <span>Requested By</span>
-                <strong>{selectedWorkOrder?.requestedByName || userName}</strong>
-              </div>
-              <div>
-                <span>Yard</span>
-                <strong>{selectedYard?.name || "-"}</strong>
-              </div>
-              <div>
-                <span>Parts Posted</span>
-                <strong>{selectedParts.filter((part) => part.postedToInventory).length} / {selectedParts.length}</strong>
-              </div>
-            </div>
 
             <div className="repair-actions-row">
               <button className="ci-btn pri" type="button" onClick={saveWorkOrder} disabled={saving || !canManageWorkOrders || setupRequired}>
