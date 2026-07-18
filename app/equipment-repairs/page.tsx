@@ -117,7 +117,12 @@ type WorkOrderForm = {
 
 type PartForm = {
   itemId: string;
+  itemCode: string;
+  itemName: string;
+  category: string;
+  uom: string;
   quantity: string;
+  unitPrice: string;
   notes: string;
 };
 
@@ -159,7 +164,12 @@ const emptyWorkOrderForm: WorkOrderForm = {
 
 const emptyPartForm: PartForm = {
   itemId: "",
+  itemCode: "",
+  itemName: "",
+  category: "",
+  uom: "",
   quantity: "1",
+  unitPrice: "",
   notes: "",
 };
 
@@ -974,8 +984,19 @@ export default function EquipmentRepairsPage() {
     }
     const item = items.find((candidate) => candidate.id === partForm.itemId);
     const quantity = numberValue(partForm.quantity);
-    if (!item || quantity <= 0) {
-      setMessage("Choose a consumable item and enter a quantity.");
+    const unitCost = item ? numberValue(partForm.unitPrice || item.unitPrice) : numberValue(partForm.unitPrice);
+    const itemName = item?.itemName || partForm.itemName.trim() || partLookup.trim();
+    const itemCode = item?.itemCode || partForm.itemCode.trim();
+    const category = item?.category || partForm.category.trim() || (itemName ? "Manual" : "");
+    const uom = item?.uom || partForm.uom.trim() || "unit";
+
+    if (!itemName || quantity <= 0) {
+      setMessage("Enter a part name or choose a consumable item, then enter a quantity.");
+      return;
+    }
+
+    if (unitCost < 0) {
+      setMessage("Unit price cannot be negative.");
       return;
     }
 
@@ -983,14 +1004,14 @@ export default function EquipmentRepairsPage() {
     const payload = {
       work_order_id: selectedWorkOrderId,
       yard_id: selectedYardId || null,
-      inventory_item_id: item.id,
-      item_code: item.itemCode,
-      item_name: item.itemName,
-      category: item.category || null,
-      uom: item.uom || null,
+      inventory_item_id: item?.id || null,
+      item_code: itemCode || null,
+      item_name: itemName,
+      category: category || null,
+      uom: uom || null,
       quantity_used: quantity,
-      unit_cost: item.unitPrice,
-      line_total: quantity * item.unitPrice,
+      unit_cost: unitCost,
+      line_total: quantity * unitCost,
       notes: partForm.notes.trim() || null,
     };
     const { error } = await supabase.from("equipment_repair_work_order_parts").insert(payload);
@@ -1003,7 +1024,7 @@ export default function EquipmentRepairsPage() {
     setPartForm(emptyPartForm);
     setPartLookup("");
     await loadWorkOrders(selectedYardId);
-    setMessage("Part added. Post it when the part is actually used.");
+    setMessage(item ? "Part added. Post it when the part is actually used." : "Manual part added to this work order.");
     setSaving(false);
   }
 
@@ -1028,12 +1049,40 @@ export default function EquipmentRepairsPage() {
       const label = `${item.itemCode} - ${item.itemName}`.toLowerCase();
       return item.itemCode.toLowerCase() === normalized || item.itemName.toLowerCase() === normalized || label === normalized;
     });
-    setPartForm((current) => ({ ...current, itemId: exact?.id || "" }));
+    setPartForm((current) =>
+      exact
+        ? {
+            ...current,
+            itemId: exact.id,
+            itemCode: exact.itemCode,
+            itemName: exact.itemName,
+            category: exact.category,
+            uom: exact.uom,
+            unitPrice: String(exact.unitPrice || ""),
+          }
+        : {
+            ...current,
+            itemId: "",
+            itemName: value.trim(),
+            itemCode: current.itemId ? "" : current.itemCode,
+            category: current.itemId ? "" : current.category,
+            uom: current.itemId ? "" : current.uom,
+            unitPrice: current.itemId ? "" : current.unitPrice,
+          },
+    );
   }
 
   function selectPartForRepair(item: InventoryItem) {
     setPartLookup(`${item.itemCode} - ${item.itemName}`);
-    setPartForm((current) => ({ ...current, itemId: item.id }));
+    setPartForm((current) => ({
+      ...current,
+      itemId: item.id,
+      itemCode: item.itemCode,
+      itemName: item.itemName,
+      category: item.category,
+      uom: item.uom,
+      unitPrice: String(item.unitPrice || ""),
+    }));
   }
 
   async function postPartToInventory(part: WorkOrderPart) {
@@ -1810,16 +1859,17 @@ export default function EquipmentRepairsPage() {
 
           <div className="card">
             <h2>
-              <span className="dot"></span>Parts From Consumables
+              <span className="dot"></span>Repair Parts
             </h2>
+            <p className="muted-text repair-rate-help">Search consumables when the part exists, or type a manual part until inventory is fully loaded.</p>
             <div className="repair-inline-form parts">
               <div className="repair-part-lookup">
                 <label className="repair-entry-field">
-                  <span>Consumable Part</span>
+                  <span>Part Lookup / Manual Description</span>
                   <input
                     value={partLookup}
                     onChange={(event) => handlePartLookupChange(event.target.value)}
-                    placeholder="Search SKU, item, category, bin..."
+                    placeholder="Search SKU, item, category, bin, or type manual part..."
                   />
                 </label>
                 {!selectedPartItem && partSearchResults.length > 0 && (
@@ -1845,8 +1895,16 @@ export default function EquipmentRepairsPage() {
                 )}
               </div>
               <label className="repair-entry-field">
+                <span>Part # / SKU</span>
+                <input value={partForm.itemCode} onChange={(event) => setPartForm({ ...partForm, itemCode: event.target.value })} placeholder="Optional" />
+              </label>
+              <label className="repair-entry-field">
                 <span>Qty Used</span>
                 <input value={partForm.quantity} onChange={(event) => setPartForm({ ...partForm, quantity: event.target.value })} placeholder="0" inputMode="decimal" />
+              </label>
+              <label className="repair-entry-field">
+                <span>Unit Price</span>
+                <input value={partForm.unitPrice} onChange={(event) => setPartForm({ ...partForm, unitPrice: event.target.value })} placeholder="0.00" inputMode="decimal" />
               </label>
               <button className="ci-btn pri" type="button" onClick={addPartLine} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Part
@@ -1868,7 +1926,7 @@ export default function EquipmentRepairsPage() {
                   {selectedParts.map((part) => (
                     <tr key={part.id}>
                       <td>
-                        <strong>{part.itemCode}</strong>
+                        <strong>{part.itemCode || "Manual"}</strong>
                         <span>{part.itemName}</span>
                       </td>
                       <td>{decimal(part.quantityUsed)}</td>
@@ -1877,6 +1935,8 @@ export default function EquipmentRepairsPage() {
                       <td>
                         {part.postedToInventory ? (
                           <span className="repair-pill status-closed">Posted</span>
+                        ) : !part.inventoryItemId ? (
+                          <span className="repair-pill">Manual</span>
                         ) : (
                           <button className="ci-btn mini" type="button" onClick={() => postPartToInventory(part)} disabled={saving || !canManageWorkOrders}>
                             Post

@@ -688,7 +688,7 @@
 }
 
 .scope :global(.repair-inline-form.parts) {
-  grid-template-columns: minmax(320px, 1fr) 120px auto;
+  grid-template-columns: minmax(300px, 1.35fr) minmax(120px, 0.6fr) 110px 120px auto;
   align-items: start;
 }
 
