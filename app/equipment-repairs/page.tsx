@@ -1209,10 +1209,31 @@ export default function EquipmentRepairsPage() {
     return (
       <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
         <section className="card repair-loading-card">
-          <h2>
-            <span className="dot"></span>Equipment Repairs
-          </h2>
-          <p>Loading TITAN repair work orders.</p>
+          <div className="repair-loading-top">
+            <div>
+              <h2>
+                <span className="dot"></span>Equipment Repairs
+              </h2>
+              <p>Syncing work orders, yard access, consumable parts, and repair totals.</p>
+            </div>
+            <button className="ci-btn mini" type="button" onClick={() => (window.location.href = "/home")}>
+              Home
+            </button>
+          </div>
+          <div className="repair-loading-steps" aria-live="polite" aria-busy="true">
+            <div className="repair-loading-step">
+              <span>Yard Access</span>
+              <div className="repair-loading-line"></div>
+            </div>
+            <div className="repair-loading-step">
+              <span>Work Orders</span>
+              <div className="repair-loading-line"></div>
+            </div>
+            <div className="repair-loading-step">
+              <span>Parts Inventory</span>
+              <div className="repair-loading-line"></div>
+            </div>
+          </div>
         </section>
       </main>
     );
