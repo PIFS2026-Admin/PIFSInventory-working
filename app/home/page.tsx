@@ -312,17 +312,18 @@ function normalizeRole(role: unknown) {
   return typeof role === "string" ? role.toLowerCase() : "customer";
 }
 
-function canOpenHref(modules: ModuleKey[], href?: string) {
+function canOpenHref(modules: ModuleKey[], href?: string, role = "customer") {
   if (!href) return false;
   if (href === "/home" || href.startsWith("/home#")) return true;
+  if (href === "/equipment-repairs") return normalizeRole(role) !== "customer";
   if (href === "/service-lines") return modules.some((module) => serviceLineModuleKeys.includes(module));
   if (href.startsWith("/inventory?")) return modules.includes("inventory");
   const moduleKey = moduleHrefToKey(href);
   return !moduleKey || modules.includes(moduleKey);
 }
 
-function canOpenLaunchCard(modules: ModuleKey[], card: LaunchCard) {
-  return canOpenHref(modules, card.href);
+function canOpenLaunchCard(modules: ModuleKey[], card: LaunchCard, role = "customer") {
+  return canOpenHref(modules, card.href, role);
 }
 
 function toNumber(value: unknown) {
@@ -967,12 +968,12 @@ export default function InternalHomePage() {
 
   const visibleNavCards = useMemo(() => {
     if (!profile) return launchCards;
-    return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
+    return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card, profile.role));
   }, [profile]);
 
   const visibleMobileLaunchCards = useMemo(() => {
     if (!profile) return mobileLaunchCards;
-    return mobileLaunchCards.filter((card) => canOpenLaunchCard(profile.modules, card));
+    return mobileLaunchCards.filter((card) => canOpenLaunchCard(profile.modules, card, profile.role));
   }, [profile]);
 
   async function loadProfileAndYards() {

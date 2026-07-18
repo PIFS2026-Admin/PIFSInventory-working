@@ -4856,6 +4856,7 @@ export default function Home() {
                 </button>
                 <button className="button" onClick={openTickets}>Tickets</button>
                 <button className="button" onClick={openReports}>Reports</button>
+                <button className="button" disabled={profileRole === "customer"} onClick={() => (window.location.href = "/equipment-repairs")}>Equipment Repairs</button>
                 <button className="button" disabled={role === "customer"} onClick={() => (window.location.href = "/dashboard")}>Command Center</button>
                 <button className="button" disabled={role === "customer"} onClick={openActivity}>Activity</button>
                 <button className="button" onClick={() => setPasswordOpen(true)}>Password</button>
