@@ -208,14 +208,14 @@ using (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 )
 with check (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 );
 
@@ -228,14 +228,14 @@ using (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 )
 with check (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 );
 
@@ -248,14 +248,14 @@ using (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 )
 with check (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 );
 
@@ -268,7 +268,7 @@ using (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 );
 
@@ -281,6 +281,6 @@ with check (
   exists (
     select 1 from public.profiles p
     where p.id = (select auth.uid())
-      and coalesce(p.role, '') <> 'customer'
+      and coalesce(p.role::text, '') <> 'customer'
   )
 );
