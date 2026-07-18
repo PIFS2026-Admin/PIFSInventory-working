@@ -97,6 +97,15 @@ type InventoryItem = {
   active: boolean;
 };
 
+type RepairAssignee = {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  assignmentValue: string;
+  label: string;
+};
+
 type WorkOrderForm = {
   id: string;
   workOrderNumber: string;
@@ -143,6 +152,7 @@ const workOrderStatuses: WorkOrderStatus[] = [
   "Cancelled",
 ];
 const priorities: WorkOrderPriority[] = ["Low", "Normal", "High", "Critical"];
+const repairAssigneeRoles = ["maintenance_manager", "mechanic_manager", "mechanic", "repair_tech"];
 
 const emptyWorkOrderForm: WorkOrderForm = {
   id: "",
@@ -344,6 +354,33 @@ function mapItem(row: Record<string, unknown>): InventoryItem {
   };
 }
 
+function repairRoleLabel(role: string) {
+  if (role === "maintenance_manager") return "Maintenance Manager";
+  if (role === "mechanic_manager") return "Mechanic Manager";
+  if (role === "mechanic") return "Mechanic";
+  if (role === "repair_tech") return "Repair Tech";
+  return role
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function mapRepairAssignee(row: Record<string, unknown>): RepairAssignee {
+  const name = String(row.full_name || row.email || "Unnamed Repair User").trim();
+  const email = String(row.email || "").trim();
+  const role = String(row.role || "").trim();
+  const roleText = repairRoleLabel(role);
+  return {
+    id: String(row.id || name || email),
+    name,
+    role,
+    email,
+    assignmentValue: name,
+    label: `${name} / ${roleText}${email ? ` / ${email}` : ""}`,
+  };
+}
+
 function workOrderDocumentHtml(options: {
   order: WorkOrder;
   parts: WorkOrderPart[];
@@ -523,6 +560,7 @@ export default function EquipmentRepairsPage() {
   const [parts, setParts] = useState<WorkOrderPart[]>([]);
   const [laborEntries, setLaborEntries] = useState<LaborEntry[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
+  const [repairAssignees, setRepairAssignees] = useState<RepairAssignee[]>([]);
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState("");
   const [workOrderForm, setWorkOrderForm] = useState<WorkOrderForm>(emptyWorkOrderForm);
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm);
@@ -564,6 +602,21 @@ export default function EquipmentRepairsPage() {
   const selectedWorkOrder = visibleWorkOrders.find((order) => order.id === selectedWorkOrderId) || null;
   const selectedParts = selectedWorkOrder ? visibleParts.filter((part) => part.workOrderId === selectedWorkOrder.id) : [];
   const selectedLabor = selectedWorkOrder ? laborEntries.filter((entry) => entry.workOrderId === selectedWorkOrder.id) : [];
+  const assigneeOptions = useMemo(() => {
+    const options = [...repairAssignees].sort((left, right) => left.name.localeCompare(right.name));
+    const selectedName = workOrderForm.assignedTo.trim();
+    if (selectedName && !options.some((assignee) => assignee.assignmentValue.toLowerCase() === selectedName.toLowerCase())) {
+      options.unshift({
+        id: `legacy-${selectedName}`,
+        name: selectedName,
+        role: "",
+        email: "",
+        assignmentValue: selectedName,
+        label: `${selectedName} / Current assignment`,
+      });
+    }
+    return options;
+  }, [repairAssignees, workOrderForm.assignedTo]);
 
   const filteredWorkOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -723,6 +776,7 @@ export default function EquipmentRepairsPage() {
       return;
     }
 
+    await loadRepairAssignees();
     const yardOptions = await loadYards(user.id, user.email || "", nextRole);
     setYards(yardOptions);
     const storedYardId = window.localStorage.getItem("titan_equipment_repair_yard_id") || "";
@@ -758,6 +812,40 @@ export default function EquipmentRepairsPage() {
     return (data || [])
       .filter((yard) => allowed.has(yard.id))
       .map((yard) => ({ id: yard.id, name: yard.name, code: yard.code }));
+  }
+
+  async function loadRepairAssignees() {
+    const primary = await supabase
+      .from("profiles")
+      .select("id, full_name, role, email, is_disabled")
+      .in("role", repairAssigneeRoles)
+      .order("full_name");
+
+    let data = (primary.data || []) as Record<string, unknown>[];
+    let error = primary.error;
+
+    if (error && /email|is_disabled|schema cache|does not exist|column/i.test(error.message)) {
+      const retry = await supabase
+        .from("profiles")
+        .select("id, full_name, role")
+        .in("role", repairAssigneeRoles)
+        .order("full_name");
+      data = (retry.data || []) as Record<string, unknown>[];
+      error = retry.error;
+    }
+
+    if (error) {
+      setRepairAssignees([]);
+      setMessage(`Repair assignee list failed: ${error.message}`);
+      return;
+    }
+
+    setRepairAssignees(
+      data
+        .filter((row) => row.is_disabled !== true)
+        .map((row) => mapRepairAssignee(row))
+        .filter((assignee) => repairAssigneeRoles.includes(assignee.role)),
+    );
   }
 
   async function reloadModuleData(yardId = selectedYardId) {
@@ -1785,7 +1873,15 @@ export default function EquipmentRepairsPage() {
                 </label>
                 <label>
                   Assigned To
-                  <input value={workOrderForm.assignedTo} onChange={(event) => setWorkOrderForm({ ...workOrderForm, assignedTo: event.target.value })} placeholder="Technician or vendor" />
+                  <select value={workOrderForm.assignedTo} onChange={(event) => setWorkOrderForm({ ...workOrderForm, assignedTo: event.target.value })}>
+                    <option value="">Unassigned</option>
+                    {assigneeOptions.map((assignee) => (
+                      <option key={assignee.id} value={assignee.assignmentValue}>
+                        {assignee.label}
+                      </option>
+                    ))}
+                    {!assigneeOptions.length && <option disabled>No repair users found</option>}
+                  </select>
                 </label>
                 <label>
                   Priority
