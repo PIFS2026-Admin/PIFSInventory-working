@@ -520,8 +520,8 @@ function workOrderDocumentHtml(options: {
             <div class="cell"><span class="label">Department</span><span class="value">${escapeHtml(order.department || "-")}</span></div>
             <div class="cell"><span class="label">Requested By</span><span class="value">${escapeHtml(order.requestedByName || "-")}</span></div>
             <div class="cell"><span class="label">Assigned To</span><span class="value">${escapeHtml(order.assignedTo || "Unassigned")}</span></div>
-            <div class="cell"><span class="label">Downtime Start</span><span class="value">${escapeHtml(dateTimeText(order.downtimeStart))}</span></div>
-            <div class="cell"><span class="label">Downtime End</span><span class="value">${escapeHtml(dateTimeText(order.downtimeEnd))}</span></div>
+            <div class="cell"><span class="label">Repair Start</span><span class="value">${escapeHtml(dateTimeText(order.downtimeStart))}</span></div>
+            <div class="cell"><span class="label">Repair Complete</span><span class="value">${escapeHtml(dateTimeText(order.downtimeEnd))}</span></div>
             <div class="cell"><span class="label">Labor Hours</span><span class="value">${escapeHtml(decimal(laborHours || order.laborHours))}</span></div>
             <div class="cell"><span class="label">Labor Cost</span><span class="value">${escapeHtml(money(laborTotal || order.totalLaborCost))}</span></div>
             <div class="cell"><span class="label">Parts Cost</span><span class="value">${escapeHtml(money(partsTotal || order.totalPartsCost))}</span></div>
@@ -2054,11 +2054,11 @@ export default function EquipmentRepairsPage() {
                   </select>
                 </label>
                 <label>
-                  Downtime Start
+                  Repair Start
                   <input type="datetime-local" value={workOrderForm.downtimeStart} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeStart: event.target.value })} />
                 </label>
                 <label>
-                  Downtime End
+                  Repair Complete
                   <input type="datetime-local" value={workOrderForm.downtimeEnd} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeEnd: event.target.value })} />
                 </label>
               </div>
