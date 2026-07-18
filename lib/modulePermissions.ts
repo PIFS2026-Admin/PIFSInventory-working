@@ -64,6 +64,10 @@ export type RoleKey =
   | "tubing_hand"
   | "maintenance_lead"
   | "maintenance_hand"
+  | "maintenance_manager"
+  | "mechanic_manager"
+  | "mechanic"
+  | "repair_tech"
   | "customer"
   | "employee"
   | "operator"
@@ -161,8 +165,12 @@ export const roleOptions: RoleOption[] = [
   { key: "hardband_hand", label: "Hardband Hands", group: "field_yard_warehouse" },
   { key: "tubing_lead", label: "Tubing Leads", group: "leads" },
   { key: "tubing_hand", label: "Tubing Hands", group: "field_yard_warehouse" },
+  { key: "maintenance_manager", label: "Maintenance Manager", group: "management" },
+  { key: "mechanic_manager", label: "Mechanic Manager", group: "management" },
   { key: "maintenance_lead", label: "Maintenance Leads", group: "leads" },
   { key: "maintenance_hand", label: "Maintenance Hands", group: "field_yard_warehouse" },
+  { key: "mechanic", label: "Mechanic", group: "field_yard_warehouse" },
+  { key: "repair_tech", label: "Repair Tech", group: "field_yard_warehouse" },
   { key: "customer", label: "Customers", group: "customers" },
 ];
 
@@ -180,7 +188,7 @@ export const allPermissionModuleKeys = permissionModules.map((module) => module.
 
 export const roleGroups: Record<RoleGroupKey, RoleKey[]> = {
   executive: ["admin", "owner"],
-  management: ["service_line_manager", "dti_superintendent", "yard_manager", "inventory_manager", "office_admin"],
+  management: ["service_line_manager", "dti_superintendent", "yard_manager", "inventory_manager", "office_admin", "maintenance_manager", "mechanic_manager"],
   leads: ["dti_lead", "cdt_lead", "hardband_lead", "tubing_lead", "maintenance_lead"],
   field_yard_warehouse: [
     "yard_hand",
@@ -189,6 +197,8 @@ export const roleGroups: Record<RoleGroupKey, RoleKey[]> = {
     "hardband_hand",
     "tubing_hand",
     "maintenance_hand",
+    "mechanic",
+    "repair_tech",
     "level_2_inspector",
   ],
   sales: ["sales"],
@@ -218,6 +228,13 @@ const roleAliases: Record<string, RoleKey> = {
   tubing_hands: "tubing_hand",
   maintenance_leads: "maintenance_lead",
   maintenance_hands: "maintenance_hand",
+  maintenance_managers: "maintenance_manager",
+  mechanic_managers: "mechanic_manager",
+  mechanics: "mechanic",
+  repair: "repair_tech",
+  repair_techs: "repair_tech",
+  repair_technician: "repair_tech",
+  repair_technicians: "repair_tech",
   customers: "customer",
   inventory_manager: "inventory_manager",
   inventory_specialist: "inventory_specialist",
@@ -474,11 +491,11 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
     allow(permissions, [serviceModule, "daily_summaries", "consumable_inventory", "issue_tickets"], ["view", "create", "edit"]);
   }
 
-  if (role === "maintenance_lead") {
+  if (role === "maintenance_manager" || role === "mechanic_manager" || role === "maintenance_lead") {
     allow(permissions, ["dashboard", "work_orders", "consumable_inventory", "issue_tickets", "reports", "exports"], ["view", "create", "edit", "approve", "close", "export", "receive_notifications"]);
   }
 
-  if (role === "maintenance_hand") {
+  if (role === "maintenance_hand" || role === "mechanic" || role === "repair_tech") {
     allow(permissions, ["work_orders", "consumable_inventory", "issue_tickets"], ["view", "create", "edit"]);
   }
 
@@ -498,6 +515,8 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "dti_superintendent",
       "yard_manager",
       "inventory_manager",
+      "maintenance_manager",
+      "mechanic_manager",
       "office_admin",
       "admin",
       "owner",

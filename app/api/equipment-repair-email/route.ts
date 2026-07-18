@@ -7,8 +7,12 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const allowedRoles = [
   "admin",
   "owner",
+  "maintenance_manager",
+  "mechanic_manager",
   "maintenance_lead",
   "maintenance_hand",
+  "mechanic",
+  "repair_tech",
   "inventory_manager",
   "inventory_specialist",
   "service_line_manager",

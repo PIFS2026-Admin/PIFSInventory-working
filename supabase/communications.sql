@@ -654,8 +654,12 @@ declare
     'hardband_hand',
     'tubing_lead',
     'tubing_hand',
+    'maintenance_manager',
+    'mechanic_manager',
     'maintenance_lead',
     'maintenance_hand',
+    'mechanic',
+    'repair_tech',
     'employee',
     'operator',
     'dti_inspector',
@@ -670,7 +674,7 @@ begin
       foreach default_action_key in array action_keys loop
         if default_role_key in ('admin', 'owner', 'administrator')
           or default_action_key in ('view', 'create', 'edit', 'export', 'receive_notifications')
-          or (default_role_key in ('service_line_manager', 'dti_superintendent', 'yard_manager', 'inventory_manager', 'office_admin') and default_action_key in ('approve', 'close', 'manage_settings'))
+          or (default_role_key in ('service_line_manager', 'dti_superintendent', 'yard_manager', 'inventory_manager', 'office_admin', 'maintenance_manager', 'mechanic_manager') and default_action_key in ('approve', 'close', 'manage_settings'))
         then
           insert into public.role_permission_defaults (role_key, module_key, action_key, is_allowed)
           values (default_role_key, 'communications', default_action_key, true)

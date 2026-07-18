@@ -494,7 +494,7 @@ function workOrderDocumentHtml(options: {
 
 function accessAllowed(role: string, moduleKeys: ModuleKey[], permissions: PermissionMap | null) {
   if (role === "customer") return false;
-  if (["admin", "owner", "maintenance_lead", "maintenance_hand", "employee"].includes(role)) return true;
+  if (["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead", "maintenance_hand", "mechanic", "repair_tech", "employee"].includes(role)) return true;
   return (
     moduleKeys.includes("work_orders") ||
     canView(permissions, "work_orders") ||
@@ -548,12 +548,12 @@ export default function EquipmentRepairsPage() {
   const canUseModule = accessAllowed(role, moduleKeys, permissions);
   const canManageWorkOrders =
     role !== "customer" &&
-    (["admin", "owner", "maintenance_lead", "maintenance_hand", "employee"].includes(role) ||
+    (["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead", "maintenance_hand", "mechanic", "repair_tech", "employee"].includes(role) ||
       canCreate(permissions, "work_orders") ||
       canEdit(permissions, "work_orders"));
-  const canCloseWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canClose(permissions, "work_orders");
-  const canExportWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canExport(permissions, "work_orders");
-  const canViewAllWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canCloseWorkOrders || canExportWorkOrders;
+  const canCloseWorkOrders = ["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead"].includes(role) || canClose(permissions, "work_orders");
+  const canExportWorkOrders = ["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead"].includes(role) || canExport(permissions, "work_orders");
+  const canViewAllWorkOrders = ["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead"].includes(role) || canCloseWorkOrders || canExportWorkOrders;
   const currentUserAssignmentKeys = useMemo(() => [userName, userEmail].map(personKey).filter(Boolean), [userEmail, userName]);
   const visibleWorkOrders = useMemo(
     () => (canViewAllWorkOrders ? workOrders : workOrders.filter((order) => assignedToCurrentUser(order, currentUserAssignmentKeys))),

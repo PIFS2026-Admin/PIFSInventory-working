@@ -7,7 +7,13 @@ create type public.user_role as enum (
   'operator',
   'sales',
   'inventory_specialist',
-  'inventory_manager'
+  'inventory_manager',
+  'maintenance_manager',
+  'mechanic_manager',
+  'maintenance_lead',
+  'maintenance_hand',
+  'mechanic',
+  'repair_tech'
 );
 
 create type public.inventory_status as enum (

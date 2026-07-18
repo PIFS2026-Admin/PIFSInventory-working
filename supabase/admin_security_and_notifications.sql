@@ -277,6 +277,12 @@ values
   ('cdt_lead', 'CDT Lead', 'CDT lead access.'),
   ('inventory_specialist', 'Inventory Specialist', 'Inventory specialist access.'),
   ('inventory_manager', 'Inventory Manager', 'Inventory management access.'),
+  ('maintenance_manager', 'Maintenance Manager', 'Maintenance management access.'),
+  ('mechanic_manager', 'Mechanic Manager', 'Mechanic management access.'),
+  ('maintenance_lead', 'Maintenance Lead', 'Maintenance lead access.'),
+  ('maintenance_hand', 'Maintenance Hand', 'Maintenance hand access.'),
+  ('mechanic', 'Mechanic', 'Mechanic repair work order access.'),
+  ('repair_tech', 'Repair Tech', 'Repair technician work order access.'),
   ('yard_manager', 'Yard Manager', 'Yard manager notifications and access.')
 on conflict (role_key) do update
 set name = excluded.name,

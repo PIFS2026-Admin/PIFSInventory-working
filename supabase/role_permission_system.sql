@@ -29,6 +29,10 @@ begin
       'tubing_hand',
       'maintenance_lead',
       'maintenance_hand',
+      'maintenance_manager',
+      'mechanic_manager',
+      'mechanic',
+      'repair_tech',
       'customer',
       'employee',
       'operator',
@@ -497,11 +501,42 @@ with defaults(role_key, module_key, action_key) as (
     ('maintenance_lead','work_orders','edit'),
     ('maintenance_lead','work_orders','approve'),
     ('maintenance_lead','work_orders','close'),
+    ('maintenance_lead','work_orders','export'),
     ('maintenance_lead','consumable_inventory','view'),
     ('maintenance_lead','issue_tickets','create'),
     ('maintenance_hand','work_orders','view'),
     ('maintenance_hand','work_orders','create'),
     ('maintenance_hand','work_orders','edit'),
+    ('maintenance_manager','dashboard','view'),
+    ('maintenance_manager','work_orders','view'),
+    ('maintenance_manager','work_orders','create'),
+    ('maintenance_manager','work_orders','edit'),
+    ('maintenance_manager','work_orders','approve'),
+    ('maintenance_manager','work_orders','close'),
+    ('maintenance_manager','work_orders','export'),
+    ('maintenance_manager','consumable_inventory','view'),
+    ('maintenance_manager','issue_tickets','create'),
+    ('maintenance_manager','reports','view'),
+    ('mechanic_manager','dashboard','view'),
+    ('mechanic_manager','work_orders','view'),
+    ('mechanic_manager','work_orders','create'),
+    ('mechanic_manager','work_orders','edit'),
+    ('mechanic_manager','work_orders','approve'),
+    ('mechanic_manager','work_orders','close'),
+    ('mechanic_manager','work_orders','export'),
+    ('mechanic_manager','consumable_inventory','view'),
+    ('mechanic_manager','issue_tickets','create'),
+    ('mechanic_manager','reports','view'),
+    ('mechanic','work_orders','view'),
+    ('mechanic','work_orders','create'),
+    ('mechanic','work_orders','edit'),
+    ('mechanic','consumable_inventory','view'),
+    ('mechanic','issue_tickets','create'),
+    ('repair_tech','work_orders','view'),
+    ('repair_tech','work_orders','create'),
+    ('repair_tech','work_orders','edit'),
+    ('repair_tech','consumable_inventory','view'),
+    ('repair_tech','issue_tickets','create'),
     ('customer','customer_portal','view'),
     ('customer','release_requests','view'),
     ('customer','release_requests','create'),
@@ -597,8 +632,12 @@ begin
       when 'hardband_hand' then array['hardband','inventory']
       when 'tubing_lead' then array['dashboard','inventory','reports']
       when 'tubing_hand' then array['inventory']
-      when 'maintenance_lead' then array['dashboard','inventory','reports']
-      when 'maintenance_hand' then array['inventory']
+      when 'maintenance_manager' then array['dashboard','work_orders','inventory','reports']
+      when 'mechanic_manager' then array['dashboard','work_orders','inventory','reports']
+      when 'maintenance_lead' then array['dashboard','work_orders','inventory','reports']
+      when 'maintenance_hand' then array['work_orders','inventory']
+      when 'mechanic' then array['work_orders','inventory']
+      when 'repair_tech' then array['work_orders','inventory']
       when 'employee' then array['dashboard','yard_view','inventory','purchase_orders','dti','dti_summary','hardband','reports']
       else array[]::text[]
     end;
