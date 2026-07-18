@@ -426,6 +426,66 @@
   gap: 8px;
 }
 
+.scope :global(.repair-job-board) {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.scope :global(.repair-job-column) {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  background: rgba(2, 6, 23, 0.34);
+  padding: 10px;
+}
+
+.scope :global(.repair-job-column-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 2px 2px 9px;
+  color: #f8fafc;
+}
+
+.scope :global(.repair-job-column-head strong) {
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-job-column-head span) {
+  border: 1px solid rgba(249, 115, 22, 0.38);
+  border-radius: 999px;
+  background: rgba(124, 45, 18, 0.22);
+  color: #fed7aa;
+  padding: 3px 8px;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.scope :global(.repair-job-list) {
+  display: grid;
+  gap: 8px;
+  padding-top: 9px;
+}
+
+.scope :global(.repair-job-column .repair-order-card) {
+  min-height: 145px;
+}
+
+.scope :global(.repair-job-empty) {
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  color: var(--muted);
+  padding: 14px;
+  text-align: center;
+}
+
 .scope :global(.repair-order-row) {
   position: relative;
   display: grid;
@@ -896,6 +956,19 @@
 
   .scope :global(.repair-order-board) {
     grid-template-columns: 1fr;
+  }
+
+  .scope :global(.repair-job-board) {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scroll-snap-type: x mandatory;
+  }
+
+  .scope :global(.repair-job-column) {
+    flex: 0 0 min(86vw, 340px);
+    scroll-snap-align: start;
   }
 
   .scope :global(.repair-order-row) {

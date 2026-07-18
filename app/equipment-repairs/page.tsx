@@ -503,6 +503,18 @@ function accessAllowed(role: string, moduleKeys: ModuleKey[], permissions: Permi
   );
 }
 
+function personKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function assignedToCurrentUser(order: WorkOrder, userKeys: string[]) {
+  const assigned = personKey(order.assignedTo);
+  if (!assigned || !userKeys.length) return false;
+  return userKeys.some((key) => assigned === key || assigned.includes(key) || key.includes(assigned));
+}
+
+const activeBoardStatuses: WorkOrderStatus[] = ["Draft", "Open", "In Repair", "Awaiting Parts", "Ready for Review"];
+
 export default function EquipmentRepairsPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [yards, setYards] = useState<InventoryYard[]>([]);
@@ -526,15 +538,13 @@ export default function EquipmentRepairsPage() {
   const [emailingWorkOrderId, setEmailingWorkOrderId] = useState("");
   const [setupRequired, setSetupRequired] = useState(false);
   const [userName, setUserName] = useState("TITAN User");
+  const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
   const [role, setRole] = useState("employee");
   const [permissions, setPermissions] = useState<PermissionMap | null>(null);
   const [moduleKeys, setModuleKeys] = useState<ModuleKey[]>([]);
 
   const selectedYard = yards.find((yard) => yard.id === selectedYardId);
-  const selectedWorkOrder = workOrders.find((order) => order.id === selectedWorkOrderId) || null;
-  const selectedParts = parts.filter((part) => part.workOrderId === selectedWorkOrderId);
-  const selectedLabor = laborEntries.filter((entry) => entry.workOrderId === selectedWorkOrderId);
   const canUseModule = accessAllowed(role, moduleKeys, permissions);
   const canManageWorkOrders =
     role !== "customer" &&
@@ -543,10 +553,21 @@ export default function EquipmentRepairsPage() {
       canEdit(permissions, "work_orders"));
   const canCloseWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canClose(permissions, "work_orders");
   const canExportWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canExport(permissions, "work_orders");
+  const canViewAllWorkOrders = ["admin", "owner", "maintenance_lead"].includes(role) || canCloseWorkOrders || canExportWorkOrders;
+  const currentUserAssignmentKeys = useMemo(() => [userName, userEmail].map(personKey).filter(Boolean), [userEmail, userName]);
+  const visibleWorkOrders = useMemo(
+    () => (canViewAllWorkOrders ? workOrders : workOrders.filter((order) => assignedToCurrentUser(order, currentUserAssignmentKeys))),
+    [canViewAllWorkOrders, currentUserAssignmentKeys, workOrders],
+  );
+  const visibleWorkOrderIds = useMemo(() => new Set(visibleWorkOrders.map((order) => order.id)), [visibleWorkOrders]);
+  const visibleParts = useMemo(() => parts.filter((part) => visibleWorkOrderIds.has(part.workOrderId)), [parts, visibleWorkOrderIds]);
+  const selectedWorkOrder = visibleWorkOrders.find((order) => order.id === selectedWorkOrderId) || null;
+  const selectedParts = selectedWorkOrder ? visibleParts.filter((part) => part.workOrderId === selectedWorkOrder.id) : [];
+  const selectedLabor = selectedWorkOrder ? laborEntries.filter((entry) => entry.workOrderId === selectedWorkOrder.id) : [];
 
   const filteredWorkOrders = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return workOrders.filter((order) => {
+    return visibleWorkOrders.filter((order) => {
       const activeStatus = !["Closed", "Cancelled"].includes(order.status);
       const statusMatches =
         statusFilter === "all" ||
@@ -572,10 +593,15 @@ export default function EquipmentRepairsPage() {
           .includes(term);
       return statusMatches && priorityMatches && technicianMatches && termMatches;
     });
-  }, [priorityFilter, search, statusFilter, technicianFilter, workOrders]);
+  }, [priorityFilter, search, statusFilter, technicianFilter, visibleWorkOrders]);
+
+  const activeBoardOrders = useMemo(
+    () => filteredWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status)),
+    [filteredWorkOrders],
+  );
 
   const metrics = useMemo(() => {
-    const activeOrders = workOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
+    const activeOrders = visibleWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
     return {
       open: activeOrders.length,
       awaitingParts: activeOrders.filter((order) => order.status === "Awaiting Parts").length,
@@ -583,41 +609,41 @@ export default function EquipmentRepairsPage() {
       laborHours: activeOrders.reduce((sum, order) => sum + order.laborHours, 0),
       partsCost: activeOrders.reduce((sum, order) => sum + order.totalPartsCost, 0),
       totalCost: activeOrders.reduce((sum, order) => sum + order.totalCost, 0),
-      postedParts: parts.filter((part) => part.postedToInventory).length,
-      unpostedParts: parts.filter((part) => !part.postedToInventory).length,
+      postedParts: visibleParts.filter((part) => part.postedToInventory).length,
+      unpostedParts: visibleParts.filter((part) => !part.postedToInventory).length,
     };
-  }, [parts, workOrders]);
+  }, [visibleParts, visibleWorkOrders]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    workOrders.forEach((order) => {
+    visibleWorkOrders.forEach((order) => {
       counts.set(order.status, (counts.get(order.status) || 0) + 1);
     });
-    counts.set("active", workOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status)).length);
-    counts.set("all", workOrders.length);
+    counts.set("active", visibleWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status)).length);
+    counts.set("all", visibleWorkOrders.length);
     return counts;
-  }, [workOrders]);
+  }, [visibleWorkOrders]);
 
   const priorityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     priorities.forEach((priority) => counts.set(priority, 0));
-    workOrders.forEach((order) => {
+    visibleWorkOrders.forEach((order) => {
       counts.set(order.priority, (counts.get(order.priority) || 0) + 1);
     });
-    counts.set("all", workOrders.length);
+    counts.set("all", visibleWorkOrders.length);
     return counts;
-  }, [workOrders]);
+  }, [visibleWorkOrders]);
 
   const technicianCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    workOrders.forEach((order) => {
+    visibleWorkOrders.forEach((order) => {
       const name = order.assignedTo.trim() || "Unassigned";
       counts.set(name, (counts.get(name) || 0) + 1);
     });
     return Array.from(counts.entries())
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
       .slice(0, 8);
-  }, [workOrders]);
+  }, [visibleWorkOrders]);
 
   const partSearchResults = useMemo(() => {
     const term = partLookup.trim().toLowerCase();
@@ -658,6 +684,7 @@ export default function EquipmentRepairsPage() {
     }
 
     setUserId(user.id);
+    setUserEmail(user.email || "");
     const { data: profile } = await supabase.from("profiles").select("full_name, role").eq("id", user.id).single();
     const nextUserName = String(profile?.full_name || user.email || "TITAN User");
     let nextRole = normalizePermissionRole(profile?.role || "employee");
@@ -1416,16 +1443,17 @@ export default function EquipmentRepairsPage() {
           </label>
           <label className="ci-field">
             <span className="lab">Technician</span>
-            <select className="ci-select" value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)}>
-              <option value="all">All Techs</option>
-              <option value="unassigned">Unassigned</option>
-              {technicianCounts
-                .filter(([technician]) => technician !== "Unassigned")
-                .map(([technician, count]) => (
-                  <option key={technician} value={technician}>
-                    {technician} ({whole(count)})
-                  </option>
-                ))}
+            <select className="ci-select" value={technicianFilter} onChange={(event) => setTechnicianFilter(event.target.value)} disabled={!canViewAllWorkOrders}>
+              <option value="all">{canViewAllWorkOrders ? "All Techs" : "Assigned to me"}</option>
+              {canViewAllWorkOrders && <option value="unassigned">Unassigned</option>}
+              {canViewAllWorkOrders &&
+                technicianCounts
+                  .filter(([technician]) => technician !== "Unassigned")
+                  .map(([technician, count]) => (
+                    <option key={technician} value={technician}>
+                      {technician} ({whole(count)})
+                    </option>
+                  ))}
             </select>
           </label>
           <label className="ci-field repair-search-field">
@@ -1470,10 +1498,12 @@ export default function EquipmentRepairsPage() {
               <span>High</span>
               <b>{whole(priorityCounts.get("High") || 0)}</b>
             </button>
-            <button className={`repair-chip ${technicianFilter === "unassigned" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "all", technician: "unassigned" })}>
-              <span>Unassigned</span>
-              <b>{whole(technicianCounts.find(([name]) => name === "Unassigned")?.[1] || 0)}</b>
-            </button>
+            {canViewAllWorkOrders && (
+              <button className={`repair-chip ${technicianFilter === "unassigned" ? "on" : ""}`} type="button" onClick={() => setRepairView({ status: "active", priority: "all", technician: "unassigned" })}>
+                <span>Unassigned</span>
+                <b>{whole(technicianCounts.find(([name]) => name === "Unassigned")?.[1] || 0)}</b>
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -1524,14 +1554,14 @@ export default function EquipmentRepairsPage() {
             <div className="repair-card-head compact">
               <h2>
                 <span className="dot"></span>Active Repair Queue
-                <span className="ct">{filteredWorkOrders.slice(0, 8).length.toLocaleString()} shown</span>
+                <span className="ct">{activeBoardOrders.slice(0, 8).length.toLocaleString()} shown</span>
               </h2>
               <button type="button" className="ci-btn mini" onClick={() => setActiveTab("orders")}>
                 View Orders
               </button>
             </div>
             <div className="repair-order-board">
-              {filteredWorkOrders.slice(0, 8).map((order) => (
+              {activeBoardOrders.slice(0, 8).map((order) => (
                 <button key={order.id} className={`repair-order-card priority-${statusClass(order.priority)}`} type="button" onClick={() => editWorkOrder(order)}>
                   <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
                   <strong>{order.equipmentName || "Equipment repair"}</strong>
@@ -1543,7 +1573,7 @@ export default function EquipmentRepairsPage() {
                   </div>
                 </button>
               ))}
-              {!filteredWorkOrders.length && <p>No repair work orders match the current filters.</p>}
+              {!activeBoardOrders.length && <p>No active repair work orders match the current filters.</p>}
             </div>
           </div>
 
@@ -1555,7 +1585,7 @@ export default function EquipmentRepairsPage() {
               {workOrderStatuses
                 .filter((status) => status !== "Draft")
                 .map((status) => {
-                  const count = workOrders.filter((order) => order.status === status).length;
+                  const count = visibleWorkOrders.filter((order) => order.status === status).length;
                   return (
                     <button
                       key={status}
@@ -1610,23 +1640,58 @@ export default function EquipmentRepairsPage() {
               New Work Order
             </button>
           </div>
-          <div className="repair-order-list">
-            {filteredWorkOrders.map((order) => (
-              <button key={order.id} className="repair-order-row" type="button" onClick={() => editWorkOrder(order)}>
-                <span className={`repair-priority priority-${statusClass(order.priority)}`}>{order.priority}</span>
-                <div className="repair-order-title">
-                  <strong>{order.equipmentName || "Equipment repair"}</strong>
-                  <small>{order.workOrderNumber} / {order.equipmentNumber || order.equipmentType || "No asset #"}</small>
-                </div>
-                <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
-                <span>{order.assignedTo || "Unassigned"}</span>
-                <span>{decimal(order.laborHours)} hrs</span>
-                <span>{money(order.totalCost)}</span>
-                <span>{dateText(order.updatedAt)}</span>
-              </button>
-            ))}
-            {!filteredWorkOrders.length && <p>No work orders match this view.</p>}
-          </div>
+          {statusFilter !== "Closed" && statusFilter !== "Cancelled" ? (
+            <div className="repair-job-board">
+              {activeBoardOrders.length ? (
+                activeBoardStatuses.map((status) => {
+                  const columnOrders = activeBoardOrders.filter((order) => order.status === status);
+                  return (
+                    <section key={status} className="repair-job-column">
+                      <div className="repair-job-column-head">
+                        <strong>{status}</strong>
+                        <span>{whole(columnOrders.length)}</span>
+                      </div>
+                      <div className="repair-job-list">
+                        {columnOrders.map((order) => (
+                          <button key={order.id} className={`repair-order-card priority-${statusClass(order.priority)}`} type="button" onClick={() => editWorkOrder(order)}>
+                            <span className={`repair-priority priority-${statusClass(order.priority)}`}>{order.priority}</span>
+                            <strong>{order.equipmentName || "Equipment repair"}</strong>
+                            <small>{order.workOrderNumber} / {order.equipmentNumber || order.equipmentType || "No asset #"}</small>
+                            <em>{order.problemDescription || "No repair notes entered yet."}</em>
+                            <div>
+                              <span>{order.assignedTo || "Unassigned"}</span>
+                              <span>{decimal(order.laborHours)} hrs</span>
+                            </div>
+                          </button>
+                        ))}
+                        {!columnOrders.length && <div className="repair-job-empty">No work orders.</div>}
+                      </div>
+                    </section>
+                  );
+                })
+              ) : (
+                <p>No active work orders match this view.</p>
+              )}
+            </div>
+          ) : (
+            <div className="repair-order-list">
+              {filteredWorkOrders.map((order) => (
+                <button key={order.id} className="repair-order-row" type="button" onClick={() => editWorkOrder(order)}>
+                  <span className={`repair-priority priority-${statusClass(order.priority)}`}>{order.priority}</span>
+                  <div className="repair-order-title">
+                    <strong>{order.equipmentName || "Equipment repair"}</strong>
+                    <small>{order.workOrderNumber} / {order.equipmentNumber || order.equipmentType || "No asset #"}</small>
+                  </div>
+                  <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
+                  <span>{order.assignedTo || "Unassigned"}</span>
+                  <span>{decimal(order.laborHours)} hrs</span>
+                  <span>{money(order.totalCost)}</span>
+                  <span>{dateText(order.updatedAt)}</span>
+                </button>
+              ))}
+              {!filteredWorkOrders.length && <p>No work orders match this view.</p>}
+            </div>
+          )}
         </section>
       )}
 
