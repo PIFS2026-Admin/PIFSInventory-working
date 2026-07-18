@@ -1807,7 +1807,6 @@ export default function EquipmentRepairsPage() {
             <h2>
               <span className="dot"></span>Repair Time
             </h2>
-            <p className="muted-text repair-rate-help">Labor cost is automatically calculated at $40 per hour.</p>
             <div className="repair-inline-form">
               <label className="repair-entry-field">
                 <span>Technician</span>
