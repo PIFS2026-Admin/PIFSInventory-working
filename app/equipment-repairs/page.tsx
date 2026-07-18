@@ -15,6 +15,12 @@ import {
   type ModuleKey,
   type PermissionMap,
 } from "../../lib/modulePermissions";
+import {
+  equipmentAssetLabel,
+  equipmentAssetSearchText,
+  titanEquipmentAssets,
+  type TitanEquipmentAsset,
+} from "../../lib/titanEquipmentAssets";
 import styles from "./equipment-repairs.module.css";
 
 type InventoryYard = {
@@ -381,6 +387,43 @@ function mapRepairAssignee(row: Record<string, unknown>): RepairAssignee {
   };
 }
 
+function normalizeEquipmentLookup(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function findEquipmentAssetByLookup(value: string) {
+  const normalized = normalizeEquipmentLookup(value);
+  if (!normalized) return null;
+  return (
+    titanEquipmentAssets.find((asset) =>
+      [
+        equipmentAssetLabel(asset),
+        asset.assetTag,
+        asset.unitNumber,
+        asset.name,
+      ].some((field) => normalizeEquipmentLookup(field) === normalized),
+    ) || null
+  );
+}
+
+function findEquipmentAssetForWorkOrder(form: Pick<WorkOrderForm, "equipmentName" | "equipmentNumber" | "equipmentType">) {
+  const equipmentName = normalizeEquipmentLookup(form.equipmentName);
+  const equipmentNumber = normalizeEquipmentLookup(form.equipmentNumber);
+  const equipmentType = normalizeEquipmentLookup(form.equipmentType);
+  if (!equipmentName && !equipmentNumber) return null;
+
+  return (
+    titanEquipmentAssets.find((asset) => {
+      const nameMatches = equipmentName && normalizeEquipmentLookup(asset.name) === equipmentName;
+      const unitMatches = equipmentName && normalizeEquipmentLookup(asset.unitNumber) === equipmentName;
+      const tagMatches = equipmentNumber && normalizeEquipmentLookup(asset.assetTag) === equipmentNumber;
+      const numberMatches = equipmentNumber && normalizeEquipmentLookup(asset.unitNumber) === equipmentNumber;
+      const typeMatches = !equipmentType || normalizeEquipmentLookup(asset.equipmentType) === equipmentType;
+      return (nameMatches || unitMatches || tagMatches || numberMatches) && typeMatches;
+    }) || null
+  );
+}
+
 function workOrderDocumentHtml(options: {
   order: WorkOrder;
   parts: WorkOrderPart[];
@@ -566,6 +609,7 @@ export default function EquipmentRepairsPage() {
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm);
   const [laborForm, setLaborForm] = useState<LaborForm>(emptyLaborForm);
   const [search, setSearch] = useState("");
+  const [equipmentLookup, setEquipmentLookup] = useState("");
   const [partLookup, setPartLookup] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -602,6 +646,16 @@ export default function EquipmentRepairsPage() {
   const selectedWorkOrder = visibleWorkOrders.find((order) => order.id === selectedWorkOrderId) || null;
   const selectedParts = selectedWorkOrder ? visibleParts.filter((part) => part.workOrderId === selectedWorkOrder.id) : [];
   const selectedLabor = selectedWorkOrder ? laborEntries.filter((entry) => entry.workOrderId === selectedWorkOrder.id) : [];
+  const selectedEquipmentAsset =
+    findEquipmentAssetByLookup(equipmentLookup) ||
+    findEquipmentAssetForWorkOrder(workOrderForm);
+  const filteredEquipmentAssets = useMemo(() => {
+    const term = normalizeEquipmentLookup(equipmentLookup);
+    const matches = term
+      ? titanEquipmentAssets.filter((asset) => equipmentAssetSearchText(asset).includes(term))
+      : titanEquipmentAssets;
+    return matches.slice(0, 120);
+  }, [equipmentLookup]);
   const assigneeOptions = useMemo(() => {
     const options = [...repairAssignees].sort((left, right) => left.name.localeCompare(right.name));
     const selectedName = workOrderForm.assignedTo.trim();
@@ -932,14 +986,40 @@ export default function EquipmentRepairsPage() {
   function startNewWorkOrder() {
     setSelectedWorkOrderId("");
     setWorkOrderForm(newWorkOrderDraft());
+    setEquipmentLookup("");
     setPartForm(emptyPartForm);
     setLaborForm({ ...emptyLaborForm, technicianName: userName });
     setActiveTab("details");
   }
 
+  function applyEquipmentAsset(asset: TitanEquipmentAsset) {
+    setEquipmentLookup(equipmentAssetLabel(asset));
+    setWorkOrderForm((current) => ({
+      ...current,
+      equipmentName: asset.name,
+      equipmentNumber: asset.assetTag || asset.unitNumber || asset.name,
+      equipmentType: asset.equipmentType,
+      department: asset.department || current.department,
+    }));
+  }
+
+  function handleEquipmentLookupChange(value: string) {
+    setEquipmentLookup(value);
+    const asset = findEquipmentAssetByLookup(value);
+    if (asset) {
+      setWorkOrderForm((current) => ({
+        ...current,
+        equipmentName: asset.name,
+        equipmentNumber: asset.assetTag || asset.unitNumber || asset.name,
+        equipmentType: asset.equipmentType,
+        department: asset.department || current.department,
+      }));
+    }
+  }
+
   function editWorkOrder(order: WorkOrder) {
     setSelectedWorkOrderId(order.id);
-    setWorkOrderForm({
+    const nextForm = {
       id: order.id,
       workOrderNumber: order.workOrderNumber,
       createdAt: order.createdAt,
@@ -955,7 +1035,10 @@ export default function EquipmentRepairsPage() {
       repairNotes: order.repairNotes,
       downtimeStart: dateTimeLocal(order.downtimeStart),
       downtimeEnd: dateTimeLocal(order.downtimeEnd),
-    });
+    };
+    setWorkOrderForm(nextForm);
+    const equipmentAsset = findEquipmentAssetForWorkOrder(nextForm);
+    setEquipmentLookup(equipmentAsset ? equipmentAssetLabel(equipmentAsset) : "");
     setLaborForm({ ...emptyLaborForm, technicianName: order.assignedTo || userName });
     setActiveTab("details");
   }
@@ -1846,17 +1929,73 @@ export default function EquipmentRepairsPage() {
                 <strong>Asset / Equipment</strong>
               </div>
               <div className="form-grid repair-form-grid">
+                <label className="full">
+                  Search Equipment List
+                  <input
+                    list="repair-equipment-assets"
+                    value={equipmentLookup}
+                    onChange={(event) => handleEquipmentLookupChange(event.target.value)}
+                    onBlur={(event) => {
+                      const asset = findEquipmentAssetByLookup(event.target.value);
+                      if (asset) applyEquipmentAsset(asset);
+                    }}
+                    placeholder="Search truck, trailer, loader, asset tag, or current assignment"
+                  />
+                  <datalist id="repair-equipment-assets">
+                    {titanEquipmentAssets.map((asset) => (
+                      <option key={asset.id} value={equipmentAssetLabel(asset)} />
+                    ))}
+                  </datalist>
+                </label>
+                <label className="full">
+                  Equipment Dropdown
+                  <select
+                    value={selectedEquipmentAsset?.id || ""}
+                    onChange={(event) => {
+                      const asset = titanEquipmentAssets.find((item) => item.id === event.target.value);
+                      if (asset) applyEquipmentAsset(asset);
+                    }}
+                  >
+                    <option value="">Manual equipment entry</option>
+                    {filteredEquipmentAssets.map((asset) => (
+                      <option key={asset.id} value={asset.id}>
+                        {equipmentAssetLabel(asset)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label>
                   Equipment Name
-                  <input value={workOrderForm.equipmentName} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentName: event.target.value })} placeholder="Example: Forklift 2, Truck 18, Yard compressor" />
+                  <input
+                    value={workOrderForm.equipmentName}
+                    onChange={(event) => {
+                      setEquipmentLookup("");
+                      setWorkOrderForm({ ...workOrderForm, equipmentName: event.target.value });
+                    }}
+                    placeholder="Example: Forklift 2, Truck 18, Yard compressor"
+                  />
                 </label>
                 <label>
                   Equipment Number
-                  <input value={workOrderForm.equipmentNumber} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentNumber: event.target.value })} placeholder="Asset, unit, or truck #" />
+                  <input
+                    value={workOrderForm.equipmentNumber}
+                    onChange={(event) => {
+                      setEquipmentLookup("");
+                      setWorkOrderForm({ ...workOrderForm, equipmentNumber: event.target.value });
+                    }}
+                    placeholder="Asset, unit, or truck #"
+                  />
                 </label>
                 <label>
                   Equipment Type
-                  <input value={workOrderForm.equipmentType} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentType: event.target.value })} placeholder="Truck, forklift, rack, pump" />
+                  <input
+                    value={workOrderForm.equipmentType}
+                    onChange={(event) => {
+                      setEquipmentLookup("");
+                      setWorkOrderForm({ ...workOrderForm, equipmentType: event.target.value });
+                    }}
+                    placeholder="Truck, forklift, rack, pump"
+                  />
                 </label>
               </div>
             </section>
