@@ -15,6 +15,7 @@ import {
   type ModuleKey,
   type PermissionMap,
 } from "../../lib/modulePermissions";
+import inventoryStyles from "./inventory.module.css";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
 
@@ -3174,7 +3175,7 @@ export default function InventoryModulePage() {
   const showPageMessage = shouldShowPageMessage(message);
 
   return (
-    <main className={`module-shell inventory-module consum-scope ${activeView === "orders" || activeView === "cart" ? "store-mode" : ""}`}>
+    <main className={`module-shell inventory-module consum-scope ${inventoryStyles.inventoryPolish} ${activeView === "orders" || activeView === "cart" ? "store-mode" : ""}`}>
       <section className="page-head no-print">
         <div>
           <div className="pt">Consumables — Inventory Control</div>
@@ -4092,6 +4093,7 @@ export default function InventoryModulePage() {
                 <table className="dt item-master-table">
                   <thead>
                     <tr>
+                      <th className={inventoryStyles.itemPhotoHeader}>Photo</th>
                       <th>SKU</th>
                       <th>Item</th>
                       <th>Category</th>
@@ -4113,8 +4115,9 @@ export default function InventoryModulePage() {
                           className={`click-row ${selectedItemId === item.id ? "selected-row" : ""}`}
                           onClick={() => selectItemForSetup(item)}
                         >
+                          <td className={inventoryStyles.itemPhotoCell}>{renderProductPhoto(item, inventoryStyles.itemMasterPhoto)}</td>
                           <td className="mono"><b>{item.itemCode}</b><div className="ci-sub">{item.barcode || "No barcode"}</div></td>
-                          <td>{item.itemName}</td>
+                          <td><b>{item.itemName}</b><div className="ci-sub">{item.uom || "unit"}</div></td>
                           <td>{item.category || "-"}</td>
                           <td>{item.location || "-"}</td>
                           <td>{item.vendorName || "-"}</td>

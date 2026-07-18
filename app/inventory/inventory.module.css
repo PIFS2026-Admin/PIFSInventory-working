@@ -1,0 +1,99 @@
+.inventoryPolish {
+  --inventory-thumb-size: 52px;
+}
+
+.inventoryPolish .itemPhotoHeader {
+  width: 72px;
+  min-width: 72px;
+}
+
+.inventoryPolish .itemPhotoCell {
+  width: 72px;
+  min-width: 72px;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+.inventoryPolish .itemMasterPhoto {
+  display: grid;
+  place-items: center;
+  width: var(--inventory-thumb-size);
+  min-width: var(--inventory-thumb-size);
+  height: var(--inventory-thumb-size);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 25%, rgba(249, 115, 22, 0.18), transparent 58%), #07090d;
+  color: #fed7aa;
+  object-fit: cover;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.38);
+}
+
+.inventoryPolish :global(.item-master-table td) {
+  vertical-align: middle;
+}
+
+.inventoryPolish :global(.item-master-table td b) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .inventoryPolish {
+    --inventory-thumb-size: 46px;
+  }
+
+  .inventoryPolish :global(.ci-tabs) {
+    gap: 9px !important;
+    border-bottom: 0 !important;
+    padding: 0 10px 10px !important;
+    scroll-snap-type: x proximity;
+  }
+
+  .inventoryPolish :global(.ci-tabs .ytab) {
+    flex: 0 0 auto !important;
+    justify-content: center;
+    min-width: 118px;
+    min-height: 46px;
+    border: 1px solid rgba(148, 163, 184, 0.32) !important;
+    border-radius: 13px !important;
+    background: rgba(22, 27, 35, 0.94) !important;
+    padding: 10px 12px !important;
+    color: #d8dee8;
+    font-size: 11px !important;
+    line-height: 1.08;
+    letter-spacing: 0.03em;
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+    scroll-snap-align: start;
+  }
+
+  .inventoryPolish :global(.ci-tabs .ytab.on) {
+    border-color: rgba(249, 115, 22, 0.72) !important;
+    background: rgba(249, 115, 22, 0.18) !important;
+    color: #fff7ed;
+    box-shadow: 0 0 18px rgba(249, 115, 22, 0.16), inset 0 -2px 0 #f97316 !important;
+  }
+
+  .inventoryPolish :global(.ci-tabs .ytab .yc) {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    font-size: 9px;
+  }
+
+  .inventoryPolish .itemPhotoHeader,
+  .inventoryPolish .itemPhotoCell {
+    width: 62px;
+    min-width: 62px;
+  }
+}
+
+@media (max-width: 390px) {
+  .inventoryPolish :global(.ci-tabs .ytab) {
+    min-width: 106px;
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+}
