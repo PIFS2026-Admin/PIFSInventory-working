@@ -899,10 +899,12 @@ export default function EquipmentRepairsPage() {
 
   if (loading) {
     return (
-      <main className={`module-shell ${styles.scope}`}>
-        <section className="ticket-card">
-          <h1>Equipment Repairs</h1>
-          <p>Loading repair work orders.</p>
+      <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
+        <section className="card repair-loading-card">
+          <h2>
+            <span className="dot"></span>Equipment Repairs
+          </h2>
+          <p>Loading TITAN repair work orders.</p>
         </section>
       </main>
     );
@@ -910,11 +912,13 @@ export default function EquipmentRepairsPage() {
 
   if (!canUseModule) {
     return (
-      <main className={`module-shell ${styles.scope}`}>
-        <section className="ticket-card">
-          <h1>Equipment Repairs</h1>
+      <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
+        <section className="card repair-loading-card">
+          <h2>
+            <span className="dot"></span>Equipment Repairs
+          </h2>
           <p>Equipment repair work orders are for internal users only.</p>
-          <a className="btn secondary" href="/home">
+          <a className="ci-btn mini" href="/home">
             Back Home
           </a>
         </section>
@@ -923,126 +927,161 @@ export default function EquipmentRepairsPage() {
   }
 
   return (
-    <main className={`module-shell equipment-repairs-shell ${styles.scope}`}>
-      <header className="module-header repair-header">
+    <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
+      <section className="page-head no-print">
         <div>
-          <p className="eyebrow">Equipment Repairs</p>
-          <h1>Repair Work Orders</h1>
-          <p>{selectedYard?.name || "Select a yard"} equipment repair tracking, parts cost, and repair time.</p>
+          <div className="pt">Equipment Repairs</div>
+          <div className="ps">
+            Repair work orders, labor time, parts cost, and consumables usage.{" "}
+            <span>{selectedYard?.name || "Syncing yard"}</span>
+          </div>
         </div>
-        <div className="module-actions">
-          <a className="btn secondary" href="/home">
+        <div className="statusline repair-statusline">
+          <span className={`pill ${setupRequired ? "warn" : "ok"}`}>{setupRequired ? "Setup needed" : "Live TITAN data"}</span>
+          <label className="branch-inline">
+            <span>Yard</span>
+            <select value={selectedYardId} onChange={(event) => setSelectedYardId(event.target.value)}>
+              {yards.map((yard) => (
+                <option key={yard.id} value={yard.id}>
+                  {yard.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="ci-btn mini" type="button" onClick={() => (window.location.href = "/home")}>
             Home
-          </a>
-          <button className="btn secondary" type="button" onClick={() => reloadModuleData()} disabled={!selectedYardId || saving}>
+          </button>
+          <button className="ci-btn mini" type="button" onClick={() => reloadModuleData()} disabled={!selectedYardId || saving}>
             Refresh
           </button>
-          <button className="btn primary" type="button" onClick={startNewWorkOrder} disabled={!canManageWorkOrders || setupRequired}>
+          <button className="ci-btn pri mini" type="button" onClick={startNewWorkOrder} disabled={!canManageWorkOrders || setupRequired}>
             New Work Order
           </button>
-          <button className="btn secondary" type="button" onClick={exportCsv} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
+          <button className="ci-btn mini" type="button" onClick={exportCsv} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
             Export CSV
           </button>
         </div>
-      </header>
+      </section>
 
       {shouldShowPageMessage(message) && <div className="status-message">{message}</div>}
 
-      <section className="repair-control-row">
-        <label>
-          <span>Yard</span>
-          <select value={selectedYardId} onChange={(event) => setSelectedYardId(event.target.value)}>
-            {yards.map((yard) => (
-              <option key={yard.id} value={yard.id}>
-                {yard.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Status</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="active">Active Work Orders</option>
-            <option value="all">All Work Orders</option>
-            {workOrderStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Lookup</span>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Equipment, WO#, department, assigned to" />
-        </label>
-      </section>
-
       {setupRequired && (
-        <section className="ticket-card repair-warning">
-          <h2>Setup Needed</h2>
+        <section className="card repair-warning">
+          <h2>
+            <span className="dot"></span>Setup Needed
+          </h2>
           <p>
             Run <strong>supabase/equipment_repair_work_orders.sql</strong> in Supabase, then refresh this page.
           </p>
         </section>
       )}
 
-      <section className="repair-kpis">
-        <div>
-          <span>Open</span>
-          <strong>{whole(metrics.open)}</strong>
-          <small>active repair orders</small>
+      <section className="repair-command-panel card no-print">
+        <div className="repair-command-copy">
+          <h2>
+            <span className="dot"></span>Repair Command Board
+            <span className="ct">{filteredWorkOrders.length.toLocaleString()} visible</span>
+          </h2>
+          <p>Find the equipment, open the work order, add repair time, and post parts when they come out of consumables.</p>
         </div>
-        <div>
-          <span>Awaiting Parts</span>
-          <strong>{whole(metrics.awaitingParts)}</strong>
-          <small>{whole(metrics.unpostedParts)} part lines not posted</small>
-        </div>
-        <div>
-          <span>Critical</span>
-          <strong>{whole(metrics.critical)}</strong>
-          <small>priority work</small>
-        </div>
-        <div>
-          <span>Repair Time</span>
-          <strong>{decimal(metrics.laborHours)}</strong>
-          <small>labor hours open</small>
-        </div>
-        <div>
-          <span>Parts Cost</span>
-          <strong>{money(metrics.partsCost)}</strong>
-          <small>open work orders</small>
-        </div>
-        <div>
-          <span>Total Cost</span>
-          <strong>{money(metrics.totalCost)}</strong>
-          <small>parts plus labor</small>
+        <div className="repair-filter-row">
+          <label className="ci-field">
+            <span className="lab">Status</span>
+            <select className="ci-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="active">Active Work Orders</option>
+              <option value="all">All Work Orders</option>
+              {workOrderStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="ci-field repair-search-field">
+            <span className="lab">Lookup</span>
+            <input
+              className="ci-input"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search WO#, equipment, department, assigned tech..."
+            />
+          </label>
         </div>
       </section>
 
-      <nav className="repair-tabs" aria-label="Equipment repair views">
-        <button type="button" className={activeTab === "dashboard" ? "active" : ""} onClick={() => setActiveTab("dashboard")}>
+      <section className="kpis k5 repair-kpi-strip">
+        <article className="kpi warn">
+          <div className="lab">Open Work Orders</div>
+          <div className="val mono">{whole(metrics.open)}</div>
+          <div className="note">Active repair load</div>
+        </article>
+        <article className="kpi steel">
+          <div className="lab">Awaiting Parts</div>
+          <div className="val mono">{whole(metrics.awaitingParts)}</div>
+          <div className="note">{whole(metrics.unpostedParts)} lines waiting to post</div>
+        </article>
+        <article className="kpi bad">
+          <div className="lab">Critical</div>
+          <div className="val mono orange">{whole(metrics.critical)}</div>
+          <div className="note">Priority repair work</div>
+        </article>
+        <article className="kpi">
+          <div className="lab">Repair Hours</div>
+          <div className="val mono">{decimal(metrics.laborHours)}</div>
+          <div className="note">Open work order time</div>
+        </article>
+        <article className="kpi good">
+          <div className="lab">Repair Cost</div>
+          <div className="val mono">{money(metrics.totalCost)}</div>
+          <div className="note">{money(metrics.partsCost)} parts used</div>
+        </article>
+      </section>
+
+      <section className="ytabs repair-tabs no-print" aria-label="Equipment repair views">
+        <button type="button" className={`ytab ${activeTab === "dashboard" ? "on" : ""}`} onClick={() => setActiveTab("dashboard")}>
           Dashboard
         </button>
-        <button type="button" className={activeTab === "orders" ? "active" : ""} onClick={() => setActiveTab("orders")}>
-          Work Orders
+        <button type="button" className={`ytab ${activeTab === "orders" ? "on" : ""}`} onClick={() => setActiveTab("orders")}>
+          Queue <span className="yc">{filteredWorkOrders.length.toLocaleString()}</span>
         </button>
-        <button type="button" className={activeTab === "details" ? "active" : ""} onClick={() => setActiveTab("details")}>
+        <button type="button" className={`ytab ${activeTab === "details" ? "on" : ""}`} onClick={() => setActiveTab("details")}>
           Parts & Labor
         </button>
-      </nav>
+      </section>
 
       {activeTab === "dashboard" && (
         <section className="repair-dashboard-grid">
-          <div className="ticket-card">
-            <div className="repair-card-head">
-              <div>
-                <h2>Repair Queue</h2>
-                <p>Current equipment repair load by priority and status.</p>
-              </div>
-              <button type="button" className="btn secondary" onClick={() => setActiveTab("orders")}>
+          <div className="card repair-queue-card">
+            <div className="repair-card-head compact">
+              <h2>
+                <span className="dot"></span>Active Repair Queue
+                <span className="ct">{filteredWorkOrders.slice(0, 8).length.toLocaleString()} shown</span>
+              </h2>
+              <button type="button" className="ci-btn mini" onClick={() => setActiveTab("orders")}>
                 View Orders
               </button>
             </div>
+            <div className="repair-order-board">
+              {filteredWorkOrders.slice(0, 8).map((order) => (
+                <button key={order.id} className={`repair-order-card priority-${statusClass(order.priority)}`} type="button" onClick={() => editWorkOrder(order)}>
+                  <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
+                  <strong>{order.equipmentName || "Equipment repair"}</strong>
+                  <small>{order.workOrderNumber} / {order.equipmentNumber || order.equipmentType || "No asset #"}</small>
+                  <em>{order.problemDescription || "No repair notes entered yet."}</em>
+                  <div>
+                    <span>{order.assignedTo || "Unassigned"}</span>
+                    <span>{money(order.totalCost)}</span>
+                  </div>
+                </button>
+              ))}
+              {!filteredWorkOrders.length && <p>No repair work orders match the current filters.</p>}
+            </div>
+          </div>
+
+          <div className="card repair-side-card">
+            <h2>
+              <span className="dot"></span>Status Breakdown
+            </h2>
             <div className="repair-status-list">
               {workOrderStatuses
                 .filter((status) => status !== "Draft")
@@ -1058,9 +1097,10 @@ export default function EquipmentRepairsPage() {
             </div>
           </div>
 
-          <div className="ticket-card">
-            <h2>Parts Consumption</h2>
-            <p>Consumables tied to repair work orders.</p>
+          <div className="card repair-side-card">
+            <h2>
+              <span className="dot"></span>Parts Control
+            </h2>
             <div className="repair-status-list">
               <div>
                 <strong>Posted to Inventory</strong>
@@ -1076,94 +1116,56 @@ export default function EquipmentRepairsPage() {
               </div>
             </div>
           </div>
-
-          <div className="ticket-card repair-wide">
-            <h2>Recent Work Orders</h2>
-            <div className="repair-mini-list">
-              {filteredWorkOrders.slice(0, 8).map((order) => (
-                <button key={order.id} type="button" onClick={() => editWorkOrder(order)}>
-                  <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
-                  <strong>{order.workOrderNumber}</strong>
-                  <em>
-                    {order.equipmentName} {order.equipmentNumber ? `- ${order.equipmentNumber}` : ""}
-                  </em>
-                  <small>{money(order.totalCost)} - {decimal(order.laborHours)} hrs - {order.assignedTo || "Unassigned"}</small>
-                </button>
-              ))}
-              {!filteredWorkOrders.length && <p>No repair work orders yet.</p>}
-            </div>
-          </div>
         </section>
       )}
 
       {activeTab === "orders" && (
-        <section className="ticket-card">
+        <section className="card">
           <div className="repair-card-head">
             <div>
-              <h2>Work Orders</h2>
-              <p>Click a row to edit, add repair time, or consume parts from inventory.</p>
+              <h2>
+                <span className="dot"></span>Work Order Queue
+                <span className="ct">{filteredWorkOrders.length.toLocaleString()} records</span>
+              </h2>
+              <p>Click any repair card to open the work order, add time, consume parts, or close it out.</p>
             </div>
-            <button className="btn primary" type="button" onClick={startNewWorkOrder} disabled={!canManageWorkOrders || setupRequired}>
+            <button className="ci-btn pri" type="button" onClick={startNewWorkOrder} disabled={!canManageWorkOrders || setupRequired}>
               New Work Order
             </button>
           </div>
-          <div className="repair-table-wrap">
-            <table className="repair-table">
-              <thead>
-                <tr>
-                  <th>WO</th>
-                  <th>Equipment</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th>Assigned</th>
-                  <th>Labor</th>
-                  <th>Parts</th>
-                  <th>Total</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredWorkOrders.map((order) => (
-                  <tr key={order.id} onClick={() => editWorkOrder(order)}>
-                    <td>
-                      <strong>{order.workOrderNumber}</strong>
-                    </td>
-                    <td>
-                      {order.equipmentName}
-                      <span>{order.equipmentNumber || order.equipmentType || "-"}</span>
-                    </td>
-                    <td>
-                      <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
-                    </td>
-                    <td>{order.priority}</td>
-                    <td>{order.assignedTo || "-"}</td>
-                    <td>{decimal(order.laborHours)} hrs</td>
-                    <td>{money(order.totalPartsCost)}</td>
-                    <td>{money(order.totalCost)}</td>
-                    <td>{dateText(order.updatedAt)}</td>
-                  </tr>
-                ))}
-                {!filteredWorkOrders.length && (
-                  <tr>
-                    <td colSpan={9}>No work orders match this view.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+          <div className="repair-order-list">
+            {filteredWorkOrders.map((order) => (
+              <button key={order.id} className="repair-order-row" type="button" onClick={() => editWorkOrder(order)}>
+                <span className={`repair-priority priority-${statusClass(order.priority)}`}>{order.priority}</span>
+                <div className="repair-order-title">
+                  <strong>{order.equipmentName || "Equipment repair"}</strong>
+                  <small>{order.workOrderNumber} / {order.equipmentNumber || order.equipmentType || "No asset #"}</small>
+                </div>
+                <span className={`repair-pill status-${statusClass(order.status)}`}>{order.status}</span>
+                <span>{order.assignedTo || "Unassigned"}</span>
+                <span>{decimal(order.laborHours)} hrs</span>
+                <span>{money(order.totalCost)}</span>
+                <span>{dateText(order.updatedAt)}</span>
+              </button>
+            ))}
+            {!filteredWorkOrders.length && <p>No work orders match this view.</p>}
           </div>
         </section>
       )}
 
       {activeTab === "details" && (
         <section className="repair-detail-grid">
-          <div className="ticket-card">
+          <div className="card repair-detail-card">
             <div className="repair-card-head">
               <div>
-                <h2>{selectedWorkOrder ? selectedWorkOrder.workOrderNumber : "New Work Order"}</h2>
+                <h2>
+                  <span className="dot"></span>{selectedWorkOrder ? selectedWorkOrder.workOrderNumber : "New Work Order"}
+                  {selectedWorkOrder && <span className="ct">{selectedWorkOrder.status}</span>}
+                </h2>
                 <p>{selectedWorkOrder ? `${selectedWorkOrder.equipmentName} repair detail` : "Create a repair order before adding time or parts."}</p>
               </div>
               {selectedWorkOrder && canCloseWorkOrders && selectedWorkOrder.status !== "Closed" && (
-                <button className="btn primary" type="button" onClick={closeWorkOrder} disabled={saving}>
+                <button className="ci-btn pri" type="button" onClick={closeWorkOrder} disabled={saving}>
                   Close WO
                 </button>
               )}
@@ -1227,17 +1229,19 @@ export default function EquipmentRepairsPage() {
               </label>
             </div>
             <div className="repair-actions-row">
-              <button className="btn primary" type="button" onClick={saveWorkOrder} disabled={saving || !canManageWorkOrders || setupRequired}>
+              <button className="ci-btn pri" type="button" onClick={saveWorkOrder} disabled={saving || !canManageWorkOrders || setupRequired}>
                 Save Work Order
               </button>
-              <button className="btn secondary" type="button" onClick={startNewWorkOrder}>
+              <button className="ci-btn" type="button" onClick={startNewWorkOrder}>
                 New Blank
               </button>
             </div>
           </div>
 
-          <aside className="ticket-card">
-            <h2>Repair Cost</h2>
+          <aside className="card repair-cost-card">
+            <h2>
+              <span className="dot"></span>Repair Cost
+            </h2>
             <div className="repair-cost-stack">
               <div>
                 <span>Labor</span>
@@ -1257,14 +1261,16 @@ export default function EquipmentRepairsPage() {
             </div>
           </aside>
 
-          <div className="ticket-card">
-            <h2>Repair Time</h2>
+          <div className="card">
+            <h2>
+              <span className="dot"></span>Repair Time
+            </h2>
             <div className="repair-inline-form">
               <input value={laborForm.technicianName} onChange={(event) => setLaborForm({ ...laborForm, technicianName: event.target.value })} placeholder="Technician" />
               <input type="date" value={laborForm.workDate} onChange={(event) => setLaborForm({ ...laborForm, workDate: event.target.value })} />
               <input value={laborForm.hours} onChange={(event) => setLaborForm({ ...laborForm, hours: event.target.value })} placeholder="Hours" inputMode="decimal" />
               <input value={laborForm.laborRate} onChange={(event) => setLaborForm({ ...laborForm, laborRate: event.target.value })} placeholder="Rate" inputMode="decimal" />
-              <button className="btn primary" type="button" onClick={addLaborEntry} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
+              <button className="ci-btn pri" type="button" onClick={addLaborEntry} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Time
               </button>
             </div>
@@ -1300,8 +1306,10 @@ export default function EquipmentRepairsPage() {
             </div>
           </div>
 
-          <div className="ticket-card">
-            <h2>Parts From Consumables</h2>
+          <div className="card">
+            <h2>
+              <span className="dot"></span>Parts From Consumables
+            </h2>
             <div className="repair-inline-form parts">
               <select value={partForm.itemId} onChange={(event) => setPartForm({ ...partForm, itemId: event.target.value })}>
                 <option value="">Select part from consumables inventory</option>
@@ -1312,7 +1320,7 @@ export default function EquipmentRepairsPage() {
                 ))}
               </select>
               <input value={partForm.quantity} onChange={(event) => setPartForm({ ...partForm, quantity: event.target.value })} placeholder="Qty" inputMode="decimal" />
-              <button className="btn primary" type="button" onClick={addPartLine} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
+              <button className="ci-btn pri" type="button" onClick={addPartLine} disabled={!selectedWorkOrderId || saving || !canManageWorkOrders}>
                 Add Part
               </button>
             </div>
@@ -1342,7 +1350,7 @@ export default function EquipmentRepairsPage() {
                         {part.postedToInventory ? (
                           <span className="repair-pill status-closed">Posted</span>
                         ) : (
-                          <button className="btn secondary small" type="button" onClick={() => postPartToInventory(part)} disabled={saving || !canManageWorkOrders}>
+                          <button className="ci-btn mini" type="button" onClick={() => postPartToInventory(part)} disabled={saving || !canManageWorkOrders}>
                             Post
                           </button>
                         )}

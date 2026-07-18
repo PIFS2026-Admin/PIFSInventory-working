@@ -1,34 +1,60 @@
 .scope {
-  display: contents;
-}
-
-.scope :global(.equipment-repairs-shell) {
-  gap: 16px;
-}
-
-.scope :global(.repair-header h1) {
-  margin: 0;
-}
-
-.scope :global(.repair-control-row) {
   display: grid;
-  grid-template-columns: minmax(180px, 0.8fr) minmax(180px, 0.8fr) minmax(260px, 1.4fr);
-  gap: 10px;
+  gap: 14px;
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.scope :global(.repair-loading-card) {
+  max-width: 680px;
+}
+
+.scope :global(.repair-loading-card p),
+.scope :global(.repair-warning p) {
+  margin: 0;
+  color: var(--muted);
+}
+
+.scope :global(.repair-statusline) {
+  max-width: 980px;
+}
+
+.scope :global(.repair-command-panel) {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.75fr) minmax(420px, 1fr);
+  gap: 14px;
   align-items: end;
 }
 
-.scope :global(.repair-control-row label) {
-  display: grid;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.scope :global(.repair-command-copy h2),
+.scope :global(.repair-card-head h2),
+.scope :global(.repair-side-card h2),
+.scope :global(.repair-detail-card h2),
+.scope :global(.repair-cost-card h2) {
+  margin-bottom: 6px;
 }
 
-.scope :global(.repair-control-row input),
-.scope :global(.repair-control-row select),
+.scope :global(.repair-command-copy p),
+.scope :global(.repair-card-head p) {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.scope :global(.repair-filter-row) {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.5fr) minmax(260px, 1fr);
+  gap: 10px;
+}
+
+.scope :global(.repair-filter-row label) {
+  margin: 0;
+}
+
+.scope :global(.repair-filter-row input),
+.scope :global(.repair-filter-row select),
 .scope :global(.repair-inline-form input),
 .scope :global(.repair-inline-form select),
 .scope :global(.repair-notes-input) {
@@ -41,94 +67,34 @@
   padding: 11px 12px;
 }
 
-.scope :global(.repair-kpis) {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(130px, 1fr));
-  gap: 10px;
-}
-
-.scope :global(.repair-kpis div),
-.scope :global(.repair-cost-stack div) {
+.scope :global(.repair-search-field) {
   min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(31, 41, 55, 0.78), rgba(15, 23, 42, 0.78));
-  padding: 14px;
 }
 
-.scope :global(.repair-kpis div::before),
-.scope :global(.repair-cost-stack div::before) {
-  display: block;
-  width: 4px;
-  height: 34px;
-  float: left;
-  margin-right: 12px;
-  border-radius: 999px;
-  background: #f97316;
-  content: "";
-}
-
-.scope :global(.repair-kpis span),
-.scope :global(.repair-kpis small),
-.scope :global(.repair-cost-stack span),
-.scope :global(.repair-cost-stack small) {
-  display: block;
-  color: var(--muted);
-}
-
-.scope :global(.repair-kpis span),
-.scope :global(.repair-cost-stack span) {
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.scope :global(.repair-kpis strong),
-.scope :global(.repair-cost-stack strong) {
-  display: block;
-  margin: 5px 0;
-  color: #fff;
-  font-size: 26px;
-  line-height: 1;
+.scope :global(.repair-kpi-strip) {
+  margin-bottom: 0;
 }
 
 .scope :global(.repair-tabs) {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 2px 0;
+  padding: 0 0 3px;
 }
 
-.scope :global(.repair-tabs button) {
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 8px;
-  background: rgba(17, 24, 39, 0.86);
-  color: #dbeafe;
-  padding: 10px 14px;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.scope :global(.repair-tabs button.active) {
-  border-color: #f97316;
-  background: rgba(249, 115, 22, 0.16);
-  color: #fff7ed;
-  box-shadow: inset 0 -2px 0 #f97316;
+.scope :global(.repair-tabs .ytab) {
+  flex: 0 0 auto;
 }
 
 .scope :global(.repair-dashboard-grid) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(310px, 0.38fr);
   gap: 14px;
   align-items: start;
 }
 
-.scope :global(.repair-wide) {
-  grid-column: 1 / -1;
+.scope :global(.repair-queue-card) {
+  grid-row: span 2;
 }
 
 .scope :global(.repair-card-head) {
@@ -139,27 +105,108 @@
   margin-bottom: 14px;
 }
 
-.scope :global(.repair-card-head h2) {
-  margin: 0 0 4px;
+.scope :global(.repair-card-head.compact) {
+  align-items: center;
 }
 
-.scope :global(.repair-card-head p),
-.scope :global(.repair-warning p) {
-  margin: 0;
+.scope :global(.repair-order-board) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.scope :global(.repair-order-card) {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  min-height: 160px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background: linear-gradient(150deg, rgba(17, 24, 39, 0.92), rgba(2, 6, 23, 0.8));
+  color: #f8fafc;
+  padding: 13px;
+  text-align: left;
+  overflow: hidden;
+}
+
+.scope :global(.repair-order-card::before),
+.scope :global(.repair-order-row::before) {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #f97316;
+}
+
+.scope :global(.repair-order-card.priority-critical::before),
+.scope :global(.repair-order-row .repair-priority.priority-critical) {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+.scope :global(.repair-order-card.priority-high::before),
+.scope :global(.repair-order-row .repair-priority.priority-high) {
+  background: rgba(249, 115, 22, 0.16);
+  border-color: rgba(251, 146, 60, 0.55);
+  color: #fed7aa;
+}
+
+.scope :global(.repair-order-card:hover),
+.scope :global(.repair-order-row:hover) {
+  border-color: rgba(249, 115, 22, 0.58);
+  transform: translateY(-1px);
+}
+
+.scope :global(.repair-order-card strong) {
+  display: block;
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.scope :global(.repair-order-card small),
+.scope :global(.repair-order-card em) {
+  display: block;
+  min-width: 0;
   color: var(--muted);
+  font-style: normal;
+}
+
+.scope :global(.repair-order-card em) {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+}
+
+.scope :global(.repair-order-card div) {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  padding-top: 9px;
+  color: #fed7aa;
+  font-weight: 900;
+}
+
+.scope :global(.repair-side-card) {
+  min-width: 0;
 }
 
 .scope :global(.repair-status-list) {
   display: grid;
-  gap: 8px;
+  gap: 2px;
 }
 
 .scope :global(.repair-status-list div) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  gap: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
   padding: 10px 0;
 }
 
@@ -169,87 +216,60 @@
 
 .scope :global(.repair-status-list span) {
   color: #fed7aa;
+  font-family: "Courier New", monospace;
   font-weight: 900;
 }
 
-.scope :global(.repair-mini-list) {
+.scope :global(.repair-order-list) {
   display: grid;
   gap: 8px;
 }
 
-.scope :global(.repair-mini-list button) {
+.scope :global(.repair-order-row) {
+  position: relative;
   display: grid;
-  grid-template-columns: 120px minmax(150px, 0.8fr) minmax(220px, 1.4fr) minmax(180px, 1fr);
+  grid-template-columns: 92px minmax(220px, 1.4fr) 150px minmax(130px, 0.8fr) 90px 110px 90px;
   gap: 10px;
   align-items: center;
   width: 100%;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.56);
   color: #f8fafc;
-  padding: 11px 12px;
+  padding: 12px 14px 12px 17px;
   text-align: left;
 }
 
-.scope :global(.repair-mini-list em),
-.scope :global(.repair-mini-list small) {
+.scope :global(.repair-order-title) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.scope :global(.repair-order-title strong) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope :global(.repair-order-title small) {
   color: var(--muted);
-  font-style: normal;
 }
 
-.scope :global(.repair-table-wrap) {
-  width: 100%;
-  overflow-x: auto;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 8px;
-}
-
-.scope :global(.repair-table) {
-  width: 100%;
-  min-width: 920px;
-  border-collapse: collapse;
-}
-
-.scope :global(.repair-table-wrap.compact .repair-table) {
-  min-width: 620px;
-}
-
-.scope :global(.repair-table th),
-.scope :global(.repair-table td) {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  padding: 11px 12px;
-  text-align: left;
-  vertical-align: middle;
-}
-
-.scope :global(.repair-table th) {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #10141c;
-  color: #bfdbfe;
-  font-size: 11px;
+.scope :global(.repair-priority) {
+  display: inline-flex;
+  justify-content: center;
+  width: fit-content;
+  min-width: 72px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 999px;
+  background: rgba(31, 41, 55, 0.72);
+  color: #dbeafe;
+  padding: 5px 9px;
+  font-size: 10px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.scope :global(.repair-table td) {
-  color: #f8fafc;
-}
-
-.scope :global(.repair-table tbody tr) {
-  cursor: pointer;
-}
-
-.scope :global(.repair-table tbody tr:hover) {
-  background: rgba(249, 115, 22, 0.08);
-}
-
-.scope :global(.repair-table td span) {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
 }
 
 .scope :global(.repair-pill) {
@@ -261,7 +281,7 @@
   background: rgba(31, 41, 55, 0.72);
   color: #e5e7eb;
   padding: 5px 9px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -291,17 +311,21 @@
 
 .scope :global(.repair-detail-grid) {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(270px, 0.35fr);
+  grid-template-columns: minmax(0, 1fr) minmax(290px, 0.34fr);
   gap: 14px;
   align-items: start;
 }
 
-.scope :global(.repair-detail-grid > .ticket-card:nth-child(n + 3)) {
-  grid-column: span 1;
+.scope :global(.repair-detail-grid > .card:nth-child(n + 3)) {
+  grid-column: 1 / -1;
 }
 
 .scope :global(.repair-form-grid) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.scope :global(.repair-form-grid label) {
+  letter-spacing: 0.04em;
 }
 
 .scope :global(.repair-actions-row) {
@@ -311,9 +335,44 @@
   margin-top: 14px;
 }
 
+.scope :global(.repair-cost-card) {
+  position: sticky;
+  top: 16px;
+}
+
 .scope :global(.repair-cost-stack) {
   display: grid;
   gap: 10px;
+}
+
+.scope :global(.repair-cost-stack div) {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.58);
+  padding: 13px;
+}
+
+.scope :global(.repair-cost-stack span),
+.scope :global(.repair-cost-stack small) {
+  display: block;
+  color: var(--muted);
+}
+
+.scope :global(.repair-cost-stack span) {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-cost-stack strong) {
+  display: block;
+  margin: 5px 0;
+  color: #fff;
+  font-family: "Courier New", monospace;
+  font-size: 25px;
+  line-height: 1;
 }
 
 .scope :global(.repair-inline-form) {
@@ -331,9 +390,43 @@
   margin-bottom: 10px;
 }
 
-.scope :global(.btn.small) {
-  min-height: 32px;
-  padding: 7px 10px;
+.scope :global(.repair-table-wrap) {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+}
+
+.scope :global(.repair-table) {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.scope :global(.repair-table th),
+.scope :global(.repair-table td) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 10px 11px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.scope :global(.repair-table th) {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #10141c;
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-table td span) {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
 }
 
 .scope :global(.repair-warning) {
@@ -341,19 +434,71 @@
   background: rgba(124, 45, 18, 0.2);
 }
 
-@media (max-width: 960px) {
-  .scope :global(.repair-kpis) {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
+@media (max-width: 1120px) {
   .scope :global(.repair-dashboard-grid),
   .scope :global(.repair-detail-grid),
-  .scope :global(.repair-control-row) {
+  .scope :global(.repair-command-panel),
+  .scope :global(.repair-filter-row) {
     grid-template-columns: 1fr;
   }
 
-  .scope :global(.repair-mini-list button) {
+  .scope :global(.repair-cost-card) {
+    position: static;
+  }
+
+  .scope :global(.repair-order-row) {
+    grid-template-columns: 80px minmax(180px, 1fr) 140px 110px;
+  }
+
+  .scope :global(.repair-order-row > span:nth-last-child(-n + 3)) {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .scope :global(.equipment-repairs-shell) {
+    padding: 18px 14px calc(86px + env(safe-area-inset-bottom));
+  }
+
+  .scope :global(.repair-statusline) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .scope :global(.repair-statusline .branch-inline) {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 5px;
+  }
+
+  .scope :global(.repair-statusline .branch-inline select),
+  .scope :global(.repair-statusline .ci-btn),
+  .scope :global(.repair-statusline .pill) {
+    width: 100%;
+  }
+
+  .scope :global(.repair-kpi-strip) {
     grid-template-columns: 1fr;
+  }
+
+  .scope :global(.repair-card-head),
+  .scope :global(.repair-card-head.compact) {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .scope :global(.repair-order-board) {
+    grid-template-columns: 1fr;
+  }
+
+  .scope :global(.repair-order-row) {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .scope :global(.repair-order-row > span:nth-last-child(-n + 3)) {
+    display: inline-flex;
   }
 
   .scope :global(.repair-form-grid),
@@ -361,42 +506,8 @@
   .scope :global(.repair-inline-form.parts) {
     grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 760px) {
-  .scope :global(.equipment-repairs-shell) {
-    padding: 18px 14px calc(90px + env(safe-area-inset-bottom));
-  }
-
-  .scope :global(.repair-header) {
-    display: grid;
-  }
-
-  .scope :global(.module-actions) {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .scope :global(.module-actions .btn),
-  .scope :global(.module-actions button) {
-    width: 100%;
-  }
-
-  .scope :global(.repair-kpis) {
-    grid-template-columns: 1fr;
-  }
-
-  .scope :global(.repair-kpis strong),
-  .scope :global(.repair-cost-stack strong) {
-    font-size: 24px;
-  }
-
-  .scope :global(.repair-card-head) {
-    display: grid;
-  }
-
-  .scope :global(.repair-tabs button) {
-    flex: 0 0 auto;
+  .scope :global(.repair-tabs .ytab) {
+    min-width: max-content;
   }
 }
