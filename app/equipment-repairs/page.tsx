@@ -189,6 +189,13 @@ function dateText(value: string) {
   return date.toLocaleDateString();
 }
 
+function dateTimeText(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
 function dateTimeLocal(value: string) {
   if (!value) return "";
   const date = new Date(value);
@@ -206,6 +213,15 @@ function toIsoFromLocal(value: string) {
 
 function statusClass(status: string) {
   return status.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function rowMissingSchema(errorMessage: string, tableName: string) {
@@ -300,6 +316,154 @@ function mapItem(row: Record<string, unknown>): InventoryItem {
   };
 }
 
+function workOrderDocumentHtml(options: {
+  order: WorkOrder;
+  parts: WorkOrderPart[];
+  labor: LaborEntry[];
+  yardName: string;
+}) {
+  const { order, parts: partLines, labor, yardName } = options;
+  const laborTotal = labor.reduce((sum, entry) => sum + entry.lineTotal, 0);
+  const laborHours = labor.reduce((sum, entry) => sum + entry.hours, 0);
+  const partsTotal = partLines.reduce((sum, part) => sum + part.lineTotal, 0);
+  const safeProblem = escapeHtml(order.problemDescription || "No repair request entered.").replace(/\n/g, "<br />");
+  const safeNotes = escapeHtml(order.repairNotes || "No repair notes entered.").replace(/\n/g, "<br />");
+  const laborRows = labor
+    .map(
+      (entry) => `<tr>
+        <td>${escapeHtml(dateText(entry.workDate))}</td>
+        <td>${escapeHtml(entry.technicianName || "-")}</td>
+        <td>${escapeHtml(decimal(entry.hours))}</td>
+        <td>${escapeHtml(money(entry.laborRate))}</td>
+        <td>${escapeHtml(money(entry.lineTotal))}</td>
+        <td>${escapeHtml(entry.notes || "-")}</td>
+      </tr>`,
+    )
+    .join("");
+  const partRows = partLines
+    .map(
+      (part) => `<tr>
+        <td>${escapeHtml(part.itemCode || "-")}</td>
+        <td>${escapeHtml(part.itemName || "-")}</td>
+        <td>${escapeHtml(decimal(part.quantityUsed))}</td>
+        <td>${escapeHtml(part.uom || "-")}</td>
+        <td>${escapeHtml(money(part.unitCost))}</td>
+        <td>${escapeHtml(money(part.lineTotal))}</td>
+        <td>${part.postedToInventory ? "Posted" : "Pending"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>${escapeHtml(order.workOrderNumber)} - Equipment Repair Work Order</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { margin: 0; background: #f8fafc; color: #111827; font-family: Arial, sans-serif; }
+          .actions { display: flex; justify-content: flex-end; gap: 8px; max-width: 1040px; margin: 12px auto; padding: 0 12px; }
+          .actions button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+          .primary { background: #f97316; color: #111827; }
+          .secondary { background: #111827; color: #fff; }
+          .sheet { max-width: 1040px; margin: 0 auto 30px; background: #fff; padding: 30px; border: 1px solid #cbd5e1; }
+          .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 3px solid #f97316; padding-bottom: 18px; }
+          .brand { display: flex; align-items: center; gap: 14px; }
+          .brand img { width: 150px; max-height: 78px; object-fit: contain; }
+          h1 { margin: 0; font-size: 28px; letter-spacing: .02em; }
+          h2 { margin: 0 0 10px; font-size: 17px; }
+          h3 { margin: 22px 0 8px; font-size: 15px; text-transform: uppercase; letter-spacing: .06em; }
+          .wo-number { color: #f97316; font-weight: 900; margin-top: 4px; }
+          .company { text-align: right; font-size: 13px; line-height: 1.35; }
+          .grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #cbd5e1; border-bottom: 0; margin-top: 18px; }
+          .cell { min-height: 56px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; padding: 10px; }
+          .cell:nth-child(4n) { border-right: 0; }
+          .label { display: block; color: #64748b; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+          .value { display: block; margin-top: 4px; font-size: 14px; font-weight: 800; }
+          .notes { border: 1px solid #cbd5e1; padding: 12px; min-height: 74px; line-height: 1.45; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th { background: #111827; color: #fff; text-align: left; padding: 8px; }
+          td { border: 1px solid #cbd5e1; padding: 8px; vertical-align: top; }
+          .total-row td { font-weight: 900; background: #f8fafc; }
+          .signatures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+          .sig { border-top: 1px solid #111827; padding-top: 7px; font-size: 12px; color: #374151; }
+          @media print {
+            body { background: #fff; }
+            .actions { display: none; }
+            .sheet { border: 0; margin: 0; max-width: none; padding: 0.35in; }
+            @page { margin: 0.35in; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="actions">
+          <button class="secondary" onclick="window.close()">Close</button>
+          <button class="primary" onclick="window.print()">Print / Save PDF</button>
+        </div>
+        <main class="sheet">
+          <section class="top">
+            <div class="brand">
+              <img src="/titan_logo.jpg" alt="TITAN" />
+              <div>
+                <h1>Equipment Repair Work Order</h1>
+                <div class="wo-number">${escapeHtml(order.workOrderNumber)}</div>
+              </div>
+            </div>
+            <div class="company">
+              <strong>Pathfinder Inspections &amp; Field Services</strong><br />
+              7501 Groening St.<br />
+              Odessa, TX 79765<br />
+              (432) 233-3600<br />
+              pifstitan.com
+            </div>
+          </section>
+          <section class="grid">
+            <div class="cell"><span class="label">Yard</span><span class="value">${escapeHtml(yardName || "-")}</span></div>
+            <div class="cell"><span class="label">Status</span><span class="value">${escapeHtml(order.status)}</span></div>
+            <div class="cell"><span class="label">Priority</span><span class="value">${escapeHtml(order.priority)}</span></div>
+            <div class="cell"><span class="label">Opened</span><span class="value">${escapeHtml(dateTimeText(order.openedAt))}</span></div>
+            <div class="cell"><span class="label">Equipment</span><span class="value">${escapeHtml(order.equipmentName || "-")}</span></div>
+            <div class="cell"><span class="label">Equipment #</span><span class="value">${escapeHtml(order.equipmentNumber || "-")}</span></div>
+            <div class="cell"><span class="label">Type</span><span class="value">${escapeHtml(order.equipmentType || "-")}</span></div>
+            <div class="cell"><span class="label">Department</span><span class="value">${escapeHtml(order.department || "-")}</span></div>
+            <div class="cell"><span class="label">Requested By</span><span class="value">${escapeHtml(order.requestedByName || "-")}</span></div>
+            <div class="cell"><span class="label">Assigned To</span><span class="value">${escapeHtml(order.assignedTo || "Unassigned")}</span></div>
+            <div class="cell"><span class="label">Downtime Start</span><span class="value">${escapeHtml(dateTimeText(order.downtimeStart))}</span></div>
+            <div class="cell"><span class="label">Downtime End</span><span class="value">${escapeHtml(dateTimeText(order.downtimeEnd))}</span></div>
+            <div class="cell"><span class="label">Labor Hours</span><span class="value">${escapeHtml(decimal(laborHours || order.laborHours))}</span></div>
+            <div class="cell"><span class="label">Labor Cost</span><span class="value">${escapeHtml(money(laborTotal || order.totalLaborCost))}</span></div>
+            <div class="cell"><span class="label">Parts Cost</span><span class="value">${escapeHtml(money(partsTotal || order.totalPartsCost))}</span></div>
+            <div class="cell"><span class="label">Total Cost</span><span class="value">${escapeHtml(money((laborTotal || order.totalLaborCost) + (partsTotal || order.totalPartsCost) || order.totalCost))}</span></div>
+          </section>
+          <h3>Repair Request</h3>
+          <section class="notes">${safeProblem}</section>
+          <h3>Repair Notes / Corrective Action</h3>
+          <section class="notes">${safeNotes}</section>
+          <h3>Labor</h3>
+          <table>
+            <thead><tr><th>Date</th><th>Technician</th><th>Hours</th><th>Rate</th><th>Total</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${laborRows || `<tr><td colspan="6">No repair labor entered.</td></tr>`}
+              <tr class="total-row"><td colspan="2">Labor Total</td><td>${escapeHtml(decimal(laborHours))}</td><td></td><td>${escapeHtml(money(laborTotal))}</td><td></td></tr>
+            </tbody>
+          </table>
+          <h3>Parts From Consumables</h3>
+          <table>
+            <thead><tr><th>SKU</th><th>Item</th><th>Qty</th><th>UOM</th><th>Unit Cost</th><th>Total</th><th>Inventory</th></tr></thead>
+            <tbody>
+              ${partRows || `<tr><td colspan="7">No parts added.</td></tr>`}
+              <tr class="total-row"><td colspan="5">Parts Total</td><td>${escapeHtml(money(partsTotal))}</td><td></td></tr>
+            </tbody>
+          </table>
+          <section class="signatures">
+            <div class="sig">Requested By / Date</div>
+            <div class="sig">Technician / Date</div>
+            <div class="sig">Reviewed By / Date</div>
+          </section>
+        </main>
+      </body>
+    </html>`;
+}
+
 function accessAllowed(role: string, moduleKeys: ModuleKey[], permissions: PermissionMap | null) {
   if (role === "customer") return false;
   if (["admin", "owner", "maintenance_lead", "maintenance_hand", "employee"].includes(role)) return true;
@@ -331,6 +495,7 @@ export default function EquipmentRepairsPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [emailingWorkOrderId, setEmailingWorkOrderId] = useState("");
   const [setupRequired, setSetupRequired] = useState(false);
   const [userName, setUserName] = useState("TITAN User");
   const [userId, setUserId] = useState("");
@@ -981,6 +1146,65 @@ export default function EquipmentRepairsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function printWorkOrder() {
+    if (!selectedWorkOrder) {
+      setMessage("Save or select a work order before printing.");
+      return;
+    }
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the work order.");
+      return;
+    }
+    printWindow.document.write(
+      workOrderDocumentHtml({
+        order: selectedWorkOrder,
+        parts: selectedParts,
+        labor: selectedLabor,
+        yardName: selectedYard?.name || "",
+      }),
+    );
+    printWindow.document.close();
+  }
+
+  async function emailWorkOrder() {
+    if (!selectedWorkOrder) {
+      setMessage("Save or select a work order before emailing.");
+      return;
+    }
+    const recipientEmail = window.prompt("Email this work order to:", "");
+    if (!recipientEmail) return;
+
+    setEmailingWorkOrderId(selectedWorkOrder.id);
+    setMessage("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Your login session expired. Sign in again before emailing.");
+      setEmailingWorkOrderId("");
+      return;
+    }
+
+    const response = await fetch("/api/equipment-repair-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ workOrderId: selectedWorkOrder.id, recipientEmail }),
+    });
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setMessage(`Email failed: ${result?.error || "Unknown error."}`);
+    } else {
+      setMessage(`Work order ${selectedWorkOrder.workOrderNumber} emailed to ${recipientEmail}.`);
+    }
+
+    setEmailingWorkOrderId("");
+  }
+
   if (loading) {
     return (
       <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
@@ -1192,7 +1416,7 @@ export default function EquipmentRepairsPage() {
           Queue <span className="yc">{filteredWorkOrders.length.toLocaleString()}</span>
         </button>
         <button type="button" className={`ytab ${activeTab === "details" ? "on" : ""}`} onClick={() => setActiveTab("details")}>
-          Parts & Labor
+          Work Order Form
         </button>
       </section>
 
@@ -1309,83 +1533,136 @@ export default function EquipmentRepairsPage() {
       )}
 
       {activeTab === "details" && (
-        <section className="repair-detail-grid">
-          <div className="card repair-detail-card">
-            <div className="repair-card-head">
+        <section className="repair-detail-grid repair-work-order-grid">
+          <div className="card repair-detail-card repair-form-card">
+            <div className="repair-card-head repair-work-order-head">
               <div>
+                <div className="repair-form-eyebrow">Equipment Repair Work Order</div>
                 <h2>
                   <span className="dot"></span>{selectedWorkOrder ? selectedWorkOrder.workOrderNumber : "New Work Order"}
                   {selectedWorkOrder && <span className="ct">{selectedWorkOrder.status}</span>}
                 </h2>
-                <p>{selectedWorkOrder ? `${selectedWorkOrder.equipmentName} repair detail` : "Create a repair order before adding time or parts."}</p>
+                <p>{selectedWorkOrder ? `${selectedWorkOrder.equipmentName} repair packet` : "Create the work order form first, then add labor and parts."}</p>
               </div>
-              {selectedWorkOrder && canCloseWorkOrders && selectedWorkOrder.status !== "Closed" && (
-                <button className="ci-btn pri" type="button" onClick={closeWorkOrder} disabled={saving}>
-                  Close WO
+              <div className="repair-document-actions no-print">
+                <button className="ci-btn mini" type="button" onClick={() => setActiveTab("orders")}>
+                  Back to Queue
                 </button>
-              )}
+                <button className="ci-btn mini" type="button" onClick={printWorkOrder} disabled={!selectedWorkOrder}>
+                  Print / PDF
+                </button>
+                <button className="ci-btn mini" type="button" onClick={emailWorkOrder} disabled={!selectedWorkOrder || emailingWorkOrderId === selectedWorkOrder.id}>
+                  {selectedWorkOrder && emailingWorkOrderId === selectedWorkOrder.id ? "Emailing..." : "Email"}
+                </button>
+                {selectedWorkOrder && canCloseWorkOrders && selectedWorkOrder.status !== "Closed" && (
+                  <button className="ci-btn pri mini" type="button" onClick={closeWorkOrder} disabled={saving}>
+                    Close WO
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="form-grid repair-form-grid">
-              <label>
-                Equipment Name
-                <input value={workOrderForm.equipmentName} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentName: event.target.value })} />
-              </label>
-              <label>
-                Equipment Number
-                <input value={workOrderForm.equipmentNumber} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentNumber: event.target.value })} />
-              </label>
-              <label>
-                Equipment Type
-                <input value={workOrderForm.equipmentType} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentType: event.target.value })} placeholder="Truck, forklift, rack, pump" />
-              </label>
-              <label>
-                Department
-                <input value={workOrderForm.department} onChange={(event) => setWorkOrderForm({ ...workOrderForm, department: event.target.value })} />
-              </label>
-              <label>
-                Assigned To
-                <input value={workOrderForm.assignedTo} onChange={(event) => setWorkOrderForm({ ...workOrderForm, assignedTo: event.target.value })} />
-              </label>
-              <label>
-                Priority
-                <select value={workOrderForm.priority} onChange={(event) => setWorkOrderForm({ ...workOrderForm, priority: event.target.value as WorkOrderPriority })}>
-                  {priorities.map((priority) => (
-                    <option key={priority} value={priority}>
-                      {priority}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Status
-                <select value={workOrderForm.status} onChange={(event) => setWorkOrderForm({ ...workOrderForm, status: event.target.value as WorkOrderStatus })}>
-                  {workOrderStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Downtime Start
-                <input type="datetime-local" value={workOrderForm.downtimeStart} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeStart: event.target.value })} />
-              </label>
-              <label>
-                Downtime End
-                <input type="datetime-local" value={workOrderForm.downtimeEnd} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeEnd: event.target.value })} />
-              </label>
-              <label className="full">
-                Problem / Repair Request
-                <textarea value={workOrderForm.problemDescription} onChange={(event) => setWorkOrderForm({ ...workOrderForm, problemDescription: event.target.value })} />
-              </label>
-              <label className="full">
-                Repair Notes
-                <textarea value={workOrderForm.repairNotes} onChange={(event) => setWorkOrderForm({ ...workOrderForm, repairNotes: event.target.value })} />
-              </label>
+
+            <section className="repair-form-section">
+              <div className="repair-section-title">
+                <span>01</span>
+                <strong>Asset / Equipment</strong>
+              </div>
+              <div className="form-grid repair-form-grid">
+                <label>
+                  Equipment Name
+                  <input value={workOrderForm.equipmentName} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentName: event.target.value })} placeholder="Example: Forklift 2, Truck 18, Yard compressor" />
+                </label>
+                <label>
+                  Equipment Number
+                  <input value={workOrderForm.equipmentNumber} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentNumber: event.target.value })} placeholder="Asset, unit, or truck #" />
+                </label>
+                <label>
+                  Equipment Type
+                  <input value={workOrderForm.equipmentType} onChange={(event) => setWorkOrderForm({ ...workOrderForm, equipmentType: event.target.value })} placeholder="Truck, forklift, rack, pump" />
+                </label>
+              </div>
+            </section>
+
+            <section className="repair-form-section">
+              <div className="repair-section-title">
+                <span>02</span>
+                <strong>Assignment / Control</strong>
+              </div>
+              <div className="form-grid repair-form-grid">
+                <label>
+                  Department
+                  <input value={workOrderForm.department} onChange={(event) => setWorkOrderForm({ ...workOrderForm, department: event.target.value })} placeholder="Yard, shop, hardband, DTI..." />
+                </label>
+                <label>
+                  Assigned To
+                  <input value={workOrderForm.assignedTo} onChange={(event) => setWorkOrderForm({ ...workOrderForm, assignedTo: event.target.value })} placeholder="Technician or vendor" />
+                </label>
+                <label>
+                  Priority
+                  <select value={workOrderForm.priority} onChange={(event) => setWorkOrderForm({ ...workOrderForm, priority: event.target.value as WorkOrderPriority })}>
+                    {priorities.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Status
+                  <select value={workOrderForm.status} onChange={(event) => setWorkOrderForm({ ...workOrderForm, status: event.target.value as WorkOrderStatus })}>
+                    {workOrderStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Downtime Start
+                  <input type="datetime-local" value={workOrderForm.downtimeStart} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeStart: event.target.value })} />
+                </label>
+                <label>
+                  Downtime End
+                  <input type="datetime-local" value={workOrderForm.downtimeEnd} onChange={(event) => setWorkOrderForm({ ...workOrderForm, downtimeEnd: event.target.value })} />
+                </label>
+              </div>
+            </section>
+
+            <section className="repair-form-section">
+              <div className="repair-section-title">
+                <span>03</span>
+                <strong>Repair Request / Closeout</strong>
+              </div>
+              <div className="form-grid repair-form-grid">
+                <label className="full">
+                  Problem / Repair Request
+                  <textarea value={workOrderForm.problemDescription} onChange={(event) => setWorkOrderForm({ ...workOrderForm, problemDescription: event.target.value })} placeholder="Describe what is broken, symptoms, location, and safety concerns." />
+                </label>
+                <label className="full">
+                  Repair Notes / Corrective Action
+                  <textarea value={workOrderForm.repairNotes} onChange={(event) => setWorkOrderForm({ ...workOrderForm, repairNotes: event.target.value })} placeholder="Document diagnosis, completed repair, next steps, vendor notes, or closeout notes." />
+                </label>
+              </div>
+            </section>
+
+            <div className="repair-form-summary no-print">
+              <div>
+                <span>Requested By</span>
+                <strong>{selectedWorkOrder?.requestedByName || userName}</strong>
+              </div>
+              <div>
+                <span>Yard</span>
+                <strong>{selectedYard?.name || "-"}</strong>
+              </div>
+              <div>
+                <span>Parts Posted</span>
+                <strong>{selectedParts.filter((part) => part.postedToInventory).length} / {selectedParts.length}</strong>
+              </div>
             </div>
+
             <div className="repair-actions-row">
               <button className="ci-btn pri" type="button" onClick={saveWorkOrder} disabled={saving || !canManageWorkOrders || setupRequired}>
-                Save Work Order
+                {selectedWorkOrder ? "Save Changes" : "Save & Open Work Order"}
               </button>
               <button className="ci-btn" type="button" onClick={startNewWorkOrder}>
                 New Blank
