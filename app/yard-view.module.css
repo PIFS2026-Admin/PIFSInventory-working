@@ -521,6 +521,31 @@
   max-width: 100%;
 }
 
+.rackLineHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.rackLineHeader h3 {
+  margin: 0;
+}
+
+.rackLineHeader span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.selectedRackRow {
+  background: rgba(255, 106, 31, 0.13);
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
 .rackDetailTableWrap {
   overflow-x: hidden;
 }

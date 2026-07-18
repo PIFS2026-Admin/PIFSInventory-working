@@ -1253,6 +1253,15 @@ export default function Home() {
     return inventory.filter((row) => row.locationType === "rack" && row.rackId === selectedRackDetail.label);
   }, [inventory, selectedRackDetail]);
 
+  const selectedRackActionRows = useMemo(() => {
+    if (!selectedRackDetail || selectedRows.length === 0) return [];
+
+    const rackRowsById = new Map(selectedRackInventory.map((row) => [row.id, row]));
+    return selectedRows
+      .map((id) => rackRowsById.get(id))
+      .filter((row): row is InventoryRow => Boolean(row));
+  }, [selectedRackDetail, selectedRackInventory, selectedRows]);
+
   const selectedRackTotals = useMemo(() => {
     return selectedRackInventory.reduce(
       (totals, row) => ({
@@ -3087,50 +3096,64 @@ export default function Home() {
       return;
     }
 
-    setTransferMode("all");
-    setTransferForm(emptyTransferForm);
-    setTransferFiles([]);
-    setTransferOpen(true);
+    if (!selectedTransferRow) {
+      setMessage("Selected inventory line was not found. Refresh and try again.");
+      return;
+    }
+
+    openTransferRow(selectedTransferRow);
   }
 
-  function quickTransfer(row: InventoryRow) {
-    if (isReadOnlyRole) return;
+  function openTransferRow(row: InventoryRow) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot transfer inventory.");
+      return false;
+    }
+
     setMessage("");
     setSelectedRows([row.id]);
     setTransferMode("all");
     setTransferForm(emptyTransferForm);
     setTransferFiles([]);
     setTransferOpen(true);
+    return true;
   }
 
   async function openShip() {
+    await openShipRows(selectedShipRows, "Select at least one inventory line before shipping.");
+  }
+
+  async function openShipRows(rows: InventoryRow[], emptySelectionMessage: string) {
     setMessage("");
 
     if (isReadOnlyRole) {
       setMessage("Sales and customer users can view and print, but cannot ship inventory.");
-      return;
+      return false;
     }
 
-    if (selectedRows.length < 1) {
-      setMessage("Select at least one inventory line before shipping.");
-      return;
+    if (rows.length < 1) {
+      setMessage(emptySelectionMessage);
+      return false;
     }
 
-    const firstCompany = selectedShipRows[0]?.company;
-    const mixedCompanies = selectedShipRows.some((row) => row.company !== firstCompany);
+    const firstCompany = rows[0]?.company;
+    const mixedCompanies = rows.some((row) => row.company !== firstCompany);
 
     if (mixedCompanies) {
       setMessage("Ship one customer's pipe at a time.");
-      return;
+      return false;
     }
 
+    setSelectedRows(rows.map((row) => row.id));
     setShipForm({
       ...emptyShipForm,
       shipTo: firstCompany ?? "",
       bolNumber: await makeTicketNumber("BOL", "bol"),
     });
-    setShipQuantities(Object.fromEntries(selectedShipRows.map((row) => [row.id, String(row.joints)])));
+    setShipQuantities(Object.fromEntries(rows.map((row) => [row.id, String(row.joints)])));
+    setShipFiles([]);
     setShipOpen(true);
+    return true;
   }
 
   function buildEditForm(row: InventoryRow): EditForm {
@@ -3171,25 +3194,20 @@ export default function Home() {
       return;
     }
 
-    setEditForm(buildEditForm(selectedEditRow));
-    setEditOpen(true);
+    openEditRow(selectedEditRow);
   }
 
-  async function quickShip(row: InventoryRow) {
-    if (isReadOnlyRole) return;
+  function openEditRow(row: InventoryRow) {
+    if (isReadOnlyRole) {
+      setMessage("Sales and customer users can view and print, but cannot adjust inventory.");
+      return false;
+    }
+
     setMessage("");
     setSelectedRows([row.id]);
-    setShipForm({
-      ...emptyShipForm,
-      shipTo: row.company,
-      bolNumber: await makeTicketNumber("BOL", "bol"),
-    });
-    setShipQuantities({ [row.id]: String(row.joints) });
-    setShipOpen(true);
-  }
-
-  function getRackRows(label: string) {
-    return inventory.filter((row) => row.locationType === "rack" && row.rackId === label);
+    setEditForm(buildEditForm(row));
+    setEditOpen(true);
+    return true;
   }
 
   function openRackReceive(label: string) {
@@ -3228,66 +3246,31 @@ export default function Home() {
     setInitialInventoryOpen(true);
   }
 
-  async function openRackShip(label: string) {
-    if (isReadOnlyRole) {
-      setMessage("Sales and customer users can view and print, but cannot ship inventory.");
-      return;
-    }
-
-    const rows = getRackRows(label);
-    if (rows.length === 0) {
-      setMessage(`Rack ${label} has no pipe to ship.`);
-      return;
-    }
-
-    const customerNames = Array.from(new Set(rows.map((row) => row.company).filter(Boolean)));
-    if (customerNames.length > 1) {
-      setSelectedRows([]);
-      setMessage(`Rack ${label} has multiple customers. Select one customer's line items below, then Ship.`);
-      return;
-    }
-
-    setMessage("");
-    setSelectedRows(rows.map((row) => row.id));
-    setShipForm({
-      ...emptyShipForm,
-      shipTo: rows[0]?.company ?? "",
-      bolNumber: await makeTicketNumber("BOL", "bol"),
-    });
-    setShipQuantities(Object.fromEntries(rows.map((row) => [row.id, String(row.joints)])));
-    setShipFiles([]);
-    setRackDetailOpen(false);
-    setShipOpen(true);
+  async function openSelectedRackShip() {
+    const opened = await openShipRows(selectedRackActionRows, "Select one or more rack line items before shipping.");
+    if (opened) setRackDetailOpen(false);
   }
 
-  function openRackTransfer(label: string) {
-    if (isReadOnlyRole) {
-      setMessage("Sales and customer users can view and print, but cannot transfer inventory.");
+  function openSelectedRackTransfer() {
+    setMessage("");
+
+    if (selectedRackActionRows.length !== 1) {
+      setMessage("Select one rack line item before transferring.");
       return;
     }
 
-    const rows = getRackRows(label);
-    if (rows.length === 0) {
-      setMessage(`Rack ${label} has no pipe to transfer.`);
-      return;
-    }
-
-    if (rows.length > 1) {
-      setSelectedRows([]);
-      setMessage(`Rack ${label} has ${rows.length} inventory lines. Select one line below, then Transfer.`);
-      return;
-    }
-
-    quickTransfer(rows[0]);
-    setRackDetailOpen(false);
+    if (openTransferRow(selectedRackActionRows[0])) setRackDetailOpen(false);
   }
 
-  function quickAdjust(row: InventoryRow) {
-    if (isReadOnlyRole) return;
+  function openSelectedRackAdjust() {
     setMessage("");
-    setSelectedRows([row.id]);
-    setEditForm(buildEditForm(row));
-    setEditOpen(true);
+
+    if (selectedRackActionRows.length !== 1) {
+      setMessage("Select one rack line item before adjusting.");
+      return;
+    }
+
+    if (openEditRow(selectedRackActionRows[0])) setRackDetailOpen(false);
   }
 
   function moveRack(targetRack: string) {
@@ -3816,7 +3799,7 @@ export default function Home() {
     }
   }
 
-  async function combineSelectedInventoryLines() {
+  async function combineInventoryRows(rowsToCombine: InventoryRow[]) {
     if (!selectedYard) return;
 
     setMessage("");
@@ -3825,20 +3808,20 @@ export default function Home() {
       return;
     }
 
-    if (selectedInventoryRows.length < 2) {
+    if (rowsToCombine.length < 2) {
       setMessage("Select two or more matching inventory lines before combining.");
       return;
     }
 
-    const target = selectedInventoryRows[0];
-    const mismatched = selectedInventoryRows.some((row) => !sameInventoryBucket(target, row));
+    const target = rowsToCombine[0];
+    const mismatched = rowsToCombine.some((row) => !sameInventoryBucket(target, row));
 
     if (mismatched) {
       setMessage("Only matching lines in the same rack/location can be combined. Customer, TU#, part, range, condition, and status must match.");
       return;
     }
 
-    const totalJoints = selectedInventoryRows.reduce((sum, row) => sum + row.joints, 0);
+    const totalJoints = rowsToCombine.reduce((sum, row) => sum + row.joints, 0);
     const totalFootage = calculateRangeFootage(totalJoints, target.pipeRange);
 
     if (totalJoints <= 0) {
@@ -3860,7 +3843,7 @@ export default function Home() {
 
       if (updateError) throw updateError;
 
-      for (const row of selectedInventoryRows.slice(1)) {
+      for (const row of rowsToCombine.slice(1)) {
         await retireInventoryLine(row.id);
       }
 
@@ -3873,16 +3856,24 @@ export default function Home() {
         quantity_footage: totalFootage,
         from_location: target.rackId ?? target.zoneId,
         to_location: target.rackId ?? target.zoneId,
-        comment: `Combined ${selectedInventoryRows.length} matching inventory lines into one rack/location line.`,
+        comment: `Combined ${rowsToCombine.length} matching inventory lines into one rack/location line.`,
       });
 
       await loadInventory(selectedYard.id, rackLayout, zones);
       await loadReports();
       setSelectedRows([target.id]);
-      setMessage(`Combined ${selectedInventoryRows.length} matching inventory lines.`);
+      setMessage(`Combined ${rowsToCombine.length} matching inventory lines.`);
     } catch (error: any) {
       setMessage(`Combine failed: ${error.message}`);
     }
+  }
+
+  async function combineSelectedInventoryLines() {
+    await combineInventoryRows(selectedInventoryRows);
+  }
+
+  async function combineSelectedRackInventoryLines() {
+    await combineInventoryRows(selectedRackActionRows);
   }
   async function saveReceive() {
     if (!selectedYard) return;
@@ -5286,6 +5277,20 @@ export default function Home() {
               <button className="button" onClick={closeRackDetail}>Back to Yard</button>
               <button className="button" onClick={exportInventoryCsv}>Export Rack CSV</button>
               <button
+                className="button"
+                disabled={selectedRackInventory.length === 0}
+                onClick={() => setSelectedRows(selectedRackInventory.map((row) => row.id))}
+              >
+                Select Rack
+              </button>
+              <button
+                className="button"
+                disabled={selectedRackActionRows.length === 0}
+                onClick={() => setSelectedRows([])}
+              >
+                Clear Selection
+              </button>
+              <button
                 className="button primary"
                 disabled={isReadOnlyRole}
                 onClick={() => openRackReceive(selectedRackDetail.label)}
@@ -5294,17 +5299,31 @@ export default function Home() {
               </button>
               <button
                 className="button"
-                disabled={isReadOnlyRole || selectedRackInventory.length === 0}
-                onClick={() => openRackShip(selectedRackDetail.label)}
+                disabled={isReadOnlyRole || selectedRackActionRows.length === 0}
+                onClick={openSelectedRackShip}
               >
-                Ship
+                Ship Selected
               </button>
               <button
                 className="button"
-                disabled={isReadOnlyRole || selectedRackInventory.length === 0}
-                onClick={() => openRackTransfer(selectedRackDetail.label)}
+                disabled={isReadOnlyRole || selectedRackActionRows.length !== 1}
+                onClick={openSelectedRackTransfer}
               >
-                Transfer
+                Transfer Selected
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRackActionRows.length !== 1}
+                onClick={openSelectedRackAdjust}
+              >
+                Adjust Selected
+              </button>
+              <button
+                className="button"
+                disabled={isReadOnlyRole || selectedRackActionRows.length < 2}
+                onClick={combineSelectedRackInventoryLines}
+              >
+                Combine Selected
               </button>
               <button
                 className="button"
@@ -5312,17 +5331,6 @@ export default function Home() {
                 onClick={() => openRackInitialInventory(selectedRackDetail.label)}
               >
                 Add Initial Inventory
-              </button>
-              <button
-                className="button"
-                disabled={isReadOnlyRole || selectedRackInventory.length !== 1}
-                onClick={() => {
-                  if (!selectedRackInventory[0]) return;
-                  quickAdjust(selectedRackInventory[0]);
-                  setRackDetailOpen(false);
-                }}
-              >
-                Adjust
               </button>
             </div>
 
@@ -5380,7 +5388,12 @@ export default function Home() {
             </div>
 
             <section className={`ticket-card rack-detail-lines ${styles.rackDetailLines}`}>
-              <h3>Rack Line Items</h3>
+              <div className={styles.rackLineHeader}>
+                <h3>Rack Line Items</h3>
+                <span>
+                  {selectedRackActionRows.length} selected / {selectedRackInventory.length} line{selectedRackInventory.length === 1 ? "" : "s"}
+                </span>
+              </div>
               <div className={`table-wrap ${styles.rackDetailTableWrap}`}>
                 <table>
                   <thead>
@@ -5403,10 +5416,11 @@ export default function Home() {
                   </thead>
                   <tbody>
                     {selectedRackInventory.map((row) => {
+                      const isSelected = selectedRows.includes(row.id);
                       return (
-                        <tr key={row.id}>
+                        <tr key={row.id} className={isSelected ? styles.selectedRackRow : undefined}>
                           <td>
-                            <input type="checkbox" checked={selectedRows.includes(row.id)} onChange={() => toggleRow(row.id)} />
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleRow(row.id)} />
                           </td>
                           <td>{row.company}</td>
                           <td>{row.operator || "-"}</td>
