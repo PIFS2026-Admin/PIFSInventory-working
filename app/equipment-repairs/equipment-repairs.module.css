@@ -25,7 +25,7 @@
   display: grid;
   grid-template-columns: minmax(280px, 0.75fr) minmax(420px, 1fr);
   gap: 14px;
-  align-items: end;
+  align-items: start;
 }
 
 .scope :global(.repair-command-copy h2),
@@ -69,6 +69,110 @@
 
 .scope :global(.repair-search-field) {
   min-width: 0;
+}
+
+.scope :global(.repair-quick-board) {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  padding-top: 12px;
+}
+
+.scope :global(.repair-quick-lane) {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.scope :global(.repair-quick-title) {
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-chip-row) {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.scope :global(.repair-chip-row::-webkit-scrollbar) {
+  display: none;
+}
+
+.scope :global(.repair-chip),
+.scope :global(.repair-clear-view) {
+  flex: 0 0 auto;
+  min-width: 112px;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 11px;
+  background: rgba(17, 24, 39, 0.86);
+  color: #f8fafc;
+  padding: 10px 11px;
+  text-align: left;
+}
+
+.scope :global(.repair-chip span),
+.scope :global(.repair-chip b) {
+  display: block;
+}
+
+.scope :global(.repair-chip span) {
+  overflow: hidden;
+  color: #d8dee8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.scope :global(.repair-chip b) {
+  margin-top: 6px;
+  color: #fff;
+  font-family: "Courier New", monospace;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.scope :global(.repair-chip:hover),
+.scope :global(.repair-clear-view:hover) {
+  border-color: rgba(249, 115, 22, 0.62);
+}
+
+.scope :global(.repair-chip.on) {
+  border-color: rgba(249, 115, 22, 0.75);
+  background:
+    radial-gradient(circle at 25% 0%, rgba(249, 115, 22, 0.24), transparent 64%),
+    rgba(124, 45, 18, 0.28);
+  box-shadow: inset 0 -2px 0 #f97316;
+}
+
+.scope :global(.repair-chip.priority-critical) {
+  border-color: rgba(248, 113, 113, 0.42);
+}
+
+.scope :global(.repair-chip.priority-high) {
+  border-color: rgba(251, 146, 60, 0.46);
+}
+
+.scope :global(.repair-clear-view) {
+  justify-self: start;
+  min-width: 132px;
+  color: #fed7aa;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 .scope :global(.repair-kpi-strip) {
@@ -201,17 +305,30 @@
   gap: 2px;
 }
 
-.scope :global(.repair-status-list div) {
+.scope :global(.repair-status-list div),
+.scope :global(.repair-status-list button) {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  width: 100%;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: #f8fafc;
   padding: 10px 0;
+  text-align: left;
 }
 
-.scope :global(.repair-status-list div:last-child) {
+.scope :global(.repair-status-list div:last-child),
+.scope :global(.repair-status-list button:last-child) {
   border-bottom: 0;
+}
+
+.scope :global(.repair-status-list button:hover) {
+  color: #fed7aa;
 }
 
 .scope :global(.repair-status-list span) {

@@ -325,6 +325,8 @@ export default function EquipmentRepairsPage() {
   const [laborForm, setLaborForm] = useState<LaborForm>(emptyLaborForm);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [technicianFilter, setTechnicianFilter] = useState("all");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -355,6 +357,11 @@ export default function EquipmentRepairsPage() {
       const statusMatches =
         statusFilter === "all" ||
         (statusFilter === "active" ? activeStatus : order.status.toLowerCase() === statusFilter.toLowerCase());
+      const priorityMatches = priorityFilter === "all" || order.priority.toLowerCase() === priorityFilter.toLowerCase();
+      const assignedName = order.assignedTo.trim().toLowerCase();
+      const technicianMatches =
+        technicianFilter === "all" ||
+        (technicianFilter === "unassigned" ? !assignedName : assignedName === technicianFilter.toLowerCase());
       const termMatches =
         !term ||
         [
@@ -369,9 +376,9 @@ export default function EquipmentRepairsPage() {
           .join(" ")
           .toLowerCase()
           .includes(term);
-      return statusMatches && termMatches;
+      return statusMatches && priorityMatches && technicianMatches && termMatches;
     });
-  }, [search, statusFilter, workOrders]);
+  }, [priorityFilter, search, statusFilter, technicianFilter, workOrders]);
 
   const metrics = useMemo(() => {
     const activeOrders = workOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
@@ -386,6 +393,37 @@ export default function EquipmentRepairsPage() {
       unpostedParts: parts.filter((part) => !part.postedToInventory).length,
     };
   }, [parts, workOrders]);
+
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    workOrders.forEach((order) => {
+      counts.set(order.status, (counts.get(order.status) || 0) + 1);
+    });
+    counts.set("active", workOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status)).length);
+    counts.set("all", workOrders.length);
+    return counts;
+  }, [workOrders]);
+
+  const priorityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    priorities.forEach((priority) => counts.set(priority, 0));
+    workOrders.forEach((order) => {
+      counts.set(order.priority, (counts.get(order.priority) || 0) + 1);
+    });
+    counts.set("all", workOrders.length);
+    return counts;
+  }, [workOrders]);
+
+  const technicianCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    workOrders.forEach((order) => {
+      const name = order.assignedTo.trim() || "Unassigned";
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .slice(0, 8);
+  }, [workOrders]);
 
   useEffect(() => {
     loadPage();
@@ -1007,6 +1045,112 @@ export default function EquipmentRepairsPage() {
             />
           </label>
         </div>
+        <div className="repair-quick-board">
+          <div className="repair-quick-lane">
+            <div className="repair-quick-title">Status</div>
+            <div className="repair-chip-row">
+              {[
+                ["active", "Active"],
+                ["Open", "Open"],
+                ["In Repair", "In Repair"],
+                ["Awaiting Parts", "Waiting Parts"],
+                ["Ready for Review", "Review"],
+                ["Closed", "Closed"],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={`repair-chip ${statusFilter === value ? "on" : ""}`}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(value);
+                    setActiveTab("orders");
+                  }}
+                >
+                  <span>{label}</span>
+                  <b>{whole(statusCounts.get(value) || 0)}</b>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="repair-quick-lane">
+            <div className="repair-quick-title">Priority</div>
+            <div className="repair-chip-row">
+              <button
+                className={`repair-chip ${priorityFilter === "all" ? "on" : ""}`}
+                type="button"
+                onClick={() => {
+                  setPriorityFilter("all");
+                  setActiveTab("orders");
+                }}
+              >
+                <span>All Priority</span>
+                <b>{whole(priorityCounts.get("all") || 0)}</b>
+              </button>
+              {priorities
+                .slice()
+                .reverse()
+                .map((priority) => (
+                  <button
+                    key={priority}
+                    className={`repair-chip priority-${statusClass(priority)} ${priorityFilter === priority ? "on" : ""}`}
+                    type="button"
+                    onClick={() => {
+                      setPriorityFilter(priority);
+                      setActiveTab("orders");
+                    }}
+                  >
+                    <span>{priority}</span>
+                    <b>{whole(priorityCounts.get(priority) || 0)}</b>
+                  </button>
+                ))}
+            </div>
+          </div>
+          <div className="repair-quick-lane">
+            <div className="repair-quick-title">Technician</div>
+            <div className="repair-chip-row">
+              <button
+                className={`repair-chip ${technicianFilter === "all" ? "on" : ""}`}
+                type="button"
+                onClick={() => {
+                  setTechnicianFilter("all");
+                  setActiveTab("orders");
+                }}
+              >
+                <span>All Techs</span>
+                <b>{whole(workOrders.length)}</b>
+              </button>
+              {technicianCounts.map(([technician, count]) => {
+                const value = technician === "Unassigned" ? "unassigned" : technician;
+                return (
+                  <button
+                    key={technician}
+                    className={`repair-chip ${technicianFilter === value ? "on" : ""}`}
+                    type="button"
+                    onClick={() => {
+                      setTechnicianFilter(value);
+                      setActiveTab("orders");
+                    }}
+                  >
+                    <span>{technician}</span>
+                    <b>{whole(count)}</b>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <button
+            className="repair-clear-view"
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setStatusFilter("active");
+              setPriorityFilter("all");
+              setTechnicianFilter("all");
+            }}
+          >
+            Clear View
+          </button>
+        </div>
       </section>
 
       <section className="kpis k5 repair-kpi-strip">
@@ -1088,10 +1232,18 @@ export default function EquipmentRepairsPage() {
                 .map((status) => {
                   const count = workOrders.filter((order) => order.status === status).length;
                   return (
-                    <div key={status}>
+                    <button
+                      key={status}
+                      className="repair-stat-button"
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(status);
+                        setActiveTab("orders");
+                      }}
+                    >
                       <strong>{status}</strong>
                       <span>{whole(count)}</span>
-                    </div>
+                    </button>
                   );
                 })}
             </div>
