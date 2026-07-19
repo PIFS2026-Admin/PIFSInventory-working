@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { listNotificationRecipientsWithFallback } from "../../../lib/adminEmailRecipients";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -32,6 +33,8 @@ type Recipient = {
   fullName: string;
   role: string;
 };
+
+const weeklyInventoryNotificationKey = "inventory_weekly_report";
 
 function getErrorMessage(error: any) {
   if (!error) return "Unknown error.";
@@ -180,28 +183,18 @@ async function buildWeeklyReport() {
   const since = formatDate(weekStart);
   const siteUrl = getSiteUrl();
 
-  const { data: profiles, error: profileError } = await adminClient
-    .from("profiles")
-    .select("id, full_name, role")
-    .in("role", ["admin", "inventory_manager"]);
+  const recipientEmails = await listNotificationRecipientsWithFallback(
+    adminClient,
+    weeklyInventoryNotificationKey,
+    ["admin", "administrator", "inventory_manager"],
+    [process.env.INVENTORY_WEEKLY_EMAIL_TO],
+  );
 
-  if (profileError) {
-    throw new Error(profileError.message);
-  }
-
-  const { data: authUsers, error: authError } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (authError) {
-    throw new Error(authError.message);
-  }
-
-  const emailById = new Map(authUsers.users.map((user) => [user.id, user.email ?? ""]));
-  const recipients: Recipient[] = (profiles || [])
-    .map((profile) => ({
-      email: emailById.get(String(profile.id)) ?? "",
-      fullName: String(profile.full_name || "TITAN User"),
-      role: String(profile.role || ""),
-    }))
-    .filter((recipient) => recipient.email.includes("@"));
+  const recipients: Recipient[] = recipientEmails.map((email) => ({
+    email,
+    fullName: email,
+    role: "weekly_inventory_report",
+  }));
 
   const { data: tickets, error: ticketError } = await adminClient
     .from("inventory_issue_tickets")

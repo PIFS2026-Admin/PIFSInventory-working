@@ -336,10 +336,11 @@ values
   ('dti_summary', 'DTI Summary', 'DTI scorecard or summary is posted.', 80),
   ('inventory_adjustment', 'Inventory Adjustment', 'Inventory quantity or pricing is adjusted.', 90),
   ('low_stock_alert', 'Low Stock Alert', 'Inventory item drops below minimum quantity.', 100),
-  ('equipment_work_order', 'Equipment Work Order', 'Equipment work order is created.', 110),
-  ('equipment_work_order_completed', 'Equipment Work Order Completed', 'Equipment work order is completed.', 120),
-  ('new_user_created', 'New User Created', 'New TITAN user is created.', 130),
-  ('password_reset', 'Password Reset', 'Password reset notification.', 140)
+  ('inventory_weekly_report', 'Weekly Inventory Report', 'Weekly consumables issue spend and usage summary is emailed.', 110),
+  ('equipment_work_order', 'Equipment Work Order', 'Equipment work order is created.', 120),
+  ('equipment_work_order_completed', 'Equipment Work Order Completed', 'Equipment work order is completed.', 130),
+  ('new_user_created', 'New User Created', 'New TITAN user is created.', 140),
+  ('password_reset', 'Password Reset', 'Password reset notification.', 150)
 on conflict (notification_key) do update
 set name = excluded.name,
     description = excluded.description,
@@ -366,4 +367,12 @@ from public.email_notification_types nt
 cross join public.profiles p
 where nt.notification_key in ('customer_release_request', 'consumable_order_placed')
   and lower(coalesce(p.role::text, '')) in ('admin', 'administrator')
+on conflict (notification_type_id, user_id) do update set enabled = true;
+
+insert into public.email_notification_recipients (notification_type_id, user_id, enabled)
+select nt.id, p.id, true
+from public.email_notification_types nt
+cross join public.profiles p
+where nt.notification_key = 'inventory_weekly_report'
+  and lower(coalesce(p.role::text, '')) in ('admin', 'administrator', 'inventory_manager')
 on conflict (notification_type_id, user_id) do update set enabled = true;
