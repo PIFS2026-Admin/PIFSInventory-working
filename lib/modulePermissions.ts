@@ -616,6 +616,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/hardband") return "hardband";
   if (href === "/communications") return "communications";
   if (href === "/admin") return "admin";
+  if (href === "/reports") return "reports";
   if (href.startsWith("/?open=reports")) return "reports";
   return null;
 }

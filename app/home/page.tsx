@@ -246,7 +246,7 @@ const launchCards: LaunchCard[] = [
   },
   {
     title: "Reports",
-    href: "/?open=reports",
+    href: "/reports",
   },
   {
     title: "Admin Controls",
@@ -297,7 +297,7 @@ const mobileLaunchCards: LaunchCard[] = [
   },
   {
     title: "Reports",
-    href: "/?open=reports",
+    href: "/reports",
   },
   {
     title: "Admin Controls",

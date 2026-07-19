@@ -572,6 +572,7 @@ export default function AdminPage() {
   const [emailNotificationTypes, setEmailNotificationTypes] = useState<EmailNotificationType[]>([]);
   const [emailNotificationRecipients, setEmailNotificationRecipients] = useState<EmailNotificationRecipient[]>([]);
   const [emailNotificationUsers, setEmailNotificationUsers] = useState<EmailNotificationUser[]>([]);
+  const [openEmailNotificationTypeId, setOpenEmailNotificationTypeId] = useState("");
 
   const [message, setMessage] = useState("Loading admin tools...");
   const [loading, setLoading] = useState(false);
@@ -3182,47 +3183,66 @@ export default function AdminPage() {
             <p className="muted-text">{emailNotificationSetupMessage}</p>
           )}
 
-          {emailNotificationTypes.map((notificationType) => {
-            const selectedRecipientIds = emailRecipientIdsForType(notificationType.id);
+          <div className="email-notification-list">
+            {emailNotificationTypes.map((notificationType) => {
+              const selectedRecipientIds = emailRecipientIdsForType(notificationType.id);
+              const isOpen = activeControl === "email-notifications" && openEmailNotificationTypeId === notificationType.id;
 
-            return (
-              <section key={notificationType.id} className="ticket-card admin-card">
-                <div className="admin-section-header">
-                  <div>
-                    <h4>{notificationType.name}</h4>
-                    <p className="muted-text">{notificationType.description}</p>
-                  </div>
+              return (
+                <section key={notificationType.id} className="ticket-card admin-card email-notification-row">
                   <button
-                    className="button primary"
-                    onClick={() => saveEmailNotificationRecipients(notificationType.id)}
-                    disabled={loading}
+                    className="email-notification-summary"
+                    type="button"
+                    onClick={() => setOpenEmailNotificationTypeId(isOpen ? "" : notificationType.id)}
                   >
-                    Save Recipients
+                    <span>
+                      <strong>{notificationType.name}</strong>
+                      <small>{notificationType.description}</small>
+                    </span>
+                    <em>{selectedRecipientIds.length} recipient{selectedRecipientIds.length === 1 ? "" : "s"}</em>
                   </button>
-                </div>
 
-                <div className="yard-access-grid">
-                  {emailNotificationUsers.map((user) => (
-                    <label key={`${notificationType.id}-${user.id}`} className="yard-access-card">
-                      <input
-                        type="checkbox"
-                        checked={selectedRecipientIds.includes(user.id)}
-                        onChange={() => toggleEmailNotificationRecipient(notificationType.id, user.id)}
-                      />
-                      <span>
-                        <strong>{user.fullName || user.email || user.id}</strong>
-                        <small>{user.email || "No email"} / {user.role || "No role"}</small>
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                  {isOpen && (
+                    <div className="email-recipient-panel">
+                      <div className="admin-section-header">
+                        <div>
+                          <h4>{notificationType.name}</h4>
+                          <p className="muted-text">Choose exactly who receives this email notification.</p>
+                        </div>
+                        <button
+                          className="button primary"
+                          onClick={() => saveEmailNotificationRecipients(notificationType.id)}
+                          disabled={loading}
+                        >
+                          Save Recipients
+                        </button>
+                      </div>
 
-                {emailNotificationUsers.length === 0 && (
-                  <p className="muted-text">No users found for email notifications.</p>
-                )}
-              </section>
-            );
-          })}
+                      <div className="yard-access-grid">
+                        {emailNotificationUsers.map((user) => (
+                          <label key={`${notificationType.id}-${user.id}`} className="yard-access-card">
+                            <input
+                              type="checkbox"
+                              checked={selectedRecipientIds.includes(user.id)}
+                              onChange={() => toggleEmailNotificationRecipient(notificationType.id, user.id)}
+                            />
+                            <span>
+                              <strong>{user.fullName || user.email || user.id}</strong>
+                              <small>{user.email || "No email"} / {user.role || "No role"}</small>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+
+                      {emailNotificationUsers.length === 0 && (
+                        <p className="muted-text">No users found for email notifications.</p>
+                      )}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         </div>
       </details>
 
