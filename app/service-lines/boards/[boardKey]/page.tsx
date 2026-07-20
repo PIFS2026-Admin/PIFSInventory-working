@@ -242,6 +242,17 @@ function tagColor(tag: string) {
   return serviceLineBoardTagColors[tag] ?? "#64748b";
 }
 
+const employeeRoleTags = new Set(Object.keys(serviceLineBoardTagColors).filter((tag) => tag !== "Safety Hours"));
+
+function isEmployeeCard(card: BoardCard) {
+  return card.tags.some((tag) => employeeRoleTags.has(tag));
+}
+
+function isBullpenColumn(column: BoardColumn) {
+  const title = column.title.trim().toLowerCase();
+  return title === "bullpen" || column.key.includes("bullpen");
+}
+
 function mapColumn(row: ColumnRow): BoardColumn {
   return {
     id: row.id,
@@ -356,18 +367,16 @@ function DroppableColumn({
   selectedCardId,
   onSelectCard,
   onAddCard,
-  onQuickMove,
-  canMoveLeft,
-  canMoveRight,
+  onSendToBullpen,
+  bullpenColumnId,
 }: {
   column: BoardColumn;
   cards: BoardCard[];
   selectedCardId: string;
   onSelectCard: (card: BoardCard) => void;
   onAddCard: (column: BoardColumn) => void;
-  onQuickMove: (card: BoardCard, direction: "left" | "right") => void;
-  canMoveLeft: (card: BoardCard) => boolean;
-  canMoveRight: (card: BoardCard) => boolean;
+  onSendToBullpen: (card: BoardCard) => void;
+  bullpenColumnId: string;
 }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `column:${column.id}`,
@@ -400,10 +409,8 @@ function DroppableColumn({
                 card={card}
                 selected={selectedCardId === card.id}
                 onSelect={() => onSelectCard(card)}
-                onMoveLeft={() => onQuickMove(card, "left")}
-                onMoveRight={() => onQuickMove(card, "right")}
-                canMoveLeft={canMoveLeft(card)}
-                canMoveRight={canMoveRight(card)}
+                onSendToBullpen={() => onSendToBullpen(card)}
+                canSendToBullpen={Boolean(bullpenColumnId) && card.columnId !== bullpenColumnId && isEmployeeCard(card)}
               />
             ))}
           </SortableContext>
@@ -417,18 +424,14 @@ function SortableBoardCard({
   card,
   selected,
   onSelect,
-  onMoveLeft,
-  onMoveRight,
-  canMoveLeft,
-  canMoveRight,
+  onSendToBullpen,
+  canSendToBullpen,
 }: {
   card: BoardCard;
   selected: boolean;
   onSelect: () => void;
-  onMoveLeft: () => void;
-  onMoveRight: () => void;
-  canMoveLeft: boolean;
-  canMoveRight: boolean;
+  onSendToBullpen: () => void;
+  canSendToBullpen: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -441,6 +444,8 @@ function SortableBoardCard({
       ref={setNodeRef}
       className={`${styles.card} ${selected ? styles.cardSelected : ""} ${isDragging ? styles.cardDragging : ""}`}
       style={style}
+      {...listeners}
+      {...attributes}
     >
       <button className={styles.cardOpen} type="button" onClick={onSelect}>
         <span className={styles.cardNumber}>{card.cardNumber}</span>
@@ -470,17 +475,20 @@ function SortableBoardCard({
         </div>
       )}
 
-      <div className={styles.cardFooter}>
-        <button type="button" disabled={!canMoveLeft} onClick={onMoveLeft} aria-label="Move card left">
-          Left
-        </button>
-        <button className={styles.dragHandle} type="button" {...listeners} {...attributes} aria-label="Drag card">
-          Drag
-        </button>
-        <button type="button" disabled={!canMoveRight} onClick={onMoveRight} aria-label="Move card right">
-          Right
-        </button>
-      </div>
+      {canSendToBullpen && (
+        <div className={styles.cardActions}>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSendToBullpen();
+            }}
+          >
+            Send to Bullpen
+          </button>
+        </div>
+      )}
     </article>
   );
 }
@@ -554,6 +562,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }, [columns, visibleCards]);
 
   const selectedCard = useMemo(() => cards.find((card) => card.id === selectedCardId) ?? null, [cards, selectedCardId]);
+  const bullpenColumn = useMemo(() => columns.find(isBullpenColumn) ?? null, [columns]);
   const boardStats = useMemo(() => {
     const active = cards.length;
     const urgent = cards.filter((card) => card.priority === "Critical" || card.priority === "High").length;
@@ -1027,16 +1036,13 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     await moveCard(card, overCard.columnId, overCard.id);
   }
 
-  async function quickMove(card: BoardCard, direction: "left" | "right") {
-    const currentIndex = columns.findIndex((column) => column.id === card.columnId);
-    const nextColumn = columns[currentIndex + (direction === "right" ? 1 : -1)];
-    if (!nextColumn) return;
-    await moveCard(card, nextColumn.id);
-  }
+  async function sendToBullpen(card: BoardCard) {
+    if (!bullpenColumn) {
+      setMessage("No Bullpen list is available on this board.");
+      return;
+    }
 
-  function canMove(card: BoardCard, direction: "left" | "right") {
-    const currentIndex = columns.findIndex((column) => column.id === card.columnId);
-    return direction === "right" ? currentIndex >= 0 && currentIndex < columns.length - 1 : currentIndex > 0;
+    await moveCard(card, bullpenColumn.id);
   }
 
   async function archiveCard() {
@@ -1379,9 +1385,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                 selectedCardId={selectedCardId}
                 onSelectCard={openCard}
                 onAddCard={startNewCardForColumn}
-                onQuickMove={quickMove}
-                canMoveLeft={(card) => canMove(card, "left")}
-                canMoveRight={(card) => canMove(card, "right")}
+                onSendToBullpen={(card) => void sendToBullpen(card)}
+                bullpenColumnId={bullpenColumn?.id ?? ""}
               />
             ))
           )}

@@ -407,7 +407,8 @@
     linear-gradient(135deg, rgba(249, 113, 22, 0.08), transparent 48%),
     rgba(17, 21, 28, 0.98);
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
-  touch-action: manipulation;
+  cursor: grab;
+  touch-action: none;
 }
 
 .cardSelected {
@@ -416,6 +417,7 @@
 
 .cardDragging {
   opacity: 0.45;
+  cursor: grabbing;
 }
 
 .dragOverlay {
@@ -460,7 +462,7 @@
 }
 
 .cardMeta,
-.cardFooter,
+.cardActions,
 .tagRow {
   display: flex;
   align-items: center;
@@ -505,31 +507,25 @@
   color: #fecaca !important;
 }
 
-.cardFooter {
-  justify-content: space-between;
+.cardActions {
+  justify-content: flex-end;
 }
 
-.cardFooter button {
+.cardActions button {
   min-height: 32px;
-  padding: 7px 9px;
+  padding: 7px 10px;
   border: 1px solid rgba(70, 82, 101, 0.86);
   border-radius: 8px;
   background: rgba(15, 18, 24, 0.96);
-  color: rgba(226, 232, 240, 0.78);
+  color: #fed7aa;
   font-size: 11px;
   font-weight: 950;
   cursor: pointer;
 }
 
-.cardFooter button:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
-}
-
-.dragHandle {
-  border-color: rgba(249, 113, 22, 0.62) !important;
-  color: #fed7aa !important;
-  cursor: grab !important;
+.cardActions button:hover {
+  border-color: rgba(249, 113, 22, 0.72);
+  background: rgba(249, 113, 22, 0.14);
 }
 
 .detailDrawer {
