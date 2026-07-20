@@ -775,3 +775,34 @@ set
   location_name = excluded.location_name,
   tags = excluded.tags,
   updated_at = now();
+
+with required_dti_lanes(column_key, title, description, color, sort_order) as (
+  values
+    ('off_schedule', 'Off Schedule', 'People who are off schedule or unavailable.', '#34d399', 3000),
+    ('safety_hours', 'Safety Hours', 'People assigned to safety hours.', '#facc15', 3100),
+    ('suspended', 'Suspended', 'People suspended from normal scheduling.', '#f97316', 3200)
+)
+insert into public.service_board_columns (board_id, column_key, title, description, color, sort_order, active)
+select b.id, lane.column_key, lane.title, lane.description, lane.color, lane.sort_order, true
+from required_dti_lanes lane
+join public.service_boards b on b.board_key = 'dti'
+where not exists (
+  select 1
+  from public.service_board_columns existing
+  where existing.board_id = b.id
+    and (
+      existing.column_key = lane.column_key
+      or trim(both '_' from regexp_replace(lower(existing.title), '[^a-z0-9]+', '_', 'g')) = lane.column_key
+      or (
+        lane.column_key = 'off_schedule'
+        and existing.column_key ilike '%off_schedule%'
+      )
+    )
+)
+on conflict (board_id, column_key) do update
+set
+  title = excluded.title,
+  description = excluded.description,
+  color = excluded.color,
+  active = true,
+  updated_at = now();

@@ -140,6 +140,18 @@ type BoardCard = {
   updatedAt: string;
 };
 
+type QuickLaneDefinition = {
+  key: string;
+  title: string;
+  description: string;
+  color: string;
+  aliases: string[];
+};
+
+type QuickLaneAction = QuickLaneDefinition & {
+  columnId: string;
+};
+
 type ProfileOption = {
   id: string;
   fullName: string;
@@ -184,6 +196,30 @@ const emptyColumnForm: ColumnForm = {
 
 const priorityOptions: BoardCard["priority"][] = ["Low", "Normal", "High", "Critical"];
 
+const quickLaneDefinitions: QuickLaneDefinition[] = [
+  {
+    key: "off_schedule",
+    title: "Off Schedule",
+    description: "People who are off schedule or unavailable.",
+    color: "#34d399",
+    aliases: ["off schedule", "off_schedule"],
+  },
+  {
+    key: "suspended",
+    title: "Suspended",
+    description: "People suspended from normal scheduling.",
+    color: "#f97316",
+    aliases: ["suspended"],
+  },
+  {
+    key: "safety_hours",
+    title: "Safety Hours",
+    description: "People assigned to safety hours.",
+    color: "#facc15",
+    aliases: ["safety hours", "safety_hours"],
+  },
+];
+
 function navigate(href: string) {
   window.location.href = href;
 }
@@ -225,6 +261,15 @@ function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
 }
 
+function normalizeLaneMatch(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 function slugifyColumnKey(value: string, existingKeys: Set<string>) {
   const base =
     value
@@ -257,6 +302,17 @@ function isEmployeeCard(card: BoardCard) {
 function isBullpenColumn(column: BoardColumn) {
   const title = column.title.trim().toLowerCase();
   return title === "bullpen" || column.key.includes("bullpen");
+}
+
+function matchesQuickLane(column: BoardColumn, lane: QuickLaneDefinition) {
+  const normalizedTitle = normalizeLaneMatch(column.title);
+  const normalizedKey = normalizeLaneMatch(column.key);
+  const normalizedAliases = lane.aliases.map(normalizeLaneMatch);
+  return normalizedKey === lane.key || normalizedKey.includes(lane.key) || normalizedAliases.includes(normalizedTitle);
+}
+
+function findQuickLaneColumn(columns: BoardColumn[], lane: QuickLaneDefinition) {
+  return columns.find((column) => matchesQuickLane(column, lane)) ?? null;
 }
 
 function mapColumn(row: ColumnRow): BoardColumn {
@@ -376,7 +432,9 @@ function DroppableColumn({
   onEditColumn,
   onArchiveColumn,
   onSendToBullpen,
+  onSendToQuickLane,
   bullpenColumnId,
+  quickLaneActions,
 }: {
   column: BoardColumn;
   cards: BoardCard[];
@@ -386,7 +444,9 @@ function DroppableColumn({
   onEditColumn: (column: BoardColumn) => void;
   onArchiveColumn: (column: BoardColumn) => void;
   onSendToBullpen: (card: BoardCard) => void;
+  onSendToQuickLane: (card: BoardCard, lane: QuickLaneDefinition) => void;
   bullpenColumnId: string;
+  quickLaneActions: QuickLaneAction[];
 }) {
   const {
     attributes,
@@ -411,23 +471,48 @@ function DroppableColumn({
       className={`${styles.column} ${isOver ? styles.columnOver : ""} ${isDragging ? styles.columnDragging : ""}`}
       style={style}
     >
-      <header className={styles.columnHead} style={{ borderTopColor: column.color }}>
-        <div>
+      <header
+        className={styles.columnHead}
+        style={{ borderTopColor: column.color }}
+        {...listeners}
+        {...attributes}
+        aria-label={`Drag ${column.title} list`}
+      >
+        <button
+          className={styles.columnTitleButton}
+          type="button"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onEditColumn(column);
+          }}
+          aria-label={`Edit ${column.title} list`}
+        >
           <h2>{column.title}</h2>
           <p>{column.description}</p>
-        </div>
+        </button>
         <div className={styles.columnTools}>
           <span>{cards.length}</span>
-          <button type="button" {...listeners} {...attributes} aria-label={`Move ${column.title} list`}>
-            Move
-          </button>
-          <button type="button" onClick={() => onEditColumn(column)} aria-label={`Edit ${column.title} list`}>
-            Edit
-          </button>
-          <button type="button" onClick={() => onAddCard(column)} aria-label={`Add card to ${column.title}`}>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddCard(column);
+            }}
+            aria-label={`Add card to ${column.title}`}
+          >
             +
           </button>
-          <button type="button" onClick={() => onArchiveColumn(column)} aria-label={`Archive ${column.title} list`}>
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onArchiveColumn(column);
+            }}
+            aria-label={`Archive ${column.title} list`}
+          >
             Archive
           </button>
         </div>
@@ -445,7 +530,9 @@ function DroppableColumn({
                 selected={selectedCardId === card.id}
                 onSelect={() => onSelectCard(card)}
                 onSendToBullpen={() => onSendToBullpen(card)}
+                onSendToQuickLane={(lane) => onSendToQuickLane(card, lane)}
                 canSendToBullpen={Boolean(bullpenColumnId) && card.columnId !== bullpenColumnId && isEmployeeCard(card)}
+                quickLaneActions={isEmployeeCard(card) ? quickLaneActions.filter((lane) => lane.columnId !== card.columnId) : []}
               />
             ))}
           </SortableContext>
@@ -460,13 +547,17 @@ function SortableBoardCard({
   selected,
   onSelect,
   onSendToBullpen,
+  onSendToQuickLane,
   canSendToBullpen,
+  quickLaneActions,
 }: {
   card: BoardCard;
   selected: boolean;
   onSelect: () => void;
   onSendToBullpen: () => void;
+  onSendToQuickLane: (lane: QuickLaneDefinition) => void;
   canSendToBullpen: boolean;
+  quickLaneActions: QuickLaneAction[];
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -510,18 +601,33 @@ function SortableBoardCard({
         </div>
       )}
 
-      {canSendToBullpen && (
+      {(canSendToBullpen || quickLaneActions.length > 0) && (
         <div className={styles.cardActions}>
-          <button
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onSendToBullpen();
-            }}
-          >
-            Send to Bullpen
-          </button>
+          {canSendToBullpen && (
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSendToBullpen();
+              }}
+            >
+              Send to Bullpen
+            </button>
+          )}
+          {quickLaneActions.map((lane) => (
+            <button
+              key={lane.key}
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSendToQuickLane(lane);
+              }}
+            >
+              {lane.title}
+            </button>
+          ))}
         </div>
       )}
     </article>
@@ -601,6 +707,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   const selectedCard = useMemo(() => cards.find((card) => card.id === selectedCardId) ?? null, [cards, selectedCardId]);
   const bullpenColumn = useMemo(() => columns.find(isBullpenColumn) ?? null, [columns]);
+  const quickLaneActions = useMemo<QuickLaneAction[]>(
+    () =>
+      quickLaneDefinitions.map((lane) => ({
+        ...lane,
+        columnId: findQuickLaneColumn(columns, lane)?.id ?? "",
+      })),
+    [columns]
+  );
   const boardStats = useMemo(() => {
     const active = cards.length;
     const urgent = cards.filter((card) => card.priority === "Critical" || card.priority === "High").length;
@@ -711,7 +825,35 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     }
 
     const nextColumns = ((columnResult.data ?? []) as ColumnRow[]).map(mapColumn);
-    const effectiveColumns = nextColumns.length > 0 ? nextColumns : fallbackColumns;
+    let effectiveColumns = nextColumns.length > 0 ? nextColumns : fallbackColumns;
+    if (typedBoard.board_key === "dti" && nextColumns.length > 0) {
+      const missingQuickLanes = quickLaneDefinitions.filter((lane) => !findQuickLaneColumn(effectiveColumns, lane));
+      if (missingQuickLanes.length > 0) {
+        const maxSortOrder = Math.max(0, ...effectiveColumns.map((column) => column.sortOrder));
+        const { data: createdQuickLanes, error: quickLaneError } = await supabase
+          .from("service_board_columns")
+          .upsert(
+            missingQuickLanes.map((lane, index) => ({
+              board_id: typedBoard.id,
+              column_key: lane.key,
+              title: lane.title,
+              description: lane.description,
+              color: lane.color,
+              sort_order: maxSortOrder + (index + 1) * 100,
+              active: true,
+            })),
+            { onConflict: "board_id,column_key" }
+          )
+          .select("id, board_id, column_key, title, description, color, sort_order");
+
+        if (!quickLaneError) {
+          effectiveColumns = [
+            ...effectiveColumns,
+            ...((createdQuickLanes ?? []) as ColumnRow[]).map(mapColumn),
+          ].sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+        }
+      }
+    }
     setColumns(effectiveColumns);
     const activeColumnIds = new Set(effectiveColumns.map((column) => column.id));
     setCards(((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId)));
@@ -1233,6 +1375,62 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     await moveCard(card, bullpenColumn.id);
   }
 
+  async function getOrCreateQuickLane(lane: QuickLaneDefinition) {
+    const existingColumn = findQuickLaneColumn(columns, lane);
+    if (existingColumn) return existingColumn;
+
+    const nextSort = Math.max(0, ...columns.map((column) => column.sortOrder)) + 100;
+    const localColumn: BoardColumn = {
+      id: `local-column-${lane.key}`,
+      boardId: board?.id ?? "local-board",
+      key: lane.key,
+      title: lane.title,
+      description: lane.description,
+      color: lane.color,
+      sortOrder: nextSort,
+    };
+
+    if (!schemaReady || !board) {
+      setColumns((current) => [...current, localColumn]);
+      return localColumn;
+    }
+
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("service_board_columns")
+      .upsert(
+        {
+          board_id: board.id,
+          column_key: lane.key,
+          title: lane.title,
+          description: lane.description,
+          color: lane.color,
+          sort_order: nextSort,
+          active: true,
+        },
+        { onConflict: "board_id,column_key" }
+      )
+      .select("id, board_id, column_key, title, description, color, sort_order")
+      .single();
+    setSaving(false);
+
+    if (error) {
+      setMessage(error.message);
+      return null;
+    }
+
+    const createdColumn = mapColumn(data as ColumnRow);
+    setColumns((current) => [...current.filter((column) => !matchesQuickLane(column, lane)), createdColumn]);
+    await logActivity(null, "created_lane", null, { title: createdColumn.title });
+    return createdColumn;
+  }
+
+  async function sendToQuickLane(card: BoardCard, lane: QuickLaneDefinition) {
+    const targetColumn = await getOrCreateQuickLane(lane);
+    if (!targetColumn) return;
+    await moveCard(card, targetColumn.id);
+  }
+
   async function archiveCard() {
     if (!selectedCard) return;
 
@@ -1627,7 +1825,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   onEditColumn={startEditColumn}
                   onArchiveColumn={(columnToArchive) => void archiveColumn(columnToArchive)}
                   onSendToBullpen={(card) => void sendToBullpen(card)}
+                  onSendToQuickLane={(card, lane) => void sendToQuickLane(card, lane)}
                   bullpenColumnId={bullpenColumn?.id ?? ""}
+                  quickLaneActions={quickLaneActions}
                 />
               ))}
             </SortableContext>

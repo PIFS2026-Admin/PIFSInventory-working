@@ -128,6 +128,18 @@ export const wtxOperationsBoardColumns: ServiceLineBoardColumnConfig[] = [
     "color": "#34d399"
   },
   {
+    "key": "wtx_22_safety_hours",
+    "title": "Safety Hours",
+    "description": "People assigned to safety hours.",
+    "color": "#facc15"
+  },
+  {
+    "key": "wtx_23_suspended",
+    "title": "Suspended",
+    "description": "People suspended from normal scheduling.",
+    "color": "#f97316"
+  },
+  {
     "key": "wtx_22_0",
     "title": "0",
     "description": "8 cards imported from WTX Operations Board.",
