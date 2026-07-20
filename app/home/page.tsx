@@ -1025,6 +1025,7 @@ export default function InternalHomePage() {
       setLoading(false);
     } else {
       setMessage("");
+      setLoading(false);
     }
   }
 
@@ -1617,6 +1618,55 @@ export default function InternalHomePage() {
           </button>
         </div>
       </aside>
+
+      <section className="desktop-home-landing" aria-label="TITAN desktop home">
+        <header className="desktop-home-panel desktop-home-hero">
+          <div>
+            <span className="dashboard-eyebrow">TITAN Home</span>
+            <h1>Welcome, {profile?.fullName ?? "Team Member"}</h1>
+            <p>Use the left navigation to open modules. Command Center is the live operating dashboard.</p>
+          </div>
+          <div className="desktop-home-actions">
+            <button className="button primary" type="button" onClick={() => (window.location.href = "/dashboard")}>
+              Open Command Center
+            </button>
+            <button className="button" type="button" onClick={refreshCommandCenter} disabled={loading}>
+              Refresh
+            </button>
+          </div>
+        </header>
+
+        {message && <div className="modal-message">{message}</div>}
+
+        <section className="desktop-home-status-grid" aria-label="Current TITAN access">
+          <article className="desktop-home-panel">
+            <span>Current Yard</span>
+            {yardOptions.length > 1 ? (
+              <select
+                className="filter-select"
+                value={selectedYardId}
+                onChange={(event) => changeYard(event.target.value)}
+              >
+                {yardOptions.map((yard) => (
+                  <option key={yard.id} value={yard.id}>
+                    {yard.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <strong>{selectedYard?.name ?? "Loading yard"}</strong>
+            )}
+          </article>
+          <article className="desktop-home-panel">
+            <span>Role</span>
+            <strong>{profile?.role?.replace(/_/g, " ") ?? "Loading"}</strong>
+          </article>
+          <article className="desktop-home-panel">
+            <span>Available Modules</span>
+            <strong>{visibleNavCards.length}</strong>
+          </article>
+        </section>
+      </section>
 
       <section className="mobile-home-landing" aria-label="TITAN mobile home">
         <header className="mobile-home-hero">
