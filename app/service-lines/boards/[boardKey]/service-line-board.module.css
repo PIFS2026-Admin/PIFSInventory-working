@@ -102,40 +102,6 @@
   background: rgba(124, 45, 18, 0.22);
 }
 
-.boardSwitch {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.boardSwitch::-webkit-scrollbar {
-  display: none;
-}
-
-.boardSwitch button {
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 9px 13px;
-  border: 1px solid rgba(70, 82, 101, 0.88);
-  border-radius: 999px;
-  background: rgba(17, 21, 28, 0.94);
-  color: rgba(226, 232, 240, 0.78);
-  font-size: 12px;
-  font-weight: 950;
-  letter-spacing: 0;
-  cursor: pointer;
-}
-
-.boardSwitch button.activeBoard {
-  border-color: rgba(249, 113, 22, 0.8);
-  color: #fff;
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 178, 60, 0.2), transparent 64%),
-    rgba(249, 113, 22, 0.16);
-}
-
 .message {
   margin-bottom: 12px;
   padding: 12px 14px;

@@ -40,9 +40,9 @@ export const serviceLineBoardConfigs: Record<ServiceLineBoardKey, ServiceLineBoa
   dti: {
     key: "dti",
     serviceLineKey: "dti",
-    title: "WTX Operations Board",
-    eyebrow: "Live Dispatch Board",
-    description: "Trello-style WTX board for trucks, trailers, rigs, crews, off-schedule people, and bullpen movement.",
+    title: "Operations Board",
+    eyebrow: "Live Operations Board",
+    description: "Trello-style operations board for trucks, trailers, rigs, crews, off-schedule people, and bullpen movement.",
     backHref: "/service-lines/dti",
     primaryHref: "/dti",
     primaryLabel: "DTI Jobs",

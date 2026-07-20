@@ -27,7 +27,6 @@ import {
   isServiceLineBoardKey,
   serviceLineBoardTagColors,
   serviceLineBoardConfigs,
-  serviceLineBoardKeys,
 } from "../../../../lib/serviceLineBoards";
 import styles from "./service-line-board.module.css";
 
@@ -1587,22 +1586,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           </button>
         </div>
       </section>
-
-      <nav className={styles.boardSwitch} aria-label="Service line boards">
-        {serviceLineBoardKeys.map((key) => {
-          const option = serviceLineBoardConfigs[key];
-          return (
-            <button
-              key={key}
-              type="button"
-              className={key === boardKey ? styles.activeBoard : ""}
-              onClick={() => navigate(`/service-lines/boards/${key}`)}
-            >
-              {option.serviceLineKey.toUpperCase()}
-            </button>
-          );
-        })}
-      </nav>
 
       {message && <div className={styles.message}>{message}</div>}
 

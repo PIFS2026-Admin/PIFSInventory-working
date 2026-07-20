@@ -303,7 +303,7 @@ with check (public.titan_boards_is_internal_user());
 
 with board_seed(board_key, service_line_key, name, description) as (
   values
-    ('dti', 'dti', 'DTI Work Board', 'DTI requests, scheduling, inspection, review, completion, and invoicing.'),
+    ('dti', 'dti', 'Operations Board', 'Trello-style operations board for trucks, trailers, rigs, crews, off-schedule people, and bullpen movement.'),
     ('hardbanding', 'hardbanding', 'Hardbanding Work Board', 'Hardband quotes, scheduling, field work, QC review, and closeout.'),
     ('cdt', 'cdt', 'CDT Work Board', 'CDT requests, scheduling, active work, review, and completion.'),
     ('tubing', 'tubing', 'Tubing Work Board', 'Tubing service requests, scheduling, production, review, and completion.'),
@@ -471,8 +471,8 @@ where source_type is not null and source_id is not null;
 
 update public.service_boards
 set
-  name = 'WTX Operations Board',
-  description = 'Trello-style WTX operations dispatch board imported from the current operations board.',
+  name = 'Operations Board',
+  description = 'Trello-style operations dispatch board imported from the current operations board.',
   service_line_key = 'dti',
   active = true,
   updated_at = now()
