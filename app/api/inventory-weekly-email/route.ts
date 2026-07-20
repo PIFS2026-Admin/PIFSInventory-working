@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { listNotificationRecipientsWithFallback } from "../../../lib/adminEmailRecipients";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -127,13 +133,19 @@ async function getMicrosoftAccessToken() {
   return String(result.access_token);
 }
 
-async function sendMicrosoftEmail(options: { to: string; subject: string; html: string }) {
+async function sendMicrosoftEmail(options: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: TitanEmailAttachment[];
+}) {
   const from = process.env.MICROSOFT_MAIL_FROM;
   if (!from) {
     throw new Error("MICROSOFT_MAIL_FROM is missing.");
   }
 
   const accessToken = await getMicrosoftAccessToken();
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
     method: "POST",
     headers: {
@@ -148,6 +160,7 @@ async function sendMicrosoftEmail(options: { to: string; subject: string; html: 
           content: options.html,
         },
         toRecipients: [{ emailAddress: { address: options.to } }],
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
       },
       saveToSentItems: true,
     }),
@@ -272,6 +285,7 @@ async function buildWeeklyReport() {
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
       <h2 style="margin:0 0 6px">TITAN Weekly Inventory Report</h2>
       <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
+      <p>The weekly inventory report is attached as a PDF.</p>
       <p>
         <strong>Week Starting:</strong> ${escapeHtml(since)}<br />
         <strong>Issue Tickets:</strong> ${ticketRows.length.toLocaleString()}<br />
@@ -299,7 +313,7 @@ async function buildWeeklyReport() {
         </thead>
         <tbody>${makeRows(topUnits)}</tbody>
       </table>
-      <p style="font-size:12px;color:#6b7280">Open TITAN Inventory: <a href="${siteUrl}/inventory">${siteUrl}/inventory</a></p>
+      <p style="font-size:12px;color:#6b7280">The PDF is attached so no TITAN login is required. Internal inventory link:<br /><a href="${siteUrl}/inventory">${siteUrl}/inventory</a></p>
       <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
         <strong>Pathfinder Inspections &amp; Field Services</strong><br />
         7501 Groening St.<br />
@@ -310,7 +324,30 @@ async function buildWeeklyReport() {
     </div>
   `;
 
-  return { subject, html, recipients, ticketCount: ticketRows.length, weeklySpending };
+  const attachment = createTitanPdfAttachment({
+    filename: `${safePdfFilename(`Weekly-Inventory-Report-${since}`)}.pdf`,
+    title: "Weekly Inventory Report",
+    subtitle: `Week Starting ${since}`,
+    fields: [
+      { label: "Week Starting", value: since },
+      { label: "Issue Tickets", value: ticketRows.length.toLocaleString() },
+      { label: "Weekly Spending", value: money(weeklySpending) },
+    ],
+    tables: [
+      {
+        title: "Top 10 Items Issued",
+        headers: ["Item", "Qty", "Value"],
+        rows: topItems.map((item) => [item.label, item.quantity.toLocaleString(), money(item.value)]),
+      },
+      {
+        title: "Top 10 Units / Trucks",
+        headers: ["Unit / Truck", "Qty", "Value"],
+        rows: topUnits.map((unit) => [unit.label, unit.quantity.toLocaleString(), money(unit.value)]),
+      },
+    ],
+  });
+
+  return { subject, html, recipients, ticketCount: ticketRows.length, weeklySpending, attachment };
 }
 
 function isAuthorizedCron(request: Request) {
@@ -342,6 +379,7 @@ async function handleWeeklyEmail(request: Request) {
         to: recipient.email,
         subject: report.subject,
         html: report.html,
+        attachments: [report.attachment],
       });
     }
 

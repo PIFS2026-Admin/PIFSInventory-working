@@ -1,4 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -77,6 +83,7 @@ async function sendMicrosoftEmail(options: {
   to: string;
   subject: string;
   html: string;
+  attachments?: TitanEmailAttachment[];
 }) {
   const from = process.env.MICROSOFT_MAIL_FROM;
 
@@ -86,6 +93,7 @@ async function sendMicrosoftEmail(options: {
 
   const accessToken = await getMicrosoftAccessToken();
 
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`,
     {
@@ -108,6 +116,7 @@ async function sendMicrosoftEmail(options: {
               },
             },
           ],
+          ...(graphAttachments ? { attachments: graphAttachments } : {}),
         },
         saveToSentItems: true,
       }),
@@ -165,7 +174,7 @@ export async function POST(request: Request) {
 
     const { data: summary, error: summaryError } = await adminClient
       .from("dti_daily_summaries")
-      .select("id, summary_number, summary_date, operator, contractor, location, field_invoice, total_joints_inspected")
+      .select("*")
       .eq("id", summaryId)
       .single();
 
@@ -177,11 +186,59 @@ export async function POST(request: Request) {
     const reportUrl = `${siteUrl}/dti-summary/print?id=${encodeURIComponent(summary.id)}`;
     const subject = `TITAN DTI Daily Summary - ${summary.summary_number}`;
 
+    const attachment = createTitanPdfAttachment({
+      filename: `${safePdfFilename(`DTI-Daily-Summary-${summary.summary_number || summary.id}`)}.pdf`,
+      title: "DTI Daily Summary",
+      subtitle: String(summary.summary_number || "Daily Summary"),
+      fields: [
+        { label: "Summary", value: summary.summary_number },
+        { label: "Date", value: summary.summary_date },
+        { label: "Field Invoice", value: summary.field_invoice },
+        { label: "Page", value: `${summary.page_number || 1} of ${summary.page_total || 1}` },
+        { label: "Operator", value: summary.operator },
+        { label: "Contractor", value: summary.contractor },
+        { label: "Location", value: summary.location },
+        { label: "Type of Inspection", value: summary.inspection_type },
+        { label: "Connection Size and Type", value: summary.connection_size_type },
+        { label: "Total Joints Inspected", value: summary.total_joints_inspected ?? 0 },
+      ],
+      note: [note, summary.remarks ? `Remarks: ${summary.remarks}` : ""].filter(Boolean).join("\n\n"),
+      tables: [
+        {
+          title: "Inspection Counts",
+          headers: ["Category", "Box", "Pin", "Qty", "Notes"],
+          rows: [
+            ["Total Damages", "", "", summary.total_damages ?? 0, ""],
+            ["Damage Seal", summary.damage_seat_box ?? 0, summary.damage_seat_pin ?? 0, "", ""],
+            ["Damage Threads", summary.damage_threads_box ?? 0, summary.damage_threads_pin ?? 0, "", ""],
+            ["Damaged Hardband", summary.damaged_hardband_box ?? summary.short_box ?? 0, summary.damaged_hardband_pin ?? 0, "", ""],
+            ["Bent Tube", "", "", summary.bent_tube ?? 0, ""],
+            ["Damage Other", "", "", summary.damage_other_quantity ?? 0, summary.damage_other_description ?? summary.damage_other ?? ""],
+            ["Total DBR", "", "", summary.total_dbr ?? 0, ""],
+            ["Min Tong", summary.min_tong_box ?? 0, summary.min_tong_pin ?? 0, "", ""],
+            ["TSTR", summary.tstr_box ?? 0, summary.tstr_pin ?? 0, "", ""],
+            ["EMI", "", "", summary.emi ?? 0, ""],
+            ["Damaged Tube", "", "", summary.damaged_tube ?? 0, ""],
+            ["MIN Wall", "", "", summary.min_wall ?? 0, ""],
+            ["DBR Other", "", "", summary.dbr_other_quantity ?? 0, summary.dbr_other_description ?? summary.dbr_other ?? ""],
+            ["Total Refaces", "", "", summary.total_refaces ?? 0, ""],
+            ["Refaces", summary.reface_box ?? 0, summary.reface_pin ?? 0, "", ""],
+            ["Total Hardbands", "", "", summary.total_hardbands ?? 0, ""],
+            ["Hardbands", summary.hardband_box ?? 0, summary.hardband_pin ?? 0, "", ""],
+            ["Repair Joints", "", "", summary.repair_joints ?? 0, ""],
+            ["DBR Joints", "", "", summary.dbr_joints ?? 0, ""],
+            ["HB Joints", "", "", summary.hb_joints ?? 0, ""],
+            ["Repair / HB Joints", "", "", summary.repair_hb_joints ?? 0, ""],
+          ],
+        },
+      ],
+    });
+
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 6px">TITAN DTI Daily Summary</h2>
         <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
-        <p>A DTI daily inspection summary is ready for review.</p>
+        <p>A DTI daily inspection summary is attached as a PDF for review.</p>
         <p>
           <strong>Summary:</strong> ${summary.summary_number}<br />
           <strong>Date:</strong> ${summary.summary_date || "-"}<br />
@@ -197,7 +254,7 @@ export async function POST(request: Request) {
             Open Daily Summary
           </a>
         </p>
-        <p style="font-size:12px;color:#6b7280">If the button does not open, copy this link:<br /><a href="${reportUrl}">${reportUrl}</a></p>
+        <p style="font-size:12px;color:#6b7280">The PDF is attached so no TITAN login is required to view the summary. The protected TITAN link is included for internal users only:<br /><a href="${reportUrl}">${reportUrl}</a></p>
         <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
           <strong>Pathfinder Inspections &amp; Field Services</strong><br />
           7501 Groening St.<br />
@@ -212,6 +269,7 @@ export async function POST(request: Request) {
       to: recipientEmail,
       subject,
       html,
+      attachments: [attachment],
     });
 
     return Response.json({ ok: true, emailed: true, recipientEmail });

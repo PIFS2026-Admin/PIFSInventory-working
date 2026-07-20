@@ -1,4 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -79,6 +85,7 @@ async function sendMicrosoftEmail(options: {
   to: string;
   subject: string;
   html: string;
+  attachments?: TitanEmailAttachment[];
 }) {
   const from = process.env.MICROSOFT_MAIL_FROM;
 
@@ -88,6 +95,7 @@ async function sendMicrosoftEmail(options: {
 
   const accessToken = await getMicrosoftAccessToken();
 
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`,
     {
@@ -110,6 +118,7 @@ async function sendMicrosoftEmail(options: {
               },
             },
           ],
+          ...(graphAttachments ? { attachments: graphAttachments } : {}),
         },
         saveToSentItems: true,
       }),
@@ -184,12 +193,26 @@ export async function POST(request: Request) {
     const siteUrl = getSiteUrl();
     const reportUrl = `${siteUrl}/dti/print?id=${encodeURIComponent(job.id)}&section=${encodeURIComponent(section)}`;
     const subject = `TITAN DTI Report - ${job.job_number}`;
+    const attachment = createTitanPdfAttachment({
+      filename: `${safePdfFilename(`DTI-Report-${job.job_number || job.id}`)}.pdf`,
+      title: "DTI Report",
+      subtitle: String(job.job_number || "DTI Report"),
+      fields: [
+        { label: "Job", value: job.job_number },
+        { label: "Customer", value: company || "Unknown" },
+        { label: "Rig", value: job.rig || "-" },
+        { label: "Date", value: job.job_date || "-" },
+        { label: "Status", value: job.status || "-" },
+        { label: "Report Section", value: section },
+      ],
+      note,
+    });
 
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 6px">TITAN DTI Report</h2>
         <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
-        <p>A DTI report is ready for review.</p>
+        <p>A DTI report is attached as a PDF for review.</p>
         <p>
           <strong>Job:</strong> ${job.job_number}<br />
           <strong>Customer:</strong> ${company || "Unknown"}<br />
@@ -204,7 +227,7 @@ export async function POST(request: Request) {
             Open DTI Report
           </a>
         </p>
-        <p style="font-size:12px;color:#6b7280">If the button does not open, copy this link:<br /><a href="${reportUrl}">${reportUrl}</a></p>
+        <p style="font-size:12px;color:#6b7280">The PDF is attached so no TITAN login is required to view the report. The protected TITAN link is included for internal users only:<br /><a href="${reportUrl}">${reportUrl}</a></p>
         <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
           <strong>Pathfinder Inspections &amp; Field Services</strong><br />
           7501 Groening St.<br />
@@ -219,6 +242,7 @@ export async function POST(request: Request) {
       to: recipientEmail,
       subject,
       html,
+      attachments: [attachment],
     });
 
     return Response.json({ ok: true, emailed: true, recipientEmail });

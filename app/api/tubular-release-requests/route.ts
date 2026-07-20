@@ -1,5 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { listNotificationRecipientsWithFallback } from "../../../lib/adminEmailRecipients";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -133,13 +139,19 @@ async function getMicrosoftAccessToken() {
   return String(result.access_token);
 }
 
-async function sendMicrosoftEmail(options: { to: string[]; subject: string; html: string }) {
+async function sendMicrosoftEmail(options: {
+  to: string[];
+  subject: string;
+  html: string;
+  attachments?: TitanEmailAttachment[];
+}) {
   const from = process.env.MICROSOFT_MAIL_FROM;
   const recipients = Array.from(new Set(options.to.map((email) => email.trim()).filter((email) => email.includes("@"))));
 
   if (!from || recipients.length === 0) return false;
 
   const accessToken = await getMicrosoftAccessToken();
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
     method: "POST",
     headers: {
@@ -156,6 +168,7 @@ async function sendMicrosoftEmail(options: { to: string[]; subject: string; html
         toRecipients: recipients.map((email) => ({
           emailAddress: { address: email },
         })),
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
       },
       saveToSentItems: true,
     }),
@@ -469,10 +482,46 @@ export async function POST(request: Request) {
 
     let emailSent = false;
     try {
+      const releaseAttachment = createTitanPdfAttachment({
+        filename: `${safePdfFilename(`Tubular-Release-${displayRequest.request_number || displayRequest.id}`)}.pdf`,
+        title: "Tubular Release Request",
+        subtitle: String(displayRequest.request_number || "Release Request"),
+        fields: [
+          { label: "Request", value: displayRequest.request_number },
+          { label: "Customer", value: displayRequest.company_name },
+          { label: "Yard", value: displayRequest.yard_name },
+          { label: "Rack", value: displayRequest.rack_label },
+          { label: "Part Numbers", value: displayRequest.part_summary || "-" },
+          { label: "Quantity", value: `${displayRequest.quantity_joints} joints` },
+          { label: "Release Date", value: displayRequest.release_date || "-" },
+          { label: "Released To", value: displayRequest.released_to || "-" },
+          { label: "Ship Date", value: displayRequest.ship_date || "-" },
+          { label: "Carrier", value: displayRequest.carrier || "-" },
+          { label: "Destination", value: displayRequest.destination || "-" },
+          { label: "Signed By", value: displayRequest.signature_name },
+        ],
+        note: displayRequest.notes || "",
+        tables: [
+          {
+            title: "Rack Part Details",
+            headers: ["TU#", "Part Number", "Range", "Condition", "Joints", "Footage"],
+            rows: (Array.isArray(displayRequest.part_lines) ? displayRequest.part_lines : []).map((line: any) => [
+              line.afe || "-",
+              line.partNumber || "-",
+              line.pipeRange || "-",
+              line.condition || "-",
+              line.joints || 0,
+              line.footage || 0,
+            ]),
+          },
+        ],
+      });
+
       emailSent = await sendMicrosoftEmail({
         to: userEmails,
         subject: `TITAN ${displayRequest.request_number}: Tubular Release Request`,
         html: buildReleaseEmailHtml(displayRequest),
+        attachments: [releaseAttachment],
       });
     } catch (emailError: any) {
       return Response.json({

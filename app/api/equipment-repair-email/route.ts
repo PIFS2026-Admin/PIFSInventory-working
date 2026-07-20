@@ -1,4 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -108,13 +114,19 @@ async function getMicrosoftAccessToken() {
   return String(result.access_token);
 }
 
-async function sendMicrosoftEmail(options: { to: string; subject: string; html: string }) {
+async function sendMicrosoftEmail(options: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: TitanEmailAttachment[];
+}) {
   const from = process.env.MICROSOFT_MAIL_FROM;
   if (!from) {
     throw new Error("MICROSOFT_MAIL_FROM is missing.");
   }
 
   const accessToken = await getMicrosoftAccessToken();
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
     method: "POST",
     headers: {
@@ -129,6 +141,7 @@ async function sendMicrosoftEmail(options: { to: string; subject: string; html: 
           content: options.html,
         },
         toRecipients: [{ emailAddress: { address: options.to } }],
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
       },
       saveToSentItems: true,
     }),
@@ -225,10 +238,61 @@ export async function POST(request: Request) {
 
     const siteUrl = getSiteUrl();
     const subject = `TITAN Repair Work Order - ${order.work_order_number}`;
+    const attachment = createTitanPdfAttachment({
+      filename: `${safePdfFilename(`Repair-Work-Order-${order.work_order_number || order.id}`)}.pdf`,
+      title: "Equipment Repair Work Order",
+      subtitle: String(order.work_order_number || "Repair Work Order"),
+      fields: [
+        { label: "Yard", value: (order.yards as any)?.name || "-" },
+        { label: "Equipment", value: order.equipment_name || "-" },
+        { label: "Equipment #", value: order.equipment_number || "-" },
+        { label: "Type", value: order.equipment_type || "-" },
+        { label: "Department", value: order.department || "-" },
+        { label: "Assigned To", value: order.assigned_to || "Unassigned" },
+        { label: "Status", value: order.status || "-" },
+        { label: "Priority", value: order.priority || "-" },
+        { label: "Repair Start", value: dateText(order.downtime_start) },
+        { label: "Repair Complete", value: dateText(order.downtime_end) },
+        { label: "Labor Hours", value: decimal(order.labor_hours) },
+        { label: "Labor Cost", value: money(order.total_labor_cost) },
+        { label: "Parts Cost", value: money(order.total_parts_cost) },
+        { label: "Total Cost", value: money(order.total_cost) },
+      ],
+      note: [
+        `Repair Request: ${order.problem_description || "No repair request entered."}`,
+        `Repair Notes: ${order.repair_notes || "No repair notes entered."}`,
+      ].join("\n\n"),
+      tables: [
+        {
+          title: "Labor",
+          headers: ["Date", "Technician", "Hours", "Rate", "Total"],
+          rows: (labor || []).map((entry: any) => [
+            dateText(entry.work_date),
+            entry.technician_name || "-",
+            decimal(entry.hours),
+            money(entry.labor_rate),
+            money(entry.line_total),
+          ]),
+        },
+        {
+          title: "Parts",
+          headers: ["SKU", "Item", "Qty", "Unit", "Total", "Inventory"],
+          rows: (parts || []).map((part: any) => [
+            part.item_code || "-",
+            part.item_name || "-",
+            decimal(part.quantity_used),
+            money(part.unit_cost),
+            money(part.line_total),
+            part.posted_to_inventory ? "Posted" : "Pending",
+          ]),
+        },
+      ],
+    });
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 6px">TITAN Equipment Repair Work Order</h2>
         <p style="margin:0 0 18px;color:#f97316;font-weight:700">${escapeHtml(order.work_order_number)}</p>
+        <p>The repair work order is attached as a PDF for review.</p>
         <p>
           <strong>Yard:</strong> ${escapeHtml((order.yards as any)?.name || "-")}<br />
           <strong>Equipment:</strong> ${escapeHtml(order.equipment_name || "-")}<br />
@@ -252,7 +316,7 @@ export async function POST(request: Request) {
           <thead><tr><th style="background:#111827;color:white;text-align:left;padding:8px">SKU</th><th style="background:#111827;color:white;text-align:left;padding:8px">Item</th><th style="background:#111827;color:white;text-align:left;padding:8px">Qty</th><th style="background:#111827;color:white;text-align:left;padding:8px">Unit</th><th style="background:#111827;color:white;text-align:left;padding:8px">Total</th><th style="background:#111827;color:white;text-align:left;padding:8px">Inventory</th></tr></thead>
           <tbody>${partRows || `<tr><td colspan="6" style="border:1px solid #d1d5db;padding:8px">No parts entered.</td></tr>`}</tbody>
         </table>
-        <p style="margin-top:18px"><a href="${siteUrl}/equipment-repairs" style="display:inline-block;background:#f97316;color:#111827;text-decoration:none;font-weight:700;padding:12px 16px;border-radius:6px">Open Equipment Repairs</a></p>
+        <p style="font-size:12px;color:#6b7280">The PDF is attached so no TITAN login is required. Internal link:<br /><a href="${siteUrl}/equipment-repairs">${siteUrl}/equipment-repairs</a></p>
         <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
           <strong>Pathfinder Inspections &amp; Field Services</strong><br />
           7501 Groening St.<br />
@@ -263,7 +327,7 @@ export async function POST(request: Request) {
       </div>
     `;
 
-    await sendMicrosoftEmail({ to: recipientEmail, subject, html });
+    await sendMicrosoftEmail({ to: recipientEmail, subject, html, attachments: [attachment] });
 
     return Response.json({ ok: true, emailed: true, recipientEmail });
   } catch (error: any) {

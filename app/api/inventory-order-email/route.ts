@@ -3,6 +3,12 @@ import {
   listNotificationRecipientsWithFallback,
   splitEmails,
 } from "../../../lib/adminEmailRecipients";
+import {
+  createTitanPdfAttachment,
+  safePdfFilename,
+  toMicrosoftGraphAttachments,
+  type TitanEmailAttachment,
+} from "../../../lib/titanEmailPdf";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -98,13 +104,19 @@ async function getMicrosoftAccessToken() {
   return String(result.access_token);
 }
 
-async function sendMicrosoftEmail(options: { to: string; subject: string; html: string }) {
+async function sendMicrosoftEmail(options: {
+  to: string;
+  subject: string;
+  html: string;
+  attachments?: TitanEmailAttachment[];
+}) {
   const from = process.env.MICROSOFT_MAIL_FROM;
   if (!from) {
     throw new Error("MICROSOFT_MAIL_FROM is missing.");
   }
 
   const accessToken = await getMicrosoftAccessToken();
+  const graphAttachments = toMicrosoftGraphAttachments(options.attachments);
   const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
     method: "POST",
     headers: {
@@ -119,6 +131,7 @@ async function sendMicrosoftEmail(options: { to: string; subject: string; html: 
           content: options.html,
         },
         toRecipients: [{ emailAddress: { address: options.to } }],
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
       },
       saveToSentItems: true,
     }),
@@ -221,10 +234,42 @@ export async function POST(request: Request) {
 
     const siteUrl = getSiteUrl();
     const subject = `TITAN Consumable Order - ${order.order_number}`;
+    const attachment = createTitanPdfAttachment({
+      filename: `${safePdfFilename(`Consumable-Order-${order.order_number || order.id}`)}.pdf`,
+      title: "Consumable Order",
+      subtitle: String(order.order_number || "Consumable Order"),
+      fields: [
+        { label: "Order", value: order.order_number },
+        { label: "Date", value: order.order_date || "-" },
+        { label: "Requested By", value: order.requested_by || "-" },
+        { label: "Department", value: order.department || "-" },
+        { label: "Unit / Truck", value: order.unit_truck || "-" },
+        { label: "Job Number", value: order.job_number || "-" },
+        { label: "Status", value: order.status || "Submitted" },
+        { label: "Total Qty", value: totalQty.toLocaleString() },
+        { label: "Estimated Value", value: money(order.total_value) },
+      ],
+      note: order.notes || "",
+      tables: [
+        {
+          title: "Requested Items",
+          headers: ["Item ID", "Item Name", "Requested", "Fulfilled", "Unit Cost", "Value"],
+          rows: (lines || []).map((line: any) => [
+            line.item_code || "-",
+            line.item_name || "-",
+            Number(line.qty_requested || 0).toLocaleString(),
+            Number(line.qty_fulfilled || 0).toLocaleString(),
+            money(line.unit_cost),
+            money(line.line_value),
+          ]),
+        },
+      ],
+    });
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
         <h2 style="margin:0 0 6px">TITAN Consumable Order</h2>
         <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
+        <p>The consumable order is attached as a PDF for warehouse review.</p>
         <p>
           <strong>Order:</strong> ${escapeHtml(order.order_number)}<br />
           <strong>Date:</strong> ${escapeHtml(order.order_date || "-")}<br />
@@ -250,7 +295,7 @@ export async function POST(request: Request) {
           <tbody>${rows || `<tr><td colspan="6" style="border:1px solid #d1d5db;padding:8px">No line items found.</td></tr>`}</tbody>
         </table>
         <p><strong>Notes:</strong><br />${escapeHtml(order.notes || "No notes.").replace(/\n/g, "<br />")}</p>
-        <p style="font-size:12px;color:#6b7280">TITAN Inventory: <a href="${siteUrl}/inventory">${siteUrl}/inventory</a></p>
+        <p style="font-size:12px;color:#6b7280">The PDF is attached so no TITAN login is required. Internal inventory link:<br /><a href="${siteUrl}/inventory">${siteUrl}/inventory</a></p>
         <div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px">
           <strong>Pathfinder Inspections &amp; Field Services</strong><br />
           7501 Groening St.<br />
@@ -262,7 +307,7 @@ export async function POST(request: Request) {
     `;
 
     for (const recipient of recipients) {
-      await sendMicrosoftEmail({ to: recipient, subject, html });
+      await sendMicrosoftEmail({ to: recipient, subject, html, attachments: [attachment] });
     }
 
     return Response.json({ ok: true, emailed: true, recipients });
