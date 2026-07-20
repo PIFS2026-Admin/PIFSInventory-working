@@ -207,53 +207,6 @@ const emptyData: DashboardData = {
   warnings: [],
 };
 
-const launchCards: LaunchCard[] = [
-  {
-    title: "Command Center",
-    href: "/dashboard",
-  },
-  {
-    title: "Yard View",
-    href: "/",
-  },
-  {
-    title: "Consumables",
-    href: "/inventory",
-  },
-  {
-    title: "Purchase Orders",
-    href: "/purchase-orders",
-  },
-  {
-    title: "Equipment Repairs",
-    href: "/equipment-repairs",
-  },
-  {
-    title: "Document Control",
-    href: "/document-control",
-  },
-  {
-    title: "Service Lines",
-    href: "/service-lines",
-  },
-  {
-    title: "Communications",
-    href: "/communications",
-  },
-  {
-    title: "Financials",
-    href: "/financials",
-  },
-  {
-    title: "Reports",
-    href: "/reports",
-  },
-  {
-    title: "Admin Controls",
-    href: "/admin",
-  },
-];
-
 const mobileLaunchCards: LaunchCard[] = [
   {
     title: "Command Center",
@@ -966,11 +919,6 @@ export default function InternalHomePage() {
     return ["All Leads", ...Array.from(leads).sort()];
   }, [data.leadPerformance, data.preJobPerformance]);
 
-  const visibleNavCards = useMemo(() => {
-    if (!profile) return launchCards;
-    return launchCards.filter((card) => canOpenLaunchCard(profile.modules, card, profile.role));
-  }, [profile]);
-
   const visibleMobileLaunchCards = useMemo(() => {
     if (!profile) return mobileLaunchCards;
     return mobileLaunchCards.filter((card) => canOpenLaunchCard(profile.modules, card, profile.role));
@@ -1583,92 +1531,8 @@ export default function InternalHomePage() {
   }
 
   return (
-    <main className="internal-dashboard-shell">
-      <aside className="internal-sidebar">
-        <button className="brand compact brand-home-link internal-sidebar-brand" type="button" onClick={() => (window.location.href = "/home")}>
-          <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
-          <div>
-            <div className="brand-title">TITAN by Pathfinder Inspections</div>
-          </div>
-        </button>
-
-        <div className="internal-sidebar-profile">
-          <span>Welcome</span>
-          <strong>{profile?.fullName ?? "TITAN"}</strong>
-          <small>{profile?.role?.replace(/_/g, " ") ?? "Loading"}</small>
-        </div>
-
-        <nav className="internal-sidebar-nav" aria-label="TITAN modules">
-          {visibleNavCards.map((card) => (
-            <button
-              key={card.href}
-              className={`internal-sidebar-link ${card.href === "/home" ? "active" : ""}`}
-              type="button"
-              onClick={() => (window.location.href = card.href)}
-            >
-              <span>{card.title}</span>
-            </button>
-          ))}
-
-        </nav>
-
-        <div className="internal-sidebar-footer">
-          <button className="button" type="button" onClick={signOut}>
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
-      <section className="desktop-home-landing" aria-label="TITAN desktop home">
-        <header className="desktop-home-panel desktop-home-hero">
-          <div>
-            <span className="dashboard-eyebrow">TITAN Home</span>
-            <h1>Welcome, {profile?.fullName ?? "Team Member"}</h1>
-            <p>Use the left navigation to open modules. Command Center is the live operating dashboard.</p>
-          </div>
-          <div className="desktop-home-actions">
-            <button className="button primary" type="button" onClick={() => (window.location.href = "/dashboard")}>
-              Open Command Center
-            </button>
-            <button className="button" type="button" onClick={refreshCommandCenter} disabled={loading}>
-              Refresh
-            </button>
-          </div>
-        </header>
-
-        {message && <div className="modal-message">{message}</div>}
-
-        <section className="desktop-home-status-grid" aria-label="Current TITAN access">
-          <article className="desktop-home-panel">
-            <span>Current Yard</span>
-            {yardOptions.length > 1 ? (
-              <select
-                className="filter-select"
-                value={selectedYardId}
-                onChange={(event) => changeYard(event.target.value)}
-              >
-                {yardOptions.map((yard) => (
-                  <option key={yard.id} value={yard.id}>
-                    {yard.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <strong>{selectedYard?.name ?? "Loading yard"}</strong>
-            )}
-          </article>
-          <article className="desktop-home-panel">
-            <span>Role</span>
-            <strong>{profile?.role?.replace(/_/g, " ") ?? "Loading"}</strong>
-          </article>
-          <article className="desktop-home-panel">
-            <span>Available Modules</span>
-            <strong>{visibleNavCards.length}</strong>
-          </article>
-        </section>
-      </section>
-
-      <section className="mobile-home-landing" aria-label="TITAN mobile home">
+    <main className="internal-dashboard-shell home-launcher-shell">
+      <section className="mobile-home-landing" aria-label="TITAN home">
         <header className="mobile-home-hero">
           <button className="brand compact brand-home-link mobile-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
