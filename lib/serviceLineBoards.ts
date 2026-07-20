@@ -1,5 +1,11 @@
 export type ServiceLineBoardKey = "dti" | "hardbanding" | "cdt" | "tubing" | "hotshot";
 
+import {
+  trelloRoleLabelColors,
+  wtxOperationsBoardColumns,
+  wtxOperationsBoardStarterCards,
+} from "./wtxOperationsBoardSeed";
+
 export type ServiceLineBoardColumnConfig = {
   key: string;
   title: string;
@@ -34,31 +40,14 @@ export const serviceLineBoardConfigs: Record<ServiceLineBoardKey, ServiceLineBoa
   dti: {
     key: "dti",
     serviceLineKey: "dti",
-    title: "DTI Work Board",
-    eyebrow: "Service Line Board",
-    description: "Drag jobs from requested work through scheduling, inspection, review, and invoicing.",
+    title: "WTX Operations Board",
+    eyebrow: "Live Dispatch Board",
+    description: "Trello-style WTX board for trucks, trailers, rigs, crews, off-schedule people, and bullpen movement.",
     backHref: "/service-lines/dti",
     primaryHref: "/dti",
     primaryLabel: "DTI Jobs",
-    columns: [
-      { key: "requested", title: "Requested", description: "New work waiting to be scoped.", color: "#fb923c" },
-      { key: "scheduled", title: "Scheduled", description: "Crew, dates, and customer timing are set.", color: "#60a5fa" },
-      { key: "in_progress", title: "In Progress", description: "Inspection work is active.", color: "#facc15" },
-      { key: "review", title: "Review", description: "Reports, red flags, and paperwork need signoff.", color: "#a78bfa" },
-      { key: "complete", title: "Complete", description: "Field work is complete and ready for billing.", color: "#34d399" },
-      { key: "invoiced", title: "Invoiced", description: "Billing has been sent or closed.", color: "#94a3b8" },
-    ],
-    starterCards: [
-      {
-        title: "Create first DTI job card",
-        description: "Use this card to prove the board flow before connecting live DTI jobs.",
-        priority: "Normal",
-        customerName: "Demo customer",
-        locationName: "WTX Yard",
-        tags: ["setup", "test"],
-        columnKey: "requested",
-      },
-    ],
+    columns: wtxOperationsBoardColumns,
+    starterCards: wtxOperationsBoardStarterCards,
   },
   hardbanding: {
     key: "hardbanding",
@@ -163,6 +152,8 @@ export const serviceLineBoardConfigs: Record<ServiceLineBoardKey, ServiceLineBoa
     ],
   },
 };
+
+export const serviceLineBoardTagColors = trelloRoleLabelColors;
 
 export const serviceLineBoardKeys = Object.keys(serviceLineBoardConfigs) as ServiceLineBoardKey[];
 

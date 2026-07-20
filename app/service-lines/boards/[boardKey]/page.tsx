@@ -19,6 +19,7 @@ import { supabase } from "../../../../lib/supabase";
 import {
   ServiceLineBoardConfig,
   isServiceLineBoardKey,
+  serviceLineBoardTagColors,
   serviceLineBoardConfigs,
   serviceLineBoardKeys,
 } from "../../../../lib/serviceLineBoards";
@@ -140,6 +141,7 @@ type ProfileOption = {
 };
 
 type CardForm = {
+  columnId: string;
   title: string;
   description: string;
   priority: BoardCard["priority"];
@@ -151,6 +153,7 @@ type CardForm = {
 };
 
 const emptyCardForm: CardForm = {
+  columnId: "",
   title: "",
   description: "",
   priority: "Normal",
@@ -159,6 +162,18 @@ const emptyCardForm: CardForm = {
   assignedToProfileId: "",
   dueDate: "",
   tagsText: "",
+};
+
+type ColumnForm = {
+  title: string;
+  description: string;
+  color: string;
+};
+
+const emptyColumnForm: ColumnForm = {
+  title: "",
+  description: "",
+  color: "#fb923c",
 };
 
 const priorityOptions: BoardCard["priority"][] = ["Low", "Normal", "High", "Critical"];
@@ -198,6 +213,33 @@ function splitTags(value: string) {
     .map((tag) => tag.trim())
     .filter(Boolean)
     .slice(0, 8);
+}
+
+function normalizeSearch(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function slugifyColumnKey(value: string, existingKeys: Set<string>) {
+  const base =
+    value
+      .toLowerCase()
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 42) || "lane";
+  let key = base;
+  let index = 2;
+
+  while (existingKeys.has(key)) {
+    key = `${base}_${index}`;
+    index += 1;
+  }
+
+  return key;
+}
+
+function tagColor(tag: string) {
+  return serviceLineBoardTagColors[tag] ?? "#64748b";
 }
 
 function mapColumn(row: ColumnRow): BoardColumn {
@@ -280,6 +322,7 @@ function createFallbackCards(config: ServiceLineBoardConfig, columns: BoardColum
 
 function cardFormFromCard(card: BoardCard): CardForm {
   return {
+    columnId: card.columnId,
     title: card.title,
     description: card.description,
     priority: card.priority,
@@ -312,6 +355,7 @@ function DroppableColumn({
   cards,
   selectedCardId,
   onSelectCard,
+  onAddCard,
   onQuickMove,
   canMoveLeft,
   canMoveRight,
@@ -320,6 +364,7 @@ function DroppableColumn({
   cards: BoardCard[];
   selectedCardId: string;
   onSelectCard: (card: BoardCard) => void;
+  onAddCard: (column: BoardColumn) => void;
   onQuickMove: (card: BoardCard, direction: "left" | "right") => void;
   canMoveLeft: (card: BoardCard) => boolean;
   canMoveRight: (card: BoardCard) => boolean;
@@ -336,7 +381,12 @@ function DroppableColumn({
           <h2>{column.title}</h2>
           <p>{column.description}</p>
         </div>
-        <span>{cards.length}</span>
+        <div className={styles.columnTools}>
+          <span>{cards.length}</span>
+          <button type="button" onClick={() => onAddCard(column)} aria-label={`Add card to ${column.title}`}>
+            +
+          </button>
+        </div>
       </header>
 
       <div className={styles.cardStack}>
@@ -406,7 +456,16 @@ function SortableBoardCard({
       {card.tags.length > 0 && (
         <div className={styles.tagRow}>
           {card.tags.slice(0, 4).map((tag) => (
-            <span key={tag}>{tag}</span>
+            <span
+              key={tag}
+              style={{
+                borderColor: `${tagColor(tag)}88`,
+                background: `color-mix(in srgb, ${tagColor(tag)} 18%, #080b0f)`,
+                color: "#fff",
+              }}
+            >
+              {tag}
+            </span>
           ))}
         </div>
       )}
@@ -439,6 +498,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [cardForm, setCardForm] = useState<CardForm>(emptyCardForm);
   const [newCardForm, setNewCardForm] = useState<CardForm>(emptyCardForm);
   const [showNewCard, setShowNewCard] = useState(false);
+  const [showNewColumn, setShowNewColumn] = useState(false);
+  const [newColumnForm, setNewColumnForm] = useState<ColumnForm>(emptyColumnForm);
+  const [boardSearch, setBoardSearch] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [checklist, setChecklist] = useState<ChecklistRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
@@ -456,17 +518,40 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
   );
 
+  const visibleCards = useMemo(() => {
+    const search = normalizeSearch(boardSearch);
+    if (!search) return cards;
+
+    return cards.filter((card) => {
+      const column = columns.find((item) => item.id === card.columnId);
+      const haystack = [
+        card.cardNumber,
+        card.title,
+        card.customerName,
+        card.locationName,
+        card.assignedToName,
+        card.priority,
+        column?.title ?? "",
+        ...card.tags,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+  }, [boardSearch, cards, columns]);
+
   const cardsByColumn = useMemo(() => {
     const groups = new Map<string, BoardCard[]>();
     columns.forEach((column) => groups.set(column.id, []));
-    cards.forEach((card) => {
+    visibleCards.forEach((card) => {
       const list = groups.get(card.columnId) ?? [];
       list.push(card);
       groups.set(card.columnId, list);
     });
     groups.forEach((list) => list.sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title)));
     return groups;
-  }, [cards, columns]);
+  }, [columns, visibleCards]);
 
   const selectedCard = useMemo(() => cards.find((card) => card.id === selectedCardId) ?? null, [cards, selectedCardId]);
   const boardStats = useMemo(() => {
@@ -479,8 +564,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       return column ? completeColumnKeys.has(column.key) : false;
     }).length;
 
-    return { active, urgent, assigned, done };
-  }, [cards, columns]);
+    return { active, urgent, assigned, done, lists: columns.length, visible: visibleCards.length };
+  }, [cards, columns, visibleCards]);
 
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
@@ -680,16 +765,16 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }
 
   async function createCard() {
-    const firstColumn = columns[0];
-    if (!firstColumn || !newCardForm.title.trim()) {
+    const targetColumn = columns.find((column) => column.id === newCardForm.columnId) ?? columns[0];
+    if (!targetColumn || !newCardForm.title.trim()) {
       setMessage("Add a card title first.");
       return;
     }
 
     const assignedProfile = profiles.find((profile) => profile.id === newCardForm.assignedToProfileId);
-    const nextSort = Math.max(0, ...cards.filter((card) => card.columnId === firstColumn.id).map((card) => card.sortOrder)) + 100;
+    const nextSort = Math.max(0, ...cards.filter((card) => card.columnId === targetColumn.id).map((card) => card.sortOrder)) + 100;
     const payload = {
-      column_id: firstColumn.id,
+      column_id: targetColumn.id,
       title: newCardForm.title.trim(),
       description: newCardForm.description.trim() || null,
       priority: newCardForm.priority,
@@ -706,7 +791,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       const localCard: BoardCard = {
         id: `local-card-${Date.now()}`,
         boardId: "local-board",
-        columnId: firstColumn.id,
+        columnId: targetColumn.id,
         cardNumber: `LOCAL-${cards.length + 1}`,
         title: payload.title,
         description: payload.description ?? "",
@@ -754,6 +839,75 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     openCard(createdCard);
     setNewCardForm(emptyCardForm);
     setShowNewCard(false);
+    await loadBoard();
+  }
+
+  function startNewCardForColumn(column: BoardColumn) {
+    setNewCardForm({ ...emptyCardForm, columnId: column.id, locationName: column.title });
+    setShowNewCard(true);
+    setShowNewColumn(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function createColumn() {
+    if (!newColumnForm.title.trim()) {
+      setMessage("Add a lane title first.");
+      return;
+    }
+
+    const key = slugifyColumnKey(newColumnForm.title, new Set(columns.map((column) => column.key)));
+    const nextSort = Math.max(0, ...columns.map((column) => column.sortOrder)) + 100;
+    const payload = {
+      column_key: key,
+      title: newColumnForm.title.trim(),
+      description: newColumnForm.description.trim() || "Custom operations lane.",
+      color: newColumnForm.color || "#fb923c",
+      sort_order: nextSort,
+      active: true,
+    };
+
+    if (!schemaReady || !board) {
+      setColumns((current) => [
+        ...current,
+        {
+          id: `local-column-${key}`,
+          boardId: "local-board",
+          key,
+          title: payload.title,
+          description: payload.description,
+          color: payload.color,
+          sortOrder: payload.sort_order,
+        },
+      ]);
+      setNewColumnForm(emptyColumnForm);
+      setShowNewColumn(false);
+      setMessage("Added this test lane locally. Run the SQL to persist lanes and realtime movement.");
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase.from("service_board_columns").insert({
+      board_id: board.id,
+      ...payload,
+    });
+    setSaving(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await supabase.from("service_board_activity").insert({
+      board_id: board.id,
+      card_id: null,
+      action: "created_lane",
+      user_id: currentUserId || null,
+      user_name: currentUserName,
+      before_value: null,
+      after_value: { title: payload.title },
+    });
+    setNewColumnForm(emptyColumnForm);
+    setShowNewColumn(false);
     await loadBoard();
   }
 
@@ -1025,7 +1179,18 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         </div>
         <div className={styles.statusCluster}>
           <span className={schemaReady ? styles.livePill : styles.testPill}>{schemaReady ? "Realtime ready" : "Test mode"}</span>
-          <button className="button primary" type="button" onClick={() => setShowNewCard((open) => !open)}>
+          <button className="button" type="button" onClick={() => setShowNewColumn((open) => !open)}>
+            New List
+          </button>
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => {
+              setNewCardForm((current) => ({ ...current, columnId: current.columnId || columns[0]?.id || "" }));
+              setShowNewCard((open) => !open);
+              setShowNewColumn(false);
+            }}
+          >
             New Card
           </button>
         </div>
@@ -1049,22 +1214,81 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
       {message && <div className={styles.message}>{message}</div>}
 
+      <section className={styles.boardToolbar} aria-label="Board tools">
+        <label>
+          Search board
+          <input
+            value={boardSearch}
+            onChange={(event) => setBoardSearch(event.target.value)}
+            placeholder="Search cards, lanes, roles, crew, truck, rig..."
+          />
+        </label>
+        {boardSearch && (
+          <button className="button" type="button" onClick={() => setBoardSearch("")}>
+            Clear
+          </button>
+        )}
+      </section>
+
+      {showNewColumn && (
+        <section className={styles.newCardPanel}>
+          <div>
+            <span className={styles.sectionLabel}>New List</span>
+            <h2>Create a board lane</h2>
+          </div>
+          <div className={styles.formGrid}>
+            <label>
+              List title
+              <input
+                value={newColumnForm.title}
+                onChange={(event) => setNewColumnForm({ ...newColumnForm, title: event.target.value })}
+                placeholder="Rig, crew, truck group, off schedule..."
+              />
+            </label>
+            <label>
+              Color
+              <input
+                type="color"
+                value={newColumnForm.color}
+                onChange={(event) => setNewColumnForm({ ...newColumnForm, color: event.target.value })}
+              />
+            </label>
+            <label className={styles.fullField}>
+              Description
+              <input
+                value={newColumnForm.description}
+                onChange={(event) => setNewColumnForm({ ...newColumnForm, description: event.target.value })}
+                placeholder="Optional note for this lane"
+              />
+            </label>
+          </div>
+          <div className={styles.inlineActions}>
+            <button className="button primary" type="button" disabled={saving} onClick={() => void createColumn()}>
+              Create List
+            </button>
+            <button className="button" type="button" onClick={() => setShowNewColumn(false)}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className={styles.kpis} aria-label="Board summary">
         <div>
-          <span>Active Cards</span>
+          <span>Lists</span>
+          <strong>{boardStats.lists}</strong>
+        </div>
+        <div>
+          <span>Cards</span>
           <strong>{boardStats.active}</strong>
         </div>
         <div>
-          <span>High Priority</span>
-          <strong>{boardStats.urgent}</strong>
+          <span>Visible</span>
+          <strong>{boardStats.visible}</strong>
         </div>
         <div>
           <span>Assigned</span>
           <strong>{boardStats.assigned}</strong>
-        </div>
-        <div>
-          <span>Done / Closed</span>
-          <strong>{boardStats.done}</strong>
         </div>
       </section>
 
@@ -1078,6 +1302,16 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
             <label>
               Title
               <input value={newCardForm.title} onChange={(event) => setNewCardForm({ ...newCardForm, title: event.target.value })} placeholder="Customer, job, or work request" />
+            </label>
+            <label>
+              List
+              <select value={newCardForm.columnId} onChange={(event) => setNewCardForm({ ...newCardForm, columnId: event.target.value })}>
+                {columns.map((column) => (
+                  <option key={column.id} value={column.id}>
+                    {column.title}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Priority
@@ -1144,6 +1378,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                 cards={cardsByColumn.get(column.id) ?? []}
                 selectedCardId={selectedCardId}
                 onSelectCard={openCard}
+                onAddCard={startNewCardForColumn}
                 onQuickMove={quickMove}
                 canMoveLeft={(card) => canMove(card, "left")}
                 canMoveRight={(card) => canMove(card, "right")}
