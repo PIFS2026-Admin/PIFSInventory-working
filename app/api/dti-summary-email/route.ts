@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import {
-  createTitanPdfAttachment,
+  createDtiSummaryPdfAttachment,
   safePdfFilename,
   toMicrosoftGraphAttachments,
   type TitanEmailAttachment,
@@ -186,52 +186,9 @@ export async function POST(request: Request) {
     const reportUrl = `${siteUrl}/dti-summary/print?id=${encodeURIComponent(summary.id)}`;
     const subject = `TITAN DTI Daily Summary - ${summary.summary_number}`;
 
-    const attachment = createTitanPdfAttachment({
+    const attachment = createDtiSummaryPdfAttachment({
       filename: `${safePdfFilename(`DTI-Daily-Summary-${summary.summary_number || summary.id}`)}.pdf`,
-      title: "DTI Daily Summary",
-      subtitle: String(summary.summary_number || "Daily Summary"),
-      fields: [
-        { label: "Summary", value: summary.summary_number },
-        { label: "Date", value: summary.summary_date },
-        { label: "Field Invoice", value: summary.field_invoice },
-        { label: "Page", value: `${summary.page_number || 1} of ${summary.page_total || 1}` },
-        { label: "Operator", value: summary.operator },
-        { label: "Contractor", value: summary.contractor },
-        { label: "Location", value: summary.location },
-        { label: "Type of Inspection", value: summary.inspection_type },
-        { label: "Connection Size and Type", value: summary.connection_size_type },
-        { label: "Total Joints Inspected", value: summary.total_joints_inspected ?? 0 },
-      ],
-      note: [note, summary.remarks ? `Remarks: ${summary.remarks}` : ""].filter(Boolean).join("\n\n"),
-      tables: [
-        {
-          title: "Inspection Counts",
-          headers: ["Category", "Box", "Pin", "Qty", "Notes"],
-          rows: [
-            ["Total Damages", "", "", summary.total_damages ?? 0, ""],
-            ["Damage Seal", summary.damage_seat_box ?? 0, summary.damage_seat_pin ?? 0, "", ""],
-            ["Damage Threads", summary.damage_threads_box ?? 0, summary.damage_threads_pin ?? 0, "", ""],
-            ["Damaged Hardband", summary.damaged_hardband_box ?? summary.short_box ?? 0, summary.damaged_hardband_pin ?? 0, "", ""],
-            ["Bent Tube", "", "", summary.bent_tube ?? 0, ""],
-            ["Damage Other", "", "", summary.damage_other_quantity ?? 0, summary.damage_other_description ?? summary.damage_other ?? ""],
-            ["Total DBR", "", "", summary.total_dbr ?? 0, ""],
-            ["Min Tong", summary.min_tong_box ?? 0, summary.min_tong_pin ?? 0, "", ""],
-            ["TSTR", summary.tstr_box ?? 0, summary.tstr_pin ?? 0, "", ""],
-            ["EMI", "", "", summary.emi ?? 0, ""],
-            ["Damaged Tube", "", "", summary.damaged_tube ?? 0, ""],
-            ["MIN Wall", "", "", summary.min_wall ?? 0, ""],
-            ["DBR Other", "", "", summary.dbr_other_quantity ?? 0, summary.dbr_other_description ?? summary.dbr_other ?? ""],
-            ["Total Refaces", "", "", summary.total_refaces ?? 0, ""],
-            ["Refaces", summary.reface_box ?? 0, summary.reface_pin ?? 0, "", ""],
-            ["Total Hardbands", "", "", summary.total_hardbands ?? 0, ""],
-            ["Hardbands", summary.hardband_box ?? 0, summary.hardband_pin ?? 0, "", ""],
-            ["Repair Joints", "", "", summary.repair_joints ?? 0, ""],
-            ["DBR Joints", "", "", summary.dbr_joints ?? 0, ""],
-            ["HB Joints", "", "", summary.hb_joints ?? 0, ""],
-            ["Repair / HB Joints", "", "", summary.repair_hb_joints ?? 0, ""],
-          ],
-        },
-      ],
+      summary,
     });
 
     const html = `
