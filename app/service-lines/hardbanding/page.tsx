@@ -8,6 +8,7 @@ export default function HardbandingServiceLinePage() {
       subtitle="Open Hardbanding production tools."
       backHref="/service-lines"
       actions={[
+        { title: "Work Board", href: "/service-lines/boards/hardbanding" },
         { title: "Hardband Jobs", href: "/hardband" },
       ]}
     />
