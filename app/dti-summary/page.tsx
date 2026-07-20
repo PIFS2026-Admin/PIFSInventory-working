@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { shouldShowPageMessage } from "../../lib/pageMessages";
+import summaryStyles from "./dti-summary.module.css";
 
 type Role =
   | "admin"
@@ -392,6 +393,7 @@ export default function DtiDailySummaryPage() {
   const [emailing, setEmailing] = useState(false);
   const [posting, setPosting] = useState(false);
   const [inspectionReportFile, setInspectionReportFile] = useState<File | null>(null);
+  const formSectionRef = useRef<HTMLElement | null>(null);
 
   const canEdit = profile ? editableRoles.includes(profile.role) : false;
   const selectedId = form.id;
@@ -615,6 +617,15 @@ export default function DtiDailySummaryPage() {
     setForm((current) => ({ ...current, ...changes }));
   }
 
+  function scrollToSummaryForm() {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
+
+    window.setTimeout(() => {
+      formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  }
+
   async function startNewSummary() {
     if (!profile || !canEdit || saving) return;
 
@@ -655,6 +666,7 @@ export default function DtiDailySummaryPage() {
       setExpandedSummaryId(createdSummary.id);
       setInspectionReportFile(null);
       setMessage(`Created ${createdSummary.summaryNumber}.`);
+      scrollToSummaryForm();
     } catch (error: any) {
       setMessage(`New summary failed: ${error.message}`);
     } finally {
@@ -668,6 +680,7 @@ export default function DtiDailySummaryPage() {
     setInspectionReportFile(null);
     setExpandedSummaryId((current) => (current === summary.id ? "" : summary.id));
     setMessage(`Editing ${summary.summaryNumber}. Make corrections, then save.`);
+    scrollToSummaryForm();
   }
 
   async function uploadInspectionReport(summaryId: string, summaryNumber: string) {
@@ -865,7 +878,7 @@ export default function DtiDailySummaryPage() {
   const showPageMessage = shouldShowPageMessage(message);
 
   return (
-    <main className="dashboard-shell daily-summary-shell">
+    <main className={`dashboard-shell daily-summary-shell ${summaryStyles.fieldPage}`}>
       <header className="dashboard-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
@@ -893,6 +906,25 @@ export default function DtiDailySummaryPage() {
       </section>
 
       {showPageMessage && <div className="modal-message">{message}</div>}
+
+      <div className={`${summaryStyles.mobileActionBar} no-print`} aria-label="Daily summary actions">
+        <div className={summaryStyles.mobileActionMeta}>
+          <strong>{form.summaryNumber || "New Daily Summary"}</strong>
+          <span>{form.status || "Draft"}</span>
+        </div>
+        <button className="button primary" type="button" onClick={() => saveSummary()} disabled={!canEdit || saving}>
+          {saving && !posting ? "Saving..." : "Save"}
+        </button>
+        <button className="button" type="button" onClick={() => saveSummary(true)} disabled={!canEdit || saving}>
+          {posting ? "Posting..." : "Post"}
+        </button>
+        <button className="button" type="button" onClick={emailSummary} disabled={!selectedId || emailing}>
+          {emailing ? "Emailing..." : "Email"}
+        </button>
+        <button className="button" type="button" onClick={openPrint} disabled={!selectedId}>
+          PDF
+        </button>
+      </div>
 
       <section className="summary-workspace">
         <aside className="summary-list-panel">
@@ -962,7 +994,7 @@ export default function DtiDailySummaryPage() {
           </section>
         </aside>
 
-        <section className="inspection-summary-wrap">
+        <section className="inspection-summary-wrap" ref={formSectionRef}>
           <div className="inspection-summary-sheet">
             <header className="summary-letterhead">
               <img src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" />

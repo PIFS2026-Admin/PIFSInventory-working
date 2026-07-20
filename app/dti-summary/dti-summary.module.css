@@ -1,0 +1,180 @@
+.fieldPage {
+  position: relative;
+}
+
+.mobileActionBar {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .fieldPage {
+    padding-bottom: calc(var(--titan-mobile-bottom-space, 96px) + 84px) !important;
+  }
+
+  .fieldPage :global(.dashboard-actions) {
+    display: none;
+  }
+
+  .fieldPage :global(.customer-welcome) {
+    display: none;
+  }
+
+  .fieldPage :global(.summary-workspace) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fieldPage :global(.inspection-summary-wrap) {
+    order: 1;
+    scroll-margin-top: calc(env(safe-area-inset-top) + 12px);
+  }
+
+  .fieldPage :global(.summary-list-panel) {
+    order: 2;
+  }
+
+  .fieldPage :global(.inspection-summary-sheet) {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    color: var(--text);
+    padding: 0;
+  }
+
+  .fieldPage :global(.summary-letterhead),
+  .fieldPage :global(.summary-top-fields),
+  .fieldPage :global(.summary-long-lines),
+  .fieldPage :global(.summary-count-box),
+  .fieldPage :global(.summary-bottom-counts),
+  .fieldPage :global(.summary-remarks),
+  .fieldPage :global(.summary-report-upload),
+  .fieldPage :global(.summary-footer) {
+    border: 1px solid rgba(70, 82, 101, 0.86);
+    border-radius: 14px;
+    background:
+      linear-gradient(145deg, rgba(249, 115, 22, 0.08), transparent 42%),
+      rgba(15, 18, 23, 0.96);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+    margin: 0 0 12px;
+    padding: 14px;
+  }
+
+  .fieldPage :global(.summary-letterhead img) {
+    max-width: 158px;
+  }
+
+  .fieldPage :global(.summary-title-block h1) {
+    color: #fff;
+    font-size: 26px;
+    font-weight: 900;
+  }
+
+  .fieldPage :global(.summary-line-field span),
+  .fieldPage :global(.summary-inline-count span),
+  .fieldPage :global(.summary-split-row > span),
+  .fieldPage :global(.summary-report-upload label),
+  .fieldPage :global(.summary-remarks span),
+  .fieldPage :global(.summary-footer p),
+  .fieldPage :global(.summary-footer strong) {
+    color: #cbd5e1;
+  }
+
+  .fieldPage :global(.inspection-summary-sheet input),
+  .fieldPage :global(.inspection-summary-sheet textarea),
+  .fieldPage :global(.summary-report-upload input) {
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 10px;
+    background: #080c12;
+    color: #fff;
+    font-size: 16px;
+    min-height: 46px;
+    padding: 10px 12px;
+    -webkit-text-fill-color: #fff;
+  }
+
+  .fieldPage :global(.inspection-summary-sheet textarea) {
+    min-height: 108px;
+  }
+
+  .fieldPage :global(.summary-note-lines),
+  .fieldPage :global(.summary-remarks textarea) {
+    background-image: none;
+    line-height: 1.45;
+  }
+
+  .fieldPage :global(.summary-box-grid) {
+    gap: 0;
+  }
+
+  .fieldPage :global(.summary-count-box.compact) {
+    min-height: auto;
+  }
+
+  .fieldPage :global(.summary-bottom-counts) {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldPage :global(.summary-list-panel) {
+    margin-top: 4px;
+  }
+
+  .fieldPage :global(.summary-performance-panel) {
+    display: none;
+  }
+
+  .mobileActionBar {
+    position: fixed;
+    z-index: 10050;
+    right: max(10px, env(safe-area-inset-right));
+    bottom: calc(var(--titan-mobile-tabbar-height, 66px) + 8px);
+    left: max(10px, env(safe-area-inset-left));
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    border: 1px solid rgba(249, 115, 22, 0.42);
+    border-radius: 18px;
+    background: rgba(7, 9, 12, 0.96);
+    box-shadow:
+      0 18px 42px rgba(0, 0, 0, 0.48),
+      0 0 26px rgba(249, 115, 22, 0.15);
+    padding: 9px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .mobileActionMeta {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #fff;
+    font-size: 12px;
+    min-width: 0;
+  }
+
+  .mobileActionMeta strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileActionMeta span {
+    border: 1px solid rgba(249, 115, 22, 0.45);
+    border-radius: 999px;
+    color: #fed7aa;
+    flex: 0 0 auto;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 4px 8px;
+    text-transform: uppercase;
+  }
+
+  .mobileActionBar :global(.button) {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 6px;
+    font-size: 11px;
+  }
+}
