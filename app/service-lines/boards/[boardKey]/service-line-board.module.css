@@ -320,6 +320,18 @@
   background: rgba(23, 18, 14, 0.98);
 }
 
+.columnDragging {
+  opacity: 0.52;
+}
+
+.columnOverlay {
+  width: 330px;
+  min-height: 120px;
+  max-height: none;
+  transform: rotate(1deg);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+
 .columnHead {
   display: flex;
   align-items: flex-start;
@@ -360,21 +372,30 @@
 .columnTools {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 7px;
+  flex-wrap: wrap;
+  max-width: 168px;
 }
 
 .columnTools button {
-  width: 28px;
   min-width: 28px;
   height: 28px;
+  padding: 0 8px;
   border: 1px solid rgba(249, 113, 22, 0.54);
   border-radius: 999px;
   background: rgba(249, 113, 22, 0.12);
   color: #fed7aa;
-  font-size: 18px;
+  font-size: 10px;
   font-weight: 950;
+  letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
+}
+
+.columnTools button:hover {
+  border-color: rgba(249, 113, 22, 0.78);
+  background: rgba(249, 113, 22, 0.2);
 }
 
 .cardStack {

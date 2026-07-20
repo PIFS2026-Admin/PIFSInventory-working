@@ -12,7 +12,13 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
@@ -367,6 +373,8 @@ function DroppableColumn({
   selectedCardId,
   onSelectCard,
   onAddCard,
+  onEditColumn,
+  onArchiveColumn,
   onSendToBullpen,
   bullpenColumnId,
 }: {
@@ -375,16 +383,34 @@ function DroppableColumn({
   selectedCardId: string;
   onSelectCard: (card: BoardCard) => void;
   onAddCard: (column: BoardColumn) => void;
+  onEditColumn: (column: BoardColumn) => void;
+  onArchiveColumn: (column: BoardColumn) => void;
   onSendToBullpen: (card: BoardCard) => void;
   bullpenColumnId: string;
 }) {
-  const { isOver, setNodeRef } = useDroppable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `lane:${column.id}`,
+    data: { type: "column", columnId: column.id },
+  });
+  const { isOver, setNodeRef: setDropRef } = useDroppable({
     id: `column:${column.id}`,
     data: { columnId: column.id },
   });
+  const style = transform ? { transform: CSS.Translate.toString(transform), transition } : { transition };
 
   return (
-    <section ref={setNodeRef} className={`${styles.column} ${isOver ? styles.columnOver : ""}`}>
+    <section
+      ref={setNodeRef}
+      className={`${styles.column} ${isOver ? styles.columnOver : ""} ${isDragging ? styles.columnDragging : ""}`}
+      style={style}
+    >
       <header className={styles.columnHead} style={{ borderTopColor: column.color }}>
         <div>
           <h2>{column.title}</h2>
@@ -392,13 +418,22 @@ function DroppableColumn({
         </div>
         <div className={styles.columnTools}>
           <span>{cards.length}</span>
+          <button type="button" {...listeners} {...attributes} aria-label={`Move ${column.title} list`}>
+            Move
+          </button>
+          <button type="button" onClick={() => onEditColumn(column)} aria-label={`Edit ${column.title} list`}>
+            Edit
+          </button>
           <button type="button" onClick={() => onAddCard(column)} aria-label={`Add card to ${column.title}`}>
             +
+          </button>
+          <button type="button" onClick={() => onArchiveColumn(column)} aria-label={`Archive ${column.title} list`}>
+            Archive
           </button>
         </div>
       </header>
 
-      <div className={styles.cardStack}>
+      <div ref={setDropRef} className={styles.cardStack}>
         {cards.length === 0 ? (
           <div className={styles.emptyColumn}>Drop cards here</div>
         ) : (
@@ -435,7 +470,7 @@ function SortableBoardCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
-    data: { cardId: card.id },
+    data: { type: "card", cardId: card.id },
   });
   const style = transform ? { transform: CSS.Translate.toString(transform), transition } : { transition };
 
@@ -508,6 +543,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [showNewCard, setShowNewCard] = useState(false);
   const [showNewColumn, setShowNewColumn] = useState(false);
   const [newColumnForm, setNewColumnForm] = useState<ColumnForm>(emptyColumnForm);
+  const [editingColumnId, setEditingColumnId] = useState("");
+  const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(emptyColumnForm);
   const [boardSearch, setBoardSearch] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [checklist, setChecklist] = useState<ChecklistRow[]>([]);
@@ -519,6 +556,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [schemaReady, setSchemaReady] = useState(true);
   const [message, setMessage] = useState("");
   const [activeDragCard, setActiveDragCard] = useState<BoardCard | null>(null);
+  const [activeDragColumn, setActiveDragColumn] = useState<BoardColumn | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("TITAN user");
   const sensors = useSensors(
@@ -673,8 +711,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     }
 
     const nextColumns = ((columnResult.data ?? []) as ColumnRow[]).map(mapColumn);
-    setColumns(nextColumns.length > 0 ? nextColumns : fallbackColumns);
-    setCards(((cardResult.data ?? []) as CardRow[]).map(mapCard));
+    const effectiveColumns = nextColumns.length > 0 ? nextColumns : fallbackColumns;
+    setColumns(effectiveColumns);
+    const activeColumnIds = new Set(effectiveColumns.map((column) => column.id));
+    setCards(((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId)));
     setLoading(false);
   }, [applyFallbackMode, boardKey, config.title, fallbackColumns]);
 
@@ -759,7 +799,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     setCardForm(cardFormFromCard(card));
   }
 
-  async function logActivity(cardId: string, action: string, beforeValue: Record<string, unknown> | null, afterValue: Record<string, unknown> | null) {
+  async function logActivity(cardId: string | null, action: string, beforeValue: Record<string, unknown> | null, afterValue: Record<string, unknown> | null) {
     if (!schemaReady || !board) return;
 
     await supabase.from("service_board_activity").insert({
@@ -920,6 +960,126 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     await loadBoard();
   }
 
+  function startEditColumn(column: BoardColumn) {
+    setEditingColumnId(column.id);
+    setEditColumnForm({
+      title: column.title,
+      description: column.description,
+      color: column.color || "#fb923c",
+    });
+    setShowNewColumn(false);
+    setShowNewCard(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function updateColumn() {
+    const column = columns.find((item) => item.id === editingColumnId);
+    if (!column) return;
+    if (!editColumnForm.title.trim()) {
+      setMessage("List title is required.");
+      return;
+    }
+
+    const patch = {
+      title: editColumnForm.title.trim(),
+      description: editColumnForm.description.trim() || "Custom operations lane.",
+      color: editColumnForm.color || "#fb923c",
+    };
+
+    if (!schemaReady) {
+      setColumns((current) =>
+        current.map((item) =>
+          item.id === column.id
+            ? {
+                ...item,
+                ...patch,
+              }
+            : item
+        )
+      );
+      setEditingColumnId("");
+      setEditColumnForm(emptyColumnForm);
+      setMessage("Updated this test list locally. Run the SQL to persist boards and realtime movement.");
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase.from("service_board_columns").update(patch).eq("id", column.id);
+    setSaving(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await logActivity(null, "updated_lane", { title: column.title }, { title: patch.title });
+    setEditingColumnId("");
+    setEditColumnForm(emptyColumnForm);
+    await loadBoard();
+  }
+
+  async function archiveColumn(column: BoardColumn) {
+    const cardCount = cards.filter((card) => card.columnId === column.id).length;
+    const confirmed = window.confirm(`Archive "${column.title}" and hide ${cardCount} card${cardCount === 1 ? "" : "s"} in this list?`);
+    if (!confirmed) return;
+
+    if (!schemaReady) {
+      setColumns((current) => current.filter((item) => item.id !== column.id));
+      setCards((current) => current.filter((card) => card.columnId !== column.id));
+      if (selectedCard?.columnId === column.id) setSelectedCardId("");
+      return;
+    }
+
+    setSaving(true);
+    const { error } = await supabase.from("service_board_columns").update({ active: false }).eq("id", column.id);
+    setSaving(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    await logActivity(null, "archived_lane", { title: column.title, cards: cardCount }, { active: false });
+    if (selectedCard?.columnId === column.id) setSelectedCardId("");
+    await loadBoard();
+  }
+
+  async function moveColumn(activeColumnId: string, overColumnId: string) {
+    if (!activeColumnId || !overColumnId || activeColumnId === overColumnId) return;
+
+    const orderedColumns = [...columns].sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
+    const oldIndex = orderedColumns.findIndex((column) => column.id === activeColumnId);
+    const newIndex = orderedColumns.findIndex((column) => column.id === overColumnId);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
+
+    const activeColumn = orderedColumns[oldIndex];
+    const reorderedColumns = arrayMove(orderedColumns, oldIndex, newIndex).map((column, index) => ({
+      ...column,
+      sortOrder: (index + 1) * 100,
+    }));
+
+    setColumns(reorderedColumns);
+
+    if (!schemaReady) return;
+
+    setSaving(true);
+    const results = await Promise.all(
+      reorderedColumns.map((column) =>
+        supabase.from("service_board_columns").update({ sort_order: column.sortOrder }).eq("id", column.id)
+      )
+    );
+    setSaving(false);
+
+    const error = results.find((result) => result.error)?.error;
+    if (error) {
+      setMessage(error.message);
+      await loadBoard();
+      return;
+    }
+
+    await logActivity(null, "moved_lane", { title: activeColumn.title, position: oldIndex + 1 }, { position: newIndex + 1 });
+  }
+
   async function updateCard() {
     if (!selectedCard || !cardForm.title.trim()) {
       setMessage("Card title is required.");
@@ -1015,19 +1175,47 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   function handleDragStart(event: DragStartEvent) {
     const activeId = String(event.active.id);
+    const activeType = event.active.data.current?.type;
+    if (activeType === "column") {
+      const columnId = String(event.active.data.current?.columnId ?? "").replace("lane:", "");
+      setActiveDragColumn(columns.find((column) => column.id === columnId) ?? null);
+      setActiveDragCard(null);
+      return;
+    }
+
     setActiveDragCard(cards.find((card) => card.id === activeId) ?? null);
+    setActiveDragColumn(null);
   }
 
   async function handleDragEnd(event: DragEndEvent) {
     setActiveDragCard(null);
+    setActiveDragColumn(null);
     const activeId = String(event.active.id);
     const overId = event.over ? String(event.over.id) : "";
+    const activeType = event.active.data.current?.type;
+
+    if (activeType === "column") {
+      const activeColumnId = String(event.active.data.current?.columnId ?? "").replace("lane:", "");
+      const overColumnId = overId.startsWith("lane:")
+        ? overId.replace("lane:", "")
+        : overId.startsWith("column:")
+          ? overId.replace("column:", "")
+          : cards.find((item) => item.id === overId)?.columnId ?? "";
+      await moveColumn(activeColumnId, overColumnId);
+      return;
+    }
+
     const card = cards.find((item) => item.id === activeId);
     if (!card || !overId) return;
     if (overId === activeId) return;
 
     if (overId.startsWith("column:")) {
       await moveCard(card, overId.replace("column:", ""));
+      return;
+    }
+
+    if (overId.startsWith("lane:")) {
+      await moveCard(card, overId.replace("lane:", ""));
       return;
     }
 
@@ -1279,6 +1467,56 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         </section>
       )}
 
+      {editingColumnId && (
+        <section className={styles.newCardPanel}>
+          <div>
+            <span className={styles.sectionLabel}>Edit List</span>
+            <h2>Update job lane</h2>
+          </div>
+          <div className={styles.formGrid}>
+            <label>
+              List title
+              <input
+                value={editColumnForm.title}
+                onChange={(event) => setEditColumnForm({ ...editColumnForm, title: event.target.value })}
+                placeholder="Rig, crew, truck group, off schedule..."
+              />
+            </label>
+            <label>
+              Color
+              <input
+                type="color"
+                value={editColumnForm.color}
+                onChange={(event) => setEditColumnForm({ ...editColumnForm, color: event.target.value })}
+              />
+            </label>
+            <label className={styles.fullField}>
+              Description
+              <input
+                value={editColumnForm.description}
+                onChange={(event) => setEditColumnForm({ ...editColumnForm, description: event.target.value })}
+                placeholder="Optional note for this lane"
+              />
+            </label>
+          </div>
+          <div className={styles.inlineActions}>
+            <button className="button primary" type="button" disabled={saving} onClick={() => void updateColumn()}>
+              Save List
+            </button>
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                setEditingColumnId("");
+                setEditColumnForm(emptyColumnForm);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
+
       <section className={styles.kpis} aria-label="Board summary">
         <div>
           <span>Lists</span>
@@ -1377,18 +1615,22 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           {loading ? (
             <div className={styles.loading}>Loading board...</div>
           ) : (
-            columns.map((column) => (
-              <DroppableColumn
-                key={column.id}
-                column={column}
-                cards={cardsByColumn.get(column.id) ?? []}
-                selectedCardId={selectedCardId}
-                onSelectCard={openCard}
-                onAddCard={startNewCardForColumn}
-                onSendToBullpen={(card) => void sendToBullpen(card)}
-                bullpenColumnId={bullpenColumn?.id ?? ""}
-              />
-            ))
+            <SortableContext items={columns.map((column) => `lane:${column.id}`)} strategy={horizontalListSortingStrategy}>
+              {columns.map((column) => (
+                <DroppableColumn
+                  key={column.id}
+                  column={column}
+                  cards={cardsByColumn.get(column.id) ?? []}
+                  selectedCardId={selectedCardId}
+                  onSelectCard={openCard}
+                  onAddCard={startNewCardForColumn}
+                  onEditColumn={startEditColumn}
+                  onArchiveColumn={(columnToArchive) => void archiveColumn(columnToArchive)}
+                  onSendToBullpen={(card) => void sendToBullpen(card)}
+                  bullpenColumnId={bullpenColumn?.id ?? ""}
+                />
+              ))}
+            </SortableContext>
           )}
         </section>
         <DragOverlay>
@@ -1397,6 +1639,16 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               <span className={styles.cardNumber}>{activeDragCard.cardNumber}</span>
               <strong>{activeDragCard.title}</strong>
               <small>{activeDragCard.customerName || activeDragCard.locationName || "Moving card"}</small>
+            </div>
+          )}
+          {activeDragColumn && (
+            <div className={`${styles.column} ${styles.columnOverlay}`}>
+              <header className={styles.columnHead} style={{ borderTopColor: activeDragColumn.color }}>
+                <div>
+                  <h2>{activeDragColumn.title}</h2>
+                  <p>{activeDragColumn.description}</p>
+                </div>
+              </header>
             </div>
           )}
         </DragOverlay>
