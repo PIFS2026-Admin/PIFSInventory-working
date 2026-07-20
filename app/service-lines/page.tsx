@@ -7,6 +7,11 @@ export default function ServiceLinesPage() {
       title="Service Lines"
       subtitle="Choose the service line you want to work in."
       actions={[
+        {
+          title: "Operations Board",
+          href: "/service-lines/boards/dti",
+          detail: "Live board for crews, rigs, trucks, bullpen, off-schedule, suspended, and safety hours.",
+        },
         { title: "DTI", href: "/service-lines/dti" },
         { title: "Hardbanding", href: "/service-lines/hardbanding" },
         { title: "CDT", href: "/service-lines/cdt" },

@@ -24,7 +24,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { supabase } from "../../../../lib/supabase";
 import {
   ServiceLineBoardConfig,
-  isServiceLineBoardKey,
   serviceLineBoardTagColors,
   serviceLineBoardConfigs,
 } from "../../../../lib/serviceLineBoards";
@@ -634,7 +633,7 @@ function SortableBoardCard({
 }
 
 export default function ServiceLineBoardPage({ params }: PageProps) {
-  const boardKey = isServiceLineBoardKey(params.boardKey) ? params.boardKey : "dti";
+  const boardKey = "dti";
   const config = serviceLineBoardConfigs[boardKey];
   const fallbackColumns = useMemo(() => createFallbackColumns(config), [config]);
   const fallbackCards = useMemo(() => createFallbackCards(config, fallbackColumns), [config, fallbackColumns]);
@@ -671,6 +670,12 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
   );
+
+  useEffect(() => {
+    if (params.boardKey !== boardKey) {
+      window.history.replaceState(null, "", `/service-lines/boards/${boardKey}`);
+    }
+  }, [params.boardKey, boardKey]);
 
   const rememberDeckScroll = useCallback(() => {
     pendingDeckScrollLeftRef.current = deckRef.current?.scrollLeft ?? deckScrollLeftRef.current;
@@ -736,19 +741,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       })),
     [columns]
   );
-  const boardStats = useMemo(() => {
-    const active = cards.length;
-    const urgent = cards.filter((card) => card.priority === "Critical" || card.priority === "High").length;
-    const assigned = cards.filter((card) => card.assignedToName).length;
-    const completeColumnKeys = new Set(["complete", "closed", "invoiced"]);
-    const done = cards.filter((card) => {
-      const column = columns.find((item) => item.id === card.columnId);
-      return column ? completeColumnKeys.has(column.key) : false;
-    }).length;
-
-    return { active, urgent, assigned, done, lists: columns.length, visible: visibleCards.length };
-  }, [cards, columns, visibleCards]);
-
   const loadProfiles = useCallback(async () => {
     const { data, error } = await supabase
       .from("profiles")
@@ -1725,25 +1717,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           </div>
         </section>
       )}
-
-      <section className={styles.kpis} aria-label="Board summary">
-        <div>
-          <span>Lists</span>
-          <strong>{boardStats.lists}</strong>
-        </div>
-        <div>
-          <span>Cards</span>
-          <strong>{boardStats.active}</strong>
-        </div>
-        <div>
-          <span>Visible</span>
-          <strong>{boardStats.visible}</strong>
-        </div>
-        <div>
-          <span>Assigned</span>
-          <strong>{boardStats.assigned}</strong>
-        </div>
-      </section>
 
       {showNewCard && (
         <section className={styles.newCardPanel}>
