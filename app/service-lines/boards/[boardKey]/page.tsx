@@ -20,7 +20,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
 import {
   ServiceLineBoardConfig,
@@ -664,10 +664,32 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [activeDragColumn, setActiveDragColumn] = useState<BoardColumn | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("TITAN user");
+  const deckRef = useRef<HTMLElement | null>(null);
+  const deckScrollLeftRef = useRef(0);
+  const pendingDeckScrollLeftRef = useRef<number | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
   );
+
+  const rememberDeckScroll = useCallback(() => {
+    pendingDeckScrollLeftRef.current = deckRef.current?.scrollLeft ?? deckScrollLeftRef.current;
+  }, []);
+
+  useLayoutEffect(() => {
+    const nextScrollLeft = pendingDeckScrollLeftRef.current;
+    if (nextScrollLeft === null) return;
+
+    const restore = () => {
+      const deck = deckRef.current;
+      if (!deck) return;
+      deck.scrollLeft = nextScrollLeft;
+      deckScrollLeftRef.current = nextScrollLeft;
+    };
+
+    restore();
+    window.requestAnimationFrame(restore);
+  }, [cards, columns]);
 
   const visibleCards = useMemo(() => {
     const search = normalizeSearch(boardSearch);
@@ -756,8 +778,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     [fallbackCards, fallbackColumns]
   );
 
-  const loadBoard = useCallback(async () => {
-    setLoading(true);
+  const loadBoard = useCallback(async (options?: { showLoading?: boolean; preserveDeckScroll?: boolean }) => {
+    const showLoading = options?.showLoading ?? true;
+    if (options?.preserveDeckScroll) rememberDeckScroll();
+    if (showLoading) setLoading(true);
     setMessage("");
 
     const { data: sessionData } = await supabase.auth.getSession();
@@ -857,7 +881,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const activeColumnIds = new Set(effectiveColumns.map((column) => column.id));
     setCards(((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId)));
     setLoading(false);
-  }, [applyFallbackMode, boardKey, config.title, fallbackColumns]);
+  }, [applyFallbackMode, boardKey, config.title, fallbackColumns, rememberDeckScroll]);
 
   const loadCardDetails = useCallback(
     async (cardId: string) => {
@@ -910,10 +934,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const channel = supabase
       .channel(`service-line-board:${board.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "service_board_cards", filter: `board_id=eq.${board.id}` }, () => {
-        void loadBoard();
+        void loadBoard({ showLoading: false, preserveDeckScroll: true });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "service_board_columns", filter: `board_id=eq.${board.id}` }, () => {
-        void loadBoard();
+        void loadBoard({ showLoading: false, preserveDeckScroll: true });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "service_board_activity", filter: `board_id=eq.${board.id}` }, () => {
         if (selectedCardId) void loadCardDetails(selectedCardId);
@@ -1187,6 +1211,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   async function moveColumn(activeColumnId: string, overColumnId: string) {
     if (!activeColumnId || !overColumnId || activeColumnId === overColumnId) return;
+    rememberDeckScroll();
 
     const orderedColumns = [...columns].sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
     const oldIndex = orderedColumns.findIndex((column) => column.id === activeColumnId);
@@ -1214,7 +1239,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const error = results.find((result) => result.error)?.error;
     if (error) {
       setMessage(error.message);
-      await loadBoard();
+      await loadBoard({ preserveDeckScroll: true });
       return;
     }
 
@@ -1285,6 +1310,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   async function moveCard(card: BoardCard, destinationColumnId: string, beforeCardId?: string) {
     if (!destinationColumnId) return;
+    rememberDeckScroll();
 
     const fromColumn = columns.find((column) => column.id === card.columnId);
     const toColumn = columns.find((column) => column.id === destinationColumnId);
@@ -1307,7 +1333,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
     if (error) {
       setMessage(error.message);
-      await loadBoard();
+      await loadBoard({ preserveDeckScroll: true });
       return;
     }
 
@@ -1315,6 +1341,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }
 
   function handleDragStart(event: DragStartEvent) {
+    rememberDeckScroll();
     const activeId = String(event.active.id);
     const activeType = event.active.data.current?.type;
     if (activeType === "column") {
@@ -1329,6 +1356,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }
 
   async function handleDragEnd(event: DragEndEvent) {
+    rememberDeckScroll();
     setActiveDragCard(null);
     setActiveDragColumn(null);
     const activeId = String(event.active.id);
@@ -1551,7 +1579,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           <button className="button" type="button" onClick={() => navigate(config.backHref)}>
             Back
           </button>
-          <button className="button" type="button" onClick={() => void loadBoard()}>
+          <button className="button" type="button" onClick={() => void loadBoard({ preserveDeckScroll: true })}>
             Refresh
           </button>
           {config.primaryHref && (
@@ -1792,7 +1820,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={(event) => void handleDragEnd(event)}>
-        <section className={styles.deck} aria-label={`${config.title} columns`}>
+        <section
+          ref={deckRef}
+          className={styles.deck}
+          aria-label={`${config.title} columns`}
+          onScroll={(event) => {
+            deckScrollLeftRef.current = event.currentTarget.scrollLeft;
+          }}
+        >
           {loading ? (
             <div className={styles.loading}>Loading board...</div>
           ) : (
