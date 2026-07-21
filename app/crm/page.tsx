@@ -208,6 +208,33 @@ type CrmReviewResponse = {
 
 type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
 type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
+type CsvImportEntity = "account" | "contact" | "opportunity" | "activity" | "task";
+
+type CsvColumnMapping = {
+  csvHeader: string;
+  titanFieldKey: string;
+  mappingStatus: MappingStatus;
+};
+
+type CsvParseResult = {
+  headers: string[];
+  rows: Array<Record<string, string>>;
+};
+
+type CsvImportResponse = {
+  ok?: boolean;
+  batchId?: string;
+  batchName?: string;
+  result?: {
+    total: number;
+    created: number;
+    updated: number;
+    exceptions: number;
+    skipped: number;
+    warnings: number;
+  };
+  error?: string;
+};
 
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 
@@ -219,6 +246,14 @@ const targetEntityOptions: Array<{ value: TargetEntity; label: string }> = [
   { value: "task", label: "Task / Follow-up" },
   { value: "custom_field", label: "Custom field" },
   { value: "ignored", label: "Ignore" },
+];
+
+const csvEntityOptions: Array<{ value: CsvImportEntity; label: string }> = [
+  { value: "account", label: "Companies / Accounts" },
+  { value: "contact", label: "Contacts" },
+  { value: "opportunity", label: "Leads / Opportunities" },
+  { value: "activity", label: "Activities / Notes" },
+  { value: "task", label: "Tasks / Follow-ups" },
 ];
 
 const targetFieldOptions: Record<TargetEntity, Array<{ value: string; label: string }>> = {
@@ -286,6 +321,10 @@ function normalizeText(value: unknown) {
   return String(value ?? "")
     .trim()
     .toLowerCase();
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
 }
 
 function titleHas(title: string, terms: string[]) {
@@ -398,6 +437,91 @@ function inferColumnMapping(boardPurpose: TargetEntity, column: DiscoveryColumn)
     mondayColumnTitle: column.title,
     mondayColumnType: column.type,
   };
+}
+
+function parseCsvText(text: string): CsvParseResult {
+  const rows: string[][] = [];
+  const source = text.replace(/^\uFEFF/, "");
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+
+    if (character === '"') {
+      if (inQuotes && nextCharacter === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (character === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((character === "\n" || character === "\r") && !inQuotes) {
+      if (character === "\r" && nextCharacter === "\n") index += 1;
+      row.push(field);
+      if (row.some((cell) => cleanText(cell))) rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += character;
+  }
+
+  row.push(field);
+  if (row.some((cell) => cleanText(cell))) rows.push(row);
+
+  const headers = (rows[0] ?? []).map((header, index) => cleanText(header) || `Column ${index + 1}`);
+  const dataRows = rows.slice(1).map((cells) => {
+    const record: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      record[header] = cleanText(cells[index]);
+    });
+    return record;
+  }).filter((record) => Object.values(record).some((value) => cleanText(value)));
+
+  return { headers, rows: dataRows };
+}
+
+function primaryCsvField(entity: CsvImportEntity) {
+  if (entity === "account") return "account_name";
+  if (entity === "contact") return "full_name";
+  if (entity === "opportunity") return "opportunity_name";
+  return "subject";
+}
+
+function inferCsvColumnMapping(entity: CsvImportEntity, header: string): CsvColumnMapping {
+  const normalizedHeader = normalizeText(header);
+  const inferred = inferColumnMapping(entity, {
+    id: header,
+    title: header,
+    type: "text",
+  });
+  const allowedFields = targetFieldOptions[entity].map((field) => field.value);
+  let titanFieldKey = allowedFields.includes(inferred.titanFieldKey) ? inferred.titanFieldKey : "metadata";
+
+  if (["id", "item id", "item_id", "pulse id", "pulse_id", "monday id"].includes(normalizedHeader)) titanFieldKey = "metadata";
+  if (["name", "item", "item name", "record", "record name"].includes(normalizedHeader)) titanFieldKey = primaryCsvField(entity);
+
+  return {
+    csvHeader: header,
+    titanFieldKey,
+    mappingStatus: titanFieldKey === "metadata" ? "Needs Review" : "Mapped",
+  };
+}
+
+function buildCsvMappings(headers: string[], entity: CsvImportEntity) {
+  return headers.map((header) => inferCsvColumnMapping(entity, header));
 }
 
 function buildInitialMappings(boards: DiscoveryBoard[]) {
@@ -536,6 +660,15 @@ export default function CrmPage() {
   const [reviewView, setReviewView] = useState<CrmReviewView>("all");
   const [exceptionActionId, setExceptionActionId] = useState("");
   const [reviewError, setReviewError] = useState("");
+  const [csvEntity, setCsvEntity] = useState<CsvImportEntity>("account");
+  const [csvSourceLabel, setCsvSourceLabel] = useState("");
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<Array<Record<string, string>>>([]);
+  const [csvMappings, setCsvMappings] = useState<CsvColumnMapping[]>([]);
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
+  const [csvError, setCsvError] = useState("");
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -587,6 +720,11 @@ export default function CrmPage() {
         .some((value) => value.includes(query));
     });
   }, [reviewResult?.exceptions, reviewSearch]);
+  const csvPreviewRows = useMemo(() => csvRows.slice(0, 8), [csvRows]);
+  const csvMappedColumns = useMemo(
+    () => csvMappings.filter((mapping) => mapping.mappingStatus !== "Ignored" && mapping.titanFieldKey).length,
+    [csvMappings],
+  );
 
   const loadCrmReview = useCallback(async () => {
     setReviewLoading(true);
@@ -889,6 +1027,101 @@ export default function CrmPage() {
     setExceptionActionId("");
   }
 
+  async function handleCsvFile(file: File | null) {
+    setCsvImportResult(null);
+    setCsvError("");
+
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setCsvError("Choose a CSV export from Monday.");
+      return;
+    }
+
+    const text = await file.text();
+    const parsed = parseCsvText(text);
+
+    if (parsed.headers.length === 0 || parsed.rows.length === 0) {
+      setCsvFileName(file.name);
+      setCsvHeaders([]);
+      setCsvRows([]);
+      setCsvMappings([]);
+      setCsvError("This CSV did not contain any rows to import.");
+      return;
+    }
+
+    setCsvFileName(file.name);
+    setCsvSourceLabel((current) => current || file.name.replace(/\.csv$/i, ""));
+    setCsvHeaders(parsed.headers);
+    setCsvRows(parsed.rows);
+    setCsvMappings(buildCsvMappings(parsed.headers, csvEntity));
+  }
+
+  function updateCsvEntity(nextEntity: CsvImportEntity) {
+    setCsvEntity(nextEntity);
+    setCsvImportResult(null);
+    if (csvHeaders.length) setCsvMappings(buildCsvMappings(csvHeaders, nextEntity));
+  }
+
+  function updateCsvMapping(csvHeader: string, patch: Partial<CsvColumnMapping>) {
+    setCsvMappings((current) =>
+      current.map((mapping) => {
+        if (mapping.csvHeader !== csvHeader) return mapping;
+
+        const nextField = patch.titanFieldKey ?? mapping.titanFieldKey;
+        const nextStatus: MappingStatus =
+          nextField === "" ? "Ignored" : nextField === "metadata" ? "Needs Review" : patch.mappingStatus ?? "Mapped";
+
+        return {
+          ...mapping,
+          ...patch,
+          titanFieldKey: nextField,
+          mappingStatus: patch.mappingStatus ?? nextStatus,
+        };
+      }),
+    );
+  }
+
+  async function importCsv() {
+    setCsvImporting(true);
+    setCsvImportResult(null);
+    setCsvError("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.assign("/login");
+      return;
+    }
+
+    const response = await fetch("/api/crm/csv-import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        entityType: csvEntity,
+        sourceLabel: csvSourceLabel || csvFileName || "Monday CSV Import",
+        fileName: csvFileName,
+        rows: csvRows,
+        mappings: csvMappings,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setCsvError(payload.error || "CSV import failed.");
+    } else {
+      setCsvImportResult(payload);
+      await loadCrmReview();
+    }
+
+    setCsvImporting(false);
+  }
+
   if (access.loading) {
     return (
       <main className={styles.shell}>
@@ -1115,6 +1348,156 @@ export default function CrmPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className={styles.csvPanel}>
+        <div className={styles.reviewHeader}>
+          <div>
+            <span className={styles.eyebrow}>CSV Import</span>
+            <h2>Import full Monday exports into TITAN</h2>
+            <p>
+              Export a board from Monday as CSV, upload it here, map the columns, and post complete records into TITAN CRM. Possible duplicates are held in the exceptions queue.
+            </p>
+          </div>
+          <span className={styles.statusPill}>{csvRows.length} rows loaded</span>
+        </div>
+
+        {csvError && <div className={styles.errorBox}>{csvError}</div>}
+
+        <div className={styles.csvSetupGrid}>
+          <label className={styles.field}>
+            <span>CSV file</span>
+            <input type="file" accept=".csv,text/csv" onChange={(event) => handleCsvFile(event.target.files?.[0] ?? null)} />
+          </label>
+          <label className={styles.field}>
+            <span>What this CSV creates</span>
+            <select value={csvEntity} onChange={(event) => updateCsvEntity(event.target.value as CsvImportEntity)}>
+              {csvEntityOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span>Import label</span>
+            <input
+              value={csvSourceLabel}
+              onChange={(event) => setCsvSourceLabel(event.target.value)}
+              placeholder="Example: Monday Job Schedule full export"
+            />
+          </label>
+        </div>
+
+        {csvHeaders.length > 0 && (
+          <>
+            <div className={styles.csvSummaryRow}>
+              <article>
+                <span>File</span>
+                <strong>{csvFileName}</strong>
+              </article>
+              <article>
+                <span>Columns</span>
+                <strong>{csvHeaders.length}</strong>
+              </article>
+              <article>
+                <span>Mapped</span>
+                <strong>{csvMappedColumns}</strong>
+              </article>
+              <article>
+                <span>Preview</span>
+                <strong>{csvPreviewRows.length}</strong>
+              </article>
+            </div>
+
+            <div className={styles.csvMappingGrid}>
+              <div>
+                <div className={styles.cardTitle}>
+                  <span className={styles.dot} />
+                  <h2>Column Mapping</h2>
+                </div>
+                <div className={styles.csvMappingList}>
+                  {csvMappings.map((mapping) => (
+                    <article key={mapping.csvHeader} className={styles.csvMappingRow}>
+                      <div>
+                        <strong>{mapping.csvHeader}</strong>
+                        <small>
+                          Sample: {csvRows.find((row) => cleanText(row[mapping.csvHeader]))?.[mapping.csvHeader] || "-"}
+                        </small>
+                      </div>
+                      <select
+                        value={mapping.titanFieldKey}
+                        onChange={(event) => updateCsvMapping(mapping.csvHeader, { titanFieldKey: event.target.value })}
+                      >
+                        <option value="">Ignore this column</option>
+                        {targetFieldOptions[csvEntity].map((option) => (
+                          <option key={option.value || "skip"} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <span className={`${styles.statusPill} ${mapping.mappingStatus === "Needs Review" ? styles.statusWarn : mapping.mappingStatus === "Ignored" ? styles.statusMuted : ""}`}>
+                        {mapping.mappingStatus}
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className={styles.cardTitle}>
+                  <span className={styles.dot} />
+                  <h2>CSV Preview</h2>
+                </div>
+                <div className={styles.csvPreviewList}>
+                  {csvPreviewRows.map((row, index) => (
+                    <article key={`${csvFileName}-${index}`}>
+                      <strong>Row {index + 1}</strong>
+                      <div className={styles.miniList}>
+                        {csvMappings
+                          .filter((mapping) => mapping.mappingStatus !== "Ignored" && mapping.titanFieldKey !== "metadata" && cleanText(row[mapping.csvHeader]))
+                          .slice(0, 5)
+                          .map((mapping) => (
+                            <span key={`${index}-${mapping.csvHeader}`}>
+                              <strong>{readableField(csvEntity, mapping.titanFieldKey)}</strong> {row[mapping.csvHeader]}
+                            </span>
+                          ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.importActionBox}>
+              <div>
+                <strong>Ready to import from CSV</strong>
+                <span>
+                  Clean rows will create or update TITAN CRM records. Possible duplicates will go to the exceptions queue for review.
+                </span>
+              </div>
+              <button
+                className="button primary"
+                type="button"
+                onClick={importCsv}
+                disabled={csvImporting || csvRows.length === 0 || csvMappedColumns === 0}
+              >
+                {csvImporting ? "Importing CSV..." : "Import CSV"}
+              </button>
+            </div>
+
+            {csvImportResult?.ok && csvImportResult.result && (
+              <div className={styles.finalizeBox}>
+                <div>
+                  <strong>CSV import complete.</strong>
+                  <span>Batch {csvImportResult.batchId} was posted to TITAN CRM.</span>
+                </div>
+                <div className={styles.finalizeMetrics}>
+                  <span>Created {csvImportResult.result.created}</span>
+                  <span>Updated {csvImportResult.result.updated}</span>
+                  <span>Exceptions {csvImportResult.result.exceptions}</span>
+                  <span>Skipped {csvImportResult.result.skipped}</span>
+                </div>
               </div>
             )}
           </>
