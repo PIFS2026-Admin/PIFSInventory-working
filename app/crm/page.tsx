@@ -145,6 +145,21 @@ type DryRunResponse = {
   error?: string;
 };
 
+type FinalizeResponse = {
+  ok?: boolean;
+  batchId?: string;
+  batchName?: string;
+  result?: {
+    total: number;
+    created: number;
+    updated: number;
+    exceptions: number;
+    skipped: number;
+    warnings: number;
+  };
+  error?: string;
+};
+
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 
 const targetEntityOptions: Array<{ value: TargetEntity; label: string }> = [
@@ -442,6 +457,8 @@ export default function CrmPage() {
   const [stageResult, setStageResult] = useState<StageResponse | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<DryRunResponse | null>(null);
+  const [finalizing, setFinalizing] = useState(false);
+  const [finalizeResult, setFinalizeResult] = useState<FinalizeResponse | null>(null);
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -571,6 +588,7 @@ export default function CrmPage() {
     setActiveBoardId("");
     setStageResult(null);
     setDryRunResult(null);
+    setFinalizeResult(null);
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -609,6 +627,7 @@ export default function CrmPage() {
     setStaging(true);
     setStageResult(null);
     setDryRunResult(null);
+    setFinalizeResult(null);
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -643,6 +662,7 @@ export default function CrmPage() {
   async function runDryRun(batchId: string) {
     setDryRunning(true);
     setDryRunResult(null);
+    setFinalizeResult(null);
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -664,6 +684,32 @@ export default function CrmPage() {
     const payload = await response.json().catch(() => ({}));
     setDryRunResult(response.ok ? payload : { error: payload.error || "CRM dry-run failed." });
     setDryRunning(false);
+  }
+
+  async function finalizeImport(batchId: string) {
+    setFinalizing(true);
+    setFinalizeResult(null);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const response = await fetch("/api/crm/import-finalize", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ batchId }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    setFinalizeResult(response.ok ? payload : { error: payload.error || "CRM final import failed." });
+    setFinalizing(false);
   }
 
   if (access.loading) {
@@ -801,6 +847,7 @@ export default function CrmPage() {
                 <span className={previewRecords.length ? styles.stepDone : ""}>3 Preview</span>
                 <span className={stageResult?.ok ? styles.stepDone : ""}>4 Stage</span>
                 <span className={dryRunResult?.ok ? styles.stepDone : ""}>5 Dry Run</span>
+                <span className={finalizeResult?.ok ? styles.stepDone : ""}>6 Import</span>
               </div>
             </div>
             {!result.configured && (
@@ -1000,6 +1047,39 @@ export default function CrmPage() {
                       <strong>{dryRunResult.summary.warnings}</strong>
                     </article>
                   </div>
+
+                  <div className={styles.importActionBox}>
+                    <div>
+                      <strong>Ready for Wade approval</strong>
+                      <span>
+                        Clean create/update rows will import. Possible duplicates and skipped rows will be held in the CRM exceptions queue.
+                      </span>
+                    </div>
+                    <button
+                      className="button primary"
+                      type="button"
+                      onClick={() => finalizeImport(dryRunResult.batchId || "")}
+                      disabled={finalizing || !dryRunResult.batchId}
+                    >
+                      {finalizing ? "Importing..." : "Approve Clean Import"}
+                    </button>
+                  </div>
+
+                  {finalizeResult?.error && <div className={styles.errorBox}>{finalizeResult.error}</div>}
+                  {finalizeResult?.ok && finalizeResult.result && (
+                    <div className={styles.finalizeBox}>
+                      <div>
+                        <strong>Final import complete.</strong>
+                        <span>Batch {finalizeResult.batchId} was approved and posted.</span>
+                      </div>
+                      <div className={styles.finalizeMetrics}>
+                        <span>Created {finalizeResult.result.created}</span>
+                        <span>Updated {finalizeResult.result.updated}</span>
+                        <span>Exceptions {finalizeResult.result.exceptions}</span>
+                        <span>Skipped {finalizeResult.result.skipped}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className={styles.tableWrap}>
                     <table className={styles.table}>

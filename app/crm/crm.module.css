@@ -529,6 +529,60 @@
   font-size: 26px;
 }
 
+.importActionBox,
+.finalizeBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(249, 115, 22, 0.42);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.1);
+  margin: 14px 0;
+  padding: 12px;
+}
+
+.importActionBox strong,
+.importActionBox span,
+.finalizeBox strong,
+.finalizeBox span {
+  display: block;
+}
+
+.importActionBox strong,
+.finalizeBox strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.importActionBox span,
+.finalizeBox span {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.finalizeBox {
+  border-color: rgba(52, 211, 153, 0.52);
+  background: rgba(6, 78, 59, 0.35);
+}
+
+.finalizeMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.finalizeMetrics span {
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.12);
+  color: #bbf7d0;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 9px;
+}
+
 .miniList,
 .warningList {
   display: grid;
@@ -609,6 +663,16 @@
   .successBox {
     align-items: stretch;
     display: grid;
+  }
+
+  .importActionBox,
+  .finalizeBox {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .finalizeMetrics {
+    justify-content: flex-start;
   }
 
   .dryRunMetrics {
