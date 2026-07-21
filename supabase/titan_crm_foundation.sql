@@ -44,6 +44,24 @@ as $$
   );
 $$;
 
+create or replace function public.crm_is_wade()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = (select auth.uid())
+      and (
+        lower(trim(coalesce(p.full_name, ''))) = 'wade wisenor'
+        or lower(trim(coalesce(p.email, ''))) = 'wade@pathfinderinspections.com'
+      )
+  );
+$$;
+
 create or replace function public.crm_can_access()
 returns boolean
 language sql
@@ -52,21 +70,24 @@ security definer
 set search_path = public
 as $$
   select
-    public.crm_current_role() in ('admin', 'owner', 'sales')
-    or exists (
-      select 1
-      from public.user_module_permissions ump
-      where ump.user_id = (select auth.uid())
-        and ump.module_key = 'crm'
-        and ump.can_access = true
-    )
-    or exists (
-      select 1
-      from public.user_permission_overrides upo
-      where upo.user_id = (select auth.uid())
-        and upo.module_key = 'crm'
-        and upo.action_key = 'view'
-        and upo.is_allowed = true
+    public.crm_is_wade()
+    and (
+      public.crm_current_role() in ('admin', 'owner', 'sales')
+      or exists (
+        select 1
+        from public.user_module_permissions ump
+        where ump.user_id = (select auth.uid())
+          and ump.module_key = 'crm'
+          and ump.can_access = true
+      )
+      or exists (
+        select 1
+        from public.user_permission_overrides upo
+        where upo.user_id = (select auth.uid())
+          and upo.module_key = 'crm'
+          and upo.action_key = 'view'
+          and upo.is_allowed = true
+      )
     );
 $$;
 
@@ -78,21 +99,26 @@ security definer
 set search_path = public
 as $$
   select
-    public.crm_current_role() in ('admin', 'owner')
-    or exists (
-      select 1
-      from public.user_permission_overrides upo
-      where upo.user_id = (select auth.uid())
-        and upo.module_key = 'crm'
-        and upo.action_key = 'manage_settings'
-        and upo.is_allowed = true
+    public.crm_is_wade()
+    and (
+      public.crm_current_role() in ('admin', 'owner')
+      or exists (
+        select 1
+        from public.user_permission_overrides upo
+        where upo.user_id = (select auth.uid())
+          and upo.module_key = 'crm'
+          and upo.action_key = 'manage_settings'
+          and upo.is_allowed = true
+      )
     );
 $$;
 
 revoke all on function public.crm_current_role() from public;
+revoke all on function public.crm_is_wade() from public;
 revoke all on function public.crm_can_access() from public;
 revoke all on function public.crm_is_admin() from public;
 grant execute on function public.crm_current_role() to authenticated;
+grant execute on function public.crm_is_wade() to authenticated;
 grant execute on function public.crm_can_access() to authenticated;
 grant execute on function public.crm_is_admin() to authenticated;
 
@@ -384,45 +410,32 @@ with check (public.crm_can_access());
 do $$
 begin
   if to_regclass('public.role_permission_defaults') is not null then
-    with crm_defaults(role_key_value, action_key_value) as (
-      values
-        ('admin', 'view'),
-        ('admin', 'create'),
-        ('admin', 'edit'),
-        ('admin', 'approve'),
-        ('admin', 'close'),
-        ('admin', 'export'),
-        ('admin', 'manage_settings'),
-        ('admin', 'receive_notifications'),
-        ('owner', 'view'),
-        ('owner', 'create'),
-        ('owner', 'edit'),
-        ('owner', 'approve'),
-        ('owner', 'close'),
-        ('owner', 'export'),
-        ('owner', 'manage_settings'),
-        ('owner', 'receive_notifications'),
-        ('sales', 'view'),
-        ('sales', 'create'),
-        ('sales', 'edit'),
-        ('sales', 'export'),
-        ('sales', 'receive_notifications')
-    )
-    insert into public.role_permission_defaults (role_key, module_key, action_key, is_allowed)
-    select role_key_value, 'crm', action_key_value, true
-    from crm_defaults
-    on conflict (role_key, module_key, action_key) do update
-      set is_allowed = excluded.is_allowed;
+    delete from public.role_permission_defaults
+    where module_key = 'crm';
   end if;
 end $$;
 
 do $$
 begin
   if to_regclass('public.user_module_permissions') is not null and to_regclass('public.profiles') is not null then
+    delete from public.user_module_permissions ump
+    where ump.module_key = 'crm'
+      and not exists (
+        select 1
+        from public.profiles p
+        where p.id = ump.user_id
+          and (
+            lower(trim(coalesce(p.full_name, ''))) = 'wade wisenor'
+            or lower(trim(coalesce(p.email, ''))) = 'wade@pathfinderinspections.com'
+          )
+      );
+
     insert into public.user_module_permissions (user_id, module_key, can_access)
     select p.id, 'crm', true
     from public.profiles p
-    where coalesce(p.role::text, '') in ('admin', 'owner', 'sales')
+    where
+      lower(trim(coalesce(p.full_name, ''))) = 'wade wisenor'
+      or lower(trim(coalesce(p.email, ''))) = 'wade@pathfinderinspections.com'
     on conflict (user_id, module_key) do update
       set can_access = excluded.can_access,
           updated_at = now();

@@ -389,7 +389,11 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
   const permissions = createEmptyPermissionMap();
 
   if (role === "admin" || role === "owner") {
-    return createFullPermissionMap();
+    const fullPermissions = createFullPermissionMap();
+    permissionActions.forEach((action) => {
+      fullPermissions.crm[action] = false;
+    });
+    return fullPermissions;
   }
 
   if (role === "customer") {
@@ -477,7 +481,6 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
 
   if (role === "sales") {
     allow(permissions, ["dashboard", "tubular_inventory", "customer_portal", "release_requests", "reports", "exports"], ["view", "export", "receive_notifications"]);
-    allow(permissions, ["crm"], ["view", "create", "edit", "export", "receive_notifications"]);
   }
 
   if (role === "office_admin") {

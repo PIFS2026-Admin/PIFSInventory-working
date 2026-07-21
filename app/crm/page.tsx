@@ -60,6 +60,13 @@ type AccessState = {
   role: string;
 };
 
+type PermissionProfile = {
+  email?: unknown;
+  fullName?: unknown;
+};
+
+const wadeCrmEmail = "wade@pathfinderinspections.com";
+
 function countActive<T extends { archived?: boolean; deleted?: boolean }>(rows?: T[]) {
   return (rows ?? []).filter((row) => !row.archived && !row.deleted).length;
 }
@@ -87,9 +94,19 @@ function sampleValues(board: DiscoveryBoard, columnId: string) {
   return Array.from(new Set(values)).slice(0, 3).join(" / ") || "-";
 }
 
-function moduleCanOpen(moduleKeys: unknown[], role: string) {
-  if (["admin", "owner"].includes(role)) return true;
-  return moduleKeys.map(String).includes("crm");
+function isWadeProfile(profile: PermissionProfile | null | undefined) {
+  const fullName = String(profile?.fullName ?? "")
+    .trim()
+    .toLowerCase();
+  const email = String(profile?.email ?? "")
+    .trim()
+    .toLowerCase();
+
+  return fullName === "wade wisenor" || email === wadeCrmEmail;
+}
+
+function moduleCanOpen(moduleKeys: unknown[], profile: PermissionProfile | null | undefined) {
+  return isWadeProfile(profile) && moduleKeys.map(String).includes("crm");
 }
 
 export default function CrmPage() {
@@ -141,11 +158,11 @@ export default function CrmPage() {
       }
 
       const role = String(payload.role ?? "");
-      const allowed = moduleCanOpen(payload.moduleKeys ?? [], role);
+      const allowed = moduleCanOpen(payload.moduleKeys ?? [], payload.profile);
       setAccess({
         loading: false,
         allowed,
-        message: allowed ? "" : "You do not have CRM access yet. Ask an admin to enable the CRM module for your user.",
+        message: allowed ? "" : "CRM migration access is restricted to Wade.",
         role,
       });
     }

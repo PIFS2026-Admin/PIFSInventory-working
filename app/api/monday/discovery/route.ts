@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { normalizeRole } from "../../../../lib/modulePermissions";
 
 const mondayEndpoint = "https://api.monday.com/v2";
 
@@ -11,6 +10,8 @@ type MondayGraphqlResponse<T> = {
 type TitanProfile = {
   role?: string | null;
   is_disabled?: boolean | null;
+  full_name?: string | null;
+  email?: string | null;
 };
 
 type DiscoveryRequestBody = {
@@ -18,6 +19,8 @@ type DiscoveryRequestBody = {
   itemLimit?: unknown;
   boardLimit?: unknown;
 };
+
+const wadeCrmEmail = "wade@pathfinderinspections.com";
 
 function hasMessage(error: unknown): error is { message: string } {
   return (
@@ -38,6 +41,20 @@ function errorMessage(error: unknown) {
   } catch {
     return "Unknown error.";
   }
+}
+
+function isWadeProfile(profile: TitanProfile, authEmail: string | null | undefined) {
+  const fullName = String(profile.full_name ?? "")
+    .trim()
+    .toLowerCase();
+  const profileEmail = String(profile.email ?? "")
+    .trim()
+    .toLowerCase();
+  const email = String(authEmail ?? "")
+    .trim()
+    .toLowerCase();
+
+  return fullName === "wade wisenor" || profileEmail === wadeCrmEmail || email === wadeCrmEmail;
 }
 
 function configuredSupabase() {
@@ -205,7 +222,7 @@ export async function POST(request: Request) {
 
     const { data: profile, error: profileError } = await adminSupabase
       .from("profiles")
-      .select("role, is_disabled")
+      .select("role, is_disabled, full_name, email")
       .eq("id", userData.user.id)
       .maybeSingle();
 
@@ -219,9 +236,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "This TITAN account is disabled." }, { status: 403 });
     }
 
-    const role = normalizeRole(profileRow.role);
-    if (!["admin", "owner"].includes(role)) {
-      return Response.json({ error: "Only TITAN admins and owners can run Monday CRM discovery." }, { status: 403 });
+    if (!isWadeProfile(profileRow, userData.user.email)) {
+      return Response.json({ error: "Monday CRM discovery is restricted to Wade." }, { status: 403 });
     }
 
     const body = (await request.json().catch(() => ({}))) as DiscoveryRequestBody;
