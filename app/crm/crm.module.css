@@ -165,13 +165,20 @@
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select,
+.table select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #0d1117;
   color: var(--text);
   padding: 12px;
+}
+
+.table select {
+  min-width: 150px;
+  padding: 9px;
 }
 
 .field textarea {
@@ -247,12 +254,140 @@
   margin-bottom: 16px;
 }
 
+.workflowHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.stepRail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.stepRail span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.stepRail .stepDone {
+  border-color: rgba(249, 115, 22, 0.55);
+  background: rgba(249, 115, 22, 0.16);
+  color: #ffca73;
+}
+
+.mappingLayout {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 16px;
+  width: min(1280px, 100%);
+  margin: 0 auto 16px;
+}
+
+.boardPicker,
+.mappingPanel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(20, 23, 28, 0.92);
+  padding: 16px;
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
+}
+
+.boardPicker {
+  align-self: start;
+  display: grid;
+  gap: 8px;
+}
+
+.boardPick {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11161e;
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+}
+
+.boardPick span {
+  font-weight: 900;
+}
+
+.boardPick small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.boardPickActive {
+  border-color: rgba(249, 115, 22, 0.85);
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.24), rgba(17, 22, 30, 0.95));
+  box-shadow: inset 3px 0 0 var(--orange);
+}
+
 .boardHeader {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 14px;
+}
+
+.mappingControls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 150px 150px;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.toggleLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: rgba(249, 115, 22, 0.12);
+  color: #ffca73;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.toggleLine input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--orange);
+}
+
+.reviewBox {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11161e;
+  padding: 13px;
+}
+
+.reviewBox strong {
+  display: block;
+  font-size: 28px;
+}
+
+.reviewBox span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .boardStats {
@@ -303,8 +438,79 @@
   color: var(--text);
 }
 
+.table td strong,
+.table td small {
+  display: block;
+}
+
+.table td small {
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .table tr:last-child td {
   border-bottom: 0;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  border-radius: 999px;
+  padding: 6px 8px;
+  background: rgba(52, 211, 153, 0.12);
+  color: #a7f3d0;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.statusWarn {
+  border-color: rgba(250, 204, 21, 0.5);
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde68a;
+}
+
+.statusMuted {
+  border-color: var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.successBox {
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  border-radius: 8px;
+  background: rgba(6, 78, 59, 0.35);
+  color: #bbf7d0;
+  font-weight: 900;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.miniList,
+.warningList {
+  display: grid;
+  gap: 6px;
+}
+
+.miniList span {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.miniList strong {
+  color: var(--text);
+}
+
+.warningList span {
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.1);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 6px 8px;
 }
 
 @media (max-width: 760px) {
@@ -327,7 +533,9 @@
 
   .hero,
   .grid,
-  .metrics {
+  .metrics,
+  .mappingLayout,
+  .mappingControls {
     grid-template-columns: 1fr;
   }
 
@@ -339,7 +547,21 @@
     display: grid;
   }
 
+  .workflowHeader {
+    display: grid;
+  }
+
+  .stepRail {
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
   .boardStats {
     justify-content: flex-start;
+  }
+
+  .boardPicker,
+  .mappingPanel {
+    padding: 14px;
   }
 }
