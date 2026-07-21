@@ -208,6 +208,7 @@ type CrmReviewResponse = {
 
 type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
 type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
+type CrmWorkspaceView = "pipeline" | "accounts" | "contacts" | "activities" | "automations";
 type CsvImportEntity = "account" | "contact" | "opportunity" | "activity" | "task";
 
 type CsvColumnMapping = {
@@ -225,6 +226,22 @@ type CsvImportResponse = {
   ok?: boolean;
   batchId?: string;
   batchName?: string;
+  result?: {
+    total: number;
+    created: number;
+    updated: number;
+    exceptions: number;
+    skipped: number;
+    warnings: number;
+  };
+  error?: string;
+};
+
+type FullMondayImportResponse = {
+  ok?: boolean;
+  batchId?: string;
+  batchName?: string;
+  sourceBatchId?: string;
   result?: {
     total: number;
     created: number;
@@ -254,6 +271,22 @@ const csvEntityOptions: Array<{ value: CsvImportEntity; label: string }> = [
   { value: "opportunity", label: "Leads / Opportunities" },
   { value: "activity", label: "Activities / Notes" },
   { value: "task", label: "Tasks / Follow-ups" },
+];
+
+const crmWorkspaceViews: Array<{ value: CrmWorkspaceView; label: string }> = [
+  { value: "pipeline", label: "Pipeline" },
+  { value: "accounts", label: "Accounts" },
+  { value: "contacts", label: "Contacts" },
+  { value: "activities", label: "Activity" },
+  { value: "automations", label: "Automations" },
+];
+
+const crmAutomationRecipes = [
+  { name: "New Lead Follow-Up", trigger: "New opportunity", action: "Create follow-up task for owner", status: "Ready" },
+  { name: "Stale Lead Alert", trigger: "No activity in 7 days", action: "Flag owner and send reminder", status: "Ready" },
+  { name: "Won Deal Handoff", trigger: "Stage changes to Won", action: "Create kickoff activity", status: "Ready" },
+  { name: "Missing Contact Check", trigger: "Account has no contact", action: "Add CRM exception for cleanup", status: "Ready" },
+  { name: "Import Exception Review", trigger: "Duplicate found", action: "Hold row in exception queue", status: "Live" },
 ];
 
 const targetFieldOptions: Record<TargetEntity, Array<{ value: string; label: string }>> = {
@@ -635,6 +668,35 @@ function exceptionFieldPreview(exception: CrmImportException) {
     .join(" / ");
 }
 
+function recordInitials(value: string) {
+  const words = cleanText(value).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "CRM";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function subtitleParts(value: string) {
+  return value.split(" / ").map(cleanText).filter(Boolean);
+}
+
+function opportunityStage(record: CrmReviewRecord) {
+  return subtitleParts(record.subtitle)[1] || record.status || "Open";
+}
+
+function uniqueOrdered(values: string[], fallback: string[]) {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  [...fallback, ...values].forEach((value) => {
+    const cleaned = cleanText(value);
+    if (!cleaned || seen.has(normalizeText(cleaned))) return;
+    seen.add(normalizeText(cleaned));
+    ordered.push(cleaned);
+  });
+
+  return ordered;
+}
+
 export default function CrmPage() {
   const [access, setAccess] = useState<AccessState>({
     loading: true,
@@ -669,6 +731,10 @@ export default function CrmPage() {
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvImportResult, setCsvImportResult] = useState<CsvImportResponse | null>(null);
   const [csvError, setCsvError] = useState("");
+  const [fullImporting, setFullImporting] = useState(false);
+  const [fullImportResult, setFullImportResult] = useState<FullMondayImportResponse | null>(null);
+  const [fullImportError, setFullImportError] = useState("");
+  const [workspaceView, setWorkspaceView] = useState<CrmWorkspaceView>("pipeline");
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -724,6 +790,19 @@ export default function CrmPage() {
   const csvMappedColumns = useMemo(
     () => csvMappings.filter((mapping) => mapping.mappingStatus !== "Ignored" && mapping.titanFieldKey).length,
     [csvMappings],
+  );
+  const crmRecords = useMemo(() => reviewResult?.records ?? [], [reviewResult?.records]);
+  const crmAccounts = useMemo(() => crmRecords.filter((record) => record.entityType === "account"), [crmRecords]);
+  const crmContacts = useMemo(() => crmRecords.filter((record) => record.entityType === "contact"), [crmRecords]);
+  const crmOpportunities = useMemo(() => crmRecords.filter((record) => record.entityType === "opportunity"), [crmRecords]);
+  const crmActivities = useMemo(() => crmRecords.filter((record) => record.entityType === "activity"), [crmRecords]);
+  const pipelineColumns = useMemo(
+    () => uniqueOrdered(crmOpportunities.map(opportunityStage), ["New", "Working", "Quoted", "Open", "Won", "Lost"]),
+    [crmOpportunities],
+  );
+  const accountColumns = useMemo(
+    () => uniqueOrdered(crmAccounts.map((record) => record.status), ["Active", "Prospect", "Inactive"]),
+    [crmAccounts],
   );
 
   const loadCrmReview = useCallback(async () => {
@@ -1122,6 +1201,40 @@ export default function CrmPage() {
     setCsvImporting(false);
   }
 
+  async function runFullMondayImport() {
+    setFullImporting(true);
+    setFullImportResult(null);
+    setFullImportError("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.assign("/login");
+      return;
+    }
+
+    const response = await fetch("/api/crm/full-monday-import", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setFullImportError(payload.error || "Full Monday import failed.");
+    } else {
+      setFullImportResult(payload);
+      await loadCrmReview();
+    }
+
+    setFullImporting(false);
+  }
+
   if (access.loading) {
     return (
       <main className={styles.shell}>
@@ -1162,6 +1275,202 @@ export default function CrmPage() {
           </button>
         </div>
       </header>
+
+      <section className={styles.crmHero}>
+        <div>
+          <span className={styles.eyebrow}>TITAN CRM</span>
+          <h1>Company pipeline, customers, contacts, and follow-ups.</h1>
+          <p>Monday-style CRM workspace with imported records, exception review, and automation cards in one place.</p>
+        </div>
+        <div className={styles.crmHeroActions}>
+          <button className="button" type="button" onClick={loadCrmReview} disabled={reviewLoading}>
+            {reviewLoading ? "Refreshing..." : "Refresh CRM"}
+          </button>
+          <button className="button primary" type="button" onClick={runFullMondayImport} disabled={fullImporting}>
+            {fullImporting ? "Syncing..." : "Sync Monday"}
+          </button>
+        </div>
+      </section>
+
+      {fullImportError && <section className={styles.errorBox}>{fullImportError}</section>}
+      {fullImportResult?.ok && fullImportResult.result && (
+        <section className={styles.finalizeBox}>
+          <div>
+            <strong>Monday sync complete.</strong>
+            <span>Batch {fullImportResult.batchId} reused mapping batch {fullImportResult.sourceBatchId}.</span>
+          </div>
+          <div className={styles.finalizeMetrics}>
+            <span>Total {fullImportResult.result.total}</span>
+            <span>Created {fullImportResult.result.created}</span>
+            <span>Updated {fullImportResult.result.updated}</span>
+            <span>Exceptions {fullImportResult.result.exceptions}</span>
+          </div>
+        </section>
+      )}
+
+      <section className={styles.crmMetrics}>
+        <article>
+          <span>Accounts</span>
+          <strong>{reviewResult?.metrics?.accounts ?? 0}</strong>
+        </article>
+        <article>
+          <span>Contacts</span>
+          <strong>{reviewResult?.metrics?.contacts ?? 0}</strong>
+        </article>
+        <article>
+          <span>Opportunities</span>
+          <strong>{reviewResult?.metrics?.opportunities ?? 0}</strong>
+        </article>
+        <article>
+          <span>Activities</span>
+          <strong>{reviewResult?.metrics?.activities ?? 0}</strong>
+        </article>
+        <article>
+          <span>Exceptions</span>
+          <strong>{reviewResult?.metrics?.openExceptions ?? 0}</strong>
+        </article>
+      </section>
+
+      <section className={styles.crmWorkspace}>
+        <div className={styles.crmWorkspaceHeader}>
+          <div>
+            <span className={styles.eyebrow}>Workspace</span>
+            <h2>CRM Board</h2>
+          </div>
+          <div className={styles.crmViewTabs}>
+            {crmWorkspaceViews.map((view) => (
+              <button
+                key={view.value}
+                className={workspaceView === view.value ? styles.crmViewTabActive : ""}
+                type="button"
+                onClick={() => setWorkspaceView(view.value)}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {reviewLoading && !reviewResult ? (
+          <div className={styles.reviewEmpty}>Loading CRM workspace...</div>
+        ) : (
+          <>
+            {workspaceView === "pipeline" && (
+              <div className={styles.crmBoard}>
+                {pipelineColumns.map((column) => {
+                  const columnRecords = crmOpportunities.filter((record) => normalizeText(opportunityStage(record)) === normalizeText(column));
+                  return (
+                    <article key={column} className={styles.crmLane}>
+                      <header>
+                        <strong>{column}</strong>
+                        <span>{columnRecords.length}</span>
+                      </header>
+                      <div className={styles.crmCardStack}>
+                        {columnRecords.length === 0 ? (
+                          <div className={styles.emptyLane}>No cards</div>
+                        ) : (
+                          columnRecords.slice(0, 20).map((record) => (
+                            <button key={record.id} className={styles.crmRecordCard} type="button">
+                              <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
+                              <strong>{record.title}</strong>
+                              <small>{record.subtitle}</small>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            {workspaceView === "accounts" && (
+              <div className={styles.crmBoard}>
+                {accountColumns.map((column) => {
+                  const columnRecords = crmAccounts.filter((record) => normalizeText(record.status) === normalizeText(column));
+                  return (
+                    <article key={column} className={styles.crmLane}>
+                      <header>
+                        <strong>{column}</strong>
+                        <span>{columnRecords.length}</span>
+                      </header>
+                      <div className={styles.crmCardStack}>
+                        {columnRecords.length === 0 ? (
+                          <div className={styles.emptyLane}>No accounts</div>
+                        ) : (
+                          columnRecords.slice(0, 24).map((record) => (
+                            <button key={record.id} className={styles.crmRecordCard} type="button">
+                              <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
+                              <strong>{record.title}</strong>
+                              <small>{record.subtitle}</small>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            {workspaceView === "contacts" && (
+              <div className={styles.crmDirectory}>
+                {crmContacts.length === 0 ? (
+                  <div className={styles.reviewEmpty}>No contacts imported yet.</div>
+                ) : (
+                  crmContacts.slice(0, 120).map((record) => (
+                    <button key={record.id} className={styles.crmDirectoryRow} type="button">
+                      <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
+                      <span>
+                        <strong>{record.title}</strong>
+                        <small>{record.subtitle}</small>
+                      </span>
+                      <span className={styles.statusPill}>{record.status}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            {workspaceView === "activities" && (
+              <div className={styles.crmDirectory}>
+                {crmActivities.length === 0 ? (
+                  <div className={styles.reviewEmpty}>No activity imported yet.</div>
+                ) : (
+                  crmActivities.slice(0, 120).map((record) => (
+                    <button key={record.id} className={styles.crmDirectoryRow} type="button">
+                      <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
+                      <span>
+                        <strong>{record.title}</strong>
+                        <small>{record.subtitle}</small>
+                      </span>
+                      <span className={styles.statusPill}>{record.status}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            {workspaceView === "automations" && (
+              <div className={styles.automationGrid}>
+                {crmAutomationRecipes.map((recipe) => (
+                  <article key={recipe.name} className={styles.automationCard}>
+                    <div>
+                      <span className={`${styles.statusPill} ${recipe.status === "Live" ? "" : styles.statusWarn}`}>{recipe.status}</span>
+                      <h3>{recipe.name}</h3>
+                    </div>
+                    <p><strong>When:</strong> {recipe.trigger}</p>
+                    <p><strong>Then:</strong> {recipe.action}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <details className={styles.migrationDrawer}>
+        <summary>Migration and import tools</summary>
 
       <section className={styles.hero}>
         <div>
@@ -1351,6 +1660,38 @@ export default function CrmPage() {
               </div>
             )}
           </>
+        )}
+      </section>
+
+      <section className={styles.fullImportPanel}>
+        <div className={styles.reviewHeader}>
+          <div>
+            <span className={styles.eyebrow}>Full Monday Import</span>
+            <h2>Let TITAN pull the missing Monday records for you</h2>
+            <p>
+              This reuses the latest CRM mapping you already saved, pulls every item from those Monday boards with pagination, and imports the clean records. Possible duplicates still go to exceptions.
+            </p>
+          </div>
+          <button className="button primary" type="button" onClick={runFullMondayImport} disabled={fullImporting}>
+            {fullImporting ? "Pulling Monday Records..." : "Run Full Monday Import"}
+          </button>
+        </div>
+
+        {fullImportError && <div className={styles.errorBox}>{fullImportError}</div>}
+
+        {fullImportResult?.ok && fullImportResult.result && (
+          <div className={styles.finalizeBox}>
+            <div>
+              <strong>Full Monday import complete.</strong>
+              <span>Batch {fullImportResult.batchId} reused mapping batch {fullImportResult.sourceBatchId}.</span>
+            </div>
+            <div className={styles.finalizeMetrics}>
+              <span>Total {fullImportResult.result.total}</span>
+              <span>Created {fullImportResult.result.created}</span>
+              <span>Updated {fullImportResult.result.updated}</span>
+              <span>Exceptions {fullImportResult.result.exceptions}</span>
+            </div>
+          </div>
         )}
       </section>
 
@@ -1913,6 +2254,7 @@ export default function CrmPage() {
           )}
         </>
       )}
+      </details>
     </main>
   );
 }

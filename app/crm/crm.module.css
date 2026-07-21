@@ -51,6 +51,282 @@
   gap: 10px;
 }
 
+.crmHero,
+.crmWorkspace,
+.crmMetrics,
+.migrationDrawer {
+  width: min(1280px, 100%);
+  margin: 0 auto 16px;
+}
+
+.crmHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid rgba(249, 115, 22, 0.36);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(249, 115, 22, 0.22), transparent 30rem),
+    rgba(20, 23, 28, 0.94);
+  box-shadow: 0 24px 54px rgba(0, 0, 0, 0.28);
+  padding: 22px;
+}
+
+.crmHero h1 {
+  max-width: 880px;
+  margin: 4px 0 8px;
+  font-size: clamp(32px, 5vw, 56px);
+  line-height: 0.98;
+  letter-spacing: 0;
+}
+
+.crmHero p {
+  max-width: 820px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.crmHeroActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.crmMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.crmMetrics article {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #11161e;
+  padding: 14px;
+}
+
+.crmMetrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.crmMetrics strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 30px;
+}
+
+.crmWorkspace {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(20, 23, 28, 0.94);
+  box-shadow: 0 24px 54px rgba(0, 0, 0, 0.28);
+  padding: 16px;
+}
+
+.crmWorkspaceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.crmWorkspaceHeader h2 {
+  margin: 4px 0 0;
+}
+
+.crmViewTabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.crmViewTabs button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 900;
+  padding: 9px 12px;
+}
+
+.crmViewTabs .crmViewTabActive {
+  border-color: rgba(249, 115, 22, 0.78);
+  background: rgba(249, 115, 22, 0.16);
+  color: #ffca73;
+}
+
+.crmBoard {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(280px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.crmLane {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0d1117;
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.crmLane header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 12px;
+}
+
+.crmLane header span {
+  min-width: 28px;
+  border: 1px solid rgba(249, 115, 22, 0.42);
+  border-radius: 999px;
+  color: #ffca73;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+  padding: 4px 7px;
+}
+
+.crmCardStack {
+  display: grid;
+  gap: 10px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 12px;
+}
+
+.crmRecordCard,
+.crmDirectoryRow {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(20, 23, 28, 0.96);
+  color: var(--text);
+  text-align: left;
+  transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+}
+
+.crmRecordCard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px 10px;
+  padding: 12px;
+}
+
+.crmRecordCard:hover,
+.crmDirectoryRow:hover {
+  border-color: rgba(249, 115, 22, 0.68);
+  background: rgba(249, 115, 22, 0.08);
+  transform: translateY(-1px);
+}
+
+.crmRecordCard strong,
+.crmRecordCard small {
+  grid-column: 2;
+}
+
+.crmRecordCard small,
+.crmDirectoryRow small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.crmAvatar {
+  display: inline-flex;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(249, 115, 22, 0.44);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.42), rgba(17, 22, 30, 0.95));
+  color: #ffd199;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.emptyLane {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  padding: 14px;
+}
+
+.crmDirectory {
+  display: grid;
+  gap: 10px;
+  max-height: 640px;
+  overflow: auto;
+}
+
+.crmDirectoryRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.automationGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.automationCard {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0d1117;
+  padding: 14px;
+}
+
+.automationCard h3 {
+  margin: 10px 0 12px;
+}
+
+.automationCard p {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.migrationDrawer {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 12px;
+  background: rgba(15, 18, 24, 0.72);
+  padding: 10px;
+}
+
+.migrationDrawer summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 900;
+  list-style: none;
+  padding: 10px 12px;
+}
+
+.migrationDrawer summary::-webkit-details-marker {
+  display: none;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -784,6 +1060,18 @@
   padding: 18px;
 }
 
+.fullImportPanel {
+  width: min(1280px, 100%);
+  margin: 0 auto 16px;
+  border: 1px solid rgba(255, 172, 92, 0.46);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249, 115, 22, 0.24), transparent 34%),
+    rgba(20, 23, 28, 0.94);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
+  padding: 18px;
+}
+
 .csvSetupGrid {
   display: grid;
   grid-template-columns: 1.2fr minmax(220px, 0.7fr) 1fr;
@@ -890,6 +1178,69 @@
     align-items: flex-start;
   }
 
+  .crmHero,
+  .crmWorkspaceHeader,
+  .crmHeroActions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .crmHero h1 {
+    font-size: 38px;
+  }
+
+  .crmHeroActions {
+    justify-content: stretch;
+  }
+
+  .crmMetrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .crmWorkspace {
+    padding: 14px;
+  }
+
+  .crmViewTabs {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .crmViewTabs button {
+    flex: 0 0 auto;
+  }
+
+  .crmBoard {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .crmLane {
+    min-height: auto;
+  }
+
+  .crmCardStack,
+  .crmDirectory {
+    max-height: none;
+  }
+
+  .crmDirectoryRow {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .crmDirectoryRow .statusPill {
+    grid-column: 2;
+    width: fit-content;
+  }
+
+  .automationGrid {
+    grid-template-columns: 1fr;
+  }
+
   .brand span {
     display: none;
   }
@@ -972,6 +1323,10 @@
   }
 
   .csvPanel {
+    padding: 14px;
+  }
+
+  .fullImportPanel {
     padding: 14px;
   }
 
