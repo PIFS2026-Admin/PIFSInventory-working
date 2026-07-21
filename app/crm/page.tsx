@@ -112,6 +112,39 @@ type StageResponse = {
   error?: string;
 };
 
+type DryRunAction = "create" | "update_existing" | "possible_duplicate" | "skip";
+
+type DryRunRow = {
+  key: string;
+  action: DryRunAction;
+  entityType: TargetEntity | string;
+  boardName: string;
+  mondayItemId: string;
+  mondayItemName: string;
+  primaryValue: string;
+  matchedRecordId: string | null;
+  matchedBy: string | null;
+  fieldValues: Record<string, string>;
+  metadata: Record<string, string>;
+  warnings: string[];
+};
+
+type DryRunResponse = {
+  ok?: boolean;
+  batchId?: string;
+  batchName?: string;
+  summary?: {
+    total: number;
+    create: number;
+    update_existing: number;
+    possible_duplicate: number;
+    skip: number;
+    warnings: number;
+  };
+  rows?: DryRunRow[];
+  error?: string;
+};
+
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 
 const targetEntityOptions: Array<{ value: TargetEntity; label: string }> = [
@@ -407,6 +440,8 @@ export default function CrmPage() {
   const [runningDiscovery, setRunningDiscovery] = useState(false);
   const [staging, setStaging] = useState(false);
   const [stageResult, setStageResult] = useState<StageResponse | null>(null);
+  const [dryRunning, setDryRunning] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<DryRunResponse | null>(null);
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -535,6 +570,7 @@ export default function CrmPage() {
     setBoardMappings([]);
     setActiveBoardId("");
     setStageResult(null);
+    setDryRunResult(null);
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -572,6 +608,7 @@ export default function CrmPage() {
   async function stageMapping() {
     setStaging(true);
     setStageResult(null);
+    setDryRunResult(null);
 
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -601,6 +638,32 @@ export default function CrmPage() {
     const payload = await response.json().catch(() => ({}));
     setStageResult(response.ok ? payload : { error: payload.error || "CRM mapping staging failed." });
     setStaging(false);
+  }
+
+  async function runDryRun(batchId: string) {
+    setDryRunning(true);
+    setDryRunResult(null);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.href = "/login";
+      return;
+    }
+
+    const response = await fetch("/api/crm/import-dry-run", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ batchId }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    setDryRunResult(response.ok ? payload : { error: payload.error || "CRM dry-run failed." });
+    setDryRunning(false);
   }
 
   if (access.loading) {
@@ -737,6 +800,7 @@ export default function CrmPage() {
                 <span className={boardMappings.length ? styles.stepDone : ""}>2 Map</span>
                 <span className={previewRecords.length ? styles.stepDone : ""}>3 Preview</span>
                 <span className={stageResult?.ok ? styles.stepDone : ""}>4 Stage</span>
+                <span className={dryRunResult?.ok ? styles.stepDone : ""}>5 Dry Run</span>
               </div>
             </div>
             {!result.configured && (
@@ -893,7 +957,93 @@ export default function CrmPage() {
               {stageResult?.error && <div className={styles.errorBox}>{stageResult.error}</div>}
               {stageResult?.ok && (
                 <div className={styles.successBox}>
-                  Mapping staged as batch {stageResult.batchId}. Saved {stageResult.boardSnapshots} board snapshots and {stageResult.columnMappings} column mappings.
+                  <div>
+                    Mapping staged as batch {stageResult.batchId}. Saved {stageResult.boardSnapshots} board snapshots and {stageResult.columnMappings} column mappings.
+                  </div>
+                  {stageResult.batchId && (
+                    <button className="button" type="button" onClick={() => runDryRun(stageResult.batchId || "")} disabled={dryRunning}>
+                      {dryRunning ? "Running Dry Run..." : "Run Dry Run"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {dryRunResult?.error && <div className={styles.errorBox}>{dryRunResult.error}</div>}
+              {dryRunResult?.ok && dryRunResult.summary && (
+                <div className={styles.dryRunPanel}>
+                  <div className={styles.cardTitle}>
+                    <span className={styles.dot} />
+                    <h2>Dry Run Results</h2>
+                  </div>
+                  <p>
+                    TITAN compared the staged Monday data against existing CRM records. No customer, contact, lead, or activity records were created.
+                  </p>
+                  <div className={styles.dryRunMetrics}>
+                    <article>
+                      <span>Total Rows</span>
+                      <strong>{dryRunResult.summary.total}</strong>
+                    </article>
+                    <article>
+                      <span>Create</span>
+                      <strong>{dryRunResult.summary.create}</strong>
+                    </article>
+                    <article>
+                      <span>Update</span>
+                      <strong>{dryRunResult.summary.update_existing}</strong>
+                    </article>
+                    <article>
+                      <span>Duplicates</span>
+                      <strong>{dryRunResult.summary.possible_duplicate}</strong>
+                    </article>
+                    <article>
+                      <span>Warnings</span>
+                      <strong>{dryRunResult.summary.warnings}</strong>
+                    </article>
+                  </div>
+
+                  <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Action</th>
+                          <th>Entity</th>
+                          <th>Board</th>
+                          <th>Monday Record</th>
+                          <th>Primary Value</th>
+                          <th>Match</th>
+                          <th>Warnings</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(dryRunResult.rows ?? []).slice(0, 80).map((row) => (
+                          <tr key={row.key}>
+                            <td>
+                              <span className={`${styles.statusPill} ${row.action === "possible_duplicate" ? styles.statusWarn : row.action === "skip" ? styles.statusMuted : ""}`}>
+                                {row.action.replace(/_/g, " ")}
+                              </span>
+                            </td>
+                            <td>{readableEntity(row.entityType as TargetEntity)}</td>
+                            <td>{row.boardName}</td>
+                            <td>
+                              <strong>{row.mondayItemName}</strong>
+                              <small>{row.mondayItemId}</small>
+                            </td>
+                            <td>{row.primaryValue}</td>
+                            <td>{row.matchedRecordId ? `${row.matchedBy}: ${row.matchedRecordId}` : "-"}</td>
+                            <td>
+                              {row.warnings.length ? (
+                                <div className={styles.warningList}>
+                                  {row.warnings.map((warning) => <span key={`${row.key}-${warning}`}>{warning}</span>)}
+                                </div>
+                              ) : (
+                                <span className={styles.statusPill}>Clean</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 

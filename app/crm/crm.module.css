@@ -479,6 +479,10 @@
 }
 
 .successBox {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   border: 1px solid rgba(52, 211, 153, 0.5);
   border-radius: 8px;
   background: rgba(6, 78, 59, 0.35);
@@ -486,6 +490,43 @@
   font-weight: 900;
   margin-bottom: 14px;
   padding: 12px;
+}
+
+.dryRunPanel {
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 10px;
+  background: rgba(13, 17, 23, 0.72);
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.dryRunMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.dryRunMetrics article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11161e;
+  padding: 12px;
+}
+
+.dryRunMetrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dryRunMetrics strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 26px;
 }
 
 .miniList,
@@ -563,5 +604,14 @@
   .boardPicker,
   .mappingPanel {
     padding: 14px;
+  }
+
+  .successBox {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .dryRunMetrics {
+    grid-template-columns: 1fr 1fr;
   }
 }
