@@ -608,6 +608,172 @@
   padding: 6px 8px;
 }
 
+.reviewPanel {
+  width: min(1280px, 100%);
+  margin: 0 auto 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(20, 23, 28, 0.92);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
+  padding: 18px;
+}
+
+.reviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.reviewHeader h2 {
+  margin: 3px 0 6px;
+}
+
+.reviewHeader p {
+  max-width: 820px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.reviewMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.reviewMetrics article {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11161e;
+  padding: 13px;
+}
+
+.reviewMetrics span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reviewMetrics strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 28px;
+}
+
+.sourceBoardRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sourceBoardRow span {
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 999px;
+  background: rgba(249, 115, 22, 0.1);
+  color: #ffca73;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 7px 10px;
+}
+
+.reviewToolbar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.reviewToolbar input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1117;
+  color: var(--text);
+  padding: 12px;
+}
+
+.reviewTabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.reviewTabs button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 900;
+  padding: 9px 11px;
+}
+
+.reviewTabs .reviewTabActive {
+  border-color: rgba(249, 115, 22, 0.75);
+  background: rgba(249, 115, 22, 0.16);
+  color: #ffca73;
+}
+
+.reviewEmpty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 16px;
+}
+
+.exceptionList {
+  display: grid;
+  gap: 10px;
+}
+
+.exceptionCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #11161e;
+  padding: 13px;
+}
+
+.exceptionCard p {
+  margin: 8px 0;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.exceptionCard small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.exceptionTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.exceptionTitleRow strong {
+  font-size: 16px;
+}
+
+.exceptionActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-content: flex-start;
+  gap: 8px;
+}
+
 @media (max-width: 760px) {
   .shell {
     padding: 16px;
@@ -630,7 +796,10 @@
   .grid,
   .metrics,
   .mappingLayout,
-  .mappingControls {
+  .mappingControls,
+  .reviewMetrics,
+  .reviewToolbar,
+  .exceptionCard {
     grid-template-columns: 1fr;
   }
 
@@ -653,6 +822,19 @@
 
   .boardStats {
     justify-content: flex-start;
+  }
+
+  .reviewHeader {
+    display: grid;
+  }
+
+  .reviewTabs,
+  .exceptionActions {
+    justify-content: flex-start;
+  }
+
+  .reviewTabs button {
+    flex: 1 1 auto;
   }
 
   .boardPicker,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
 import { supabase } from "../../lib/supabase";
 import styles from "./crm.module.css";
@@ -159,6 +159,55 @@ type FinalizeResponse = {
   };
   error?: string;
 };
+
+type CrmReviewRecord = {
+  id: string;
+  entityType: "account" | "contact" | "opportunity" | "activity";
+  title: string;
+  subtitle: string;
+  status: string;
+  sourceBoard: string;
+  mondayItem: string;
+  externalId: string;
+  updatedAt: string;
+};
+
+type CrmImportException = {
+  id: string;
+  batch_id: string;
+  entity_type: string;
+  monday_board_id: string | null;
+  monday_item_id: string | null;
+  monday_item_name: string | null;
+  action: string;
+  reason: string;
+  matched_record_id: string | null;
+  matched_by: string | null;
+  field_values: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type CrmReviewResponse = {
+  ok?: boolean;
+  generatedAt?: string;
+  metrics?: {
+    accounts: number;
+    contacts: number;
+    opportunities: number;
+    activities: number;
+    openExceptions: number;
+  };
+  boardCounts?: Array<{ boardName: string; count: number }>;
+  records?: CrmReviewRecord[];
+  exceptions?: CrmImportException[];
+  error?: string;
+};
+
+type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
+type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
 
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 
@@ -440,6 +489,28 @@ function mappingMappedCount(mapping: BoardMapping) {
   return mapping.columns.filter((column) => column.mappingStatus === "Mapped").length;
 }
 
+function formatDateTime(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function exceptionFieldPreview(exception: CrmImportException) {
+  return Object.entries(exception.field_values ?? {})
+    .filter(([, value]) => String(value ?? "").trim())
+    .slice(0, 4)
+    .map(([key, value]) => `${key.replace(/_/g, " ")}: ${String(value)}`)
+    .join(" / ");
+}
+
 export default function CrmPage() {
   const [access, setAccess] = useState<AccessState>({
     loading: true,
@@ -459,6 +530,12 @@ export default function CrmPage() {
   const [dryRunResult, setDryRunResult] = useState<DryRunResponse | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResponse | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewResult, setReviewResult] = useState<CrmReviewResponse | null>(null);
+  const [reviewSearch, setReviewSearch] = useState("");
+  const [reviewView, setReviewView] = useState<CrmReviewView>("all");
+  const [exceptionActionId, setExceptionActionId] = useState("");
+  const [reviewError, setReviewError] = useState("");
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -481,6 +558,61 @@ export default function CrmPage() {
     };
   }, [boardMappings, previewRecords]);
   const columnTypeCounts = useMemo(() => fieldTypeCounts(boards), [boards]);
+  const filteredReviewRecords = useMemo(() => {
+    const query = normalizeText(reviewSearch);
+    return (reviewResult?.records ?? []).filter((record) => {
+      const typeMatches = reviewView === "all" || record.entityType === reviewView;
+      const queryMatches =
+        !query ||
+        [record.title, record.subtitle, record.status, record.sourceBoard, record.mondayItem, record.externalId]
+          .map(normalizeText)
+          .some((value) => value.includes(query));
+
+      return typeMatches && queryMatches;
+    });
+  }, [reviewResult?.records, reviewSearch, reviewView]);
+  const filteredExceptions = useMemo(() => {
+    const query = normalizeText(reviewSearch);
+    return (reviewResult?.exceptions ?? []).filter((exception) => {
+      if (!query) return true;
+      return [
+        exception.entity_type,
+        exception.monday_item_name,
+        exception.reason,
+        exception.matched_by,
+        exception.matched_record_id,
+        exceptionFieldPreview(exception),
+      ]
+        .map(normalizeText)
+        .some((value) => value.includes(query));
+    });
+  }, [reviewResult?.exceptions, reviewSearch]);
+
+  const loadCrmReview = useCallback(async () => {
+    setReviewLoading(true);
+    setReviewError("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.assign("/login");
+      return;
+    }
+
+    const response = await fetch("/api/crm/review", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.ok) {
+      setReviewResult(payload);
+    } else {
+      setReviewError(payload.error || "CRM review could not be loaded.");
+    }
+
+    setReviewLoading(false);
+  }, []);
 
   useEffect(() => {
     async function loadAccess() {
@@ -488,7 +620,7 @@ export default function CrmPage() {
       const token = sessionData.session?.access_token;
 
       if (!token) {
-        window.location.href = "/login";
+        window.location.assign("/login");
         return;
       }
 
@@ -519,6 +651,16 @@ export default function CrmPage() {
 
     loadAccess();
   }, []);
+
+  useEffect(() => {
+    if (!access.loading && access.allowed) {
+      const timer = window.setTimeout(() => {
+        loadCrmReview();
+      }, 0);
+
+      return () => window.clearTimeout(timer);
+    }
+  }, [access.allowed, access.loading, loadCrmReview]);
 
   function updateBoardMapping(boardId: string, patch: Partial<BoardMapping>) {
     setBoardMappings((current) =>
@@ -594,7 +736,7 @@ export default function CrmPage() {
     const token = sessionData.session?.access_token;
 
     if (!token) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -633,7 +775,7 @@ export default function CrmPage() {
     const token = sessionData.session?.access_token;
 
     if (!token) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -668,7 +810,7 @@ export default function CrmPage() {
     const token = sessionData.session?.access_token;
 
     if (!token) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -694,7 +836,7 @@ export default function CrmPage() {
     const token = sessionData.session?.access_token;
 
     if (!token) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -709,7 +851,42 @@ export default function CrmPage() {
 
     const payload = await response.json().catch(() => ({}));
     setFinalizeResult(response.ok ? payload : { error: payload.error || "CRM final import failed." });
+    if (response.ok) {
+      loadCrmReview();
+    }
     setFinalizing(false);
+  }
+
+  async function handleExceptionAction(id: string, action: CrmExceptionAction) {
+    setExceptionActionId(`${id}-${action}`);
+    setReviewError("");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.assign("/login");
+      return;
+    }
+
+    const response = await fetch("/api/crm/exceptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id, action }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setReviewError(payload.error || "CRM exception action failed.");
+    } else {
+      await loadCrmReview();
+    }
+
+    setExceptionActionId("");
   }
 
   if (access.loading) {
@@ -765,6 +942,183 @@ export default function CrmPage() {
           <strong>Safe staging mode</strong>
           <span>Staging saves board snapshots and mapping decisions only. It does not create customers, contacts, leads, or opportunities.</span>
         </div>
+      </section>
+
+      <section className={styles.reviewPanel}>
+        <div className={styles.reviewHeader}>
+          <div>
+            <span className={styles.eyebrow}>CRM Review</span>
+            <h2>Imported CRM records and exceptions</h2>
+            <p>
+              Confirm what came in from Monday, search the imported CRM records, and handle protected duplicate/skipped rows.
+            </p>
+          </div>
+          <button className="button" type="button" onClick={loadCrmReview} disabled={reviewLoading}>
+            {reviewLoading ? "Refreshing..." : "Refresh Review"}
+          </button>
+        </div>
+
+        {reviewError && <div className={styles.errorBox}>{reviewError}</div>}
+
+        {reviewLoading && !reviewResult && (
+          <div className={styles.reviewEmpty}>Loading imported CRM records...</div>
+        )}
+
+        {reviewResult?.metrics && (
+          <>
+            <div className={styles.reviewMetrics}>
+              <article>
+                <span>Accounts</span>
+                <strong>{reviewResult.metrics.accounts}</strong>
+              </article>
+              <article>
+                <span>Contacts</span>
+                <strong>{reviewResult.metrics.contacts}</strong>
+              </article>
+              <article>
+                <span>Opportunities</span>
+                <strong>{reviewResult.metrics.opportunities}</strong>
+              </article>
+              <article>
+                <span>Activities</span>
+                <strong>{reviewResult.metrics.activities}</strong>
+              </article>
+              <article>
+                <span>Open Exceptions</span>
+                <strong>{reviewResult.metrics.openExceptions}</strong>
+              </article>
+            </div>
+
+            {(reviewResult.boardCounts ?? []).length > 0 && (
+              <div className={styles.sourceBoardRow}>
+                {(reviewResult.boardCounts ?? []).slice(0, 12).map((board) => (
+                  <span key={board.boardName}>{board.boardName}: {board.count}</span>
+                ))}
+              </div>
+            )}
+
+            <div className={styles.reviewToolbar}>
+              <input
+                value={reviewSearch}
+                onChange={(event) => setReviewSearch(event.target.value)}
+                placeholder="Search imported CRM records, boards, Monday items, or exceptions..."
+              />
+              <div className={styles.reviewTabs}>
+                {[
+                  ["all", "All"],
+                  ["account", "Accounts"],
+                  ["contact", "Contacts"],
+                  ["opportunity", "Opportunities"],
+                  ["activity", "Activities"],
+                  ["exceptions", `Exceptions (${reviewResult.metrics.openExceptions})`],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={reviewView === value ? styles.reviewTabActive : ""}
+                    type="button"
+                    onClick={() => setReviewView(value as CrmReviewView)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {reviewView === "exceptions" ? (
+              <div className={styles.exceptionList}>
+                {filteredExceptions.length === 0 ? (
+                  <div className={styles.reviewEmpty}>No CRM exceptions match this view.</div>
+                ) : (
+                  filteredExceptions.map((exception) => {
+                    const isOpen = exception.status === "Open";
+                    return (
+                      <article key={exception.id} className={styles.exceptionCard}>
+                        <div>
+                          <div className={styles.exceptionTitleRow}>
+                            <span className={`${styles.statusPill} ${isOpen ? styles.statusWarn : styles.statusMuted}`}>
+                              {exception.status}
+                            </span>
+                            <strong>{exception.monday_item_name || "Unnamed Monday item"}</strong>
+                          </div>
+                          <p>{exception.reason}</p>
+                          <small>
+                            {readableEntity(exception.entity_type as TargetEntity)} / {exception.matched_by || "No match reason"} / {exception.matched_record_id || "No matched record"}
+                          </small>
+                          {exceptionFieldPreview(exception) && <small>{exceptionFieldPreview(exception)}</small>}
+                        </div>
+                        <div className={styles.exceptionActions}>
+                          <button
+                            className="button"
+                            type="button"
+                            onClick={() => handleExceptionAction(exception.id, "resolve")}
+                            disabled={!isOpen || Boolean(exceptionActionId)}
+                          >
+                            {exceptionActionId === `${exception.id}-resolve` ? "Saving..." : "Mark Resolved"}
+                          </button>
+                          <button
+                            className="button"
+                            type="button"
+                            onClick={() => handleExceptionAction(exception.id, "ignore")}
+                            disabled={!isOpen || Boolean(exceptionActionId)}
+                          >
+                            {exceptionActionId === `${exception.id}-ignore` ? "Saving..." : "Ignore"}
+                          </button>
+                          <button
+                            className="button primary"
+                            type="button"
+                            onClick={() => handleExceptionAction(exception.id, "import_anyway")}
+                            disabled={!isOpen || Boolean(exceptionActionId)}
+                          >
+                            {exceptionActionId === `${exception.id}-import_anyway` ? "Importing..." : "Import Anyway"}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Record</th>
+                      <th>Status</th>
+                      <th>Source Board</th>
+                      <th>Monday Item</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredReviewRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={6}>No imported CRM records match this view.</td>
+                      </tr>
+                    ) : (
+                      filteredReviewRecords.slice(0, 160).map((record) => (
+                        <tr key={`${record.entityType}-${record.id}`}>
+                          <td>{readableEntity(record.entityType as TargetEntity)}</td>
+                          <td>
+                            <strong>{record.title}</strong>
+                            <small>{record.subtitle}</small>
+                          </td>
+                          <td><span className={styles.statusPill}>{record.status}</span></td>
+                          <td>{record.sourceBoard}</td>
+                          <td>
+                            <strong>{record.mondayItem || "-"}</strong>
+                            <small>{record.externalId || "-"}</small>
+                          </td>
+                          <td>{formatDateTime(record.updatedAt)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       <section className={styles.grid}>
