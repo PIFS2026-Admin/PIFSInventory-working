@@ -29,6 +29,7 @@ export type PermissionModuleKey =
   | "lead_scorecards"
   | "reports"
   | "exports"
+  | "crm"
   | "communications"
   | "user_management"
   | "system_settings"
@@ -97,6 +98,7 @@ export type ModuleKey =
   | "dti"
   | "dti_summary"
   | "hardband"
+  | "crm"
   | "communications"
   | "admin"
   | "reports"
@@ -140,6 +142,7 @@ export const permissionModules: ModulePermissionConfig[] = [
   { key: "lead_scorecards", label: "Lead Scorecards", description: "Lead performance and scorecard dashboards." },
   { key: "reports", label: "Reports", description: "Internal reports, ticket history, and customer reports." },
   { key: "exports", label: "Exports", description: "CSV/PDF exports and printable records." },
+  { key: "crm", label: "CRM", description: "Accounts, contacts, opportunities, activities, Monday migration, and customer relationship reporting." },
   { key: "communications", label: "Communications", description: "Group messaging, direct messages, alerts, attachments, and notification preferences." },
   { key: "user_management", label: "User Management", description: "Users, roles, yards, customers, and access controls." },
   { key: "system_settings", label: "System Settings", description: "System setup, options, and global settings." },
@@ -288,6 +291,11 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
     description: "Hardband work orders, serial numbers, closeout, and reports.",
   },
   {
+    key: "crm",
+    label: "CRM",
+    description: "Accounts, contacts, opportunities, activities, and Monday CRM migration controls.",
+  },
+  {
     key: "communications",
     label: "Communications",
     description: "Group conversations, direct messages, alerts, attachments, and communication notifications.",
@@ -319,6 +327,7 @@ const legacyModuleRequirements: Record<ModuleKey, PermissionModuleKey[]> = {
   dti: ["dti", "lead_scorecards"],
   dti_summary: ["daily_summaries"],
   hardband: ["hardbanding"],
+  crm: ["crm"],
   communications: ["communications"],
   admin: ["user_management", "system_settings", "email_notification_settings"],
   reports: ["reports", "exports"],
@@ -389,7 +398,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
   }
 
   if (role === "employee") {
-    allow(permissions, allPermissionModuleKeys.filter((module) => !["user_management", "system_settings"].includes(module)), [
+    allow(permissions, allPermissionModuleKeys.filter((module) => !["user_management", "system_settings", "crm"].includes(module)), [
       "view",
       "create",
       "edit",
@@ -468,6 +477,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
 
   if (role === "sales") {
     allow(permissions, ["dashboard", "tubular_inventory", "customer_portal", "release_requests", "reports", "exports"], ["view", "export", "receive_notifications"]);
+    allow(permissions, ["crm"], ["view", "create", "edit", "export", "receive_notifications"]);
   }
 
   if (role === "office_admin") {
@@ -614,6 +624,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/dti") return "dti";
   if (href === "/dti-summary") return "dti_summary";
   if (href === "/hardband") return "hardband";
+  if (href === "/crm") return "crm";
   if (href === "/communications") return "communications";
   if (href === "/admin") return "admin";
   if (href === "/reports") return "reports";

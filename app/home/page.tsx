@@ -245,6 +245,10 @@ const mobileLaunchCards: LaunchCard[] = [
     href: "/communications",
   },
   {
+    title: "CRM",
+    href: "/crm",
+  },
+  {
     title: "Financials",
     href: "/financials",
   },
