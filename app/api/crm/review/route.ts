@@ -14,6 +14,7 @@ type CrmMetadata = {
     itemId?: string;
     itemName?: string;
   };
+  unmappedFieldValues?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
@@ -26,7 +27,9 @@ type CrmReviewRecord = {
   sourceBoard: string;
   mondayItem: string;
   externalId: string;
+  sourceSystem: string;
   updatedAt: string;
+  details: Record<string, string>;
 };
 
 const wadeCrmEmail = "wade@pathfinderinspections.com";
@@ -113,6 +116,30 @@ function metadataSource(metadata: unknown) {
   };
 }
 
+function metadataDetails(metadata: unknown, base: Record<string, unknown> = {}) {
+  const parsed = (metadata && typeof metadata === "object" ? metadata : {}) as CrmMetadata;
+  const details: Record<string, string> = {};
+
+  Object.entries(base).forEach(([key, value]) => {
+    const text = cleanText(value);
+    if (text) details[key] = text;
+  });
+
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (["monday", "mondayCsv", "warnings", "unmappedFieldValues"].includes(key)) return;
+    if (value === null || value === undefined || typeof value === "object") return;
+    const text = cleanText(value);
+    if (text) details[key] = text;
+  });
+
+  Object.entries(parsed.unmappedFieldValues ?? {}).forEach(([key, value]) => {
+    const text = cleanText(value);
+    if (text) details[key] = text;
+  });
+
+  return details;
+}
+
 function formatMoney(value: unknown) {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric) || numeric === 0) return "";
@@ -129,33 +156,58 @@ function countByBoard(records: CrmReviewRecord[]) {
     .slice(0, 25);
 }
 
+async function fetchPaged<T>(loadPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  const pageSize = 1000;
+  const rows: T[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await loadPage(from, from + pageSize - 1);
+    if (error) throw error;
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    if (page.length < pageSize) break;
+  }
+
+  return rows;
+}
+
 export async function GET(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
     const authorization = await authorizeWade(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
 
-    const [accountsResult, contactsResult, opportunitiesResult, activitiesResult, exceptionsResult, batchesResult] = await Promise.all([
-      adminSupabase
-        .from("crm_accounts")
-        .select("id, account_name, status, industry, phone, website, source_system, external_id, metadata, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(250),
-      adminSupabase
-        .from("crm_contacts")
-        .select("id, full_name, title, email, phone, mobile, status, source_system, external_id, metadata, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(250),
-      adminSupabase
-        .from("crm_opportunities")
-        .select("id, opportunity_name, pipeline_name, stage, status, estimated_value, probability, source_system, external_id, metadata, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(250),
-      adminSupabase
-        .from("crm_activities")
-        .select("id, activity_type, subject, body, due_at, completed_at, source_system, external_id, metadata, created_at, updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(250),
+    const [accountsData, contactsData, opportunitiesData, activitiesData, exceptionsResult, batchesResult] = await Promise.all([
+      fetchPaged<Record<string, unknown>>((from, to) =>
+        adminSupabase
+          .from("crm_accounts")
+          .select("id, account_name, status, industry, phone, website, source_system, external_id, metadata, created_at, updated_at")
+          .order("updated_at", { ascending: false })
+          .range(from, to),
+      ),
+      fetchPaged<Record<string, unknown>>((from, to) =>
+        adminSupabase
+          .from("crm_contacts")
+          .select("id, full_name, title, email, phone, mobile, status, source_system, external_id, metadata, created_at, updated_at")
+          .order("updated_at", { ascending: false })
+          .range(from, to),
+      ),
+      fetchPaged<Record<string, unknown>>((from, to) =>
+        adminSupabase
+          .from("crm_opportunities")
+          .select("id, opportunity_name, pipeline_name, stage, status, estimated_value, probability, source_system, external_id, metadata, created_at, updated_at")
+          .order("updated_at", { ascending: false })
+          .range(from, to),
+      ),
+      fetchPaged<Record<string, unknown>>((from, to) =>
+        adminSupabase
+          .from("crm_activities")
+          .select("id, activity_type, subject, body, due_at, completed_at, source_system, external_id, metadata, created_at, updated_at")
+          .order("updated_at", { ascending: false })
+          .range(from, to),
+      ),
       adminSupabase
         .from("crm_import_exceptions")
         .select("id, batch_id, entity_type, monday_board_id, monday_item_id, monday_item_name, action, reason, matched_record_id, matched_by, field_values, metadata, status, created_at, updated_at")
@@ -168,14 +220,10 @@ export async function GET(request: Request) {
         .limit(10),
     ]);
 
-    if (accountsResult.error) throw accountsResult.error;
-    if (contactsResult.error) throw contactsResult.error;
-    if (opportunitiesResult.error) throw opportunitiesResult.error;
-    if (activitiesResult.error) throw activitiesResult.error;
     if (exceptionsResult.error) throw exceptionsResult.error;
     if (batchesResult.error) throw batchesResult.error;
 
-    const accountRecords: CrmReviewRecord[] = (accountsResult.data ?? []).map((account) => {
+    const accountRecords: CrmReviewRecord[] = accountsData.map((account) => {
       const source = metadataSource(account.metadata);
       return {
         id: String(account.id),
@@ -186,11 +234,19 @@ export async function GET(request: Request) {
         sourceBoard: source.boardName,
         mondayItem: source.itemName,
         externalId: cleanText(account.external_id),
+        sourceSystem: cleanText(account.source_system),
         updatedAt: cleanText(account.updated_at || account.created_at),
+        details: metadataDetails(account.metadata, {
+          account_name: account.account_name,
+          status: account.status,
+          industry: account.industry,
+          phone: account.phone,
+          website: account.website,
+        }),
       };
     });
 
-    const contactRecords: CrmReviewRecord[] = (contactsResult.data ?? []).map((contact) => {
+    const contactRecords: CrmReviewRecord[] = contactsData.map((contact) => {
       const source = metadataSource(contact.metadata);
       return {
         id: String(contact.id),
@@ -201,11 +257,20 @@ export async function GET(request: Request) {
         sourceBoard: source.boardName,
         mondayItem: source.itemName,
         externalId: cleanText(contact.external_id),
+        sourceSystem: cleanText(contact.source_system),
         updatedAt: cleanText(contact.updated_at || contact.created_at),
+        details: metadataDetails(contact.metadata, {
+          full_name: contact.full_name,
+          title: contact.title,
+          email: contact.email,
+          phone: contact.phone,
+          mobile: contact.mobile,
+          status: contact.status,
+        }),
       };
     });
 
-    const opportunityRecords: CrmReviewRecord[] = (opportunitiesResult.data ?? []).map((opportunity) => {
+    const opportunityRecords: CrmReviewRecord[] = opportunitiesData.map((opportunity) => {
       const source = metadataSource(opportunity.metadata);
       return {
         id: String(opportunity.id),
@@ -216,11 +281,20 @@ export async function GET(request: Request) {
         sourceBoard: source.boardName,
         mondayItem: source.itemName,
         externalId: cleanText(opportunity.external_id),
+        sourceSystem: cleanText(opportunity.source_system),
         updatedAt: cleanText(opportunity.updated_at || opportunity.created_at),
+        details: metadataDetails(opportunity.metadata, {
+          opportunity_name: opportunity.opportunity_name,
+          pipeline_name: opportunity.pipeline_name,
+          stage: opportunity.stage,
+          status: opportunity.status,
+          estimated_value: opportunity.estimated_value,
+          probability: opportunity.probability,
+        }),
       };
     });
 
-    const activityRecords: CrmReviewRecord[] = (activitiesResult.data ?? []).map((activity) => {
+    const activityRecords: CrmReviewRecord[] = activitiesData.map((activity) => {
       const source = metadataSource(activity.metadata);
       return {
         id: String(activity.id),
@@ -231,7 +305,16 @@ export async function GET(request: Request) {
         sourceBoard: source.boardName,
         mondayItem: source.itemName,
         externalId: cleanText(activity.external_id),
+        sourceSystem: cleanText(activity.source_system),
         updatedAt: cleanText(activity.updated_at || activity.created_at),
+        details: metadataDetails(activity.metadata, {
+          activity_type: activity.activity_type,
+          subject: activity.subject,
+          body: activity.body,
+          due_at: activity.due_at,
+          completed_at: activity.completed_at,
+          status: activity.completed_at ? "Completed" : "Open",
+        }),
       };
     });
 

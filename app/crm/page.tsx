@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type CSSProperties, type DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
 import { supabase } from "../../lib/supabase";
+import { mondayAutomationBoards, mondayCrmBoards, mondayCrmTotals, type MondayCrmBoard } from "./mondayExportBlueprint";
 import styles from "./crm.module.css";
 
 type DiscoveryColumn = {
@@ -169,7 +170,9 @@ type CrmReviewRecord = {
   sourceBoard: string;
   mondayItem: string;
   externalId: string;
+  sourceSystem?: string;
   updatedAt: string;
+  details?: Record<string, string>;
 };
 
 type CrmImportException = {
@@ -206,9 +209,29 @@ type CrmReviewResponse = {
   error?: string;
 };
 
+type CrmBoardAttachmentMenu = {
+  recordId: string;
+  entityType: CrmReviewRecord["entityType"];
+  column: string;
+  value: string;
+} | null;
+
+type DraggingCrmRecord = {
+  recordId: string;
+  entityType: CrmReviewRecord["entityType"];
+  title: string;
+  fromGroup: string;
+} | null;
+
+type EditingCrmCell = {
+  recordId: string;
+  entityType: CrmReviewRecord["entityType"];
+  column: string;
+  value: string;
+} | null;
+
 type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
 type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
-type CrmWorkspaceView = "pipeline" | "accounts" | "contacts" | "activities" | "automations";
 type CsvImportEntity = "account" | "contact" | "opportunity" | "activity" | "task";
 
 type CsvColumnMapping = {
@@ -273,21 +296,7 @@ const csvEntityOptions: Array<{ value: CsvImportEntity; label: string }> = [
   { value: "task", label: "Tasks / Follow-ups" },
 ];
 
-const crmWorkspaceViews: Array<{ value: CrmWorkspaceView; label: string }> = [
-  { value: "pipeline", label: "Pipeline" },
-  { value: "accounts", label: "Accounts" },
-  { value: "contacts", label: "Contacts" },
-  { value: "activities", label: "Activity" },
-  { value: "automations", label: "Automations" },
-];
-
-const crmAutomationRecipes = [
-  { name: "New Lead Follow-Up", trigger: "New opportunity", action: "Create follow-up task for owner", status: "Ready" },
-  { name: "Stale Lead Alert", trigger: "No activity in 7 days", action: "Flag owner and send reminder", status: "Ready" },
-  { name: "Won Deal Handoff", trigger: "Stage changes to Won", action: "Create kickoff activity", status: "Ready" },
-  { name: "Missing Contact Check", trigger: "Account has no contact", action: "Add CRM exception for cleanup", status: "Ready" },
-  { name: "Import Exception Review", trigger: "Duplicate found", action: "Hold row in exception queue", status: "Live" },
-];
+const mondayAttachmentColumns = new Set(["Directions", "Pre Job Checklist", "Invoice", "Signed Invoice", "Report"]);
 
 const targetFieldOptions: Record<TargetEntity, Array<{ value: string; label: string }>> = {
   account: [
@@ -668,13 +677,6 @@ function exceptionFieldPreview(exception: CrmImportException) {
     .join(" / ");
 }
 
-function recordInitials(value: string) {
-  const words = cleanText(value).split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "CRM";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0]}${words[1][0]}`.toUpperCase();
-}
-
 function subtitleParts(value: string) {
   return value.split(" / ").map(cleanText).filter(Boolean);
 }
@@ -683,18 +685,215 @@ function opportunityStage(record: CrmReviewRecord) {
   return subtitleParts(record.subtitle)[1] || record.status || "Open";
 }
 
-function uniqueOrdered(values: string[], fallback: string[]) {
+function normalizeBoardTitle(value: string) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function recordBelongsToBoard(record: CrmReviewRecord, board: MondayCrmBoard) {
+  const source = normalizeBoardTitle(record.sourceBoard);
+  const title = normalizeBoardTitle(board.title);
+  const sourceFile = normalizeBoardTitle(board.sourceFile.replace(/\.[^.]+$/, "").replace(/_\d+$/, "").replace(/_/g, " "));
+
+  return source === title || source === sourceFile || source.includes(title) || source.includes(sourceFile);
+}
+
+function detailLookup(record: CrmReviewRecord, keys: string[]) {
+  const details = record.details ?? {};
+  const normalized = new Map(Object.entries(details).map(([key, value]) => [normalizeText(key), cleanText(value)]));
+
+  for (const key of keys) {
+    const value = normalized.get(normalizeText(key));
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function boardCellValue(record: CrmReviewRecord, column: string) {
+  const normalizedColumn = normalizeText(column);
+  const direct = detailLookup(record, [column]);
+  if (direct) return direct;
+
+  if (normalizedColumn === "name") return record.title;
+  if (normalizedColumn === "status") return record.status;
+  if (normalizedColumn === "item id (auto generated)" || normalizedColumn === "auto number") return record.externalId || record.mondayItem;
+  if (normalizedColumn.includes("operator")) return detailLookup(record, ["account_name", "relatedAccountName", "Operator", "Operators", "Operator Account", "Operator Accounts"]);
+  if (normalizedColumn.includes("contact")) return detailLookup(record, ["contact_name", "relatedContactName", "Contacts", "full_name"]);
+  if (normalizedColumn.includes("rig")) return detailLookup(record, ["Rig", "Rigs", "Rig/Contractor", "Rigs Assigned"]);
+  if (normalizedColumn.includes("sales")) return detailLookup(record, ["Salesperson", "Salesman", "Sales Rep"]);
+  if (normalizedColumn.includes("activity")) return detailLookup(record, ["Activity", "body", "notes"]);
+  if (normalizedColumn.includes("date") || normalizedColumn.includes("timeline")) {
+    return detailLookup(record, ["Visit Date", "Job Date/Time", "Date Requested", "Date Created", "Date Completed", "due_at", "completed_at", "expected_close_date"]);
+  }
+  if (normalizedColumn.includes("quote")) return detailLookup(record, ["Quote", "Quote Number"]);
+  if (normalizedColumn.includes("description")) return detailLookup(record, ["Job Description", "body", "notes"]);
+  if (normalizedColumn.includes("type")) return detailLookup(record, ["Job Type", "Activity Type", "Type", "title"]);
+  if (normalizedColumn.includes("service line")) return detailLookup(record, ["Service Line", "pipeline_name"]);
+
+  return detailLookup(record, [normalizedColumn.replace(/\s+/g, "_")]) || "-";
+}
+
+function boardActionLabel(board: MondayCrmBoard) {
+  if (board.key === "job-schedule") return "New job";
+  if (board.key === "quotes") return "New quote";
+  if (board.key === "contacts") return "New contact";
+  if (board.key === "rigs" || board.key === "stacked-rigs") return "New rig";
+  if (board.key === "operator-accounts") return "New account";
+  if (board.key === "sales-activities") return "New activity";
+  return "New item";
+}
+
+function mondayGroupColor(groupName: string) {
+  const normalized = normalizeText(groupName);
+  if (normalized.includes("request") || normalized.includes("pending")) return "#2ea9df";
+  if (normalized.includes("schedule")) return "#ffd33d";
+  if (normalized.includes("progress")) return "#a855f7";
+  if (normalized.includes("signature")) return "#f97316";
+  if (normalized.includes("complete") || normalized.includes("approved") || normalized.includes("resolved")) return "#22c55e";
+  if (normalized.includes("cancel") || normalized.includes("lost")) return "#ef4444";
+  if (normalized.includes("sent")) return "#60a5fa";
+  return "#f97316";
+}
+
+function mondayColumnWidth(column: string, index: number) {
+  const normalized = normalizeText(column);
+  if (index === 0) return "340px";
+  if (normalized.includes("description") || normalized.includes("notes") || normalized.includes("strategy") || normalized === "activity") return "520px";
+  if (normalized.includes("operator") || normalized.includes("contact") || normalized.includes("rig")) return "260px";
+  if (normalized.includes("equipment") || normalized.includes("connection")) return "210px";
+  if (normalized.includes("date") || normalized.includes("timeline")) return "190px";
+  if (normalized.includes("status") || normalized.includes("service line") || normalized.includes("won/lost")) return "160px";
+  if (normalized.includes("invoice") || normalized.includes("report") || normalized.includes("directions") || normalized.includes("checklist")) return "150px";
+  if (normalized.includes("state") || normalized.includes("county") || normalized.includes("size") || normalized.includes("lead")) return "150px";
+  return "210px";
+}
+
+function splitMondayValues(value: string) {
   const seen = new Set<string>();
-  const ordered: string[] = [];
+  return value
+    .split(/,\s*|\s+\|\s+/)
+    .map(cleanText)
+    .filter((part) => {
+      if (!part || part === "-") return false;
+      const normalized = normalizeText(part);
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+}
 
-  [...fallback, ...values].forEach((value) => {
-    const cleaned = cleanText(value);
-    if (!cleaned || seen.has(normalizeText(cleaned))) return;
-    seen.add(normalizeText(cleaned));
-    ordered.push(cleaned);
-  });
+function isBoardAttachmentColumn(column: string) {
+  return mondayAttachmentColumns.has(column);
+}
 
-  return ordered;
+function isEditableBoardCell(column: string) {
+  return !isMondayFileColumn(column);
+}
+
+function mondayColumnLabel(board: MondayCrmBoard, column: string) {
+  if (board.key === "job-schedule" && normalizeText(column) === "name") return "Job";
+  return column;
+}
+
+function attachmentDisplayName(value: string) {
+  return splitMondayValues(value)[0] || "Add file";
+}
+
+function groupCollapseKey(boardKey: string, groupName: string) {
+  return `${boardKey}:${groupName}`;
+}
+
+function crmStatusFromBoardGroup(groupName: string) {
+  const normalized = normalizeText(groupName);
+  if (normalized.includes("cancel")) return "Cancelled";
+  if (normalized === "completed" || normalized.includes("completed")) return "Won";
+  return "Open";
+}
+
+function fileInputId(recordId: string, column: string) {
+  return `crm-file-${recordId}-${column}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function isMondayStatusColumn(column: string) {
+  const normalized = normalizeText(column);
+  return normalized === "status" || normalized === "status 2" || normalized === "won/lost" || normalized.endsWith(" status") || normalized === "service line";
+}
+
+function isMondayPeopleColumn(column: string) {
+  const normalized = normalizeText(column);
+  return ["salesperson", "sales rep", "lead", "people", "person assigned", "salesman"].includes(normalized);
+}
+
+function isMondayRelationColumn(column: string) {
+  const normalized = normalizeText(column);
+  return (
+    normalized.includes("contact") ||
+    normalized.includes("operator") ||
+    normalized.includes("rig") ||
+    normalized.includes("related") ||
+    normalized.includes("provider")
+  );
+}
+
+function isMondayFileColumn(column: string) {
+  const normalized = normalizeText(column);
+  return (
+    normalized.includes("invoice") ||
+    normalized.includes("report") ||
+    normalized.includes("directions") ||
+    normalized.includes("checklist") ||
+    normalized.includes("monday doc")
+  );
+}
+
+function mondayStatusTone(value: string) {
+  const normalized = normalizeText(value);
+  if (!normalized || normalized === "-") return "";
+  if (normalized.includes("scheduled")) return "scheduled";
+  if (normalized.includes("request")) return "requested";
+  if (normalized.includes("progress") || normalized.includes("open")) return "progress";
+  if (normalized.includes("complete") || normalized.includes("won") || normalized.includes("approved") || normalized.includes("resolved")) return "done";
+  if (normalized.includes("cancel") || normalized.includes("lost")) return "danger";
+  if (normalized.includes("dti")) return "dti";
+  if (normalized.includes("tubing")) return "tubing";
+  if (normalized.includes("hardband")) return "hardband";
+  return "default";
+}
+
+function personInitials(value: string) {
+  const parts = cleanText(value)
+    .split(/\s+/)
+    .filter(Boolean);
+  return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
+}
+
+function recordGroupName(record: CrmReviewRecord, board: MondayCrmBoard) {
+  const detailGroup = detailLookup(record, ["group", "groupName", "group_name", "Monday Group"]);
+  if (detailGroup) return detailGroup;
+
+  const candidateValues = [
+    record.status,
+    opportunityStage(record),
+    detailLookup(record, ["Status", "stage", "Won/Lost", "DTI Status", "HB Status"]),
+  ].map(cleanText);
+  const boardGroups = board.groups.map((group) => group.name);
+
+  for (const candidate of candidateValues) {
+    const exact = boardGroups.find((group) => normalizeText(group) === normalizeText(candidate));
+    if (exact) return exact;
+  }
+
+  if (record.entityType === "activity") return board.groups[0]?.name ?? "Imported Records";
+  if (record.entityType === "contact" && normalizeText(board.title) === "contacts") return board.groups[0]?.name ?? "Imported Records";
+  if (record.entityType === "account" && normalizeText(board.title).includes("operator")) return board.groups[0]?.name ?? "Imported Records";
+
+  return board.groups[0]?.name ?? "Imported Records";
+}
+
+function boardRecords(records: CrmReviewRecord[], board: MondayCrmBoard) {
+  const matches = records.filter((record) => recordBelongsToBoard(record, board));
+  const fileImported = matches.filter((record) => normalizeText(record.sourceSystem) === "monday_export");
+  return fileImported.length > 0 ? fileImported : matches;
 }
 
 export default function CrmPage() {
@@ -734,7 +933,15 @@ export default function CrmPage() {
   const [fullImporting, setFullImporting] = useState(false);
   const [fullImportResult, setFullImportResult] = useState<FullMondayImportResponse | null>(null);
   const [fullImportError, setFullImportError] = useState("");
-  const [workspaceView, setWorkspaceView] = useState<CrmWorkspaceView>("pipeline");
+  const [activeBoardKey, setActiveBoardKey] = useState<MondayCrmBoard["key"] | "automations">("job-schedule");
+  const [boardSearch, setBoardSearch] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [attachmentMenu, setAttachmentMenu] = useState<CrmBoardAttachmentMenu>(null);
+  const [draggingRecord, setDraggingRecord] = useState<DraggingCrmRecord>(null);
+  const [editingCell, setEditingCell] = useState<EditingCrmCell>(null);
+  const [dropGroupName, setDropGroupName] = useState("");
+  const [boardActionMessage, setBoardActionMessage] = useState("");
+  const [boardActionError, setBoardActionError] = useState("");
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -792,18 +999,377 @@ export default function CrmPage() {
     [csvMappings],
   );
   const crmRecords = useMemo(() => reviewResult?.records ?? [], [reviewResult?.records]);
-  const crmAccounts = useMemo(() => crmRecords.filter((record) => record.entityType === "account"), [crmRecords]);
-  const crmContacts = useMemo(() => crmRecords.filter((record) => record.entityType === "contact"), [crmRecords]);
-  const crmOpportunities = useMemo(() => crmRecords.filter((record) => record.entityType === "opportunity"), [crmRecords]);
-  const crmActivities = useMemo(() => crmRecords.filter((record) => record.entityType === "activity"), [crmRecords]);
-  const pipelineColumns = useMemo(
-    () => uniqueOrdered(crmOpportunities.map(opportunityStage), ["New", "Working", "Quoted", "Open", "Won", "Lost"]),
-    [crmOpportunities],
+  const activeBoard = useMemo(
+    () => mondayCrmBoards.find((board) => board.key === activeBoardKey) ?? mondayCrmBoards[0],
+    [activeBoardKey],
   );
-  const accountColumns = useMemo(
-    () => uniqueOrdered(crmAccounts.map((record) => record.status), ["Active", "Prospect", "Inactive"]),
-    [crmAccounts],
-  );
+  const activeBoardRecords = useMemo(() => {
+    const query = normalizeText(boardSearch);
+    return boardRecords(crmRecords, activeBoard).filter((record) => {
+      if (!query) return true;
+      return [
+        record.title,
+        record.subtitle,
+        record.status,
+        record.sourceBoard,
+        record.mondayItem,
+        record.externalId,
+        ...Object.values(record.details ?? {}),
+      ]
+        .map(normalizeText)
+        .some((value) => value.includes(query));
+    });
+  }, [activeBoard, boardSearch, crmRecords]);
+
+  function patchReviewRecord(recordId: string, patch: { title?: string; status?: string; details?: Record<string, string> }) {
+    setReviewResult((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        records: (current.records ?? []).map((record) => {
+          if (record.id !== recordId) return record;
+
+          return {
+            ...record,
+            title: patch.title ?? record.title,
+            status: patch.status ?? record.status,
+            details: {
+              ...(record.details ?? {}),
+              ...(patch.details ?? {}),
+            },
+          };
+        }),
+      };
+    });
+  }
+
+  async function persistBoardCell(payload: Record<string, unknown> | FormData) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) {
+      window.location.assign("/login");
+      return false;
+    }
+
+    const isFormData = payload instanceof FormData;
+    const response = await fetch("/api/crm/board-cell", {
+      method: "PATCH",
+      headers: isFormData
+        ? { Authorization: `Bearer ${token}` }
+        : {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+      body: isFormData ? payload : JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      setBoardActionError(body.error || "CRM board update failed.");
+      return false;
+    }
+
+    return true;
+  }
+
+  function beginRecordDrag(event: DragEvent<HTMLElement>, record: CrmReviewRecord) {
+    if (activeBoard.key !== "job-schedule") return;
+    const currentGroup = recordGroupName(record, activeBoard);
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", record.id);
+    setDraggingRecord({
+      recordId: record.id,
+      entityType: record.entityType,
+      title: record.title,
+      fromGroup: currentGroup,
+    });
+  }
+
+  function startCellEdit(record: CrmReviewRecord, column: string) {
+    if (!isEditableBoardCell(column)) return;
+
+    const value = column === "Name" ? record.title : boardCellValue(record, column);
+    setBoardActionError("");
+    setEditingCell({
+      recordId: record.id,
+      entityType: record.entityType,
+      column,
+      value: value === "-" ? "" : value,
+    });
+  }
+
+  async function saveTextCell(cell: NonNullable<EditingCrmCell>, rawValue: string) {
+    const value = cleanText(rawValue);
+    const normalizedColumn = normalizeText(cell.column);
+    const titlePatch = normalizedColumn === "name" ? value || "Untitled" : undefined;
+    const statusPatch = normalizedColumn === "status" || normalizedColumn === "stage" ? value || "Open" : undefined;
+
+    setEditingCell(null);
+    setBoardActionError("");
+    setBoardActionMessage(`Saving ${cell.column}...`);
+    patchReviewRecord(cell.recordId, {
+      title: titlePatch,
+      status: statusPatch,
+      details: {
+        [cell.column]: value,
+        ...(normalizedColumn === "name" ? { Name: value } : {}),
+      },
+    });
+
+    const saved = await persistBoardCell({
+      action: "set_cell",
+      recordId: cell.recordId,
+      entityType: cell.entityType,
+      column: cell.column,
+      value,
+    });
+
+    if (saved) {
+      setBoardActionMessage(`${cell.column} saved.`);
+      return;
+    }
+
+    await loadCrmReview();
+  }
+
+  async function moveRecordToGroup(record: CrmReviewRecord, groupName: string) {
+    const currentGroup = recordGroupName(record, activeBoard);
+    if (!groupName || normalizeText(currentGroup) === normalizeText(groupName)) return;
+
+    setBoardActionError("");
+    setBoardActionMessage(`Moving ${record.title} to ${groupName}...`);
+    patchReviewRecord(record.id, {
+      status: crmStatusFromBoardGroup(groupName),
+      details: {
+        groupName,
+        Status: groupName,
+        stage: groupName,
+      },
+    });
+
+    const saved = await persistBoardCell({
+      action: "move_group",
+      recordId: record.id,
+      entityType: record.entityType,
+      groupName,
+    });
+
+    if (saved) {
+      setBoardActionMessage(`${record.title} moved to ${groupName}.`);
+      return;
+    }
+
+    await loadCrmReview();
+  }
+
+  async function addLinkToAttachmentCell(menu: NonNullable<CrmBoardAttachmentMenu>) {
+    const url = window.prompt(`Paste the ${menu.column} link`);
+    if (!url) return;
+
+    const fileName = window.prompt("Name this attachment", url.split("/").pop() || menu.column) || url;
+    await saveAttachment(menu, fileName, url, null, "From Link");
+  }
+
+  async function saveAttachment(
+    menu: NonNullable<CrmBoardAttachmentMenu>,
+    fileName: string,
+    fileUrl: string,
+    file: File | null,
+    source: string,
+  ) {
+    const cleanName = cleanText(fileName || fileUrl);
+    if (!cleanName) return;
+
+    setBoardActionError("");
+    setBoardActionMessage(`Adding ${cleanName} to ${menu.column}...`);
+    patchReviewRecord(menu.recordId, {
+      details: {
+        [menu.column]: menu.value && menu.value !== "-" ? `${menu.value}, ${cleanName}` : cleanName,
+      },
+    });
+
+    let saved = false;
+    if (file) {
+      const payload = new FormData();
+      payload.set("action", "set_file");
+      payload.set("recordId", menu.recordId);
+      payload.set("entityType", menu.entityType);
+      payload.set("column", menu.column);
+      payload.set("source", source);
+      payload.set("file", file);
+      saved = await persistBoardCell(payload);
+    } else {
+      saved = await persistBoardCell({
+        action: "set_file",
+        recordId: menu.recordId,
+        entityType: menu.entityType,
+        column: menu.column,
+        fileName: cleanName,
+        fileUrl,
+        source,
+      });
+    }
+
+    if (saved) {
+      setAttachmentMenu(null);
+      setBoardActionMessage(`${cleanName} attached to ${menu.column}.`);
+      return;
+    }
+
+    await loadCrmReview();
+  }
+
+  async function handleAttachmentFileChange(event: ChangeEvent<HTMLInputElement>, menu: NonNullable<CrmBoardAttachmentMenu>) {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+
+    if (!file) return;
+    await saveAttachment(menu, file.name, "", file, "From Computer");
+  }
+
+  function toggleGroup(boardKey: string, groupName: string) {
+    const key = groupCollapseKey(boardKey, groupName);
+    setCollapsedGroups((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function handleGroupDrop(event: DragEvent<HTMLElement>, groupName: string) {
+    event.preventDefault();
+    const recordId = event.dataTransfer.getData("text/plain") || draggingRecord?.recordId;
+    const record = activeBoardRecords.find((candidate) => candidate.id === recordId);
+    setDropGroupName("");
+    setDraggingRecord(null);
+
+    if (!record) return;
+    moveRecordToGroup(record, groupName);
+  }
+
+  function renderMondayCell(record: CrmReviewRecord, column: string) {
+    const value = boardCellValue(record, column);
+    const parts = splitMondayValues(value);
+    const isEditing = editingCell?.recordId === record.id && editingCell.column === column;
+
+    if (isEditing) {
+      return (
+        <input
+          autoFocus
+          className={styles.mondayCellInput}
+          value={editingCell.value}
+          onBlur={(event) => saveTextCell(editingCell, event.currentTarget.value)}
+          onChange={(event) => setEditingCell((current) => (current ? { ...current, value: event.target.value } : current))}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setEditingCell(null);
+              return;
+            }
+
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      );
+    }
+
+    if (column === "Name") {
+      const canDragJob = activeBoard.key === "job-schedule";
+
+      return (
+        <button
+          className={styles.mondayNameCell}
+          draggable={canDragJob}
+          type="button"
+          title={canDragJob ? "Click and hold to move this job to another section" : record.title}
+          onClick={() => startCellEdit(record, column)}
+          onDragStart={(event) => beginRecordDrag(event, record)}
+          onDragEnd={() => {
+            setDraggingRecord(null);
+            setDropGroupName("");
+          }}
+        >
+          <span>
+            <strong>{record.title}</strong>
+          </span>
+        </button>
+      );
+    }
+
+    if (isMondayPeopleColumn(column)) {
+      return parts.length > 0 ? (
+        <span className={styles.mondayPeopleStack} title={value}>
+          {parts.slice(0, 4).map((part) => (
+            <span key={part}>{personInitials(part) || "?"}</span>
+          ))}
+          {parts.length > 4 && <small>+{parts.length - 4}</small>}
+        </span>
+      ) : (
+        <span className={styles.mondayCellText}>-</span>
+      );
+    }
+
+    if (isMondayStatusColumn(column)) {
+      return (
+        <span className={`${styles.mondayStatusBlock} ${styles[`mondayStatus_${mondayStatusTone(value)}`] ?? ""}`} title={value}>
+          {value && value !== "-" ? value : "-"}
+        </span>
+      );
+    }
+
+    if (isMondayFileColumn(column)) {
+      const hasValue = Boolean(value && value !== "-");
+
+      if (activeBoard.key === "job-schedule" && isBoardAttachmentColumn(column)) {
+        return (
+          <button
+            className={`${styles.mondayFileButton} ${hasValue ? styles.mondayFileButtonActive : ""}`}
+            type="button"
+            title={hasValue ? value : `Add ${column}`}
+            onClick={() =>
+              setAttachmentMenu({
+                recordId: record.id,
+                entityType: record.entityType,
+                column,
+                value,
+              })
+            }
+          >
+            <span>{hasValue ? "file" : "+"}</span>
+            <strong>{hasValue ? attachmentDisplayName(value) : "Add file"}</strong>
+          </button>
+        );
+      }
+
+      return (
+        <span className={hasValue ? styles.mondayFileCellActive : styles.mondayFileCell} title={value}>
+          {hasValue ? "file" : ""}
+        </span>
+      );
+    }
+
+    if (isMondayRelationColumn(column)) {
+      return parts.length > 0 ? (
+        <span className={styles.mondayRelationStack} title={value}>
+          {parts.slice(0, 2).map((part) => (
+            <span key={part}>{part}</span>
+          ))}
+          {parts.length > 2 && <small>+{parts.length - 2}</small>}
+        </span>
+      ) : (
+        <span className={styles.mondayCellText}>-</span>
+      );
+    }
+
+    return (
+      <span className={styles.mondayCellText} title={value}>
+        {value}
+      </span>
+    );
+  }
 
   const loadCrmReview = useCallback(async () => {
     setReviewLoading(true);
@@ -1276,22 +1842,6 @@ export default function CrmPage() {
         </div>
       </header>
 
-      <section className={styles.crmHero}>
-        <div>
-          <span className={styles.eyebrow}>TITAN CRM</span>
-          <h1>Company pipeline, customers, contacts, and follow-ups.</h1>
-          <p>Monday-style CRM workspace with imported records, exception review, and automation cards in one place.</p>
-        </div>
-        <div className={styles.crmHeroActions}>
-          <button className="button" type="button" onClick={loadCrmReview} disabled={reviewLoading}>
-            {reviewLoading ? "Refreshing..." : "Refresh CRM"}
-          </button>
-          <button className="button primary" type="button" onClick={runFullMondayImport} disabled={fullImporting}>
-            {fullImporting ? "Syncing..." : "Sync Monday"}
-          </button>
-        </div>
-      </section>
-
       {fullImportError && <section className={styles.errorBox}>{fullImportError}</section>}
       {fullImportResult?.ok && fullImportResult.result && (
         <section className={styles.finalizeBox}>
@@ -1308,165 +1858,265 @@ export default function CrmPage() {
         </section>
       )}
 
-      <section className={styles.crmMetrics}>
-        <article>
-          <span>Accounts</span>
-          <strong>{reviewResult?.metrics?.accounts ?? 0}</strong>
-        </article>
-        <article>
-          <span>Contacts</span>
-          <strong>{reviewResult?.metrics?.contacts ?? 0}</strong>
-        </article>
-        <article>
-          <span>Opportunities</span>
-          <strong>{reviewResult?.metrics?.opportunities ?? 0}</strong>
-        </article>
-        <article>
-          <span>Activities</span>
-          <strong>{reviewResult?.metrics?.activities ?? 0}</strong>
-        </article>
-        <article>
-          <span>Exceptions</span>
-          <strong>{reviewResult?.metrics?.openExceptions ?? 0}</strong>
-        </article>
-      </section>
-
-      <section className={styles.crmWorkspace}>
-        <div className={styles.crmWorkspaceHeader}>
-          <div>
-            <span className={styles.eyebrow}>Workspace</span>
-            <h2>CRM Board</h2>
+      <section className={styles.mondayAppShell}>
+        <aside className={styles.mondaySidebar}>
+          <div className={styles.mondaySidebarTop}>
+            <img src="/titan_logo.jpg" alt="" />
+            <span>TITAN CRM</span>
           </div>
-          <div className={styles.crmViewTabs}>
-            {crmWorkspaceViews.map((view) => (
-              <button
-                key={view.value}
-                className={workspaceView === view.value ? styles.crmViewTabActive : ""}
-                type="button"
-                onClick={() => setWorkspaceView(view.value)}
-              >
-                {view.label}
+          <nav className={styles.mondayUtilityNav}>
+            <span>Sequences</span>
+            <span>Quotes and Invoices</span>
+            <span>Mass email tracking</span>
+            <span>More</span>
+          </nav>
+          <div className={styles.mondayWorkspaceLabel}>Workspace</div>
+          <div className={styles.mondayWorkspaceSelect}>
+            <strong>WTX Sales Workspace</strong>
+            <button type="button">+</button>
+          </div>
+          <nav className={styles.mondayBoardNav}>
+            {mondayCrmBoards.map((board) => {
+              const importedCount = boardRecords(crmRecords, board).length;
+              return (
+                <button
+                  key={board.key}
+                  className={activeBoardKey === board.key ? styles.mondayBoardNavActive : ""}
+                  type="button"
+                  onClick={() => setActiveBoardKey(board.key)}
+                >
+                  <span>{board.title}</span>
+                  <small>{importedCount} / {board.records}</small>
+                </button>
+              );
+            })}
+            <button
+              className={activeBoardKey === "automations" ? styles.mondayBoardNavActive : ""}
+              type="button"
+              onClick={() => setActiveBoardKey("automations")}
+            >
+              <span>Automations</span>
+              <small>{mondayCrmTotals.activeAutomationRules} active</small>
+            </button>
+          </nav>
+        </aside>
+
+        <section className={styles.mondayMainBoard}>
+          <div className={styles.mondayBoardHeader}>
+            <div>
+              <h1>{activeBoardKey === "automations" ? "Automations" : activeBoard.title}</h1>
+              <div className={styles.mondayViewTabs}>
+                <span className={styles.mondayViewTabActive}>Main table</span>
+                <span>Category Counts</span>
+                <span>Calendar</span>
+                <span>Casing Board</span>
+                <span>Hardbanding Board</span>
+                <span>Table</span>
+                <span>Map</span>
+                <span>+</span>
+              </div>
+            </div>
+            <div className={styles.mondayTopActions}>
+              <span>{crmRecords.length.toLocaleString()} live records</span>
+              <button className="button" type="button" onClick={loadCrmReview} disabled={reviewLoading}>
+                {reviewLoading ? "Refreshing..." : "Refresh CRM"}
               </button>
-            ))}
+              <button className="button primary" type="button" onClick={runFullMondayImport} disabled={fullImporting}>
+                {fullImporting ? "Syncing..." : "Sync Monday"}
+              </button>
+            </div>
           </div>
-        </div>
 
-        {reviewLoading && !reviewResult ? (
-          <div className={styles.reviewEmpty}>Loading CRM workspace...</div>
-        ) : (
-          <>
-            {workspaceView === "pipeline" && (
-              <div className={styles.crmBoard}>
-                {pipelineColumns.map((column) => {
-                  const columnRecords = crmOpportunities.filter((record) => normalizeText(opportunityStage(record)) === normalizeText(column));
-                  return (
-                    <article key={column} className={styles.crmLane}>
-                      <header>
-                        <strong>{column}</strong>
-                        <span>{columnRecords.length}</span>
-                      </header>
-                      <div className={styles.crmCardStack}>
-                        {columnRecords.length === 0 ? (
-                          <div className={styles.emptyLane}>No cards</div>
-                        ) : (
-                          columnRecords.slice(0, 20).map((record) => (
-                            <button key={record.id} className={styles.crmRecordCard} type="button">
-                              <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
-                              <strong>{record.title}</strong>
-                              <small>{record.subtitle}</small>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+          <div className={styles.mondayCommandBar}>
+            <button className={styles.mondayNewButton} type="button">{boardActionLabel(activeBoard)}</button>
+            <label className={styles.mondayInlineSearch}>
+              <span>Search</span>
+              <input
+                value={boardSearch}
+                onChange={(event) => setBoardSearch(event.target.value)}
+                placeholder="Search this board"
+              />
+            </label>
+            <button type="button">Person</button>
+            <button type="button">Filter</button>
+            <button type="button">Group by</button>
+          </div>
 
-            {workspaceView === "accounts" && (
-              <div className={styles.crmBoard}>
-                {accountColumns.map((column) => {
-                  const columnRecords = crmAccounts.filter((record) => normalizeText(record.status) === normalizeText(column));
-                  return (
-                    <article key={column} className={styles.crmLane}>
-                      <header>
-                        <strong>{column}</strong>
-                        <span>{columnRecords.length}</span>
-                      </header>
-                      <div className={styles.crmCardStack}>
-                        {columnRecords.length === 0 ? (
-                          <div className={styles.emptyLane}>No accounts</div>
-                        ) : (
-                          columnRecords.slice(0, 24).map((record) => (
-                            <button key={record.id} className={styles.crmRecordCard} type="button">
-                              <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
-                              <strong>{record.title}</strong>
-                              <small>{record.subtitle}</small>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+          {boardActionError && <div className={styles.mondayBoardError}>{boardActionError}</div>}
+          {boardActionMessage && !boardActionError && <div className={styles.mondayBoardNotice}>{boardActionMessage}</div>}
 
-            {workspaceView === "contacts" && (
-              <div className={styles.crmDirectory}>
-                {crmContacts.length === 0 ? (
-                  <div className={styles.reviewEmpty}>No contacts imported yet.</div>
-                ) : (
-                  crmContacts.slice(0, 120).map((record) => (
-                    <button key={record.id} className={styles.crmDirectoryRow} type="button">
-                      <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
-                      <span>
-                        <strong>{record.title}</strong>
-                        <small>{record.subtitle}</small>
-                      </span>
-                      <span className={styles.statusPill}>{record.status}</span>
-                    </button>
-                  ))
+          {reviewLoading && !reviewResult ? (
+            <div className={styles.reviewEmpty}>Loading CRM workspace...</div>
+          ) : activeBoardKey === "automations" ? (
+            <div className={styles.automationGrid}>
+              {mondayAutomationBoards.map((automation) => (
+                <article key={automation.sourceFile} className={styles.automationCard}>
+                  <div className={styles.automationCardHeader}>
+                    <span className={`${styles.statusPill} ${automation.errors ? styles.statusWarn : ""}`}>
+                      {automation.active} active
+                    </span>
+                    {automation.errors > 0 && <span className={styles.statusPill}>{automation.errors} needs review</span>}
+                  </div>
+                  <h3>{automation.sourceFile.replace("board_automations_", "Board ").replace(".csv", "")}</h3>
+                  <p>{automation.example}</p>
+                  <small>{automation.rules} exported automation rules</small>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.mondayGroups}>
+              {activeBoard.groups.map((group) => {
+                const groupRecords = activeBoardRecords.filter(
+                  (record) => normalizeText(recordGroupName(record, activeBoard)) === normalizeText(group.name),
+                );
+                const groupStyle = { "--group-color": mondayGroupColor(group.name) } as CSSProperties;
+                const collapseKey = groupCollapseKey(activeBoard.key, group.name);
+                const isCollapsed = Boolean(collapsedGroups[collapseKey]);
+                const isDropTarget = Boolean(draggingRecord && dropGroupName === group.name);
+
+                return (
+                  <section
+                    key={group.name}
+                    className={`${styles.mondayGroup} ${isDropTarget ? styles.mondayGroupDropTarget : ""}`}
+                    style={groupStyle}
+                    onDragOver={(event) => {
+                      if (activeBoard.key !== "job-schedule") return;
+                      if (!draggingRecord && !Array.from(event.dataTransfer.types).includes("text/plain")) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDropGroupName(group.name);
+                    }}
+                    onDragLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                        setDropGroupName("");
+                      }
+                    }}
+                    onDrop={(event) => handleGroupDrop(event, group.name)}
+                  >
+                    <header>
+                      <button
+                        className={styles.mondayGroupToggle}
+                        type="button"
+                        aria-label={`${isCollapsed ? "Open" : "Close"} ${group.name}`}
+                        onClick={() => toggleGroup(activeBoard.key, group.name)}
+                      >
+                        {isCollapsed ? ">" : "v"}
+                      </button>
+                      <button
+                        className={styles.mondayGroupTitleButton}
+                        type="button"
+                        onClick={() => toggleGroup(activeBoard.key, group.name)}
+                      >
+                        <h3>{group.name}</h3>
+                        <span>{groupRecords.length.toLocaleString()} visible / {group.records.toLocaleString()} export</span>
+                      </button>
+                    </header>
+                    {!isCollapsed && <div className={styles.mondayTableWrap}>
+                      <table className={styles.mondayTable}>
+                        <colgroup>
+                          <col style={{ width: "48px" }} />
+                          {activeBoard.columns.map((column, index) => (
+                            <col key={column} style={{ width: mondayColumnWidth(column, index) }} />
+                          ))}
+                          <col style={{ width: "56px" }} />
+                        </colgroup>
+                        <thead>
+                          <tr>
+                            <th className={styles.mondaySelectColumn}></th>
+                            {activeBoard.columns.map((column) => (
+                              <th key={column}>{mondayColumnLabel(activeBoard, column)}</th>
+                            ))}
+                            <th className={styles.mondayAddColumn}>+</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupRecords.map((record) => (
+                            <tr key={record.id}>
+                              <td className={styles.mondaySelectColumn}>
+                                <span className={styles.mondayCheckbox}></span>
+                              </td>
+                              {activeBoard.columns.map((column) => {
+                                const editable = isEditableBoardCell(column);
+                                const isNameColumn = column === "Name";
+
+                                return (
+                                  <td
+                                    key={`${record.id}-${column}`}
+                                    className={editable ? styles.mondayEditableCell : ""}
+                                    draggable={activeBoard.key === "job-schedule" && isNameColumn}
+                                    title={editable ? "Click to edit. Click and hold the job cell to move the row." : boardCellValue(record, column)}
+                                    onClick={() => {
+                                      if (!isNameColumn) startCellEdit(record, column);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggingRecord(null);
+                                      setDropGroupName("");
+                                    }}
+                                    onDragStart={(event) => {
+                                      if (!isNameColumn) return;
+                                      beginRecordDrag(event, record);
+                                    }}
+                                  >
+                                    {renderMondayCell(record, column)}
+                                  </td>
+                                );
+                              })}
+                              <td className={styles.mondayAddColumn}></td>
+                            </tr>
+                          ))}
+                          <tr className={styles.mondayAddRow}>
+                            <td className={styles.mondaySelectColumn}></td>
+                            <td colSpan={activeBoard.columns.length + 1}>+ Add {activeBoard.key === "job-schedule" ? "job" : "item"}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+
+          {attachmentMenu && (
+            <div className={styles.crmAttachmentBackdrop} role="presentation" onClick={() => setAttachmentMenu(null)}>
+              <div className={styles.crmAttachmentMenu} role="dialog" aria-modal="true" aria-label={`Add ${attachmentMenu.column}`} onClick={(event) => event.stopPropagation()}>
+                <header>
+                  <div>
+                    <span className={styles.eyebrow}>{attachmentMenu.column}</span>
+                    <h3>Add file</h3>
+                  </div>
+                  <button type="button" onClick={() => setAttachmentMenu(null)}>x</button>
+                </header>
+                {attachmentMenu.value && attachmentMenu.value !== "-" && (
+                  <div className={styles.crmAttachmentCurrent}>
+                    <span>Current</span>
+                    <strong>{attachmentMenu.value}</strong>
+                  </div>
                 )}
+                <div className={styles.crmAttachmentActions}>
+                  <input
+                    className={styles.hiddenFileInput}
+                    id={fileInputId(attachmentMenu.recordId, attachmentMenu.column)}
+                    type="file"
+                    onChange={(event) => handleAttachmentFileChange(event, attachmentMenu)}
+                  />
+                  <label className={styles.crmAttachmentOptionPrimary} htmlFor={fileInputId(attachmentMenu.recordId, attachmentMenu.column)}>
+                    From device
+                  </label>
+                  <button className={styles.crmAttachmentOption} type="button" onClick={() => addLinkToAttachmentCell(attachmentMenu)}>
+                    From link
+                  </button>
+                  <button className={styles.crmAttachmentOption} type="button" onClick={() => setBoardActionMessage("Webcam capture can be wired after device permissions are tested.")}>
+                    From webcam
+                  </button>
+                  <button className={styles.crmAttachmentOption} type="button" onClick={() => setBoardActionMessage("Cloud drive connectors can be added after the Titan storage workflow is approved.")}>
+                    Cloud drive
+                  </button>
+                </div>
               </div>
-            )}
-
-            {workspaceView === "activities" && (
-              <div className={styles.crmDirectory}>
-                {crmActivities.length === 0 ? (
-                  <div className={styles.reviewEmpty}>No activity imported yet.</div>
-                ) : (
-                  crmActivities.slice(0, 120).map((record) => (
-                    <button key={record.id} className={styles.crmDirectoryRow} type="button">
-                      <span className={styles.crmAvatar}>{recordInitials(record.title)}</span>
-                      <span>
-                        <strong>{record.title}</strong>
-                        <small>{record.subtitle}</small>
-                      </span>
-                      <span className={styles.statusPill}>{record.status}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-
-            {workspaceView === "automations" && (
-              <div className={styles.automationGrid}>
-                {crmAutomationRecipes.map((recipe) => (
-                  <article key={recipe.name} className={styles.automationCard}>
-                    <div>
-                      <span className={`${styles.statusPill} ${recipe.status === "Live" ? "" : styles.statusWarn}`}>{recipe.status}</span>
-                      <h3>{recipe.name}</h3>
-                    </div>
-                    <p><strong>When:</strong> {recipe.trigger}</p>
-                    <p><strong>Then:</strong> {recipe.action}</p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+            </div>
+          )}
+        </section>
       </section>
 
       <details className={styles.migrationDrawer}>

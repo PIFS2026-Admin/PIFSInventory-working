@@ -86,6 +86,7 @@ type ImportRow = {
   mondayBoardId: string;
   mondayItemId: string;
   mondayItemName: string;
+  mondayGroupName: string;
   externalId: string;
   primaryValue: string;
   matchedRecordId: string | null;
@@ -355,6 +356,7 @@ function buildImportRows(
           mondayBoardId: snapshot.monday_board_id,
           mondayItemId: itemId,
           mondayItemName: cleanText(item.name),
+          mondayGroupName: cleanText(item.group?.title),
           externalId: mondayExternalId,
           primaryValue,
           matchedRecordId: match.matchedRecordId,
@@ -408,7 +410,9 @@ function baseMetadata(row: ImportRow) {
       boardName: row.boardName,
       itemId: row.mondayItemId,
       itemName: row.mondayItemName,
+      groupName: row.mondayGroupName,
     },
+    groupName: row.mondayGroupName,
     unmappedFieldValues: row.fieldValues,
     warnings: row.warnings,
   };

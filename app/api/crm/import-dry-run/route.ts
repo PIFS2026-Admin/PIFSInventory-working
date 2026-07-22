@@ -86,6 +86,7 @@ type DryRunRow = {
   mondayBoardId: string;
   mondayItemId: string;
   mondayItemName: string;
+  mondayGroupName: string;
   externalId: string;
   primaryValue: string;
   matchedRecordId: string | null;
@@ -389,6 +390,7 @@ export async function POST(request: Request) {
             mondayBoardId: snapshot.monday_board_id,
             mondayItemId: itemId,
             mondayItemName: cleanText(item.name),
+            mondayGroupName: cleanText(item.group?.title),
             externalId: external,
             primaryValue,
             matchedRecordId: match.matchedRecordId,
