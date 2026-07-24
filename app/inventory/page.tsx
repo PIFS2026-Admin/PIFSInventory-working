@@ -307,6 +307,7 @@ const wadeInventoryAdminEmail = "wade@pathfinderinspections.com";
 const defaultInventoryYardCode = "PIFS";
 const inventoryYardCodes = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const inventoryYardScopedTablesEnabled = true;
+const inventoryItemPhotoBucket = "inventory-item-photos";
 const dashboardPeriodOptions: Array<{ value: DashboardPeriod; label: string }> = [
   { value: "week", label: "This Week" },
   { value: "lastWeek", label: "Last Week" },
@@ -393,24 +394,27 @@ function normalizeLookupText(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "");
 }
 
-function inventoryItemMatchesTerm(item: InventoryItem, rawTerm: string) {
+function valuesMatchLookup(values: unknown[], rawTerm: string) {
   const term = rawTerm.trim().toLowerCase();
   if (!term) return true;
 
   const normalized = normalizeLookupText(term);
-  const values = [
+  return (
+    values.some((value) => String(value ?? "").toLowerCase().includes(term)) ||
+    values.some((value) => normalizeLookupText(value).includes(normalized))
+  );
+}
+
+function inventoryItemMatchesTerm(item: InventoryItem, rawTerm: string) {
+  return valuesMatchLookup([
     item.itemCode,
     item.itemName,
     item.category,
     item.location,
     item.vendorName,
     item.barcode,
-  ];
-
-  return (
-    values.some((value) => String(value ?? "").toLowerCase().includes(term)) ||
-    values.some((value) => normalizeLookupText(value).includes(normalized))
-  );
+    item.uom,
+  ], rawTerm);
 }
 
 function inventoryItemSearchRank(item: InventoryItem, rawTerm: string) {
@@ -552,6 +556,8 @@ export default function InventoryModulePage() {
   const [activeView, setActiveView] = useState<InventoryModuleView>("dashboard");
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>("week");
   const [dashboardSearch, setDashboardSearch] = useState("");
+  const [ticketSearch, setTicketSearch] = useState("");
+  const [documentSearch, setDocumentSearch] = useState("");
   const [dashboardDepartment, setDashboardDepartment] = useState("all");
   const [dashboardCategory, setDashboardCategory] = useState("all");
   const [dashboardVendor, setDashboardVendor] = useState("all");
@@ -580,6 +586,7 @@ export default function InventoryModulePage() {
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [expandedPoId, setExpandedPoId] = useState("");
   const [itemPhotoDraft, setItemPhotoDraft] = useState("");
+  const [pendingItemPhotoFile, setPendingItemPhotoFile] = useState<File | null>(null);
   const [emailingTicketId, setEmailingTicketId] = useState("");
   const [emailingOrderId, setEmailingOrderId] = useState("");
   const [orderFulfillmentDrafts, setOrderFulfillmentDrafts] = useState<Record<string, string>>({});
@@ -810,6 +817,9 @@ export default function InventoryModulePage() {
           vendor: item?.vendorName || "",
           costCenter: line.department || ticket?.department || "",
           party: ticket?.issuedTo || "",
+          lead: line.pickedBy || ticket?.pickedBy || "",
+          unitTruck: line.unitTruck || ticket?.unitTruck || "",
+          jobNumber: ticket?.jobNumber || "",
           qty: line.qtyIssued,
           amount: line.lineValue,
         };
@@ -819,10 +829,10 @@ export default function InventoryModulePage() {
       .filter((row) => dashboardVendor === "all" || row.vendor === dashboardVendor)
       .filter((row) => {
         if (!term) return true;
-        return [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.party]
-          .join(" ")
-          .toLowerCase()
-          .includes(term);
+        return valuesMatchLookup(
+          [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.party, row.lead, row.unitTruck, row.jobNumber],
+          term,
+        );
       });
   }, [
     dashboardCategory,
@@ -866,10 +876,7 @@ export default function InventoryModulePage() {
       .filter((row) => dashboardVendor === "all" || row.vendor === dashboardVendor)
       .filter((row) => {
         if (!term) return true;
-        return [row.ref, row.sku, row.item, row.category, row.vendor, row.requestedBy, row.status]
-          .join(" ")
-          .toLowerCase()
-          .includes(term);
+        return valuesMatchLookup([row.ref, row.sku, row.item, row.category, row.vendor, row.requestedBy, row.status], term);
       });
   }, [
     dashboardCategory,
@@ -953,45 +960,125 @@ export default function InventoryModulePage() {
     return counts;
   }, [purchaseOrderLines]);
   const inventoryDocuments = useMemo(() => {
-    const poDocs = purchaseOrders.map((order) => ({
-      id: `po-${order.id}`,
-      sourceId: order.id,
-      date: order.orderDate,
-      type: "Purchase Order",
-      number: order.poNumber || "-",
-      party: order.vendorName || "-",
-      status: order.status || "Open",
-      lines: purchaseOrderLineCounts.get(order.id) || 0,
-      value: order.totalValue,
-      action: "purchase-orders",
-    }));
-    const issueDocs = tickets.map((ticket) => ({
-      id: `issue-${ticket.id}`,
-      sourceId: ticket.id,
-      date: ticket.issueDate,
-      type: "Issue Ticket",
-      number: ticket.ticketNumber || "-",
-      party: ticket.issuedTo || "-",
-      status: ticket.status || "Issued",
-      lines: linesForTicket(ticket).length,
-      value: ticket.totalValue,
-      action: "tickets",
-    }));
-    const requestDocs = orders.map((order) => ({
-      id: `request-${order.id}`,
-      sourceId: order.id,
-      date: order.orderDate,
-      type: "Consumables Store",
-      number: order.orderNumber || "-",
-      party: order.requestedBy || "-",
-      status: order.status || "Submitted",
-      lines: linesForOrder(order).length,
-      value: order.totalValue,
-      action: "orders",
-    }));
+    const poDocs = purchaseOrders.map((order) => {
+      const lines = linesForPurchaseOrder(order);
+      return {
+        id: `po-${order.id}`,
+        sourceId: order.id,
+        date: order.orderDate,
+        type: "Purchase Order",
+        number: order.poNumber || "-",
+        party: order.vendorName || "-",
+        status: order.status || "Open",
+        lines: purchaseOrderLineCounts.get(order.id) || lines.length,
+        value: order.totalValue,
+        action: "purchase-orders",
+        searchText: [
+          order.poNumber,
+          order.vendorName,
+          order.requestedBy,
+          order.status,
+          ...lines.flatMap((line) => [line.itemCode, line.itemName]),
+        ].join(" "),
+      };
+    });
+    const issueDocs = tickets.map((ticket) => {
+      const lines = linesForTicket(ticket);
+      return {
+        id: `issue-${ticket.id}`,
+        sourceId: ticket.id,
+        date: ticket.issueDate,
+        type: "Issue Ticket",
+        number: ticket.ticketNumber || "-",
+        party: ticket.issuedTo || "-",
+        status: ticket.status || "Issued",
+        lines: lines.length,
+        value: ticket.totalValue,
+        action: "tickets",
+        searchText: [
+          ticket.ticketNumber,
+          ticket.issuedTo,
+          ticket.department,
+          ticket.pickedBy,
+          ticket.unitTruck,
+          ticket.jobNumber,
+          ticket.status,
+          ticket.notes,
+          ...lines.flatMap((line) => [line.itemCode, line.itemName, line.department, line.pickedBy, line.unitTruck]),
+        ].join(" "),
+      };
+    });
+    const requestDocs = orders.map((order) => {
+      const lines = linesForOrder(order);
+      return {
+        id: `request-${order.id}`,
+        sourceId: order.id,
+        date: order.orderDate,
+        type: "Consumables Store",
+        number: order.orderNumber || "-",
+        party: order.requestedBy || "-",
+        status: order.status || "Submitted",
+        lines: lines.length,
+        value: order.totalValue,
+        action: "orders",
+        searchText: [
+          order.orderNumber,
+          order.requestedBy,
+          order.department,
+          order.unitTruck,
+          order.jobNumber,
+          order.status,
+          order.notes,
+          ...lines.flatMap((line) => [line.itemCode, line.itemName]),
+        ].join(" "),
+      };
+    });
     return [...poDocs, ...issueDocs, ...requestDocs]
       .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
-  }, [orders, orderLines, purchaseOrderLineCounts, purchaseOrders, tickets, ticketLines]);
+  }, [orders, orderLines, purchaseOrderLineCounts, purchaseOrderLines, purchaseOrders, tickets, ticketLines]);
+  const filteredTickets = useMemo(() => {
+    const term = ticketSearch.trim();
+    return tickets.filter((ticket) => {
+      if (!term) return true;
+      const lines = linesForTicket(ticket);
+      return valuesMatchLookup(
+        [
+          ticket.ticketNumber,
+          ticket.issueDate,
+          ticket.issuedTo,
+          ticket.department,
+          ticket.pickedBy,
+          ticket.unitTruck,
+          ticket.jobNumber,
+          ticket.status,
+          ticket.notes,
+          ...lines.flatMap((line) => {
+            const item = itemById.get(line.itemId) || itemByCode.get(line.itemCode);
+            return [
+              line.itemCode,
+              line.itemName,
+              line.department,
+              line.pickedBy,
+              line.unitTruck,
+              item?.category,
+              item?.vendorName,
+              item?.barcode,
+            ];
+          }),
+        ],
+        term,
+      );
+    });
+  }, [itemByCode, itemById, ticketLines, ticketSearch, tickets]);
+  const filteredInventoryDocuments = useMemo(() => {
+    const term = documentSearch.trim();
+    return inventoryDocuments.filter((document) =>
+      valuesMatchLookup(
+        [document.date, document.type, document.number, document.party, document.status, document.value, document.searchText],
+        term,
+      ),
+    );
+  }, [documentSearch, inventoryDocuments]);
   const topIssuedItems = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
     dashboardIssueRows.forEach((row) => {
@@ -1006,7 +1093,7 @@ export default function InventoryModulePage() {
   const topIssuedUnits = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
     dashboardIssueRows.forEach((row) => {
-      const key = row.costCenter || "No cost center";
+      const key = row.unitTruck || row.party || row.costCenter || "No unit / truck listed";
       const current = totals.get(key) || { label: key, qty: 0, value: 0 };
       current.qty += row.qty;
       current.value += row.amount;
@@ -1207,15 +1294,20 @@ export default function InventoryModulePage() {
       return;
     }
 
-    let photoQuery = supabase
-      .from("inventory_documents")
-      .select("linked_record_id, file_url, uploaded_at")
-      .eq("linked_record_type", "item")
-      .order("uploaded_at", { ascending: false })
-      .limit(5000);
-    photoQuery = applyInventoryYardScope(photoQuery, yardId, yardList);
+    const buildPhotoQuery = () =>
+      supabase
+        .from("inventory_documents")
+        .select("linked_record_id, file_url, uploaded_at")
+        .eq("linked_record_type", "item")
+        .order("uploaded_at", { ascending: false })
+        .limit(5000);
 
-    const { data: photoData, error: photoError } = await photoQuery;
+    let photoResult = await applyInventoryYardScope(buildPhotoQuery(), yardId, yardList);
+    if (photoResult.error && /yard_id|schema cache|column/i.test(String(photoResult.error.message || ""))) {
+      photoResult = await buildPhotoQuery();
+    }
+
+    const { data: photoData, error: photoError } = photoResult;
     const photoByItemId = new Map<string, string>();
     if (!photoError) {
       (photoData || []).forEach((photo) => {
@@ -1536,6 +1628,7 @@ export default function InventoryModulePage() {
     setSelectedItemId("");
     setItemForm(emptyItemForm);
     setItemPhotoDraft("");
+    setPendingItemPhotoFile(null);
     if (activeView === "items") {
       setMessage("Blank item setup is ready.");
       return;
@@ -1546,6 +1639,7 @@ export default function InventoryModulePage() {
   function selectItemForSetup(item: InventoryItem) {
     setSelectedItemId(item.id);
     setItemPhotoDraft("");
+    setPendingItemPhotoFile(null);
     setItemForm({
       id: item.id,
       itemCode: item.itemCode,
@@ -1672,9 +1766,20 @@ export default function InventoryModulePage() {
       setMessage(`Save failed: ${error?.message || "item was not returned."}`);
     } else {
       let photoMessage = "";
-      if (itemPhotoDraft.trim() && itemPhotoDraft.trim() !== itemForm.photoUrl) {
+      if (pendingItemPhotoFile) {
+        const photoResult = await uploadItemPhotoFile(savedItem.id, pendingItemPhotoFile);
+        if (photoResult.error) {
+          photoMessage = ` Photo upload failed: ${photoResult.error}`;
+        } else if (photoResult.publicUrl) {
+          setPendingItemPhotoFile(null);
+          setItemPhotoDraft(photoResult.publicUrl);
+          setItemForm((current) => ({ ...current, id: savedItem.id, photoUrl: photoResult.publicUrl || current.photoUrl }));
+        }
+      } else if (itemPhotoDraft.trim() && itemPhotoDraft.trim() !== itemForm.photoUrl && !itemPhotoDraft.trim().startsWith("data:")) {
         const photoError = await saveItemPhotoUrl(savedItem.id, itemPhotoDraft.trim(), itemForm.itemCode.trim() || "item-photo");
         if (photoError) photoMessage = ` Photo link failed: ${photoError}`;
+      } else if (itemPhotoDraft.trim().startsWith("data:")) {
+        photoMessage = " Photo preview was not uploaded. Choose the photo again and save.";
       }
       setItemFormOpen(false);
       await loadItems();
@@ -1700,35 +1805,36 @@ export default function InventoryModulePage() {
     return error?.message || "";
   }
 
-  async function handleItemPhotoFile(file?: File | null) {
-    if (!file) return;
-    if (!itemForm.id) {
-      setMessage("Save the inventory item first, then attach a product photo.");
-      return;
-    }
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("The selected photo could not be read."));
+      reader.readAsDataURL(file);
+    });
+  }
 
-    setSaving(true);
-    setMessage("");
+  async function uploadItemPhotoFile(itemId: string, file: File) {
+    if (!itemId) return { publicUrl: "", error: "Save the item first, then attach a product photo." };
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "item-photo.jpg";
-    const filePath = `inventory-items/${selectedInventoryYardId || "yard"}/${itemForm.id}/${file.lastModified}-${safeName}`;
-    const { error: uploadError } = await supabase.storage.from("ticket-attachments").upload(filePath, file, {
+    const fileStamp = `${file.lastModified || 0}-${file.size || 0}`;
+    const filePath = `inventory-items/${selectedInventoryYardId || "yard"}/${itemId}/${fileStamp}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from(inventoryItemPhotoBucket).upload(filePath, file, {
       upsert: true,
       contentType: file.type || "image/jpeg",
     });
 
     if (uploadError) {
-      setMessage(`Photo upload failed: ${uploadError.message}`);
-      setSaving(false);
-      return;
+      return { publicUrl: "", error: uploadError.message };
     }
 
-    const { data: publicUrlData } = supabase.storage.from("ticket-attachments").getPublicUrl(filePath);
+    const { data: publicUrlData } = supabase.storage.from(inventoryItemPhotoBucket).getPublicUrl(filePath);
     const publicUrl = publicUrlData.publicUrl;
     const { error: docError } = await supabase.from("inventory_documents").insert({
       ...(inventoryYardScopedTablesEnabled ? { yard_id: selectedInventoryYardId || null } : {}),
       linked_record_type: "item",
-      linked_record_id: itemForm.id,
+      linked_record_id: itemId,
       file_name: file.name || safeName,
       file_url: publicUrl,
       file_path: filePath,
@@ -1737,13 +1843,39 @@ export default function InventoryModulePage() {
     });
 
     if (docError) {
-      setMessage(`Photo uploaded, but item link failed: ${docError.message}`);
+      return { publicUrl, error: `item link failed: ${docError.message}` };
+    }
+
+    return { publicUrl, error: "" };
+  }
+
+  async function handleItemPhotoFile(file?: File | null) {
+    if (!file) return;
+    if (!itemForm.id) {
+      try {
+        const preview = await readFileAsDataUrl(file);
+        setPendingItemPhotoFile(file);
+        setItemPhotoDraft(preview);
+        setMessage("Product photo staged. Save the item to attach it.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "The selected photo could not be read.");
+      }
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    const photoResult = await uploadItemPhotoFile(itemForm.id, file);
+    if (photoResult.error) {
+      setMessage(`Photo upload failed: ${photoResult.error}`);
       setSaving(false);
       return;
     }
 
-    setItemPhotoDraft(publicUrl);
-    setItemForm((current) => ({ ...current, photoUrl: publicUrl }));
+    setPendingItemPhotoFile(null);
+    setItemPhotoDraft(photoResult.publicUrl);
+    setItemForm((current) => ({ ...current, photoUrl: photoResult.publicUrl }));
     await loadItems(selectedInventoryYardId);
     setMessage("Product photo saved.");
     setSaving(false);
@@ -1752,6 +1884,7 @@ export default function InventoryModulePage() {
   async function clearItemPhoto() {
     const targetId = itemForm.id || selectedItem?.id || "";
     setItemPhotoDraft("");
+    setPendingItemPhotoFile(null);
     setItemForm((current) => ({ ...current, photoUrl: "" }));
     if (!targetId) {
       setMessage("Photo cleared from the form.");
@@ -1759,6 +1892,12 @@ export default function InventoryModulePage() {
     }
 
     setSaving(true);
+    const { data: existingPhotoRows } = await supabase
+      .from("inventory_documents")
+      .select("file_path")
+      .eq("linked_record_type", "item")
+      .eq("linked_record_id", targetId);
+
     const deleteQuery = supabase
       .from("inventory_documents")
       .delete()
@@ -1768,6 +1907,12 @@ export default function InventoryModulePage() {
     if (error) {
       setMessage(`Photo clear failed: ${error.message}`);
     } else {
+      const photoPaths = (existingPhotoRows || [])
+        .map((row) => String(row.file_path || ""))
+        .filter((path) => path.startsWith("inventory-items/"));
+      if (photoPaths.length > 0) {
+        await supabase.storage.from(inventoryItemPhotoBucket).remove(photoPaths);
+      }
       await loadItems(selectedInventoryYardId);
       setMessage("Product photo cleared.");
     }
@@ -3272,7 +3417,7 @@ export default function InventoryModulePage() {
                   className="ci-input"
                   value={dashboardSearch}
                   onChange={(event) => setDashboardSearch(event.target.value)}
-                  placeholder="Search ticket, PO, item, vendor, crew..."
+                  placeholder="Search ticket, PO, lead, truck/unit, item, vendor..."
                 />
               </div>
               <div className="ci-field">
@@ -3353,7 +3498,7 @@ export default function InventoryModulePage() {
 
             <div className="card">
               <h2><span className="dot"></span>Spend breakdown<span className="ct">{dashboardPeriodLabel}</span></h2>
-              <div className="sec-label">Issued by cost center</div>
+              <div className="sec-label">Issued by truck / unit</div>
               <div className="ci-dash-bars">
                 {topIssuedUnits.length === 0 && <p className="muted-text">No issue ticket spend for this period.</p>}
                 {topIssuedUnits.slice(0, 4).map((unit) => (
@@ -4024,11 +4169,11 @@ export default function InventoryModulePage() {
                   onChange={(event) => handleItemPhotoFile(event.target.files?.[0])}
                 />
                 <div className="ci-actions">
-                  <button className="ci-btn" type="button" onClick={() => itemPhotoCameraRef.current?.click()} disabled={saving || !itemForm.id}>Take Photo</button>
-                  <button className="ci-btn" type="button" onClick={() => itemPhotoUploadRef.current?.click()} disabled={saving || !itemForm.id}>Upload Photo</button>
+                  <button className="ci-btn" type="button" onClick={() => itemPhotoCameraRef.current?.click()} disabled={saving}>Take Photo</button>
+                  <button className="ci-btn" type="button" onClick={() => itemPhotoUploadRef.current?.click()} disabled={saving}>Upload Photo</button>
                   <button className="ci-btn" type="button" onClick={clearItemPhoto} disabled={saving}>Clear Photo</button>
                 </div>
-                <div className="ci-sub">{itemPhotoDraft ? "This photo will appear in the Consumables Store and Item Master." : "No saved photo yet. The store will show a generated category tile until one is added."}</div>
+                <div className="ci-sub">{pendingItemPhotoFile ? "Photo staged. Save Item to attach it." : itemPhotoDraft ? "This photo will appear in the Consumables Store and Item Master." : "No saved photo yet. The store will show a generated category tile until one is added."}</div>
               </div>
             </div>
 
@@ -4069,7 +4214,7 @@ export default function InventoryModulePage() {
             <div className="card">
               <h2><span className="dot"></span>Inventory Items<span className="ct">{filteredItems.length.toLocaleString()} shown</span></h2>
               <div className="ci-toolbar item-master-toolbar">
-                <input className="ci-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, barcode, category..." />
+                <input className="ci-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU, item, barcode, bin, vendor..." />
                 <select className="ci-select" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
                   <option value="all">All Categories</option>
                   {categories.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -4350,9 +4495,26 @@ export default function InventoryModulePage() {
 
       {activeView === "tickets" && (
         <section className="ticket-card">
-          <h3>Issue Tickets</h3>
+          <div className="detail-title-row">
+            <div>
+              <h3>Issue Tickets</h3>
+              <p className="muted-text">{filteredTickets.length.toLocaleString()} of {tickets.length.toLocaleString()} tickets shown.</p>
+            </div>
+          </div>
+          <div className="ci-toolbar document-search-toolbar no-print">
+            <input
+              className="ci-input"
+              value={ticketSearch}
+              onChange={(event) => setTicketSearch(event.target.value)}
+              placeholder="Search lead, truck/unit, job, ticket, item..."
+            />
+            {ticketSearch && (
+              <button className="ci-btn mini" type="button" onClick={() => setTicketSearch("")}>Clear</button>
+            )}
+          </div>
           {tickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
-          {tickets.map((ticket) => {
+          {tickets.length > 0 && filteredTickets.length === 0 && <p className="muted-text">No issue tickets match that lookup.</p>}
+          {filteredTickets.map((ticket) => {
             const lines = linesForTicket(ticket);
             const expanded = expandedTicketId === ticket.id;
 
@@ -4408,8 +4570,19 @@ export default function InventoryModulePage() {
       {activeView === "documents" && (
         <section className="inventory-control-page no-print">
           <article className="card">
-            <h2><span className="dot"></span>Documents<span className="ct">{inventoryDocuments.length.toLocaleString()} recent</span></h2>
-            <div className="ci-sub">A single register for issue tickets, Consumables Store requests, and purchase orders. Click a document to open its detail screen.</div>
+            <h2><span className="dot"></span>Documents<span className="ct">{filteredInventoryDocuments.length.toLocaleString()} of {inventoryDocuments.length.toLocaleString()}</span></h2>
+            <div className="ci-sub">A single register for issue tickets, Consumables Store requests, and purchase orders. Search by lead, truck/unit, item, vendor, or document number.</div>
+            <div className="ci-toolbar document-search-toolbar">
+              <input
+                className="ci-input"
+                value={documentSearch}
+                onChange={(event) => setDocumentSearch(event.target.value)}
+                placeholder="Search documents by lead, truck/unit, item, vendor..."
+              />
+              {documentSearch && (
+                <button className="ci-btn mini" type="button" onClick={() => setDocumentSearch("")}>Clear</button>
+              )}
+            </div>
             <div className="ci-table-wrap document-register-wrap">
               <table className="dt document-register-table">
                 <thead>
@@ -4426,7 +4599,8 @@ export default function InventoryModulePage() {
                 </thead>
                 <tbody>
                   {inventoryDocuments.length === 0 && <tr><td colSpan={8}>No inventory documents found.</td></tr>}
-                  {inventoryDocuments.map((document) => (
+                  {inventoryDocuments.length > 0 && filteredInventoryDocuments.length === 0 && <tr><td colSpan={8}>No documents match that lookup.</td></tr>}
+                  {filteredInventoryDocuments.map((document) => (
                     <tr className="click-row" key={document.id} onClick={() => openInventoryDocument(document)}>
                       <td>{document.date || "-"}</td>
                       <td><b>{document.number}</b><div className="ci-sub">{document.id}</div></td>
