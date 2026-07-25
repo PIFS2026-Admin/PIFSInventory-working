@@ -98,7 +98,7 @@ type IssueTicketLine = {
   pickedBy: string;
 };
 
-type HistoryTrendMode = "lead" | "unitTruck";
+type HistoryTrendMode = "lead" | "unitTruck" | "item";
 
 type ConsumablesHistoryReportLine = {
   ticketId: string;
@@ -597,6 +597,8 @@ export default function InventoryModulePage() {
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>("week");
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [ticketSearch, setTicketSearch] = useState("");
+  const [historyDateStart, setHistoryDateStart] = useState("");
+  const [historyDateEnd, setHistoryDateEnd] = useState("");
   const [historyTrendMode, setHistoryTrendMode] = useState<HistoryTrendMode>("lead");
   const [documentSearch, setDocumentSearch] = useState("");
   const [dashboardDepartment, setDashboardDepartment] = useState("all");
@@ -1077,9 +1079,22 @@ export default function InventoryModulePage() {
     return [...poDocs, ...issueDocs, ...requestDocs]
       .sort((left, right) => String(right.date || "").localeCompare(String(left.date || "")));
   }, [orders, orderLines, purchaseOrderLineCounts, purchaseOrderLines, purchaseOrders, tickets, ticketLines]);
+  const historyDateRange = useMemo(() => {
+    const start = historyDateStart ? dateOnly(historyDateStart) || new Date(0) : new Date(0);
+    const end = historyDateEnd ? dateOnly(historyDateEnd) || new Date(8640000000000000) : new Date(8640000000000000);
+    if (historyDateEnd) end.setDate(end.getDate() + 1);
+    return { start, end };
+  }, [historyDateEnd, historyDateStart]);
+  const historyDateRangeLabel = useMemo(() => {
+    if (!historyDateStart && !historyDateEnd) return "All dates";
+    return `${historyDateStart || "First record"} to ${historyDateEnd || "Latest record"}`;
+  }, [historyDateEnd, historyDateStart]);
   const filteredTickets = useMemo(() => {
     const term = ticketSearch.trim();
     return tickets.filter((ticket) => {
+      if ((historyDateStart || historyDateEnd) && !dateInRange(ticket.issueDate, historyDateRange.start, historyDateRange.end)) {
+        return false;
+      }
       if (!term) return true;
       const lines = linesForTicket(ticket);
       return valuesMatchLookup(
@@ -1110,7 +1125,7 @@ export default function InventoryModulePage() {
         term,
       );
     });
-  }, [itemByCode, itemById, ticketLines, ticketSearch, tickets]);
+  }, [historyDateEnd, historyDateRange.end, historyDateRange.start, historyDateStart, itemByCode, itemById, ticketLines, ticketSearch, tickets]);
   const historyReportRows = useMemo<ConsumablesHistoryReportLine[]>(() => {
     return filteredTickets.flatMap((ticket) => {
       const lines = linesForTicket(ticket);
@@ -1172,7 +1187,12 @@ export default function InventoryModulePage() {
     const totals = new Map<string, { label: string; qty: number; value: number; tickets: Set<string>; lines: number; lastIssueDate: string }>();
 
     historyReportRows.forEach((row) => {
-      const label = historyTrendMode === "lead" ? row.lead || "Unassigned lead" : row.unitTruck || "No unit / truck listed";
+      const label =
+        historyTrendMode === "lead"
+          ? row.lead || "Unassigned lead"
+          : historyTrendMode === "unitTruck"
+            ? row.unitTruck || "No unit / truck listed"
+            : `${row.itemCode || ""} ${row.itemName || ""}`.trim() || "Unknown item";
       const current = totals.get(label) || {
         label,
         qty: 0,
@@ -3278,7 +3298,7 @@ export default function InventoryModulePage() {
 
   function consumablesHistoryReportHtml(rows: ConsumablesHistoryReportLine[], trends: ConsumablesHistoryTrendRow[]) {
     const lookup = ticketSearch.trim() || "All issue tickets";
-    const trendLabel = historyTrendMode === "lead" ? "Lead / issued to" : "Truck / unit";
+    const trendLabel = historyTrendMode === "lead" ? "Lead / issued to" : historyTrendMode === "unitTruck" ? "Truck / unit" : "Item";
 
     return `<!doctype html>
       <html>
@@ -3325,7 +3345,7 @@ export default function InventoryModulePage() {
                 <img src="/titan_logo.jpg" alt="TITAN" />
                 <div>
                   <h1>Consumables History Report</h1>
-                  <div class="meta">Lookup: ${htmlEscape(lookup)} &bull; Trend: ${htmlEscape(trendLabel)}</div>
+                  <div class="meta">Lookup: ${htmlEscape(lookup)} &bull; Date Range: ${htmlEscape(historyDateRangeLabel)} &bull; Trend: ${htmlEscape(trendLabel)}</div>
                 </div>
               </div>
               <div class="company">
@@ -3403,7 +3423,9 @@ export default function InventoryModulePage() {
   }
 
   function exportConsumablesHistoryReport() {
-    const fileToken = normalizeLookupText(ticketSearch) || "all";
+    const fileToken = [normalizeLookupText(ticketSearch) || "all", historyDateStart || "first", historyDateEnd || "latest"]
+      .filter(Boolean)
+      .join("-");
     downloadCsv(
       `consumables-history-${fileToken}.csv`,
       ["Date", "Ticket", "Lead / Issued To", "Truck / Unit", "Issued To", "Department", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
@@ -4796,16 +4818,46 @@ export default function InventoryModulePage() {
               </button>
             </div>
           </div>
-          <div className="ci-toolbar document-search-toolbar no-print">
-            <input
-              className="ci-input"
-              value={ticketSearch}
-              onChange={(event) => setTicketSearch(event.target.value)}
-              placeholder="Search lead, truck/unit, job, ticket, item..."
-            />
-            {ticketSearch && (
-              <button className="ci-btn mini" type="button" onClick={() => setTicketSearch("")}>Clear</button>
-            )}
+          <div className="history-report-controls no-print">
+            <label>
+              Lookup
+              <input
+                className="ci-input"
+                value={ticketSearch}
+                onChange={(event) => setTicketSearch(event.target.value)}
+                placeholder="Search lead, truck/unit, job, ticket, item..."
+              />
+            </label>
+            <label>
+              Start Date
+              <input
+                className="ci-input"
+                type="date"
+                value={historyDateStart}
+                onChange={(event) => setHistoryDateStart(event.target.value)}
+              />
+            </label>
+            <label>
+              End Date
+              <input
+                className="ci-input"
+                type="date"
+                value={historyDateEnd}
+                onChange={(event) => setHistoryDateEnd(event.target.value)}
+              />
+            </label>
+            <button
+              className="mini-button"
+              type="button"
+              onClick={() => {
+                setTicketSearch("");
+                setHistoryDateStart("");
+                setHistoryDateEnd("");
+              }}
+              disabled={!ticketSearch && !historyDateStart && !historyDateEnd}
+            >
+              Clear Filters
+            </button>
           </div>
           <div className="ci-microgrid no-print">
             <div className="ci-micro"><div className="lab">Tickets</div><div className="val">{historyReportTotals.tickets.toLocaleString()}</div></div>
@@ -4816,7 +4868,7 @@ export default function InventoryModulePage() {
             <div className="detail-title-row">
               <div>
                 <h2><span className="dot"></span>Consumables Spend Trends<span className="ct">{historyTrendRows.length.toLocaleString()} ranked</span></h2>
-                <div className="ci-sub">Search a lead, person, truck/unit, job, or item above. This report ranks spending from the matching issue-ticket history.</div>
+                <div className="ci-sub">Search a lead, truck/unit, job, or item above. Date range: {historyDateRangeLabel}. This report ranks spending from the matching issue-ticket history.</div>
               </div>
               <select
                 className="ci-select"
@@ -4825,6 +4877,7 @@ export default function InventoryModulePage() {
               >
                 <option value="lead">By lead / issued to</option>
                 <option value="unitTruck">By truck / unit</option>
+                <option value="item">By item</option>
               </select>
             </div>
             {historyTrendRows.length === 0 ? (
@@ -4834,7 +4887,7 @@ export default function InventoryModulePage() {
                 <table className="dt">
                   <thead>
                     <tr>
-                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : "Truck / Unit"}</th>
+                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : historyTrendMode === "unitTruck" ? "Truck / Unit" : "Item"}</th>
                       <th>Last Issue</th>
                       <th className="num">Tickets</th>
                       <th className="num">Units</th>
