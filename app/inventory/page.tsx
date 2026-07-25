@@ -98,6 +98,37 @@ type IssueTicketLine = {
   pickedBy: string;
 };
 
+type HistoryTrendMode = "lead" | "unitTruck";
+
+type ConsumablesHistoryReportLine = {
+  ticketId: string;
+  ticketNumber: string;
+  issueDate: string;
+  issuedTo: string;
+  department: string;
+  lead: string;
+  unitTruck: string;
+  jobNumber: string;
+  status: string;
+  itemCode: string;
+  itemName: string;
+  category: string;
+  vendor: string;
+  qty: number;
+  unitCost: number;
+  amount: number;
+  notes: string;
+};
+
+type ConsumablesHistoryTrendRow = {
+  label: string;
+  qty: number;
+  value: number;
+  tickets: number;
+  lines: number;
+  lastIssueDate: string;
+};
+
 type IssueTicketLineRow = {
   id: string;
   issue_ticket_id?: string | null;
@@ -390,6 +421,15 @@ function money(value: number) {
   return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
+function htmlEscape(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function normalizeLookupText(value: unknown) {
   return String(value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "");
 }
@@ -557,6 +597,7 @@ export default function InventoryModulePage() {
   const [dashboardPeriod, setDashboardPeriod] = useState<DashboardPeriod>("week");
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [ticketSearch, setTicketSearch] = useState("");
+  const [historyTrendMode, setHistoryTrendMode] = useState<HistoryTrendMode>("lead");
   const [documentSearch, setDocumentSearch] = useState("");
   const [dashboardDepartment, setDashboardDepartment] = useState("all");
   const [dashboardCategory, setDashboardCategory] = useState("all");
@@ -1070,6 +1111,100 @@ export default function InventoryModulePage() {
       );
     });
   }, [itemByCode, itemById, ticketLines, ticketSearch, tickets]);
+  const historyReportRows = useMemo<ConsumablesHistoryReportLine[]>(() => {
+    return filteredTickets.flatMap((ticket) => {
+      const lines = linesForTicket(ticket);
+      const base = {
+        ticketId: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        issueDate: ticket.issueDate,
+        issuedTo: ticket.issuedTo,
+        department: ticket.department,
+        lead: ticket.pickedBy || "Unassigned lead",
+        unitTruck: ticket.unitTruck || "No unit / truck listed",
+        jobNumber: ticket.jobNumber,
+        status: ticket.status || "Issued",
+        notes: ticket.notes,
+      };
+
+      if (lines.length === 0) {
+        return [{
+          ...base,
+          itemCode: "",
+          itemName: "No line items found",
+          category: "",
+          vendor: "",
+          qty: 0,
+          unitCost: 0,
+          amount: Number(ticket.totalValue || 0),
+        }];
+      }
+
+      return lines.map((line) => {
+        const item = itemById.get(line.itemId) || itemByCode.get(line.itemCode);
+        const qty = Number(line.qtyIssued || 0);
+        const unitCost = Number(line.unitCost || 0);
+        const amount = Number(line.lineValue || qty * unitCost || 0);
+
+        return {
+          ...base,
+          department: line.department || ticket.department,
+          lead: line.pickedBy || ticket.pickedBy || "Unassigned lead",
+          unitTruck: line.unitTruck || ticket.unitTruck || "No unit / truck listed",
+          itemCode: line.itemCode || item?.itemCode || "",
+          itemName: line.itemName || item?.itemName || "",
+          category: item?.category || "",
+          vendor: item?.vendorName || "",
+          qty,
+          unitCost,
+          amount,
+        };
+      });
+    });
+  }, [filteredTickets, itemByCode, itemById, ticketLines]);
+  const historyReportTotals = useMemo(() => ({
+    tickets: filteredTickets.length,
+    lines: historyReportRows.filter((row) => row.itemName !== "No line items found").length,
+    qty: historyReportRows.reduce((sum, row) => sum + row.qty, 0),
+    value: historyReportRows.reduce((sum, row) => sum + row.amount, 0),
+  }), [filteredTickets.length, historyReportRows]);
+  const historyTrendRows = useMemo<ConsumablesHistoryTrendRow[]>(() => {
+    const totals = new Map<string, { label: string; qty: number; value: number; tickets: Set<string>; lines: number; lastIssueDate: string }>();
+
+    historyReportRows.forEach((row) => {
+      const label = historyTrendMode === "lead" ? row.lead || "Unassigned lead" : row.unitTruck || "No unit / truck listed";
+      const current = totals.get(label) || {
+        label,
+        qty: 0,
+        value: 0,
+        tickets: new Set<string>(),
+        lines: 0,
+        lastIssueDate: "",
+      };
+      current.qty += row.qty;
+      current.value += row.amount;
+      current.lines += row.itemName === "No line items found" ? 0 : 1;
+      current.tickets.add(row.ticketNumber || row.ticketId);
+      if (row.issueDate && row.issueDate > current.lastIssueDate) current.lastIssueDate = row.issueDate;
+      totals.set(label, current);
+    });
+
+    return Array.from(totals.values())
+      .map((row) => ({
+        label: row.label,
+        qty: row.qty,
+        value: row.value,
+        tickets: row.tickets.size,
+        lines: row.lines,
+        lastIssueDate: row.lastIssueDate,
+      }))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 12);
+  }, [historyReportRows, historyTrendMode]);
+  const historyTrendMaxValue = useMemo(
+    () => Math.max(1, ...historyTrendRows.map((row) => row.value)),
+    [historyTrendRows],
+  );
   const filteredInventoryDocuments = useMemo(() => {
     const term = documentSearch.trim();
     return inventoryDocuments.filter((document) =>
@@ -3141,6 +3276,158 @@ export default function InventoryModulePage() {
     return ticketLines.filter((line) => line.issueTicketId === ticket.id || line.ticketNumber === ticket.ticketNumber);
   }
 
+  function consumablesHistoryReportHtml(rows: ConsumablesHistoryReportLine[], trends: ConsumablesHistoryTrendRow[]) {
+    const lookup = ticketSearch.trim() || "All issue tickets";
+    const trendLabel = historyTrendMode === "lead" ? "Lead / person" : "Truck / unit";
+
+    return `<!doctype html>
+      <html>
+        <head>
+          <title>Consumables History Report</title>
+          <style>
+            @page { size: letter landscape; margin: 0.35in; }
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; background: #fff; }
+            .sheet { max-width: 1280px; margin: 0 auto; }
+            .top { display: flex; justify-content: space-between; gap: 24px; border-bottom: 3px solid #f97316; padding-bottom: 14px; margin-bottom: 16px; }
+            .brand { display: flex; align-items: center; gap: 14px; }
+            .brand img { width: 140px; max-height: 72px; object-fit: contain; }
+            h1 { margin: 0 0 4px; font-size: 26px; }
+            h2 { margin: 0 0 10px; font-size: 17px; }
+            h3 { margin: 18px 0 8px; font-size: 16px; }
+            .company { text-align: right; font-size: 12px; line-height: 1.35; }
+            .meta { color: #475569; font-size: 12px; font-weight: 700; }
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #cbd5e1; margin: 12px 0; }
+            .cell { border-right: 1px solid #cbd5e1; padding: 10px; min-height: 58px; }
+            .cell:last-child { border-right: 0; }
+            .label { display: block; color: #64748b; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; }
+            .value { display: block; margin-top: 4px; font-size: 17px; font-weight: 900; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+            th { background: #111827; color: #fff; text-align: left; padding: 7px; border: 1px solid #111827; }
+            td { border: 1px solid #cbd5e1; padding: 7px; vertical-align: top; }
+            .num { text-align: right; white-space: nowrap; }
+            .trend-table td:first-child { font-weight: 800; }
+            .print-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 12px auto; max-width: 1280px; }
+            .print-actions button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+            .primary { background: #f97316; color: #111827; }
+            .secondary { background: #111827; color: #fff; }
+            @media print { .print-actions { display: none; } body { background: #fff; } }
+          </style>
+        </head>
+        <body>
+          <div class="print-actions">
+            <button class="secondary" onclick="window.close()">Close</button>
+            <button class="primary" onclick="window.print()">Print / Save PDF</button>
+          </div>
+          <main class="sheet">
+            <section class="top">
+              <div class="brand">
+                <img src="/titan_logo.jpg" alt="TITAN" />
+                <div>
+                  <h1>Consumables History Report</h1>
+                  <div class="meta">Lookup: ${htmlEscape(lookup)} &bull; Trend: ${htmlEscape(trendLabel)}</div>
+                </div>
+              </div>
+              <div class="company">
+                <strong>Pathfinder Inspections &amp; Field Services</strong><br />
+                7501 Groening St.<br />
+                Odessa, TX 79765<br />
+                (432) 233-3600<br />
+                pifstitan.com
+              </div>
+            </section>
+            <section class="grid">
+              <div class="cell"><span class="label">Issue Tickets</span><span class="value">${historyReportTotals.tickets.toLocaleString()}</span></div>
+              <div class="cell"><span class="label">Line Items</span><span class="value">${historyReportTotals.lines.toLocaleString()}</span></div>
+              <div class="cell"><span class="label">Units Issued</span><span class="value">${historyReportTotals.qty.toLocaleString()}</span></div>
+              <div class="cell"><span class="label">Issued Spend</span><span class="value">${money(historyReportTotals.value)}</span></div>
+            </section>
+            <h2>Top Consumables Spend by ${htmlEscape(trendLabel)}</h2>
+            <table class="trend-table">
+              <thead>
+                <tr><th>${htmlEscape(trendLabel)}</th><th class="num">Spend</th><th class="num">Units</th><th class="num">Tickets</th><th class="num">Lines</th><th>Last Issue</th></tr>
+              </thead>
+              <tbody>
+                ${trends.length === 0 ? `<tr><td colspan="6">No trend data found.</td></tr>` : trends
+                  .map(
+                    (row) => `<tr>
+                      <td>${htmlEscape(row.label)}</td>
+                      <td class="num">${money(row.value)}</td>
+                      <td class="num">${row.qty.toLocaleString()}</td>
+                      <td class="num">${row.tickets.toLocaleString()}</td>
+                      <td class="num">${row.lines.toLocaleString()}</td>
+                      <td>${htmlEscape(row.lastIssueDate || "-")}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+            <h3>Issue Detail</h3>
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Ticket</th><th>Lead / Person</th><th>Truck / Unit</th><th>Issued To</th><th>Job</th><th>Item</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Spend</th></tr>
+              </thead>
+              <tbody>
+                ${rows.length === 0 ? `<tr><td colspan="11">No issue history matched this report.</td></tr>` : rows
+                  .map(
+                    (row) => `<tr>
+                      <td>${htmlEscape(row.issueDate || "-")}</td>
+                      <td>${htmlEscape(row.ticketNumber || "-")}</td>
+                      <td>${htmlEscape(row.lead || "-")}</td>
+                      <td>${htmlEscape(row.unitTruck || "-")}</td>
+                      <td>${htmlEscape(row.issuedTo || "-")}</td>
+                      <td>${htmlEscape(row.jobNumber || "-")}</td>
+                      <td><strong>${htmlEscape(row.itemCode || "-")}</strong><br />${htmlEscape(row.itemName || "-")}</td>
+                      <td>${htmlEscape(row.category || "-")}</td>
+                      <td class="num">${row.qty.toLocaleString()}</td>
+                      <td class="num">${money(row.unitCost)}</td>
+                      <td class="num">${money(row.amount)}</td>
+                    </tr>`,
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </main>
+        </body>
+      </html>`;
+  }
+
+  function printConsumablesHistoryReport() {
+    const printWindow = window.open("", "_blank", "width=1280,height=900");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the history report.");
+      return;
+    }
+    printWindow.document.write(consumablesHistoryReportHtml(historyReportRows, historyTrendRows));
+    printWindow.document.close();
+  }
+
+  function exportConsumablesHistoryReport() {
+    const fileToken = normalizeLookupText(ticketSearch) || "all";
+    downloadCsv(
+      `consumables-history-${fileToken}.csv`,
+      ["Date", "Ticket", "Lead / Person", "Truck / Unit", "Issued To", "Department", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
+      historyReportRows.map((row) => [
+        row.issueDate,
+        row.ticketNumber,
+        row.lead,
+        row.unitTruck,
+        row.issuedTo,
+        row.department,
+        row.jobNumber,
+        row.itemCode,
+        row.itemName,
+        row.category,
+        row.vendor,
+        row.qty,
+        row.unitCost,
+        row.amount,
+        row.status,
+        row.notes,
+      ]),
+    );
+  }
+
   function issueTicketHtml(ticket: IssueTicket, lines: IssueTicketLine[]) {
     const totalQty = lines.reduce((sum, line) => sum + line.qtyIssued, 0);
     const totalValue = lines.reduce((sum, line) => sum + line.lineValue, 0);
@@ -4500,6 +4787,14 @@ export default function InventoryModulePage() {
               <h3>Issue Tickets</h3>
               <p className="muted-text">{filteredTickets.length.toLocaleString()} of {tickets.length.toLocaleString()} tickets shown.</p>
             </div>
+            <div className="document-actions no-print">
+              <button className="mini-button" type="button" onClick={printConsumablesHistoryReport} disabled={historyReportRows.length === 0}>
+                Print Report
+              </button>
+              <button className="mini-button" type="button" onClick={exportConsumablesHistoryReport} disabled={historyReportRows.length === 0}>
+                Export Report CSV
+              </button>
+            </div>
           </div>
           <div className="ci-toolbar document-search-toolbar no-print">
             <input
@@ -4512,6 +4807,60 @@ export default function InventoryModulePage() {
               <button className="ci-btn mini" type="button" onClick={() => setTicketSearch("")}>Clear</button>
             )}
           </div>
+          <div className="ci-microgrid no-print">
+            <div className="ci-micro"><div className="lab">Tickets</div><div className="val">{historyReportTotals.tickets.toLocaleString()}</div></div>
+            <div className="ci-micro"><div className="lab">Units Issued</div><div className="val">{historyReportTotals.qty.toLocaleString()}</div></div>
+            <div className="ci-micro"><div className="lab">Issued Spend</div><div className="val">{money(historyReportTotals.value)}</div></div>
+          </div>
+          <article className="card no-print">
+            <div className="detail-title-row">
+              <div>
+                <h2><span className="dot"></span>Consumables Spend Trends<span className="ct">{historyTrendRows.length.toLocaleString()} ranked</span></h2>
+                <div className="ci-sub">Search a lead, person, truck/unit, job, or item above. This report ranks spending from the matching issue-ticket history.</div>
+              </div>
+              <select
+                className="ci-select"
+                value={historyTrendMode}
+                onChange={(event) => setHistoryTrendMode(event.target.value as HistoryTrendMode)}
+              >
+                <option value="lead">By lead / person</option>
+                <option value="unitTruck">By truck / unit</option>
+              </select>
+            </div>
+            {historyTrendRows.length === 0 ? (
+              <p className="muted-text">No spending trend data found for this lookup.</p>
+            ) : (
+              <div className="ci-table-wrap compact-table-wrap">
+                <table className="dt">
+                  <thead>
+                    <tr>
+                      <th>{historyTrendMode === "lead" ? "Lead / Person" : "Truck / Unit"}</th>
+                      <th>Last Issue</th>
+                      <th className="num">Tickets</th>
+                      <th className="num">Units</th>
+                      <th className="num">Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyTrendRows.map((row) => (
+                      <tr key={row.label}>
+                        <td>
+                          <b>{row.label}</b>
+                          <div className="history-trend-meter" aria-hidden="true">
+                            <span style={{ width: `${(row.value / historyTrendMaxValue) * 100}%` }} />
+                          </div>
+                        </td>
+                        <td>{row.lastIssueDate || "-"}</td>
+                        <td className="mono num">{row.tickets.toLocaleString()}</td>
+                        <td className="mono num">{row.qty.toLocaleString()}</td>
+                        <td className="mono num">{money(row.value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </article>
           {tickets.length === 0 && <p className="muted-text">No issue tickets found.</p>}
           {tickets.length > 0 && filteredTickets.length === 0 && <p className="muted-text">No issue tickets match that lookup.</p>}
           {filteredTickets.map((ticket) => {

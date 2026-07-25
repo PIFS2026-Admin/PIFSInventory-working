@@ -41,6 +41,22 @@
   overflow-wrap: anywhere;
 }
 
+.inventoryPolish :global(.history-trend-meter) {
+  width: min(360px, 100%);
+  height: 5px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.inventoryPolish :global(.history-trend-meter span) {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f97316, #fed7aa);
+}
+
 @media (max-width: 640px) {
   .inventoryPolish {
     --inventory-thumb-size: 46px;
