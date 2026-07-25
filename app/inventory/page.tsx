@@ -858,7 +858,7 @@ export default function InventoryModulePage() {
           vendor: item?.vendorName || "",
           costCenter: line.department || ticket?.department || "",
           party: ticket?.issuedTo || "",
-          lead: line.pickedBy || ticket?.pickedBy || "",
+          lead: ticket?.issuedTo || "",
           unitTruck: line.unitTruck || ticket?.unitTruck || "",
           jobNumber: ticket?.jobNumber || "",
           qty: line.qtyIssued,
@@ -1120,7 +1120,7 @@ export default function InventoryModulePage() {
         issueDate: ticket.issueDate,
         issuedTo: ticket.issuedTo,
         department: ticket.department,
-        lead: ticket.pickedBy || "Unassigned lead",
+        lead: ticket.issuedTo || "Unassigned lead",
         unitTruck: ticket.unitTruck || "No unit / truck listed",
         jobNumber: ticket.jobNumber,
         status: ticket.status || "Issued",
@@ -1149,7 +1149,7 @@ export default function InventoryModulePage() {
         return {
           ...base,
           department: line.department || ticket.department,
-          lead: line.pickedBy || ticket.pickedBy || "Unassigned lead",
+          lead: ticket.issuedTo || "Unassigned lead",
           unitTruck: line.unitTruck || ticket.unitTruck || "No unit / truck listed",
           itemCode: line.itemCode || item?.itemCode || "",
           itemName: line.itemName || item?.itemName || "",
@@ -3278,7 +3278,7 @@ export default function InventoryModulePage() {
 
   function consumablesHistoryReportHtml(rows: ConsumablesHistoryReportLine[], trends: ConsumablesHistoryTrendRow[]) {
     const lookup = ticketSearch.trim() || "All issue tickets";
-    const trendLabel = historyTrendMode === "lead" ? "Lead / person" : "Truck / unit";
+    const trendLabel = historyTrendMode === "lead" ? "Lead / issued to" : "Truck / unit";
 
     return `<!doctype html>
       <html>
@@ -3365,7 +3365,7 @@ export default function InventoryModulePage() {
             <h3>Issue Detail</h3>
             <table>
               <thead>
-                <tr><th>Date</th><th>Ticket</th><th>Lead / Person</th><th>Truck / Unit</th><th>Issued To</th><th>Job</th><th>Item</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Spend</th></tr>
+                <tr><th>Date</th><th>Ticket</th><th>Lead / Issued To</th><th>Truck / Unit</th><th>Issued To</th><th>Job</th><th>Item</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Spend</th></tr>
               </thead>
               <tbody>
                 ${rows.length === 0 ? `<tr><td colspan="11">No issue history matched this report.</td></tr>` : rows
@@ -3406,7 +3406,7 @@ export default function InventoryModulePage() {
     const fileToken = normalizeLookupText(ticketSearch) || "all";
     downloadCsv(
       `consumables-history-${fileToken}.csv`,
-      ["Date", "Ticket", "Lead / Person", "Truck / Unit", "Issued To", "Department", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
+      ["Date", "Ticket", "Lead / Issued To", "Truck / Unit", "Issued To", "Department", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
       historyReportRows.map((row) => [
         row.issueDate,
         row.ticketNumber,
@@ -4823,7 +4823,7 @@ export default function InventoryModulePage() {
                 value={historyTrendMode}
                 onChange={(event) => setHistoryTrendMode(event.target.value as HistoryTrendMode)}
               >
-                <option value="lead">By lead / person</option>
+                <option value="lead">By lead / issued to</option>
                 <option value="unitTruck">By truck / unit</option>
               </select>
             </div>
@@ -4834,7 +4834,7 @@ export default function InventoryModulePage() {
                 <table className="dt">
                   <thead>
                     <tr>
-                      <th>{historyTrendMode === "lead" ? "Lead / Person" : "Truck / Unit"}</th>
+                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : "Truck / Unit"}</th>
                       <th>Last Issue</th>
                       <th className="num">Tickets</th>
                       <th className="num">Units</th>
