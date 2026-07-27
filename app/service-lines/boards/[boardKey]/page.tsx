@@ -27,6 +27,7 @@ import {
   serviceLineBoardTagColors,
   serviceLineBoardConfigs,
 } from "../../../../lib/serviceLineBoards";
+import type { CSSProperties } from "react";
 import styles from "./service-line-board.module.css";
 
 type PageProps = {
@@ -149,6 +150,10 @@ type ServiceLineAssignmentOption = {
   label: string;
 };
 
+type ServiceLineCardStyle = CSSProperties & {
+  "--card-service-line-color": string;
+};
+
 type CardForm = {
   columnId: string;
   title: string;
@@ -176,13 +181,13 @@ const emptyCardForm: CardForm = {
 type ColumnForm = {
   title: string;
   description: string;
-  color: string;
+  serviceLineKey: string;
 };
 
 const emptyColumnForm: ColumnForm = {
   title: "",
   description: "",
-  color: "#fb923c",
+  serviceLineKey: "dti",
 };
 
 const priorityOptions: BoardCard["priority"][] = ["Low", "Normal", "High", "Critical"];
@@ -194,6 +199,17 @@ const serviceLineAssignmentOptions: ServiceLineAssignmentOption[] = [
   { key: "tubing", label: "Tubing" },
   { key: "hotshot", label: "Hotshot" },
 ];
+
+const serviceLineCardColors: Record<string, string> = {
+  dti: "#ef4444",
+  cdt: "#0094ff",
+  hardbanding: "#f97316",
+  hardband: "#f97316",
+  hb: "#f97316",
+  tubing: "#7dd3fc",
+};
+
+const fallbackServiceLineColors = ["#22c55e", "#a855f7", "#facc15", "#ec4899", "#14b8a6", "#f59e0b", "#8b5cf6"];
 
 const quickLaneDefinitions: QuickLaneDefinition[] = [
   {
@@ -279,6 +295,25 @@ function serviceLineAssignmentKey(value: string | null | undefined) {
 
 function serviceLineAssignmentLabel(value: string | null | undefined) {
   return getServiceLineAssignment(value)?.label ?? "";
+}
+
+function stableColorIndex(value: string) {
+  return Array.from(value || "other").reduce((total, char) => total + char.charCodeAt(0), 0) % fallbackServiceLineColors.length;
+}
+
+function serviceLineColor(value: string | null | undefined) {
+  const normalized = normalizeLaneMatch(value ?? "");
+  if (!normalized) return fallbackServiceLineColors[0];
+  return serviceLineCardColors[normalized] ?? fallbackServiceLineColors[stableColorIndex(normalized)];
+}
+
+function serviceLineKeyFromColor(color: string | null | undefined) {
+  const normalizedColor = normalizeSearch(color ?? "");
+  return serviceLineAssignmentOptions.find((option) => normalizeSearch(serviceLineColor(option.key)) === normalizedColor)?.key ?? "hotshot";
+}
+
+function cardServiceLineColor(card: BoardCard) {
+  return serviceLineColor(card.assignedToName || card.tags.find(Boolean) || card.customerName || card.title);
 }
 
 function normalizeLaneMatch(value: string) {
@@ -591,6 +626,10 @@ function SortableBoardCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const style = transform ? { transform: CSS.Translate.toString(transform), transition } : { transition };
+  const cardStyle: ServiceLineCardStyle = {
+    ...style,
+    "--card-service-line-color": cardServiceLineColor(card),
+  };
   const cardActions = [
     ...(canSendToBullpen ? [{ key: "bullpen", title: "Send to Bullpen", action: onSendToBullpen }] : []),
     ...quickLaneActions.map((lane) => ({ key: lane.key, title: lane.title, action: () => onSendToQuickLane(lane) })),
@@ -628,7 +667,7 @@ function SortableBoardCard({
     <article
       ref={setNodeRef}
       className={`${styles.card} ${selected ? styles.cardSelected : ""} ${menuOpen ? styles.cardMenuOpen : ""} ${isDragging ? styles.cardDragging : ""}`}
-      style={style}
+      style={cardStyle}
       onPointerLeave={() => setMenuOpen(false)}
       {...listeners}
       {...attributes}
@@ -1133,7 +1172,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       column_key: key,
       title: newColumnForm.title.trim(),
       description: newColumnForm.description.trim() || "Custom operations lane.",
-      color: newColumnForm.color || "#fb923c",
+      color: serviceLineColor(newColumnForm.serviceLineKey || newColumnForm.title),
       sort_order: nextSort,
       active: true,
     };
@@ -1188,7 +1227,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     setEditColumnForm({
       title: column.title,
       description: column.description,
-      color: column.color || "#fb923c",
+      serviceLineKey: serviceLineKeyFromColor(column.color) || serviceLineAssignmentKey(column.title) || "hotshot",
     });
     setShowNewColumn(false);
     setShowNewCard(false);
@@ -1206,7 +1245,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const patch = {
       title: editColumnForm.title.trim(),
       description: editColumnForm.description.trim() || "Custom operations lane.",
-      color: editColumnForm.color || "#fb923c",
+      color: serviceLineColor(editColumnForm.serviceLineKey || editColumnForm.title),
     };
 
     if (!schemaReady) {
@@ -1309,6 +1348,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       setMessage("Card title is required.");
       return;
     }
+    rememberDeckScroll();
 
     const patch = cardPatchFromForm(cardForm);
 
@@ -1346,7 +1386,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     }
 
     await logActivity(selectedCard.id, "updated_card", { title: selectedCard.title }, { title: patch.title });
-    await loadBoard();
+    await loadBoard({ showLoading: false, preserveDeckScroll: true });
     setMessage("Card saved.");
   }
 
@@ -1746,12 +1786,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               />
             </label>
             <label>
-              Color
-              <input
-                type="color"
-                value={newColumnForm.color}
-                onChange={(event) => setNewColumnForm({ ...newColumnForm, color: event.target.value })}
-              />
+              Service line
+              <select value={newColumnForm.serviceLineKey} onChange={(event) => setNewColumnForm({ ...newColumnForm, serviceLineKey: event.target.value })}>
+                {serviceLineAssignmentOptions.map((serviceLine) => (
+                  <option key={serviceLine.key} value={serviceLine.key}>
+                    {serviceLine.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className={styles.fullField}>
               Description
@@ -1789,12 +1831,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               />
             </label>
             <label>
-              Color
-              <input
-                type="color"
-                value={editColumnForm.color}
-                onChange={(event) => setEditColumnForm({ ...editColumnForm, color: event.target.value })}
-              />
+              Service line
+              <select value={editColumnForm.serviceLineKey} onChange={(event) => setEditColumnForm({ ...editColumnForm, serviceLineKey: event.target.value })}>
+                {serviceLineAssignmentOptions.map((serviceLine) => (
+                  <option key={serviceLine.key} value={serviceLine.key}>
+                    {serviceLine.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className={styles.fullField}>
               Description
@@ -1932,7 +1976,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         </section>
         <DragOverlay>
           {activeDragCard && (
-            <div className={`${styles.card} ${styles.dragOverlay}`}>
+            <div
+              className={`${styles.card} ${styles.dragOverlay}`}
+              style={{ "--card-service-line-color": cardServiceLineColor(activeDragCard) } as ServiceLineCardStyle}
+            >
               <span className={styles.cardNumber}>{activeDragCard.cardNumber}</span>
               <strong>{activeDragCard.title}</strong>
               <small>{activeDragCard.customerName || activeDragCard.locationName || "Moving card"}</small>
