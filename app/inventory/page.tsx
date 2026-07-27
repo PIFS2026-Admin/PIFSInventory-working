@@ -98,7 +98,7 @@ type IssueTicketLine = {
   pickedBy: string;
 };
 
-type HistoryTrendMode = "lead" | "unitTruck" | "item";
+type HistoryTrendMode = "lead" | "unitTruck" | "department" | "item";
 
 type ConsumablesHistoryReportLine = {
   ticketId: string;
@@ -1192,7 +1192,9 @@ export default function InventoryModulePage() {
           ? row.lead || "Unassigned lead"
           : historyTrendMode === "unitTruck"
             ? row.unitTruck || "No unit / truck listed"
-            : `${row.itemCode || ""} ${row.itemName || ""}`.trim() || "Unknown item";
+            : historyTrendMode === "department"
+              ? row.department || "No department listed"
+              : `${row.itemCode || ""} ${row.itemName || ""}`.trim() || "Unknown item";
       const current = totals.get(label) || {
         label,
         qty: 0,
@@ -3298,7 +3300,14 @@ export default function InventoryModulePage() {
 
   function consumablesHistoryReportHtml(rows: ConsumablesHistoryReportLine[], trends: ConsumablesHistoryTrendRow[]) {
     const lookup = ticketSearch.trim() || "All issue tickets";
-    const trendLabel = historyTrendMode === "lead" ? "Lead / issued to" : historyTrendMode === "unitTruck" ? "Truck / unit" : "Item";
+    const trendLabel =
+      historyTrendMode === "lead"
+        ? "Lead / issued to"
+        : historyTrendMode === "unitTruck"
+          ? "Truck / unit"
+          : historyTrendMode === "department"
+            ? "Department"
+            : "Item";
 
     return `<!doctype html>
       <html>
@@ -4877,6 +4886,7 @@ export default function InventoryModulePage() {
               >
                 <option value="lead">By lead / issued to</option>
                 <option value="unitTruck">By truck / unit</option>
+                <option value="department">By department</option>
                 <option value="item">By item</option>
               </select>
             </div>
@@ -4887,7 +4897,7 @@ export default function InventoryModulePage() {
                 <table className="dt">
                   <thead>
                     <tr>
-                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : historyTrendMode === "unitTruck" ? "Truck / Unit" : "Item"}</th>
+                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : historyTrendMode === "unitTruck" ? "Truck / Unit" : historyTrendMode === "department" ? "Department" : "Item"}</th>
                       <th>Last Issue</th>
                       <th className="num">Tickets</th>
                       <th className="num">Units</th>
