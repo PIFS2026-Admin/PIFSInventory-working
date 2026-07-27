@@ -148,7 +148,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
   },
   purchase_orders: {
     label: "Purchase Orders",
-    description: "Vendor PO headers with requester, service line, cost center, status, and value.",
+    description: "Vendor PO headers with requester, service line, cost code, status, and value.",
     dateKey: "orderDate",
     statusKey: "status",
     defaultColumns: ["poNumber", "orderDate", "vendor", "requestedBy", "department", "costCenter", "status", "totalAmount"],
@@ -159,7 +159,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
       { key: "requestedBy", label: "Requester" },
       { key: "department", label: "Service Line" },
       { key: "budgetCode", label: "Budget Code" },
-      { key: "costCenter", label: "Cost Center" },
+      { key: "costCenter", label: "Cost Code" },
       { key: "status", label: "Status" },
       { key: "totalAmount", label: "Total", type: "money" },
       { key: "notes", label: "Notes" },

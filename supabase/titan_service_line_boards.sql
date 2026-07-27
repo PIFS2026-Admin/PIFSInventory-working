@@ -780,7 +780,8 @@ with required_dti_lanes(column_key, title, description, color, sort_order) as (
   values
     ('off_schedule', 'Off Schedule', 'People who are off schedule or unavailable.', '#34d399', 3000),
     ('safety_hours', 'Safety Hours', 'People assigned to safety hours.', '#facc15', 3100),
-    ('suspended', 'Suspended', 'People suspended from normal scheduling.', '#f97316', 3200)
+    ('suspended', 'Suspended', 'People suspended from normal scheduling.', '#f97316', 3200),
+    ('terminated', 'Terminated', 'People removed from active employment scheduling.', '#ef4444', 3300)
 )
 insert into public.service_board_columns (board_id, column_key, title, description, color, sort_order, active)
 select b.id, lane.column_key, lane.title, lane.description, lane.color, lane.sort_order, true

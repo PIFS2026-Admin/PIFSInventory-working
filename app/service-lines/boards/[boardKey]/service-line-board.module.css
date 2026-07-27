@@ -407,6 +407,7 @@
 }
 
 .card {
+  position: relative;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -438,7 +439,7 @@
 .cardOpen {
   display: grid;
   gap: 5px;
-  padding: 0;
+  padding: 0 38px 0 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -471,7 +472,6 @@
 }
 
 .cardMeta,
-.cardActions,
 .tagRow {
   display: flex;
   align-items: center;
@@ -516,25 +516,65 @@
   color: #fecaca !important;
 }
 
-.cardActions {
-  justify-content: flex-start;
+.cardMenu {
+  position: absolute;
+  z-index: 4;
+  top: 9px;
+  right: 9px;
 }
 
-.cardActions button {
-  min-height: 32px;
-  padding: 7px 10px;
-  border: 1px solid rgba(70, 82, 101, 0.86);
-  border-radius: 8px;
-  background: rgba(15, 18, 24, 0.96);
+.cardMenuButton {
+  width: 30px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(70, 82, 101, 0.84);
+  border-radius: 9px;
+  background: rgba(8, 11, 15, 0.92);
   color: #fed7aa;
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 950;
+  line-height: 1;
   cursor: pointer;
 }
 
-.cardActions button:hover {
-  border-color: rgba(249, 113, 22, 0.72);
-  background: rgba(249, 113, 22, 0.14);
+.cardMenuButton:hover,
+.cardMenuButton[aria-expanded="true"] {
+  border-color: rgba(249, 113, 22, 0.78);
+  background: rgba(249, 113, 22, 0.16);
+  color: #fff7ed;
+}
+
+.cardMenuPanel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: min(190px, 72vw);
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(249, 113, 22, 0.42);
+  border-radius: 12px;
+  background: rgba(8, 11, 15, 0.98);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.46);
+}
+
+.cardMenuPanel button {
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardMenuPanel button:hover {
+  background: rgba(249, 113, 22, 0.16);
+  color: #fed7aa;
 }
 
 .detailDrawer {

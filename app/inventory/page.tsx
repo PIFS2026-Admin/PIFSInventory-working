@@ -859,8 +859,8 @@ export default function InventoryModulePage() {
           item: line.itemName || item?.itemName || "",
           category: item?.category || "",
           vendor: item?.vendorName || "",
-          costCenter: normalizeServiceLine(line.department || ticket?.department || ""),
-          rawCostCenter: line.department || ticket?.department || "",
+          serviceLine: normalizeServiceLine(line.department || ticket?.department || ""),
+          rawServiceLine: line.department || ticket?.department || "",
           party: ticket?.issuedTo || "",
           lead: ticket?.issuedTo || "",
           unitTruck: line.unitTruck || ticket?.unitTruck || "",
@@ -869,13 +869,13 @@ export default function InventoryModulePage() {
           amount: line.lineValue,
         };
       })
-      .filter((row) => dashboardDepartment === "all" || row.costCenter === dashboardDepartment)
+      .filter((row) => dashboardDepartment === "all" || row.serviceLine === dashboardDepartment)
       .filter((row) => dashboardCategory === "all" || row.category === dashboardCategory)
       .filter((row) => dashboardVendor === "all" || row.vendor === dashboardVendor)
       .filter((row) => {
         if (!term) return true;
         return valuesMatchLookup(
-          [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.rawCostCenter, row.party, row.lead, row.unitTruck, row.jobNumber],
+          [row.ref, row.sku, row.item, row.category, row.vendor, row.serviceLine, row.rawServiceLine, row.party, row.lead, row.unitTruck, row.jobNumber],
           term,
         );
       });
@@ -1252,7 +1252,7 @@ export default function InventoryModulePage() {
   const topIssuedUnits = useMemo(() => {
     const totals = new Map<string, { label: string; qty: number; value: number }>();
     dashboardIssueRows.forEach((row) => {
-      const key = row.unitTruck || row.party || row.costCenter || "No unit / truck listed";
+      const key = row.unitTruck || row.party || row.serviceLine || "No unit / truck listed";
       const current = totals.get(key) || { label: key, qty: 0, value: 0 };
       current.qty += row.qty;
       current.value += row.amount;
@@ -3991,7 +3991,7 @@ export default function InventoryModulePage() {
                         <td>{row.date || "-"}</td>
                         <td className="mono">{row.ref || "-"}</td>
                         <td><b>{row.sku || "-"}</b><div className="ci-sub">{row.item || "-"}</div></td>
-                        <td>{row.costCenter || "-"}</td>
+                        <td>{row.serviceLine || "-"}</td>
                         <td className="mono num">{row.qty.toLocaleString()}</td>
                         <td className="mono num">{money(row.amount)}</td>
                       </tr>

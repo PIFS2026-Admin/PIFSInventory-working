@@ -216,6 +216,13 @@ const quickLaneDefinitions: QuickLaneDefinition[] = [
     color: "#facc15",
     aliases: ["safety hours", "safety_hours"],
   },
+  {
+    key: "terminated",
+    title: "Terminated",
+    description: "People removed from active employment scheduling.",
+    color: "#ef4444",
+    aliases: ["terminated", "termination"],
+  },
 ];
 
 function navigate(href: string) {
@@ -561,7 +568,17 @@ function SortableBoardCard({
     id: card.id,
     data: { type: "card", cardId: card.id },
   });
+  const [menuOpen, setMenuOpen] = useState(false);
   const style = transform ? { transform: CSS.Translate.toString(transform), transition } : { transition };
+  const cardActions = [
+    ...(canSendToBullpen ? [{ key: "bullpen", title: "Send to Bullpen", action: onSendToBullpen }] : []),
+    ...quickLaneActions.map((lane) => ({ key: lane.key, title: lane.title, action: () => onSendToQuickLane(lane) })),
+  ];
+
+  function runCardAction(action: () => void) {
+    setMenuOpen(false);
+    action();
+  }
 
   return (
     <article
@@ -571,6 +588,38 @@ function SortableBoardCard({
       {...listeners}
       {...attributes}
     >
+      {cardActions.length > 0 && (
+        <div
+          className={styles.cardMenu}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className={styles.cardMenuButton}
+            type="button"
+            aria-label={`Open actions for ${card.title}`}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            ...
+          </button>
+          {menuOpen && (
+            <div className={styles.cardMenuPanel} role="menu">
+              {cardActions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runCardAction(action.action)}
+                >
+                  {action.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <button className={styles.cardOpen} type="button" onClick={onSelect}>
         <span className={styles.cardNumber}>{card.cardNumber}</span>
         <strong>{card.title}</strong>
@@ -599,35 +648,6 @@ function SortableBoardCard({
         </div>
       )}
 
-      {(canSendToBullpen || quickLaneActions.length > 0) && (
-        <div className={styles.cardActions}>
-          {canSendToBullpen && (
-            <button
-              type="button"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSendToBullpen();
-              }}
-            >
-              Send to Bullpen
-            </button>
-          )}
-          {quickLaneActions.map((lane) => (
-            <button
-              key={lane.key}
-              type="button"
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSendToQuickLane(lane);
-              }}
-            >
-              {lane.title}
-            </button>
-          ))}
-        </div>
-      )}
     </article>
   );
 }
