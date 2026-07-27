@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useState } from "react";
+import { normalizeServiceLine, serviceLineOptions } from "../../../lib/serviceLines";
 import { supabase } from "../../../lib/supabase";
 
 const DOCUMENT_BUCKET = "documents";
@@ -76,8 +77,10 @@ export default function UploadDocumentPage() {
     event.preventDefault();
     setMessage("");
 
-    if (!form.title.trim() || !form.category.trim() || !form.department.trim() || !file) {
-      setMessage("Title, category, department, and file are required.");
+    const serviceLine = normalizeServiceLine(form.department);
+
+    if (!form.title.trim() || !form.category.trim() || !serviceLine || !file) {
+      setMessage("Title, category, service line, and file are required.");
       return;
     }
 
@@ -100,7 +103,7 @@ export default function UploadDocumentPage() {
       const { error: insertError } = await supabase.from("documents").insert({
         title: form.title.trim(),
         category: form.category.trim(),
-        department: form.department.trim(),
+        department: serviceLine,
         issue_date: form.issueDate || null,
         expiration_date: form.expirationDate || null,
         renewal_required: form.renewalRequired,
@@ -167,13 +170,19 @@ export default function UploadDocumentPage() {
           </label>
 
           <label>
-            Department
-            <input
+            Service Line
+            <select
               onChange={(event) => updateField("department", event.target.value)}
-              placeholder="Department"
               required
               value={form.department}
-            />
+            >
+              <option value="">Choose service line</option>
+              {serviceLineOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label>

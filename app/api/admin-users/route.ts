@@ -7,6 +7,7 @@ import {
   isKnownRole,
   normalizeRole,
 } from "../../../lib/modulePermissions";
+import { normalizeServiceLine } from "../../../lib/serviceLines";
 
 function configuredAdminSupabase() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -202,7 +203,7 @@ export async function POST(request: Request) {
     const role = normalizeRole(rawRole);
     const companyId = body.companyId ? String(body.companyId) : null;
     const customerId = body.customerId ? String(body.customerId) : companyId;
-    const department = String(body.department ?? "").trim();
+    const department = normalizeServiceLine(body.department);
     const yardIds = Array.isArray(body.yardIds)
       ? Array.from(new Set(body.yardIds.map((value: unknown) => String(value)).filter(Boolean)))
       : [];

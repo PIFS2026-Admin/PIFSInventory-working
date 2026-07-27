@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { normalizeServiceLine } from "../../lib/serviceLines";
 import styles from "./reports.module.css";
 
 type ReportSourceKey =
@@ -108,7 +109,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
   },
   issue_tickets: {
     label: "Issue Tickets",
-    description: "Issued consumables by ticket, employee, department, unit, status, and spend.",
+    description: "Issued consumables by ticket, employee, service line, unit, status, and spend.",
     dateKey: "issueDate",
     statusKey: "status",
     defaultColumns: ["ticketNumber", "issueDate", "issuedTo", "department", "pickedBy", "unitTruck", "jobNumber", "status", "totalValue"],
@@ -116,7 +117,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
       { key: "ticketNumber", label: "Ticket" },
       { key: "issueDate", label: "Issue Date", type: "date" },
       { key: "issuedTo", label: "Issued To" },
-      { key: "department", label: "Department" },
+      { key: "department", label: "Service Line" },
       { key: "pickedBy", label: "Picked By" },
       { key: "unitTruck", label: "Unit / Truck" },
       { key: "jobNumber", label: "Job Number" },
@@ -127,7 +128,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
   },
   issue_ticket_lines: {
     label: "Issue Ticket Line Items",
-    description: "Every issued item line with quantity, unit cost, line value, employee, and department.",
+    description: "Every issued item line with quantity, unit cost, line value, employee, and service line.",
     dateKey: "createdAt",
     statusKey: "lineProcessed",
     defaultColumns: ["ticketNumber", "createdAt", "itemCode", "itemName", "department", "unitTruck", "pickedBy", "qtyIssued", "unitCost", "lineValue"],
@@ -136,7 +137,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
       { key: "createdAt", label: "Created", type: "date" },
       { key: "itemCode", label: "SKU" },
       { key: "itemName", label: "Item" },
-      { key: "department", label: "Department" },
+      { key: "department", label: "Service Line" },
       { key: "unitTruck", label: "Unit / Truck" },
       { key: "pickedBy", label: "Picked By" },
       { key: "qtyIssued", label: "Qty", type: "number" },
@@ -147,7 +148,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
   },
   purchase_orders: {
     label: "Purchase Orders",
-    description: "Vendor PO headers with requester, department, cost center, status, and value.",
+    description: "Vendor PO headers with requester, service line, cost center, status, and value.",
     dateKey: "orderDate",
     statusKey: "status",
     defaultColumns: ["poNumber", "orderDate", "vendor", "requestedBy", "department", "costCenter", "status", "totalAmount"],
@@ -156,7 +157,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
       { key: "orderDate", label: "Order Date", type: "date" },
       { key: "vendor", label: "Vendor" },
       { key: "requestedBy", label: "Requester" },
-      { key: "department", label: "Department" },
+      { key: "department", label: "Service Line" },
       { key: "budgetCode", label: "Budget Code" },
       { key: "costCenter", label: "Cost Center" },
       { key: "status", label: "Status" },
@@ -177,7 +178,7 @@ const sourceConfigs: Record<ReportSourceKey, ReportSourceConfig> = {
       { key: "equipmentNumber", label: "Equipment #" },
       { key: "equipmentName", label: "Equipment" },
       { key: "equipmentType", label: "Type" },
-      { key: "department", label: "Department" },
+      { key: "department", label: "Service Line" },
       { key: "assignedTo", label: "Assigned To" },
       { key: "priority", label: "Priority" },
       { key: "status", label: "Status" },
@@ -882,7 +883,7 @@ async function loadReportRows(sourceKey: ReportSourceKey): Promise<{ rows: Repor
           ticketNumber: textValue(row.ticket_number),
           issueDate: dateValue(row.issue_date || row.created_at),
           issuedTo: textValue(row.issued_to),
-          department: textValue(row.department),
+          department: normalizeServiceLine(row.department),
           pickedBy: textValue(row.picked_by),
           unitTruck: textValue(row.unit_truck),
           jobNumber: textValue(row.job_number),
@@ -910,7 +911,7 @@ async function loadReportRows(sourceKey: ReportSourceKey): Promise<{ rows: Repor
           createdAt: dateValue(row.created_at),
           itemCode: textValue(row.item_code),
           itemName: textValue(row.item_name),
-          department: textValue(row.department),
+          department: normalizeServiceLine(row.department),
           qtyIssued: numberValue(row.qty_issued),
           unitCost: numberValue(row.unit_cost),
           lineValue: numberValue(row.line_value),
@@ -938,7 +939,7 @@ async function loadReportRows(sourceKey: ReportSourceKey): Promise<{ rows: Repor
           orderDate: dateValue(row.order_date || row.created_at),
           vendor: textValue(row.vendor_name),
           requestedBy: textValue(row.requested_by),
-          department: textValue(row.department),
+          department: normalizeServiceLine(row.department),
           budgetCode: textValue(row.budget_code),
           costCenter: textValue(row.cost_center),
           status: textValue(row.status),
@@ -966,7 +967,7 @@ async function loadReportRows(sourceKey: ReportSourceKey): Promise<{ rows: Repor
         equipmentNumber: textValue(row.equipment_number),
         equipmentName: textValue(row.equipment_name),
         equipmentType: textValue(row.equipment_type),
-        department: textValue(row.department),
+        department: normalizeServiceLine(row.department),
         assignedTo: textValue(row.assigned_to),
         requestedBy: textValue(row.requested_by_name),
         priority: textValue(row.priority),

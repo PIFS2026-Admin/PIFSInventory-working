@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 import { formatPoMoney, normalizePoStatus } from "../../../lib/purchaseOrderLifecycle";
+import { normalizeServiceLine } from "../../../lib/serviceLines";
 import styles from "./print.module.css";
 
 type PrintOrder = {
@@ -93,7 +94,7 @@ function PurchaseOrderPrintContent() {
         vendorEmail: orderData.vendor_email || "",
         orderDate: dateText(orderData.order_date),
         requestedBy: orderData.requested_by || "",
-        department: orderData.department || "",
+        department: normalizeServiceLine(orderData.department),
         budgetCode: orderData.budget_code || "",
         costCenter: orderData.cost_center || "",
         status: normalizePoStatus(orderData.status),
@@ -148,7 +149,7 @@ function PurchaseOrderPrintContent() {
           <div><span>Vendor Email</span><strong>{order.vendorEmail || "-"}</strong></div>
           <div><span>Order Date</span><strong>{order.orderDate}</strong></div>
           <div><span>Requested By</span><strong>{order.requestedBy || "-"}</strong></div>
-          <div><span>Department</span><strong>{order.department || "-"}</strong></div>
+          <div><span>Service Line</span><strong>{order.department || "-"}</strong></div>
           <div><span>Cost Code</span><strong>{order.costCenter || order.budgetCode || "-"}</strong></div>
         </section>
 

@@ -23,6 +23,7 @@ import {
   mergeEquipmentAssetRows,
   type TitanEquipmentAsset,
 } from "../../lib/titanEquipmentAssets";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 
 type Company = {
   id: string;
@@ -374,7 +375,7 @@ const adminControls: AdminControlCard[] = [
   {
     key: "po-approval-matrix",
     title: "PO Approval Matrix",
-    description: "Set who approves purchase orders by yard, department, cost code, amount, and tier.",
+    description: "Set who approves purchase orders by yard, service line, cost code, amount, and tier.",
     group: "Purchasing",
   },
   {
@@ -392,7 +393,7 @@ const adminControls: AdminControlCard[] = [
   {
     key: "equipment-assets",
     title: "Equipment Master List",
-    description: "Maintain equipment names, numbers, types, and departments used by repair work orders.",
+    description: "Maintain equipment names, numbers, types, and service lines used by repair work orders.",
     group: "Setup",
   },
   {
@@ -1498,10 +1499,10 @@ export default function AdminPage() {
     const equipmentName = equipmentAssetForm.equipmentName.trim();
     const equipmentNumber = equipmentAssetForm.equipmentNumber.trim();
     const equipmentType = equipmentAssetForm.equipmentType.trim();
-    const department = equipmentAssetForm.department.trim();
+    const department = normalizeServiceLine(equipmentAssetForm.department);
 
     if (!equipmentName || !equipmentNumber || !equipmentType || !department) {
-      setMessage("Equipment name, equipment number, equipment type, and department are required.");
+      setMessage("Equipment name, equipment number, equipment type, and service line are required.");
       return;
     }
 
@@ -2596,7 +2597,7 @@ export default function AdminPage() {
         <summary>
           <div>
             <h3>Equipment Master List</h3>
-            <p>Maintain the equipment names, numbers, types, and departments used by repair work orders.</p>
+            <p>Maintain the equipment names, numbers, types, and service lines used by repair work orders.</p>
           </div>
           <span>Open / close</span>
         </summary>
@@ -2648,12 +2649,18 @@ export default function AdminPage() {
             </label>
 
             <label>
-              Department
-              <input
+              Service Line
+              <select
                 value={equipmentAssetForm.department}
                 onChange={(event) => setEquipmentAssetForm({ ...equipmentAssetForm, department: event.target.value })}
-                placeholder="DTI, Hardband, Yard, Shop"
-              />
+              >
+                <option value="">Select service line</option>
+                {serviceLineOptions.map((serviceLine) => (
+                  <option key={serviceLine} value={serviceLine}>
+                    {serviceLine}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
 
@@ -2676,7 +2683,7 @@ export default function AdminPage() {
             <input
               value={equipmentAssetSearch}
               onChange={(event) => setEquipmentAssetSearch(event.target.value)}
-              placeholder="Search name, number, type, or department"
+              placeholder="Search name, number, type, or service line"
             />
           </label>
 
@@ -2687,7 +2694,7 @@ export default function AdminPage() {
                   <th>Equipment Name</th>
                   <th>Equipment Number</th>
                   <th>Equipment Type</th>
-                  <th>Department</th>
+                  <th>Service Line</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -3250,7 +3257,7 @@ export default function AdminPage() {
         <summary>
           <div>
             <h3>PO Approval Matrix</h3>
-            <p>Set who approves purchase orders by yard, department, cost code, amount, and tier.</p>
+            <p>Set who approves purchase orders by yard, service line, cost code, amount, and tier.</p>
           </div>
           <span>Open / close</span>
         </summary>

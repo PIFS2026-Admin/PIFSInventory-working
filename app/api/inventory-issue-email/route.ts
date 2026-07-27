@@ -5,6 +5,7 @@ import {
   toMicrosoftGraphAttachments,
   type TitanEmailAttachment,
 } from "../../../lib/titanEmailPdf";
+import { normalizeServiceLine } from "../../../lib/serviceLines";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -232,7 +233,7 @@ export async function POST(request: Request) {
         { label: "Ticket", value: ticket.ticket_number },
         { label: "Date", value: ticket.issue_date || "-" },
         { label: "Issued To", value: ticket.issued_to || "-" },
-        { label: "Department", value: ticket.department || "-" },
+        { label: "Service Line", value: normalizeServiceLine(ticket.department) || "-" },
         { label: "Picked By", value: ticket.picked_by || "-" },
         { label: "Unit / Truck", value: ticket.unit_truck || "-" },
         { label: "Job Number", value: ticket.job_number || "-" },
@@ -263,7 +264,7 @@ export async function POST(request: Request) {
           <strong>Ticket:</strong> ${escapeHtml(ticket.ticket_number)}<br />
           <strong>Date:</strong> ${escapeHtml(ticket.issue_date || "-")}<br />
           <strong>Issued To:</strong> ${escapeHtml(ticket.issued_to || "-")}<br />
-          <strong>Department:</strong> ${escapeHtml(ticket.department || "-")}<br />
+          <strong>Service Line:</strong> ${escapeHtml(normalizeServiceLine(ticket.department) || "-")}<br />
           <strong>Picked By:</strong> ${escapeHtml(ticket.picked_by || "-")}<br />
           <strong>Unit / Truck:</strong> ${escapeHtml(ticket.unit_truck || "-")}<br />
           <strong>Job Number:</strong> ${escapeHtml(ticket.job_number || "-")}<br />

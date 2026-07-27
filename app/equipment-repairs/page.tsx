@@ -21,6 +21,7 @@ import {
   mergeEquipmentAssetRows,
   type TitanEquipmentAsset,
 } from "../../lib/titanEquipmentAssets";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 import styles from "./equipment-repairs.module.css";
 
 type InventoryYard = {
@@ -292,7 +293,7 @@ function mapWorkOrder(row: Record<string, unknown>): WorkOrder {
     equipmentNumber: String(row.equipment_number || ""),
     equipmentName: String(row.equipment_name || ""),
     equipmentType: String(row.equipment_type || ""),
-    department: String(row.department || ""),
+    department: normalizeServiceLine(row.department),
     assignedTo: String(row.assigned_to || ""),
     requestedByName: String(row.requested_by_name || ""),
     problemDescription: String(row.problem_description || ""),
@@ -520,7 +521,7 @@ function workOrderDocumentHtml(options: {
             <div class="cell"><span class="label">Equipment</span><span class="value">${escapeHtml(order.equipmentName || "-")}</span></div>
             <div class="cell"><span class="label">Equipment #</span><span class="value">${escapeHtml(order.equipmentNumber || "-")}</span></div>
             <div class="cell"><span class="label">Type</span><span class="value">${escapeHtml(order.equipmentType || "-")}</span></div>
-            <div class="cell"><span class="label">Department</span><span class="value">${escapeHtml(order.department || "-")}</span></div>
+            <div class="cell"><span class="label">Service Line</span><span class="value">${escapeHtml(order.department || "-")}</span></div>
             <div class="cell"><span class="label">Requested By</span><span class="value">${escapeHtml(order.requestedByName || "-")}</span></div>
             <div class="cell"><span class="label">Assigned To</span><span class="value">${escapeHtml(order.assignedTo || "Unassigned")}</span></div>
             <div class="cell"><span class="label">Repair Start</span><span class="value">${escapeHtml(dateTimeText(order.downtimeStart))}</span></div>
@@ -1008,7 +1009,7 @@ export default function EquipmentRepairsPage() {
       equipmentName: asset.name,
       equipmentNumber: asset.assetTag || asset.unitNumber || asset.name,
       equipmentType: asset.equipmentType,
-      department: asset.department || current.department,
+      department: normalizeServiceLine(asset.department || current.department),
     }));
   }
 
@@ -1042,7 +1043,7 @@ export default function EquipmentRepairsPage() {
       equipmentNumber: order.equipmentNumber,
       equipmentName: order.equipmentName,
       equipmentType: order.equipmentType,
-      department: order.department,
+      department: normalizeServiceLine(order.department),
       assignedTo: order.assignedTo,
       priority: order.priority,
       status: order.status,
@@ -1094,7 +1095,7 @@ export default function EquipmentRepairsPage() {
       equipment_number: workOrderForm.equipmentNumber.trim() || null,
       equipment_name: workOrderForm.equipmentName.trim(),
       equipment_type: workOrderForm.equipmentType.trim() || null,
-      department: workOrderForm.department.trim() || null,
+      department: normalizeServiceLine(workOrderForm.department) || null,
       assigned_to: workOrderForm.assignedTo.trim() || null,
       requested_by_name: userName,
       problem_description: workOrderForm.problemDescription.trim() || null,
@@ -1399,7 +1400,7 @@ export default function EquipmentRepairsPage() {
       "Priority",
       "Equipment",
       "Equipment Number",
-      "Department",
+      "Service Line",
       "Assigned To",
       "Labor Hours",
       "Labor Cost",
@@ -1649,7 +1650,7 @@ export default function EquipmentRepairsPage() {
               className="ci-input"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search WO#, equipment, department, assigned tech..."
+              placeholder="Search WO#, equipment, service line, assigned tech..."
             />
           </label>
         </div>
@@ -2039,8 +2040,15 @@ export default function EquipmentRepairsPage() {
               </div>
               <div className="form-grid repair-form-grid">
                 <label>
-                  Department
-                  <input value={workOrderForm.department} onChange={(event) => setWorkOrderForm({ ...workOrderForm, department: event.target.value })} placeholder="Yard, shop, hardband, DTI..." />
+                  Service Line
+                  <select value={workOrderForm.department} onChange={(event) => setWorkOrderForm({ ...workOrderForm, department: event.target.value })}>
+                    <option value="">Select service line</option>
+                    {serviceLineOptions.map((serviceLine) => (
+                      <option key={serviceLine} value={serviceLine}>
+                        {serviceLine}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label>
                   Assigned To

@@ -12,6 +12,7 @@ import {
 } from "../../lib/modulePermissions";
 import type { PermissionMap } from "../../lib/modulePermissions";
 import { shouldShowPageMessage } from "../../lib/pageMessages";
+import { normalizeServiceLine } from "../../lib/serviceLines";
 import { supabase } from "../../lib/supabase";
 
 type CurrentUser = {
@@ -450,7 +451,11 @@ export default function CommunicationsPage() {
     }
 
     const conversationList = (conversationRows ?? []) as Conversation[];
-    const conversationIds = conversationList.map((conversation) => conversation.id);
+    const normalizedConversationList = conversationList.map((conversation) => ({
+      ...conversation,
+      department: normalizeServiceLine(conversation.department) || null,
+    }));
+    const conversationIds = normalizedConversationList.map((conversation) => conversation.id);
 
     if (!userId) {
       setConversations([]);
@@ -487,7 +492,7 @@ export default function CommunicationsPage() {
         .filter((member) => member.user_id === userId && !member.removed_at)
         .map((member) => member.conversation_id)
     );
-    const safeConversationList = conversationList.filter((conversation) => currentMembershipIds.has(conversation.id));
+    const safeConversationList = normalizedConversationList.filter((conversation) => currentMembershipIds.has(conversation.id));
     const safeConversationIds = safeConversationList.map((conversation) => conversation.id);
     const safeConversationIdSet = new Set(safeConversationIds);
     const defaultGroupConversation = safeConversationList.find(
@@ -619,14 +624,27 @@ export default function CommunicationsPage() {
       return;
     }
 
+    const normalizedCurrentUser = bootstrapData.currentUser
+      ? {
+          ...bootstrapData.currentUser,
+          department: normalizeServiceLine(bootstrapData.currentUser.department),
+        }
+      : null;
+    const normalizedContacts = Array.isArray(bootstrapData.contacts)
+      ? bootstrapData.contacts.map((contact: Contact) => ({
+          ...contact,
+          department: normalizeServiceLine(contact.department),
+        }))
+      : [];
+
     setPermissions(permissionMap);
-    currentUserRef.current = bootstrapData.currentUser;
-    setCurrentUser(bootstrapData.currentUser);
-    setContacts(Array.isArray(bootstrapData.contacts) ? bootstrapData.contacts : []);
+    currentUserRef.current = normalizedCurrentUser;
+    setCurrentUser(normalizedCurrentUser);
+    setContacts(normalizedContacts);
     setYards(Array.isArray(bootstrapData.yards) ? bootstrapData.yards : []);
     setActiveYardId("");
 
-    await loadData(bootstrapData.currentUser?.id);
+    await loadData(normalizedCurrentUser?.id);
     setMessage("");
     setLoading(false);
   }, [loadData]);
@@ -763,7 +781,7 @@ export default function CommunicationsPage() {
     if (conversation.conversation_type === "direct") return "Direct message";
     if (conversation.conversation_type === "announcement") return "Announcement";
     if (conversation.conversation_type === "yard") return "Yard channel";
-    if (conversation.conversation_type === "department") return "Department";
+    if (conversation.conversation_type === "department") return "Service Line";
     return "Group";
   }
 
@@ -1311,7 +1329,7 @@ export default function CommunicationsPage() {
     if (!currentUser || !selectedConversation) return;
 
     if (!["group", "direct"].includes(selectedConversation.conversation_type)) {
-      setMessage("Yard, department, and alert channels are system channels. Archive them instead of deleting them.");
+      setMessage("Yard, service-line, and alert channels are system channels. Archive them instead of deleting them.");
       return;
     }
 
@@ -1386,7 +1404,7 @@ export default function CommunicationsPage() {
   async function resetGroups() {
     if (!currentUser || !canModerate) return;
     const confirmed = window.confirm(
-      "Start fresh with Communications groups? This deletes every group, yard channel, department channel, and alert thread, but keeps direct messages."
+      "Start fresh with Communications groups? This deletes every group, yard channel, service-line channel, and alert thread, but keeps direct messages."
     );
     if (!confirmed) return;
 
@@ -1564,7 +1582,7 @@ export default function CommunicationsPage() {
                   <span className="comm-avatar sm steel">{initials(contact.name)}</span>
                   <span className="comm-contact-main">
                     <b>{contact.name}</b>
-                    <span>{displayRole(contact.role)} · {contact.department || "All departments"}</span>
+                    <span>{displayRole(contact.role)} · {contact.department || "All service lines"}</span>
                   </span>
                   <span className="comm-presence on" />
                 </button>
@@ -1900,7 +1918,7 @@ export default function CommunicationsPage() {
           .filter((contact) => contact.id !== currentUser.id)
           .map((contact) => (
             <option key={contact.id} value={contact.name}>
-              {displayRole(contact.role)} - {contact.department || "All departments"}
+              {displayRole(contact.role)} - {contact.department || "All service lines"}
             </option>
           ))}
       </datalist>

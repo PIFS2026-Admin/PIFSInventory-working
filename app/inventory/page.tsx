@@ -15,6 +15,7 @@ import {
   type ModuleKey,
   type PermissionMap,
 } from "../../lib/modulePermissions";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 import inventoryStyles from "./inventory.module.css";
 
 type Role = "admin" | "employee" | "customer" | "operator" | "sales" | string;
@@ -716,7 +717,7 @@ export default function InventoryModulePage() {
     [items],
   );
   const dashboardDepartments = useMemo(
-    () => Array.from(new Set(tickets.map((ticket) => ticket.department).filter(Boolean))).sort(),
+    () => Array.from(new Set(tickets.map((ticket) => normalizeServiceLine(ticket.department)).filter(Boolean))).sort(),
     [tickets],
   );
   const dashboardVendors = useMemo(
@@ -858,7 +859,8 @@ export default function InventoryModulePage() {
           item: line.itemName || item?.itemName || "",
           category: item?.category || "",
           vendor: item?.vendorName || "",
-          costCenter: line.department || ticket?.department || "",
+          costCenter: normalizeServiceLine(line.department || ticket?.department || ""),
+          rawCostCenter: line.department || ticket?.department || "",
           party: ticket?.issuedTo || "",
           lead: ticket?.issuedTo || "",
           unitTruck: line.unitTruck || ticket?.unitTruck || "",
@@ -873,7 +875,7 @@ export default function InventoryModulePage() {
       .filter((row) => {
         if (!term) return true;
         return valuesMatchLookup(
-          [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.party, row.lead, row.unitTruck, row.jobNumber],
+          [row.ref, row.sku, row.item, row.category, row.vendor, row.costCenter, row.rawCostCenter, row.party, row.lead, row.unitTruck, row.jobNumber],
           term,
         );
       });
@@ -1134,7 +1136,7 @@ export default function InventoryModulePage() {
         ticketNumber: ticket.ticketNumber,
         issueDate: ticket.issueDate,
         issuedTo: ticket.issuedTo,
-        department: ticket.department,
+        department: normalizeServiceLine(ticket.department),
         lead: ticket.issuedTo || "Unassigned lead",
         unitTruck: ticket.unitTruck || "No unit / truck listed",
         jobNumber: ticket.jobNumber,
@@ -1163,7 +1165,7 @@ export default function InventoryModulePage() {
 
         return {
           ...base,
-          department: line.department || ticket.department,
+          department: normalizeServiceLine(line.department || ticket.department),
           lead: ticket.issuedTo || "Unassigned lead",
           unitTruck: line.unitTruck || ticket.unitTruck || "No unit / truck listed",
           itemCode: line.itemCode || item?.itemCode || "",
@@ -1193,7 +1195,7 @@ export default function InventoryModulePage() {
           : historyTrendMode === "unitTruck"
             ? row.unitTruck || "No unit / truck listed"
             : historyTrendMode === "department"
-              ? row.department || "No department listed"
+              ? row.department || "No service line listed"
               : `${row.itemCode || ""} ${row.itemName || ""}`.trim() || "Unknown item";
       const current = totals.get(label) || {
         label,
@@ -1557,7 +1559,7 @@ export default function InventoryModulePage() {
       ticketNumber: row.ticket_number || "",
       issueDate: String(row.issue_date || "").slice(0, 10),
       issuedTo: row.issued_to || "",
-      department: row.department || "",
+      department: normalizeServiceLine(row.department),
       pickedBy: row.picked_by || "",
       unitTruck: row.unit_truck || "",
       jobNumber: row.job_number || "",
@@ -1582,7 +1584,7 @@ export default function InventoryModulePage() {
       itemId: row.item_id || "",
       itemCode: row.item_code || "",
       itemName: row.item_name || "",
-      department: row.department || "",
+      department: normalizeServiceLine(row.department),
       qtyIssued: Number(row.qty_issued || 0),
       unitCost: Number(row.unit_cost || 0),
       lineValue: Number(row.line_value || 0),
@@ -1674,10 +1676,10 @@ export default function InventoryModulePage() {
     setOrders(
       (data || []).map((row) => ({
         id: row.id,
-        orderNumber: row.order_number || "",
-        orderDate: String(row.order_date || "").slice(0, 10),
-        requestedBy: row.requested_by || "",
-        department: row.department || "",
+      orderNumber: row.order_number || "",
+      orderDate: String(row.order_date || "").slice(0, 10),
+      requestedBy: row.requested_by || "",
+      department: normalizeServiceLine(row.department),
         unitTruck: row.unit_truck || "",
         jobNumber: row.job_number || "",
         totalValue: Number(row.total_value || 0),
@@ -2643,6 +2645,7 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const orderNumber = `ORD-${todayStamp()}`;
+    const serviceLine = normalizeServiceLine(orderForm.department);
     const { data: order, error: orderError } = await supabase
       .from("inventory_orders")
       .insert({
@@ -2650,7 +2653,7 @@ export default function InventoryModulePage() {
         order_number: orderNumber,
         order_date: new Date().toISOString().slice(0, 10),
         requested_by: orderForm.requestedBy,
-        department: orderForm.department || null,
+        department: serviceLine || null,
         unit_truck: orderForm.unitTruck || null,
         job_number: orderForm.jobNumber || null,
         total_value: orderValue,
@@ -2810,7 +2813,7 @@ export default function InventoryModulePage() {
             <section class="grid">
               <div class="cell"><span class="label">Date</span><span class="value">${order.orderDate || "-"}</span></div>
               <div class="cell"><span class="label">Requested By</span><span class="value">${order.requestedBy || "-"}</span></div>
-              <div class="cell"><span class="label">Department</span><span class="value">${order.department || "-"}</span></div>
+              <div class="cell"><span class="label">Service Line</span><span class="value">${order.department || "-"}</span></div>
               <div class="cell"><span class="label">Status</span><span class="value">${order.status || "Submitted"}</span></div>
               <div class="cell"><span class="label">Unit / Truck</span><span class="value">${order.unitTruck || "-"}</span></div>
               <div class="cell"><span class="label">Job Number</span><span class="value">${order.jobNumber || "-"}</span></div>
@@ -3080,7 +3083,7 @@ export default function InventoryModulePage() {
         ticket_number: ticketNumber,
         issue_date: new Date().toISOString().slice(0, 10),
         issued_to: order.requestedBy || "Consumables Store",
-        department: order.department || null,
+        department: normalizeServiceLine(order.department) || null,
         picked_by: userName,
         unit_truck: order.unitTruck || null,
         job_number: order.jobNumber || null,
@@ -3104,7 +3107,7 @@ export default function InventoryModulePage() {
       item_id: line.itemId,
       item_code: line.itemCode,
       item_name: line.itemName,
-      department: order.department || null,
+      department: normalizeServiceLine(order.department) || null,
       qty_issued: qtyToFulfill,
       unit_cost: line.unitCost,
       line_value: qtyToFulfill * line.unitCost,
@@ -3201,6 +3204,7 @@ export default function InventoryModulePage() {
     setMessage("");
 
     const ticketNumber = `ISS-${todayStamp()}`;
+    const serviceLine = normalizeServiceLine(issueForm.department);
 
     const { data: ticket, error: ticketError } = await supabase
       .from("inventory_issue_tickets")
@@ -3209,7 +3213,7 @@ export default function InventoryModulePage() {
         ticket_number: ticketNumber,
         issue_date: new Date().toISOString().slice(0, 10),
         issued_to: issueForm.issuedTo,
-        department: issueForm.department || null,
+        department: serviceLine || null,
         picked_by: issueForm.pickedBy || userName,
         unit_truck: issueForm.unitTruck || null,
         job_number: issueForm.jobNumber || null,
@@ -3233,7 +3237,7 @@ export default function InventoryModulePage() {
       item_id: line.itemId,
       item_code: line.itemCode,
       item_name: line.itemName,
-      department: issueForm.department || null,
+      department: serviceLine || null,
       qty_issued: line.quantity,
       unit_cost: line.unitPrice,
       line_value: line.lineValue,
@@ -3306,7 +3310,7 @@ export default function InventoryModulePage() {
         : historyTrendMode === "unitTruck"
           ? "Truck / unit"
           : historyTrendMode === "department"
-            ? "Department"
+            ? "Service Line"
             : "Item";
 
     return `<!doctype html>
@@ -3437,7 +3441,7 @@ export default function InventoryModulePage() {
       .join("-");
     downloadCsv(
       `consumables-history-${fileToken}.csv`,
-      ["Date", "Ticket", "Lead / Issued To", "Truck / Unit", "Issued To", "Department", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
+      ["Date", "Ticket", "Lead / Issued To", "Truck / Unit", "Issued To", "Service Line", "Job", "SKU", "Item", "Category", "Vendor", "Qty", "Unit Cost", "Spend", "Status", "Notes"],
       historyReportRows.map((row) => [
         row.issueDate,
         row.ticketNumber,
@@ -3520,7 +3524,7 @@ export default function InventoryModulePage() {
             <section class="grid">
               <div class="cell"><span class="label">Date</span><span class="value">${ticket.issueDate || "-"}</span></div>
               <div class="cell"><span class="label">Issued To</span><span class="value">${ticket.issuedTo || "-"}</span></div>
-              <div class="cell"><span class="label">Department</span><span class="value">${ticket.department || "-"}</span></div>
+              <div class="cell"><span class="label">Service Line</span><span class="value">${ticket.department || "-"}</span></div>
               <div class="cell"><span class="label">Status</span><span class="value">${ticket.status || "Issued"}</span></div>
               <div class="cell"><span class="label">Picked By</span><span class="value">${ticket.pickedBy || "-"}</span></div>
               <div class="cell"><span class="label">Unit / Truck</span><span class="value">${ticket.unitTruck || "-"}</span></div>
@@ -3529,7 +3533,7 @@ export default function InventoryModulePage() {
             </section>
             <table>
               <thead>
-                <tr><th>Item ID</th><th>Item Name</th><th>Department</th><th>Qty</th><th>Unit Cost</th><th>Line Value</th></tr>
+                <tr><th>Item ID</th><th>Item Name</th><th>Service Line</th><th>Qty</th><th>Unit Cost</th><th>Line Value</th></tr>
               </thead>
               <tbody>
                 ${lines
@@ -3751,9 +3755,9 @@ export default function InventoryModulePage() {
                 </select>
               </div>
               <div className="ci-field">
-                <div className="lab">Cost center</div>
+                <div className="lab">Service line</div>
                 <select className="ci-select" value={dashboardDepartment} onChange={(event) => setDashboardDepartment(event.target.value)}>
-                  <option value="all">All cost centers</option>
+                  <option value="all">All service lines</option>
                   {dashboardDepartments.map((department) => <option key={department} value={department}>{department}</option>)}
                 </select>
               </div>
@@ -3980,7 +3984,7 @@ export default function InventoryModulePage() {
             ) : (
               <div className="ci-table-wrap compact-table-wrap">
                 <table className="dt">
-                  <thead><tr><th>Date</th><th>Ticket</th><th>Item</th><th>Cost Center</th><th>Qty</th><th>Spend</th></tr></thead>
+                  <thead><tr><th>Date</th><th>Ticket</th><th>Item</th><th>Service Line</th><th>Qty</th><th>Spend</th></tr></thead>
                   <tbody>
                     {recentDashboardIssueRows.map((row) => (
                       <tr key={row.id}>
@@ -4292,7 +4296,10 @@ export default function InventoryModulePage() {
               <h2><span className="dot"></span>Request details<span className="ct">required before submit</span></h2>
               <div className="ci-ticket-grid request-form-grid">
                 <input className="ci-input" value={orderForm.requestedBy} onChange={(event) => setOrderForm({ ...orderForm, requestedBy: event.target.value })} placeholder="Requested by / crew lead" />
-                <input className="ci-input" value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })} placeholder="Department" />
+                <select className="ci-select" value={orderForm.department} onChange={(event) => setOrderForm({ ...orderForm, department: event.target.value })}>
+                  <option value="">Select service line</option>
+                  {serviceLineOptions.map((serviceLine) => <option key={serviceLine} value={serviceLine}>{serviceLine}</option>)}
+                </select>
                 <input className="ci-input" value={orderForm.unitTruck} onChange={(event) => setOrderForm({ ...orderForm, unitTruck: event.target.value })} placeholder="Unit / truck" />
                 <input className="ci-input" value={orderForm.jobNumber} onChange={(event) => setOrderForm({ ...orderForm, jobNumber: event.target.value })} placeholder="Job number" />
                 <input className="ci-input" value={orderForm.emailTo} onChange={(event) => setOrderForm({ ...orderForm, emailTo: event.target.value })} placeholder="Optional email recipient" />
@@ -4886,7 +4893,7 @@ export default function InventoryModulePage() {
               >
                 <option value="lead">By lead / issued to</option>
                 <option value="unitTruck">By truck / unit</option>
-                <option value="department">By department</option>
+                <option value="department">By service line</option>
                 <option value="item">By item</option>
               </select>
             </div>
@@ -4897,7 +4904,7 @@ export default function InventoryModulePage() {
                 <table className="dt">
                   <thead>
                     <tr>
-                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : historyTrendMode === "unitTruck" ? "Truck / Unit" : historyTrendMode === "department" ? "Department" : "Item"}</th>
+                      <th>{historyTrendMode === "lead" ? "Lead / Issued To" : historyTrendMode === "unitTruck" ? "Truck / Unit" : historyTrendMode === "department" ? "Service Line" : "Item"}</th>
                       <th>Last Issue</th>
                       <th className="num">Tickets</th>
                       <th className="num">Units</th>
@@ -5273,7 +5280,10 @@ export default function InventoryModulePage() {
 
             <div className="form-grid">
               <label>Issued To<input value={issueForm.issuedTo} onChange={(event) => setIssueForm({ ...issueForm, issuedTo: event.target.value })} /></label>
-              <label>Department<input value={issueForm.department} onChange={(event) => setIssueForm({ ...issueForm, department: event.target.value })} /></label>
+              <label>Service Line<select value={issueForm.department} onChange={(event) => setIssueForm({ ...issueForm, department: event.target.value })}>
+                <option value="">Select service line</option>
+                {serviceLineOptions.map((serviceLine) => <option key={serviceLine} value={serviceLine}>{serviceLine}</option>)}
+              </select></label>
               <label>Picked By<input value={issueForm.pickedBy} onChange={(event) => setIssueForm({ ...issueForm, pickedBy: event.target.value })} /></label>
               <label>Unit / Truck<input value={issueForm.unitTruck} onChange={(event) => setIssueForm({ ...issueForm, unitTruck: event.target.value })} /></label>
               <label>Job Number<input value={issueForm.jobNumber} onChange={(event) => setIssueForm({ ...issueForm, jobNumber: event.target.value })} /></label>

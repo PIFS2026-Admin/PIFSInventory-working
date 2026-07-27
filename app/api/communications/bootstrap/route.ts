@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRole } from "../../../../lib/modulePermissions";
+import { normalizeServiceLine, serviceLineOptions } from "../../../../lib/serviceLines";
 
 type ProfileRow = {
   id: string;
@@ -24,7 +25,7 @@ type AuthUserRow = {
   app_metadata?: Record<string, unknown> | null;
 };
 
-const departmentFallbacks = ["Yard", "Inventory", "Purchase Orders", "DTI", "Hardband", "Safety", "Management"];
+const departmentFallbacks = [...serviceLineOptions, "Management"];
 const requiredAlertChannels = [
   {
     key: "announcement:all-employees",
@@ -127,7 +128,7 @@ function emailFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserR
 }
 
 function departmentFromProfileOrAuth(profile: ProfileRow | undefined, user: AuthUserRow | undefined) {
-  return profile?.department || metadataText(user, "department") || "";
+  return normalizeServiceLine(profile?.department || metadataText(user, "department")) || "";
 }
 
 async function listAuthUsers(adminSupabase: ReturnType<typeof configuredSupabase>) {
@@ -366,7 +367,7 @@ export async function GET(request: Request) {
         new Set(
           [
             ...departmentFallbacks,
-            ...profiles.map((row) => String(row.department ?? "").trim()).filter(Boolean),
+            ...profiles.map((row) => normalizeServiceLine(row.department)).filter(Boolean),
           ].filter(Boolean)
         )
       );
@@ -382,7 +383,7 @@ export async function GET(request: Request) {
           created_by: userData.user.id,
         });
         const departmentUsers = profiles
-          .filter((row) => String(row.department ?? "").trim().toLowerCase() === department.toLowerCase())
+          .filter((row) => normalizeServiceLine(row.department).toLowerCase() === department.toLowerCase())
           .map((row) => row.id);
         await insertMembers(adminSupabase, departmentConversationId, [...departmentUsers, ...Array.from(adminIds)], adminIds);
       }

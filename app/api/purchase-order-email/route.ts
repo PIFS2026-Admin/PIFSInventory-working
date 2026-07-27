@@ -11,6 +11,7 @@ import {
   toMicrosoftGraphAttachments,
   type TitanEmailAttachment,
 } from "../../../lib/titanEmailPdf";
+import { normalizeServiceLine } from "../../../lib/serviceLines";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -227,7 +228,7 @@ export async function POST(request: Request) {
         { label: "Date", value: order.order_date || "-" },
         { label: "Vendor", value: order.vendor_name || "-" },
         { label: "Requested By", value: order.requested_by || "-" },
-        { label: "Department", value: order.department || "-" },
+        { label: "Service Line", value: normalizeServiceLine(order.department) || "-" },
         { label: "Cost Code", value: order.cost_center || order.budget_code || "-" },
         { label: "Status", value: order.status || "-" },
         { label: "Total Ordered", value: totalOrdered.toLocaleString() },
@@ -260,7 +261,7 @@ export async function POST(request: Request) {
           <strong>Date:</strong> ${escapeHtml(order.order_date || "-")}<br />
           <strong>Vendor:</strong> ${escapeHtml(order.vendor_name || "-")}<br />
           <strong>Requested By:</strong> ${escapeHtml(order.requested_by || "-")}<br />
-          <strong>Department:</strong> ${escapeHtml(order.department || "-")}<br />
+          <strong>Service Line:</strong> ${escapeHtml(normalizeServiceLine(order.department) || "-")}<br />
           <strong>Cost Code:</strong> ${escapeHtml(order.cost_center || order.budget_code || "-")}<br />
           <strong>Status:</strong> ${escapeHtml(order.status || "-")}<br />
           <strong>Total:</strong> ${money(poTotal)}

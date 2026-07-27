@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 import { supabase } from "../../lib/supabase";
 
 type DocumentRecord = {
@@ -61,14 +62,25 @@ export default function DocumentControlPage() {
       setDocuments([]);
       setMessage(`Document load failed: ${error.message}`);
     } else {
-      setDocuments((data ?? []) as DocumentRecord[]);
+      setDocuments(
+        ((data ?? []) as DocumentRecord[]).map((document) => ({
+          ...document,
+          department: normalizeServiceLine(document.department),
+        }))
+      );
     }
 
     setLoading(false);
   }
 
   const categoryOptions = useMemo(() => uniqueOptions(documents, "category"), [documents]);
-  const departmentOptions = useMemo(() => uniqueOptions(documents, "department"), [documents]);
+  const departmentOptions = useMemo(
+    () =>
+      Array.from(new Set([...serviceLineOptions, ...uniqueOptions(documents, "department").map(normalizeServiceLine).filter(Boolean)])).sort(
+        (a, b) => a.localeCompare(b)
+      ),
+    [documents]
+  );
   const statusOptions = useMemo(() => uniqueOptions(documents, "status"), [documents]);
 
   const filteredDocuments = useMemo(() => {
@@ -77,7 +89,7 @@ export default function DocumentControlPage() {
     return documents.filter((document) => {
       const matchesSearch = !searchText || (document.title ?? "").toLowerCase().includes(searchText);
       const matchesCategory = category === "all" || document.category === category;
-      const matchesDepartment = department === "all" || document.department === department;
+      const matchesDepartment = department === "all" || normalizeServiceLine(document.department) === department;
       const matchesStatus = status === "all" || document.status === status;
 
       return matchesSearch && matchesCategory && matchesDepartment && matchesStatus;
@@ -128,9 +140,9 @@ export default function DocumentControlPage() {
           </label>
 
           <label>
-            Department
+            Service Line
             <select value={department} onChange={(event) => setDepartment(event.target.value)}>
-              <option value="all">All Departments</option>
+              <option value="all">All Service Lines</option>
               {departmentOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}
@@ -169,7 +181,7 @@ export default function DocumentControlPage() {
               <tr>
                 <th>Title</th>
                 <th>Category</th>
-                <th>Department</th>
+                <th>Service Line</th>
                 <th>Expiration Date</th>
                 <th>Status</th>
                 <th>Approval Status</th>
@@ -186,7 +198,7 @@ export default function DocumentControlPage() {
                       </Link>
                     </td>
                     <td>{displayText(document.category)}</td>
-                    <td>{displayText(document.department)}</td>
+                    <td>{displayText(normalizeServiceLine(document.department))}</td>
                     <td>{formatDate(document.expiration_date)}</td>
                     <td>{displayText(document.status)}</td>
                     <td>{displayText(document.approval_status)}</td>

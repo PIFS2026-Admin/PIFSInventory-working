@@ -1,3 +1,5 @@
+import { normalizeServiceLine } from "./serviceLines";
+
 export type TitanEquipmentAsset = {
   id: string;
   databaseId?: string;
@@ -20,7 +22,7 @@ function asset(
   department: string,
   currentAssignment = "",
 ): TitanEquipmentAsset {
-  return { id, assetTag, unitNumber, name, equipmentType, department, currentAssignment };
+  return { id, assetTag, unitNumber, name, equipmentType, department: normalizeServiceLine(department), currentAssignment };
 }
 
 function text(value: unknown) {
@@ -143,7 +145,7 @@ export function mapEquipmentAssetRow(row: Record<string, unknown>): TitanEquipme
   const equipmentNumber = text(row.equipment_number ?? row.equipmentNumber ?? row.asset_tag ?? row.assetTag);
   const equipmentName = text(row.equipment_name ?? row.equipmentName ?? row.name) || equipmentNumber;
   const equipmentType = text(row.equipment_type ?? row.equipmentType);
-  const department = text(row.department);
+  const department = normalizeServiceLine(row.department);
 
   return {
     id: sourceKey || databaseId || equipmentNumber || equipmentName,

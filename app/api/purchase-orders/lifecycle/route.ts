@@ -13,6 +13,7 @@ import {
   roleCanReceivePurchaseOrders,
   roleCanRequestPurchaseOrders,
 } from "../../../../lib/purchaseOrderLifecycle";
+import { normalizeServiceLine, serviceLineKey } from "../../../../lib/serviceLines";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -215,7 +216,7 @@ function normalizedText(value: unknown) {
 function approvalRuleSpecificity(rule: Record<string, any>, order: PurchaseOrderRecord) {
   let score = 0;
   if (rule.yard_id && rule.yard_id === order.yard_id) score += 8;
-  if (normalizedText(rule.department)) score += 4;
+  if (serviceLineKey(normalizeServiceLine(rule.department))) score += 4;
   if (normalizedText(rule.cost_center)) score += 2;
   if (rule.approver_id) score += 1;
   return score;
@@ -231,13 +232,13 @@ async function matrixApprovalRows(poId: string, totalAmount: number, order: Purc
 
   if (error) return null;
 
-  const orderDepartment = normalizedText(order.department);
+  const orderDepartment = serviceLineKey(normalizeServiceLine(order.department));
   const orderCostCenter = normalizedText(order.cost_center || order.budget_code);
   const matching = (data ?? [])
     .filter((rule) => {
       const minAmount = numberValue(rule.min_amount);
       const maxAmount = rule.max_amount === null || rule.max_amount === undefined ? null : numberValue(rule.max_amount);
-      const department = normalizedText(rule.department);
+      const department = serviceLineKey(normalizeServiceLine(rule.department));
       const costCenter = normalizedText(rule.cost_center);
       return (
         (!rule.yard_id || rule.yard_id === order.yard_id) &&
@@ -354,7 +355,7 @@ async function handleSavePo(body: Record<string, any>, actor: Actor) {
     order_date: body.orderDate || new Date().toISOString().slice(0, 10),
     requested_by: String(body.requestedBy ?? actor.fullName).trim() || actor.fullName,
     requester_id: existing?.requester_id ?? actor.id,
-    department: String(body.department ?? "").trim() || null,
+    department: normalizeServiceLine(body.department) || null,
     budget_code: String(body.budgetCode ?? "").trim() || null,
     cost_center: String(body.costCenter ?? "").trim() || null,
     notes: String(body.notes ?? "").trim() || null,
@@ -731,7 +732,7 @@ async function handleSaveApprovalMatrixRule(body: Record<string, any>, actor: Ac
 
   const payload = {
     yard_id: String(body.yardId ?? "").trim() || null,
-    department: String(body.department ?? "").trim() || null,
+    department: normalizeServiceLine(body.department) || null,
     cost_center: String(body.costCenter ?? "").trim() || null,
     min_amount: Math.max(0, numberValue(body.minAmount)),
     max_amount: String(body.maxAmount ?? "").trim() ? Math.max(0, numberValue(body.maxAmount)) : null,

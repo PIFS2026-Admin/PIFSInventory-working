@@ -18,6 +18,7 @@ import {
   roleCanReceivePurchaseOrders,
   roleCanRequestPurchaseOrders,
 } from "../../lib/purchaseOrderLifecycle";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 
 type InventoryYard = {
   id: string;
@@ -296,7 +297,7 @@ export default function PurchaseOrdersPage() {
   const selectedLines = lines.filter((line) => line.purchaseOrderId === selectedPoId);
 
   const departments = useMemo(
-    () => Array.from(new Set(orders.map((order) => order.department).filter(Boolean))).sort(),
+    () => Array.from(new Set(orders.map((order) => normalizeServiceLine(order.department)).filter(Boolean))).sort(),
     [orders],
   );
 
@@ -306,10 +307,11 @@ export default function PurchaseOrdersPage() {
       const status = normalizePoStatus(order.status);
       const matchesStatus = filters.status === "all" || status === filters.status;
       const matchesVendor = filters.vendor === "all" || order.vendorId === filters.vendor || order.vendorName === filters.vendor;
-      const matchesDepartment = filters.department === "all" || order.department === filters.department;
+      const serviceLine = normalizeServiceLine(order.department);
+      const matchesDepartment = filters.department === "all" || serviceLine === filters.department;
       const matchesDateFrom = !filters.dateFrom || order.orderDate >= filters.dateFrom;
       const matchesDateTo = !filters.dateTo || order.orderDate <= filters.dateTo;
-      const haystack = [order.poNumber, order.vendorName, order.requestedBy, order.department, order.costCenter, order.budgetCode, order.notes]
+      const haystack = [order.poNumber, order.vendorName, order.requestedBy, serviceLine, order.department, order.costCenter, order.budgetCode, order.notes]
         .join(" ")
         .toLowerCase();
       return matchesStatus && matchesVendor && matchesDepartment && matchesDateFrom && matchesDateTo && (!term || haystack.includes(term));
@@ -371,9 +373,10 @@ export default function PurchaseOrdersPage() {
   const budgetRows = useMemo(() => {
     const map = new Map<string, { department: string; costCenter: string; committed: number; actual: number; open: number; count: number }>();
     orders.forEach((order) => {
-      const key = `${order.department || "Unassigned"}|${order.costCenter || order.budgetCode || "No Cost Code"}`;
+      const serviceLine = normalizeServiceLine(order.department);
+      const key = `${serviceLine || "Unassigned"}|${order.costCenter || order.budgetCode || "No Cost Code"}`;
       const row = map.get(key) ?? {
-        department: order.department || "Unassigned",
+        department: serviceLine || "Unassigned",
         costCenter: order.costCenter || order.budgetCode || "No Cost Code",
         committed: 0,
         actual: 0,
@@ -568,7 +571,7 @@ export default function PurchaseOrdersPage() {
       orderDate: dateText(row.order_date),
       requestedBy: row.requested_by || "",
       requesterId: row.requester_id || "",
-      department: row.department || "",
+      department: normalizeServiceLine(row.department),
       budgetCode: row.budget_code || "",
       costCenter: row.cost_center || "",
       status: normalizePoStatus(row.status),
@@ -723,7 +726,7 @@ export default function PurchaseOrdersPage() {
       vendorId: order.vendorId,
       orderDate: order.orderDate,
       requestedBy: order.requestedBy,
-      department: order.department,
+      department: normalizeServiceLine(order.department),
       budgetCode: order.budgetCode,
       costCenter: order.costCenter,
       notes: order.notes,
@@ -749,7 +752,7 @@ export default function PurchaseOrdersPage() {
         vendorId: poForm.vendorId,
         orderDate: poForm.orderDate,
         requestedBy: poForm.requestedBy,
-        department: poForm.department,
+        department: normalizeServiceLine(poForm.department),
         budgetCode: poForm.budgetCode,
         costCenter: poForm.costCenter,
         notes: poForm.notes,
@@ -945,12 +948,12 @@ export default function PurchaseOrdersPage() {
   function exportOrders() {
     downloadCsv(
       "titan-purchase-orders.csv",
-      ["PO Number", "Status", "Vendor", "Department", "Cost Code", "Date", "Requested By", "Total", "Notes"],
+      ["PO Number", "Status", "Vendor", "Service Line", "Cost Code", "Date", "Requested By", "Total", "Notes"],
       filteredOrders.map((order) => [
         order.poNumber,
         order.status,
         order.vendorName,
-        order.department,
+        normalizeServiceLine(order.department),
         order.costCenter || order.budgetCode,
         order.orderDate,
         order.requestedBy,
@@ -1064,7 +1067,7 @@ export default function PurchaseOrdersPage() {
                   <th>PO</th>
                   <th>Status</th>
                   <th>Vendor</th>
-                  <th>Department</th>
+                  <th>Service Line</th>
                   <th>Cost Code</th>
                   <th>Date</th>
                   <th>Amount</th>
@@ -1077,7 +1080,7 @@ export default function PurchaseOrdersPage() {
                     <td><strong>{order.poNumber}</strong><br /><span>{order.requestedBy || "-"}</span></td>
                     <td><span className={statusClass(order.status)}>{order.status}</span></td>
                     <td>{order.vendorName || "-"}</td>
-                    <td>{order.department || "-"}</td>
+                    <td>{normalizeServiceLine(order.department) || "-"}</td>
                     <td>{order.costCenter || order.budgetCode || "-"}</td>
                     <td>{order.orderDate}</td>
                     <td>{formatPoMoney(order.totalAmount)}</td>
@@ -1119,7 +1122,12 @@ export default function PurchaseOrdersPage() {
               </label>
               <label>Order Date<input type="date" value={poForm.orderDate} onChange={(event) => setPoForm({ ...poForm, orderDate: event.target.value })} /></label>
               <label>Requester<input value={poForm.requestedBy} onChange={(event) => setPoForm({ ...poForm, requestedBy: event.target.value })} /></label>
-              <label>Department<input value={poForm.department} placeholder="Inventory, DTI, Hardband..." onChange={(event) => setPoForm({ ...poForm, department: event.target.value })} /></label>
+              <label>Service Line
+                <select value={poForm.department} onChange={(event) => setPoForm({ ...poForm, department: event.target.value })}>
+                  <option value="">Select service line</option>
+                  {serviceLineOptions.map((serviceLine) => <option key={serviceLine} value={serviceLine}>{serviceLine}</option>)}
+                </select>
+              </label>
               <label>Cost Code<input value={poForm.costCenter} placeholder="Accounting, job, or cost code" onChange={(event) => setPoForm({ ...poForm, costCenter: event.target.value })} /></label>
               <label>Budget Code<input value={poForm.budgetCode} placeholder="Optional budget bucket" onChange={(event) => setPoForm({ ...poForm, budgetCode: event.target.value })} /></label>
               <label className="full">Notes<textarea value={poForm.notes} onChange={(event) => setPoForm({ ...poForm, notes: event.target.value })} /></label>
@@ -1161,7 +1169,7 @@ export default function PurchaseOrdersPage() {
               <tbody>
                 {currentApprovalRows.map(({ order, approval }) => (
                   <tr key={approval.id}>
-                    <td><strong>{order.poNumber}</strong><br /><span>{order.department || "-"}</span></td>
+                    <td><strong>{order.poNumber}</strong><br /><span>{normalizeServiceLine(order.department) || "-"}</span></td>
                     <td>{approval.approverRole || "manager"} / tier {approval.tier}</td>
                     <td>{order.vendorName || "-"}</td>
                     <td>{formatPoMoney(order.totalAmount)}</td>
@@ -1309,7 +1317,7 @@ export default function PurchaseOrdersPage() {
           <p className="muted-text">Committed spend is approved/sent/received PO value. Actual is invoiced/closed PO value.</p>
           <div className="po-table-wrap">
             <table className="po-table">
-              <thead><tr><th>Department</th><th>Cost Code</th><th>POs</th><th>Committed</th><th>Actual</th><th>Open Exposure</th></tr></thead>
+              <thead><tr><th>Service Line</th><th>Cost Code</th><th>POs</th><th>Committed</th><th>Actual</th><th>Open Exposure</th></tr></thead>
               <tbody>
                 {budgetRows.map((row) => (
                   <tr key={`${row.department}-${row.costCenter}`}>
@@ -1380,7 +1388,7 @@ function FilterBar({
         {vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendorName}</option>)}
       </select>
       <select className="field" value={filters.department} onChange={(event) => setFilters({ ...filters, department: event.target.value })}>
-        <option value="all">All Departments</option>
+        <option value="all">All Service Lines</option>
         {departments.map((department) => <option key={department} value={department}>{department}</option>)}
       </select>
       <input className="field" type="date" value={filters.dateFrom} onChange={(event) => setFilters({ ...filters, dateFrom: event.target.value })} />

@@ -9,6 +9,7 @@ import {
   toMicrosoftGraphAttachments,
   type TitanEmailAttachment,
 } from "../../../lib/titanEmailPdf";
+import { normalizeServiceLine } from "../../../lib/serviceLines";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -242,7 +243,7 @@ export async function POST(request: Request) {
         { label: "Order", value: order.order_number },
         { label: "Date", value: order.order_date || "-" },
         { label: "Requested By", value: order.requested_by || "-" },
-        { label: "Department", value: order.department || "-" },
+        { label: "Service Line", value: normalizeServiceLine(order.department) || "-" },
         { label: "Unit / Truck", value: order.unit_truck || "-" },
         { label: "Job Number", value: order.job_number || "-" },
         { label: "Status", value: order.status || "Submitted" },
@@ -274,7 +275,7 @@ export async function POST(request: Request) {
           <strong>Order:</strong> ${escapeHtml(order.order_number)}<br />
           <strong>Date:</strong> ${escapeHtml(order.order_date || "-")}<br />
           <strong>Requested By:</strong> ${escapeHtml(order.requested_by || "-")}<br />
-          <strong>Department:</strong> ${escapeHtml(order.department || "-")}<br />
+          <strong>Service Line:</strong> ${escapeHtml(normalizeServiceLine(order.department) || "-")}<br />
           <strong>Unit / Truck:</strong> ${escapeHtml(order.unit_truck || "-")}<br />
           <strong>Job Number:</strong> ${escapeHtml(order.job_number || "-")}<br />
           <strong>Status:</strong> ${escapeHtml(order.status || "Submitted")}<br />

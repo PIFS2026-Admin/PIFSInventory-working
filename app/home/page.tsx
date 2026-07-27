@@ -8,6 +8,7 @@ import {
   defaultModulesForRole,
   moduleHrefToKey,
 } from "../../lib/modulePermissions";
+import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 
 type Profile = {
   fullName: string;
@@ -262,7 +263,8 @@ const mobileLaunchCards: LaunchCard[] = [
   },
 ];
 
-const departmentOptions = ["All Departments", "Yard", "Inventory", "Purchase Orders", "DTI", "Hardband"];
+const allServiceLinesOption = "All Service Lines";
+const departmentOptions = [allServiceLinesOption, ...serviceLineOptions];
 const serviceLineModuleKeys: ModuleKey[] = ["dti", "dti_summary", "hardband"];
 
 function normalizeRole(role: unknown) {
@@ -622,9 +624,9 @@ function ConsumableInventorySection({
   const currentWeek = getSundayWeekRange(0);
   const previousWeek = getSundayWeekRange(-1);
   const lineMatchesDepartment = (row: { department: string }) =>
-    filters.department === "All Departments" || row.department === filters.department;
+    filters.department === allServiceLinesOption || normalizeServiceLine(row.department) === filters.department;
   const ticketMatchesDepartment = (row: { department: string }) =>
-    filters.department === "All Departments" || row.department === filters.department;
+    filters.department === allServiceLinesOption || normalizeServiceLine(row.department) === filters.department;
 
   const currentWeekLines = issueTicketLines.filter(
     (row) => isDateWithinRange(row.issueDate, currentWeek.start, currentWeek.end) && lineMatchesDepartment(row)
@@ -669,7 +671,7 @@ function ConsumableInventorySection({
     ...weekIssueTickets.map((ticket) => ({
       id: `ticket-${ticket.id}`,
       title: `${ticket.ticketNumber} - ${ticket.issuedTo || "Issue Ticket"}`,
-      detail: `${ticket.status || "Issued"} / ${money(ticket.totalValue)} / ${ticket.department || "No department"}`,
+      detail: `${ticket.status || "Issued"} / ${money(ticket.totalValue)} / ${normalizeServiceLine(ticket.department) || "No service line"}`,
       meta: `${ticket.issueDate} ${ticket.unitTruck || ""}`.trim(),
     })),
   ].sort((left, right) => right.meta.localeCompare(left.meta)).slice(0, 12);
@@ -704,8 +706,8 @@ function ConsumableInventorySection({
             10
           )}
         />
-        <BreakdownList title="Issue Tickets by Department" rows={buildBreakdown(weekIssueTickets, (row) => row.department, () => 1, 10)} />
-        <BreakdownList title="Store Requests by Department" rows={buildBreakdown(storeRequestsInRange, (row) => row.department, () => 1, 10)} />
+        <BreakdownList title="Issue Tickets by Service Line" rows={buildBreakdown(weekIssueTickets, (row) => normalizeServiceLine(row.department), () => 1, 10)} />
+        <BreakdownList title="Store Requests by Service Line" rows={buildBreakdown(storeRequestsInRange, (row) => normalizeServiceLine(row.department), () => 1, 10)} />
         <BreakdownList
           title="Issue Tickets by Unit / Truck"
           rows={buildQuantityValueBreakdown(
@@ -875,7 +877,7 @@ export default function InternalHomePage() {
       startDate: currentWeek.start,
       endDate: currentWeek.end,
       customer: "All Customers",
-      department: "All Departments",
+      department: allServiceLinesOption,
       lead: "All Leads",
     };
   });
@@ -1173,7 +1175,7 @@ export default function InternalHomePage() {
       ticketNumber: row.ticket_number ?? "",
       issueDate: formatDate(row.issue_date ?? row.created_at),
       issuedTo: row.issued_to ?? "",
-      department: row.department ?? "Unassigned",
+      department: normalizeServiceLine(row.department) || "Unassigned",
       pickedBy: row.picked_by ?? "",
       unitTruck: row.unit_truck ?? "",
       totalValue: toNumber(row.total_value),
@@ -1192,7 +1194,7 @@ export default function InternalHomePage() {
       orderNumber: row.order_number ?? "",
       orderDate: formatDate(row.order_date ?? row.created_at),
       requestedBy: row.requested_by ?? "",
-      department: row.department ?? "Unassigned",
+      department: normalizeServiceLine(row.department) || "Unassigned",
       unitTruck: row.unit_truck ?? "",
       status: row.status ?? "Submitted",
       totalValue: toNumber(row.total_value),
@@ -1238,7 +1240,7 @@ export default function InternalHomePage() {
         itemName: row.item_name ?? row.description ?? item?.name ?? "Unknown item",
         category: row.category ?? item?.category ?? "Unassigned",
         vendor: row.vendor ?? item?.vendor ?? "Unassigned",
-        department: row.department ?? ticket?.department ?? "Unassigned",
+        department: normalizeServiceLine(row.department ?? ticket?.department) || "Unassigned",
         unitTruck: row.unit_truck ?? ticket?.unitTruck ?? "Unassigned",
         pickedBy: row.picked_by ?? ticket?.pickedBy ?? "",
         quantity,

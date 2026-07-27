@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { shouldShowPageMessage } from "../lib/pageMessages";
 import { formatPoMoney } from "../lib/purchaseOrderLifecycle";
+import { normalizeServiceLine, serviceLineOptions } from "../lib/serviceLines";
 import styles from "../app/purchase-orders/purchase-orders.module.css";
 
 type InventoryYard = {
@@ -193,7 +194,7 @@ export default function PoApprovalMatrixManager() {
     setRules((data || []).map((row) => ({
       id: row.id,
       yardId: row.yard_id || "",
-      department: row.department || "",
+      department: normalizeServiceLine(row.department),
       costCenter: row.cost_center || "",
       minAmount: numberValue(row.min_amount),
       maxAmount: row.max_amount === null || row.max_amount === undefined ? null : numberValue(row.max_amount),
@@ -228,7 +229,7 @@ export default function PoApprovalMatrixManager() {
     setForm({
       ruleId: rule.id,
       yardId: rule.yardId,
-      department: rule.department,
+      department: normalizeServiceLine(rule.department),
       costCenter: rule.costCenter,
       minAmount: String(rule.minAmount),
       maxAmount: rule.maxAmount === null ? "" : String(rule.maxAmount),
@@ -294,7 +295,7 @@ export default function PoApprovalMatrixManager() {
           <div className="detail-title-row">
             <div>
               <h3>Approval Matrix</h3>
-              <p>Route approvals by yard, department, cost code, dollar range, tier, role, and named approver.</p>
+              <p>Route approvals by yard, service line, cost code, dollar range, tier, role, and named approver.</p>
             </div>
             <button className="button" type="button" onClick={() => setForm(emptyMatrixForm)}>
               Blank Rule
@@ -308,7 +309,12 @@ export default function PoApprovalMatrixManager() {
                 {yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}
               </select>
             </label>
-            <label>Department<input value={form.department} placeholder="Blank = all departments" onChange={(event) => setForm({ ...form, department: event.target.value })} /></label>
+            <label>Service Line
+              <select value={form.department} onChange={(event) => setForm({ ...form, department: event.target.value })}>
+                <option value="">All service lines</option>
+                {serviceLineOptions.map((serviceLine) => <option key={serviceLine} value={serviceLine}>{serviceLine}</option>)}
+              </select>
+            </label>
             <label>Cost Code<input value={form.costCenter} placeholder="Blank = all cost codes" onChange={(event) => setForm({ ...form, costCenter: event.target.value })} /></label>
             <label>Min Amount<input type="number" value={form.minAmount} onChange={(event) => setForm({ ...form, minAmount: event.target.value })} /></label>
             <label>Max Amount<input type="number" value={form.maxAmount} placeholder="No max" onChange={(event) => setForm({ ...form, maxAmount: event.target.value })} /></label>
@@ -357,7 +363,7 @@ export default function PoApprovalMatrixManager() {
                     <tr key={rule.id}>
                       <td>
                         <strong>{yard?.name || "All yards"}</strong><br />
-                        <span>{rule.department || "All departments"} / {rule.costCenter || "All cost codes"}</span>
+                        <span>{rule.department || "All service lines"} / {rule.costCenter || "All cost codes"}</span>
                       </td>
                       <td>{formatPoMoney(rule.minAmount)} - {rule.maxAmount === null ? "No max" : formatPoMoney(rule.maxAmount)}</td>
                       <td>{rule.tier}</td>
