@@ -408,6 +408,8 @@
 
 .card {
   position: relative;
+  z-index: 1;
+  isolation: isolate;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -426,7 +428,7 @@
 }
 
 .cardMenuOpen {
-  z-index: 30;
+  z-index: 100;
 }
 
 .cardDragging {
@@ -522,7 +524,7 @@
 
 .cardMenu {
   position: absolute;
-  z-index: 40;
+  z-index: 2;
   top: 9px;
   right: 9px;
 }
