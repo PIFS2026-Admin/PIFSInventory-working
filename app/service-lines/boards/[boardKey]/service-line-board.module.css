@@ -425,6 +425,10 @@
   border-color: rgba(249, 113, 22, 0.8);
 }
 
+.cardMenuOpen {
+  z-index: 30;
+}
+
 .cardDragging {
   opacity: 0.45;
   cursor: grabbing;
@@ -518,7 +522,7 @@
 
 .cardMenu {
   position: absolute;
-  z-index: 4;
+  z-index: 40;
   top: 9px;
   right: 9px;
 }

@@ -569,11 +569,35 @@ function SortableBoardCard({
     data: { type: "card", cardId: card.id },
   });
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const style = transform ? { transform: CSS.Translate.toString(transform), transition } : { transition };
   const cardActions = [
     ...(canSendToBullpen ? [{ key: "bullpen", title: "Send to Bullpen", action: onSendToBullpen }] : []),
     ...quickLaneActions.map((lane) => ({ key: lane.key, title: lane.title, action: () => onSendToQuickLane(lane) })),
   ];
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function closeFromOutsidePointer(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    function closeFromEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", closeFromOutsidePointer);
+    document.addEventListener("keydown", closeFromEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeFromOutsidePointer);
+      document.removeEventListener("keydown", closeFromEscape);
+    };
+  }, [menuOpen]);
 
   function runCardAction(action: () => void) {
     setMenuOpen(false);
@@ -583,13 +607,15 @@ function SortableBoardCard({
   return (
     <article
       ref={setNodeRef}
-      className={`${styles.card} ${selected ? styles.cardSelected : ""} ${isDragging ? styles.cardDragging : ""}`}
+      className={`${styles.card} ${selected ? styles.cardSelected : ""} ${menuOpen ? styles.cardMenuOpen : ""} ${isDragging ? styles.cardDragging : ""}`}
       style={style}
+      onPointerLeave={() => setMenuOpen(false)}
       {...listeners}
       {...attributes}
     >
       {cardActions.length > 0 && (
         <div
+          ref={menuRef}
           className={styles.cardMenu}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
