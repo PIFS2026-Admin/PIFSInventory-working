@@ -52,6 +52,7 @@ type ColumnRow = {
   description: string | null;
   color: string | null;
   sort_order: number | null;
+  due_date?: string | null;
 };
 
 type CardRow = {
@@ -110,6 +111,7 @@ type BoardColumn = {
   description: string;
   color: string;
   sortOrder: number;
+  dueDate: string;
 };
 
 type BoardCard = {
@@ -154,6 +156,15 @@ type ServiceLineCardStyle = CSSProperties & {
   "--card-service-line-color": string;
 };
 
+type BoardSearchMatch = {
+  type: "card" | "list";
+  id: string;
+  columnId: string;
+  title: string;
+  subtitle: string;
+  score: number;
+};
+
 type CardForm = {
   columnId: string;
   title: string;
@@ -182,12 +193,14 @@ type ColumnForm = {
   title: string;
   description: string;
   serviceLineKey: string;
+  dueDate: string;
 };
 
 const emptyColumnForm: ColumnForm = {
   title: "",
   description: "",
   serviceLineKey: "dti",
+  dueDate: "",
 };
 
 const priorityOptions: BoardCard["priority"][] = ["Low", "Normal", "High", "Critical"];
@@ -316,6 +329,38 @@ function cardServiceLineColor(card: BoardCard) {
   return serviceLineColor(card.assignedToName || card.tags.find(Boolean) || card.customerName || card.title);
 }
 
+function columnSearchText(column: BoardColumn) {
+  return [column.title, column.description, column.key, column.dueDate].join(" ").toLowerCase();
+}
+
+function cardSearchText(card: BoardCard, column: BoardColumn | undefined, latestComment: string) {
+  return [
+    card.cardNumber,
+    card.title,
+    card.description,
+    card.customerName,
+    card.locationName,
+    card.assignedToName,
+    card.priority,
+    column?.title ?? "",
+    column?.description ?? "",
+    column?.dueDate ?? "",
+    latestComment,
+    ...card.tags,
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function searchScore(search: string, primary: string, haystack: string) {
+  const title = normalizeSearch(primary);
+  if (title === search) return 0;
+  if (title.startsWith(search)) return 1;
+  if (title.includes(search)) return 2;
+  if (haystack.includes(search)) return 3;
+  return 99;
+}
+
 function normalizeLaneMatch(value: string) {
   return value
     .trim()
@@ -379,6 +424,7 @@ function mapColumn(row: ColumnRow): BoardColumn {
     description: row.description ?? "",
     color: row.color ?? "#fb923c",
     sortOrder: Number(row.sort_order ?? 0),
+    dueDate: row.due_date ?? "",
   };
 }
 
@@ -418,6 +464,7 @@ function createFallbackColumns(config: ServiceLineBoardConfig): BoardColumn[] {
     description: column.description,
     color: column.color,
     sortOrder: (index + 1) * 100,
+    dueDate: "",
   }));
 }
 
@@ -491,6 +538,8 @@ function DroppableColumn({
   bullpenColumnId,
   quickLaneActions,
   latestCommentsByCardId,
+  highlightedColumnId,
+  highlightedCardId,
 }: {
   column: BoardColumn;
   cards: BoardCard[];
@@ -504,6 +553,8 @@ function DroppableColumn({
   bullpenColumnId: string;
   quickLaneActions: QuickLaneAction[];
   latestCommentsByCardId: Record<string, CommentRow>;
+  highlightedColumnId: string;
+  highlightedCardId: string;
 }) {
   const {
     attributes,
@@ -525,7 +576,8 @@ function DroppableColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`${styles.column} ${isOver ? styles.columnOver : ""} ${isDragging ? styles.columnDragging : ""}`}
+      data-column-id={column.id}
+      className={`${styles.column} ${isOver ? styles.columnOver : ""} ${highlightedColumnId === column.id ? styles.columnSearchHit : ""} ${isDragging ? styles.columnDragging : ""}`}
       style={style}
     >
       <header
@@ -547,6 +599,7 @@ function DroppableColumn({
         >
           <h2>{column.title}</h2>
           <p>{column.description}</p>
+          {column.dueDate && <small className={styles.columnDueDate}>Due {formatDate(column.dueDate)}</small>}
         </button>
         <div className={styles.columnTools}>
           <span>{cards.length}</span>
@@ -591,6 +644,7 @@ function DroppableColumn({
                 canSendToBullpen={Boolean(bullpenColumnId) && card.columnId !== bullpenColumnId && isEmployeeCard(card)}
                 quickLaneActions={isEmployeeCard(card) ? quickLaneActions.filter((lane) => lane.columnId !== card.columnId) : []}
                 latestComment={latestCommentsByCardId[card.id]?.body ?? ""}
+                highlighted={highlightedCardId === card.id}
               />
             ))}
           </SortableContext>
@@ -609,6 +663,7 @@ function SortableBoardCard({
   canSendToBullpen,
   quickLaneActions,
   latestComment,
+  highlighted,
 }: {
   card: BoardCard;
   selected: boolean;
@@ -618,6 +673,7 @@ function SortableBoardCard({
   canSendToBullpen: boolean;
   quickLaneActions: QuickLaneAction[];
   latestComment: string;
+  highlighted: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -666,7 +722,8 @@ function SortableBoardCard({
   return (
     <article
       ref={setNodeRef}
-      className={`${styles.card} ${selected ? styles.cardSelected : ""} ${menuOpen ? styles.cardMenuOpen : ""} ${isDragging ? styles.cardDragging : ""}`}
+      data-card-id={card.id}
+      className={`${styles.card} ${selected ? styles.cardSelected : ""} ${highlighted ? styles.cardSearchHit : ""} ${menuOpen ? styles.cardMenuOpen : ""} ${isDragging ? styles.cardDragging : ""}`}
       style={cardStyle}
       onPointerLeave={() => setMenuOpen(false)}
       {...listeners}
@@ -754,6 +811,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [editingColumnId, setEditingColumnId] = useState("");
   const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(emptyColumnForm);
   const [boardSearch, setBoardSearch] = useState("");
+  const [highlightedSearchMatch, setHighlightedSearchMatch] = useState<{ type: "card" | "list"; id: string } | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [latestCommentsByCardId, setLatestCommentsByCardId] = useState<Record<string, CommentRow>>({});
   const [checklist, setChecklist] = useState<ChecklistRow[]>([]);
@@ -763,6 +821,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [schemaReady, setSchemaReady] = useState(true);
+  const [columnDueDatesReady, setColumnDueDatesReady] = useState(true);
   const [message, setMessage] = useState("");
   const [activeDragCard, setActiveDragCard] = useState<BoardCard | null>(null);
   const [activeDragColumn, setActiveDragColumn] = useState<BoardColumn | null>(null);
@@ -807,22 +866,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
     return cards.filter((card) => {
       const column = columns.find((item) => item.id === card.columnId);
-      const haystack = [
-        card.cardNumber,
-        card.title,
-        card.customerName,
-        card.locationName,
-        card.assignedToName,
-        card.priority,
-        column?.title ?? "",
-        ...card.tags,
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(search);
+      return cardSearchText(card, column, latestCommentsByCardId[card.id]?.body ?? "").includes(search);
     });
-  }, [boardSearch, cards, columns]);
+  }, [boardSearch, cards, columns, latestCommentsByCardId]);
 
   const cardsByColumn = useMemo(() => {
     const groups = new Map<string, BoardCard[]>();
@@ -835,6 +881,52 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     groups.forEach((list) => list.sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title)));
     return groups;
   }, [columns, visibleCards]);
+
+  const searchMatches = useMemo<BoardSearchMatch[]>(() => {
+    const search = normalizeSearch(boardSearch);
+    if (!search) return [];
+
+    const matches: BoardSearchMatch[] = [];
+
+    columns.forEach((column) => {
+      const haystack = columnSearchText(column);
+      const score = searchScore(search, column.title, haystack);
+      if (score < 99) {
+        matches.push({
+          type: "list",
+          id: column.id,
+          columnId: column.id,
+          title: column.title,
+          subtitle: `${cards.filter((card) => card.columnId === column.id).length} cards${column.dueDate ? ` / due ${formatDate(column.dueDate)}` : ""}`,
+          score,
+        });
+      }
+    });
+
+    cards.forEach((card) => {
+      const column = columns.find((item) => item.id === card.columnId);
+      const latestComment = latestCommentsByCardId[card.id]?.body ?? "";
+      const haystack = cardSearchText(card, column, latestComment);
+      const score = Math.min(
+        searchScore(search, card.title, haystack),
+        searchScore(search, card.customerName || card.locationName || card.cardNumber, haystack)
+      );
+      if (score < 99) {
+        matches.push({
+          type: "card",
+          id: card.id,
+          columnId: card.columnId,
+          title: card.title,
+          subtitle: column?.title ? `${column.title}${latestComment ? ` / ${latestComment.slice(0, 80)}` : ""}` : latestComment || card.customerName || card.locationName || card.cardNumber,
+          score,
+        });
+      }
+    });
+
+    return matches
+      .sort((a, b) => a.score - b.score || (a.type === b.type ? 0 : a.type === "card" ? -1 : 1) || a.title.localeCompare(b.title))
+      .slice(0, 8);
+  }, [boardSearch, cards, columns, latestCommentsByCardId]);
 
   const selectedCard = useMemo(() => cards.find((card) => card.id === selectedCardId) ?? null, [cards, selectedCardId]);
   const bullpenColumn = useMemo(() => columns.find(isBullpenColumn) ?? null, [columns]);
@@ -849,6 +941,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const applyFallbackMode = useCallback(
     (nextMessage: string) => {
       setSchemaReady(false);
+      setColumnDueDatesReady(false);
       setBoard(null);
       setColumns(fallbackColumns);
       setCards(fallbackCards);
@@ -903,30 +996,46 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     setBoard(typedBoard);
     setSchemaReady(true);
 
-    const [columnResult, cardResult] = await Promise.all([
-      supabase
+    const columnResultWithDueDate = await supabase
+      .from("service_board_columns")
+      .select("id, board_id, column_key, title, description, color, sort_order, due_date")
+      .eq("board_id", typedBoard.id)
+      .eq("active", true)
+      .order("sort_order", { ascending: true });
+
+    const canUseColumnDueDates = !(columnResultWithDueDate.error && isMissingSchema(columnResultWithDueDate.error));
+    setColumnDueDatesReady(canUseColumnDueDates);
+
+    let columnRows: ColumnRow[] | null = (columnResultWithDueDate.data ?? null) as ColumnRow[] | null;
+    let columnError = columnResultWithDueDate.error;
+
+    if (!canUseColumnDueDates) {
+      const fallbackColumnResult = await supabase
         .from("service_board_columns")
         .select("id, board_id, column_key, title, description, color, sort_order")
         .eq("board_id", typedBoard.id)
         .eq("active", true)
-        .order("sort_order", { ascending: true }),
-      supabase
-        .from("service_board_cards")
-        .select(
-          "id, board_id, column_id, card_number, title, description, priority, customer_name, location_name, assigned_to_profile_id, assigned_to_name, due_date, sort_order, tags, source_type, source_id, archived_at, created_at, updated_at"
-        )
-        .eq("board_id", typedBoard.id)
-        .is("archived_at", null)
-        .order("sort_order", { ascending: true }),
-    ]);
+        .order("sort_order", { ascending: true });
+      columnRows = (fallbackColumnResult.data ?? null) as ColumnRow[] | null;
+      columnError = fallbackColumnResult.error;
+    }
 
-    if (columnResult.error || cardResult.error) {
+    const cardResult = await supabase
+      .from("service_board_cards")
+      .select(
+        "id, board_id, column_id, card_number, title, description, priority, customer_name, location_name, assigned_to_profile_id, assigned_to_name, due_date, sort_order, tags, source_type, source_id, archived_at, created_at, updated_at"
+      )
+      .eq("board_id", typedBoard.id)
+      .is("archived_at", null)
+      .order("sort_order", { ascending: true });
+
+    if (columnError || cardResult.error) {
       setLoading(false);
-      applyFallbackMode(columnResult.error?.message || cardResult.error?.message || "The board tables could not be loaded.");
+      applyFallbackMode(columnError?.message || cardResult.error?.message || "The board tables could not be loaded.");
       return;
     }
 
-    const nextColumns = ((columnResult.data ?? []) as ColumnRow[]).map(mapColumn);
+    const nextColumns = ((columnRows ?? []) as ColumnRow[]).map(mapColumn);
     let effectiveColumns = nextColumns.length > 0 ? nextColumns : fallbackColumns;
     if (typedBoard.board_key === "dti" && nextColumns.length > 0) {
       const missingQuickLanes = quickLaneDefinitions.filter((lane) => !findQuickLaneColumn(effectiveColumns, lane));
@@ -1061,6 +1170,41 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     setCardForm(cardFormFromCard(card));
   }
 
+  function scrollToBoardMatch(match: BoardSearchMatch) {
+    setHighlightedSearchMatch({ type: match.type, id: match.id });
+
+    if (match.type === "card") {
+      const card = cards.find((item) => item.id === match.id);
+      if (card) openCard(card);
+    } else {
+      setSelectedCardId("");
+    }
+
+    const selector = match.type === "card" ? `[data-card-id="${match.id}"]` : `[data-column-id="${match.columnId}"]`;
+
+    const runScroll = () => {
+      const deck = deckRef.current;
+      const target = deck?.querySelector<HTMLElement>(selector);
+      if (!deck || !target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      deckScrollLeftRef.current = deck.scrollLeft;
+    };
+
+    window.requestAnimationFrame(() => window.requestAnimationFrame(runScroll));
+    window.setTimeout(() => {
+      setHighlightedSearchMatch((current) => (current?.id === match.id && current.type === match.type ? null : current));
+    }, 2600);
+  }
+
+  function goToBestSearchMatch() {
+    const firstMatch = searchMatches[0];
+    if (!firstMatch) {
+      if (boardSearch.trim()) setMessage(`No board match found for "${boardSearch.trim()}".`);
+      return;
+    }
+    scrollToBoardMatch(firstMatch);
+  }
+
   async function logActivity(cardId: string | null, action: string, beforeValue: Record<string, unknown> | null, afterValue: Record<string, unknown> | null) {
     if (!schemaReady || !board) return;
 
@@ -1168,7 +1312,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
     const key = slugifyColumnKey(newColumnForm.title, new Set(columns.map((column) => column.key)));
     const nextSort = Math.max(0, ...columns.map((column) => column.sortOrder)) + 100;
-    const payload = {
+    const basePayload = {
       column_key: key,
       title: newColumnForm.title.trim(),
       description: newColumnForm.description.trim() || "Custom operations lane.",
@@ -1176,6 +1320,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       sort_order: nextSort,
       active: true,
     };
+    const payload = columnDueDatesReady ? { ...basePayload, due_date: newColumnForm.dueDate || null } : basePayload;
+    const savedWithoutDueDate = !columnDueDatesReady && Boolean(newColumnForm.dueDate);
 
     if (!schemaReady || !board) {
       setColumns((current) => [
@@ -1188,6 +1334,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           description: payload.description,
           color: payload.color,
           sortOrder: payload.sort_order,
+          dueDate: newColumnForm.dueDate,
         },
       ]);
       setNewColumnForm(emptyColumnForm);
@@ -1215,11 +1362,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       user_id: currentUserId || null,
       user_name: currentUserName,
       before_value: null,
-      after_value: { title: payload.title },
+      after_value: { title: payload.title, due_date: columnDueDatesReady ? newColumnForm.dueDate || null : undefined },
     });
     setNewColumnForm(emptyColumnForm);
     setShowNewColumn(false);
     await loadBoard();
+    if (savedWithoutDueDate) {
+      setMessage("List saved. Run the list due date SQL to make due dates persist.");
+    }
   }
 
   function startEditColumn(column: BoardColumn) {
@@ -1228,6 +1378,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       title: column.title,
       description: column.description,
       serviceLineKey: serviceLineKeyFromColor(column.color) || serviceLineAssignmentKey(column.title) || "hotshot",
+      dueDate: column.dueDate,
     });
     setShowNewColumn(false);
     setShowNewCard(false);
@@ -1241,12 +1392,15 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       setMessage("List title is required.");
       return;
     }
+    rememberDeckScroll();
 
-    const patch = {
+    const basePatch = {
       title: editColumnForm.title.trim(),
       description: editColumnForm.description.trim() || "Custom operations lane.",
       color: serviceLineColor(editColumnForm.serviceLineKey || editColumnForm.title),
     };
+    const patch = columnDueDatesReady ? { ...basePatch, due_date: editColumnForm.dueDate || null } : basePatch;
+    const savedWithoutDueDate = !columnDueDatesReady && Boolean(editColumnForm.dueDate);
 
     if (!schemaReady) {
       setColumns((current) =>
@@ -1255,6 +1409,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
             ? {
                 ...item,
                 ...patch,
+                dueDate: editColumnForm.dueDate,
               }
             : item
         )
@@ -1274,10 +1429,13 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       return;
     }
 
-    await logActivity(null, "updated_lane", { title: column.title }, { title: patch.title });
+    await logActivity(null, "updated_lane", { title: column.title, due_date: column.dueDate || null }, { title: patch.title, due_date: columnDueDatesReady ? editColumnForm.dueDate || null : undefined });
     setEditingColumnId("");
     setEditColumnForm(emptyColumnForm);
-    await loadBoard();
+    await loadBoard({ showLoading: false, preserveDeckScroll: true });
+    if (savedWithoutDueDate) {
+      setMessage("List saved. Run the list due date SQL to make due dates persist.");
+    }
   }
 
   async function archiveColumn(column: BoardColumn) {
@@ -1513,6 +1671,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       description: lane.description,
       color: lane.color,
       sortOrder: nextSort,
+      dueDate: "",
     };
 
     if (!schemaReady || !board) {
@@ -1754,21 +1913,53 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
       {message && <div className={styles.message}>{message}</div>}
 
-      <section className={styles.boardToolbar} aria-label="Board tools">
+      <form
+        className={styles.boardToolbar}
+        aria-label="Board tools"
+        onSubmit={(event) => {
+          event.preventDefault();
+          goToBestSearchMatch();
+        }}
+      >
         <label>
           Search board
           <input
             value={boardSearch}
             onChange={(event) => setBoardSearch(event.target.value)}
-            placeholder="Search cards, lanes, roles, crew, truck, rig..."
+            placeholder="Search a list, person, truck, equipment, rig, role, note..."
           />
         </label>
+        <button className="button primary" type="submit" disabled={!boardSearch.trim() || searchMatches.length === 0}>
+          Go
+        </button>
         {boardSearch && (
-          <button className="button" type="button" onClick={() => setBoardSearch("")}>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              setBoardSearch("");
+              setHighlightedSearchMatch(null);
+            }}
+          >
             Clear
           </button>
         )}
-      </section>
+        {boardSearch.trim() && (
+          <div className={styles.searchResults} aria-live="polite">
+            {searchMatches.length === 0 ? (
+              <span>No matching list, person, or equipment found.</span>
+            ) : (
+              searchMatches.map((match) => (
+                <button key={`${match.type}-${match.id}`} type="button" onClick={() => scrollToBoardMatch(match)}>
+                  <strong>{match.type === "list" ? "List" : "Card"}</strong>
+                  <span>{match.title}</span>
+                  <small>{match.subtitle}</small>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </form>
 
       {showNewColumn && (
         <section className={styles.newCardPanel}>
@@ -1794,6 +1985,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              Due date
+              <input type="date" value={newColumnForm.dueDate} onChange={(event) => setNewColumnForm({ ...newColumnForm, dueDate: event.target.value })} />
             </label>
             <label className={styles.fullField}>
               Description
@@ -1839,6 +2034,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   </option>
                 ))}
               </select>
+            </label>
+            <label>
+              Due date
+              <input type="date" value={editColumnForm.dueDate} onChange={(event) => setEditColumnForm({ ...editColumnForm, dueDate: event.target.value })} />
             </label>
             <label className={styles.fullField}>
               Description
@@ -1969,6 +2168,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   bullpenColumnId={bullpenColumn?.id ?? ""}
                   quickLaneActions={quickLaneActions}
                   latestCommentsByCardId={latestCommentsByCardId}
+                  highlightedColumnId={highlightedSearchMatch?.type === "list" ? highlightedSearchMatch.id : ""}
+                  highlightedCardId={highlightedSearchMatch?.type === "card" ? highlightedSearchMatch.id : ""}
                 />
               ))}
             </SortableContext>

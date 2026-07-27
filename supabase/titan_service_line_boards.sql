@@ -36,6 +36,7 @@ create table if not exists public.service_board_columns (
   description text,
   color text not null default '#fb923c',
   sort_order integer not null default 0,
+  due_date date,
   wip_limit integer,
   active boolean not null default true,
   created_at timestamptz not null default now(),
