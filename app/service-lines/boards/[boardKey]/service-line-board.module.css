@@ -445,6 +445,7 @@
 .cardOpen {
   display: grid;
   gap: 5px;
+  min-width: 0;
   padding: 0 38px 0 0;
   border: 0;
   background: transparent;
@@ -463,10 +464,14 @@
 
 .cardOpen small,
 .dragOverlay small {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
   line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .cardNumber {
@@ -717,6 +722,31 @@
   color: #fff;
   font-size: 13px;
   font-weight: 950;
+}
+
+.commentHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.commentHead button {
+  min-height: 28px;
+  padding: 6px 9px;
+  border: 1px solid rgba(248, 113, 113, 0.46);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
+  font-size: 11px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.commentHead button:hover {
+  border-color: rgba(248, 113, 113, 0.78);
+  background: rgba(127, 29, 29, 0.34);
+  color: #fff;
 }
 
 .commentList span,

@@ -193,7 +193,7 @@ grant select, insert, update on public.service_board_columns to authenticated;
 grant select, insert, update on public.service_board_cards to authenticated;
 grant select, insert, update on public.service_board_card_assignments to authenticated;
 grant select, insert, update on public.service_board_card_checklist to authenticated;
-grant select, insert, update on public.service_board_card_comments to authenticated;
+grant select, insert, update, delete on public.service_board_card_comments to authenticated;
 grant select, insert on public.service_board_activity to authenticated;
 grant usage, select on sequence public.service_board_card_number_seq to authenticated;
 

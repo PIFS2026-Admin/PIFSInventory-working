@@ -75,12 +75,6 @@ type CardRow = {
   updated_at: string | null;
 };
 
-type ProfileRow = {
-  id: string;
-  full_name: string | null;
-  role: string | null;
-};
-
 type CommentRow = {
   id: string;
   card_id: string;
@@ -150,10 +144,9 @@ type QuickLaneAction = QuickLaneDefinition & {
   columnId: string;
 };
 
-type ProfileOption = {
-  id: string;
-  fullName: string;
-  role: string;
+type ServiceLineAssignmentOption = {
+  key: string;
+  label: string;
 };
 
 type CardForm = {
@@ -193,6 +186,14 @@ const emptyColumnForm: ColumnForm = {
 };
 
 const priorityOptions: BoardCard["priority"][] = ["Low", "Normal", "High", "Critical"];
+
+const serviceLineAssignmentOptions: ServiceLineAssignmentOption[] = [
+  { key: "dti", label: "DTI" },
+  { key: "hardbanding", label: "Hardbanding" },
+  { key: "cdt", label: "CDT" },
+  { key: "tubing", label: "Tubing" },
+  { key: "hotshot", label: "Hotshot" },
+];
 
 const quickLaneDefinitions: QuickLaneDefinition[] = [
   {
@@ -264,6 +265,20 @@ function splitTags(value: string) {
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getServiceLineAssignment(value: string | null | undefined) {
+  const normalized = normalizeSearch(value ?? "");
+  if (!normalized) return null;
+  return serviceLineAssignmentOptions.find((option) => normalizeSearch(option.key) === normalized || normalizeSearch(option.label) === normalized) ?? null;
+}
+
+function serviceLineAssignmentKey(value: string | null | undefined) {
+  return getServiceLineAssignment(value)?.key ?? "";
+}
+
+function serviceLineAssignmentLabel(value: string | null | undefined) {
+  return getServiceLineAssignment(value)?.label ?? "";
 }
 
 function normalizeLaneMatch(value: string) {
@@ -406,14 +421,14 @@ function cardFormFromCard(card: BoardCard): CardForm {
     priority: card.priority,
     customerName: card.customerName,
     locationName: card.locationName,
-    assignedToProfileId: card.assignedToProfileId,
+    assignedToProfileId: serviceLineAssignmentKey(card.assignedToName),
     dueDate: card.dueDate,
     tagsText: card.tags.join(", "),
   };
 }
 
-function cardPatchFromForm(form: CardForm, profiles: ProfileOption[]) {
-  const profile = profiles.find((item) => item.id === form.assignedToProfileId);
+function cardPatchFromForm(form: CardForm) {
+  const assignedServiceLine = serviceLineAssignmentLabel(form.assignedToProfileId);
 
   return {
     title: form.title.trim(),
@@ -421,8 +436,8 @@ function cardPatchFromForm(form: CardForm, profiles: ProfileOption[]) {
     priority: form.priority,
     customer_name: form.customerName.trim() || null,
     location_name: form.locationName.trim() || null,
-    assigned_to_profile_id: form.assignedToProfileId || null,
-    assigned_to_name: profile?.fullName || null,
+    assigned_to_profile_id: null,
+    assigned_to_name: assignedServiceLine || null,
     due_date: form.dueDate || null,
     tags: splitTags(form.tagsText),
   };
@@ -440,6 +455,7 @@ function DroppableColumn({
   onSendToQuickLane,
   bullpenColumnId,
   quickLaneActions,
+  latestCommentsByCardId,
 }: {
   column: BoardColumn;
   cards: BoardCard[];
@@ -452,6 +468,7 @@ function DroppableColumn({
   onSendToQuickLane: (card: BoardCard, lane: QuickLaneDefinition) => void;
   bullpenColumnId: string;
   quickLaneActions: QuickLaneAction[];
+  latestCommentsByCardId: Record<string, CommentRow>;
 }) {
   const {
     attributes,
@@ -538,6 +555,7 @@ function DroppableColumn({
                 onSendToQuickLane={(lane) => onSendToQuickLane(card, lane)}
                 canSendToBullpen={Boolean(bullpenColumnId) && card.columnId !== bullpenColumnId && isEmployeeCard(card)}
                 quickLaneActions={isEmployeeCard(card) ? quickLaneActions.filter((lane) => lane.columnId !== card.columnId) : []}
+                latestComment={latestCommentsByCardId[card.id]?.body ?? ""}
               />
             ))}
           </SortableContext>
@@ -555,6 +573,7 @@ function SortableBoardCard({
   onSendToQuickLane,
   canSendToBullpen,
   quickLaneActions,
+  latestComment,
 }: {
   card: BoardCard;
   selected: boolean;
@@ -563,6 +582,7 @@ function SortableBoardCard({
   onSendToQuickLane: (lane: QuickLaneDefinition) => void;
   canSendToBullpen: boolean;
   quickLaneActions: QuickLaneAction[];
+  latestComment: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -649,7 +669,7 @@ function SortableBoardCard({
       <button className={styles.cardOpen} type="button" onClick={onSelect}>
         <span className={styles.cardNumber}>{card.cardNumber}</span>
         <strong>{card.title}</strong>
-        <small>{card.customerName || card.locationName || "No customer/location yet"}</small>
+        <small>{latestComment || card.customerName || card.locationName || "No update yet"}</small>
       </button>
 
       <div className={styles.cardMeta}>
@@ -686,7 +706,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [board, setBoard] = useState<BoardRow | null>(null);
   const [columns, setColumns] = useState<BoardColumn[]>(fallbackColumns);
   const [cards, setCards] = useState<BoardCard[]>(fallbackCards);
-  const [profiles, setProfiles] = useState<ProfileOption[]>([]);
   const [selectedCardId, setSelectedCardId] = useState("");
   const [cardForm, setCardForm] = useState<CardForm>(emptyCardForm);
   const [newCardForm, setNewCardForm] = useState<CardForm>(emptyCardForm);
@@ -697,6 +716,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(emptyColumnForm);
   const [boardSearch, setBoardSearch] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
+  const [latestCommentsByCardId, setLatestCommentsByCardId] = useState<Record<string, CommentRow>>({});
   const [checklist, setChecklist] = useState<ChecklistRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [newComment, setNewComment] = useState("");
@@ -787,24 +807,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       })),
     [columns]
   );
-  const loadProfiles = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, full_name, role")
-      .neq("role", "customer")
-      .order("full_name", { ascending: true });
-
-    if (error) return;
-
-    setProfiles(
-      (data ?? []).map((profile: ProfileRow) => ({
-        id: profile.id,
-        fullName: profile.full_name || "Unnamed user",
-        role: profile.role || "employee",
-      }))
-    );
-  }, []);
-
   const applyFallbackMode = useCallback(
     (nextMessage: string) => {
       setSchemaReady(false);
@@ -917,7 +919,22 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     }
     setColumns(effectiveColumns);
     const activeColumnIds = new Set(effectiveColumns.map((column) => column.id));
-    setCards(((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId)));
+    const nextCards = ((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId));
+    setCards(nextCards);
+    if (nextCards.length === 0) {
+      setLatestCommentsByCardId({});
+    } else {
+      const { data: latestCommentData } = await supabase
+        .from("service_board_card_comments")
+        .select("id, card_id, body, created_by_name, created_at")
+        .in("card_id", nextCards.map((card) => card.id))
+        .order("created_at", { ascending: false });
+      const nextLatestComments: Record<string, CommentRow> = {};
+      ((latestCommentData ?? []) as CommentRow[]).forEach((comment) => {
+        if (!nextLatestComments[comment.card_id]) nextLatestComments[comment.card_id] = comment;
+      });
+      setLatestCommentsByCardId(nextLatestComments);
+    }
     setLoading(false);
   }, [applyFallbackMode, boardKey, config.title, fallbackColumns, rememberDeckScroll]);
 
@@ -959,12 +976,11 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void loadProfiles();
       void loadBoard();
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [loadBoard, loadProfiles]);
+  }, [loadBoard]);
 
   useEffect(() => {
     if (!board?.id || !schemaReady) return;
@@ -979,6 +995,10 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "service_board_activity", filter: `board_id=eq.${board.id}` }, () => {
         if (selectedCardId) void loadCardDetails(selectedCardId);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_board_card_comments" }, () => {
+        if (selectedCardId) void loadCardDetails(selectedCardId);
+        void loadBoard({ showLoading: false, preserveDeckScroll: true });
       })
       .subscribe();
 
@@ -1023,7 +1043,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       return;
     }
 
-    const assignedProfile = profiles.find((profile) => profile.id === newCardForm.assignedToProfileId);
+    const assignedServiceLine = serviceLineAssignmentLabel(newCardForm.assignedToProfileId);
     const nextSort = Math.max(0, ...cards.filter((card) => card.columnId === targetColumn.id).map((card) => card.sortOrder)) + 100;
     const payload = {
       column_id: targetColumn.id,
@@ -1032,8 +1052,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       priority: newCardForm.priority,
       customer_name: newCardForm.customerName.trim() || null,
       location_name: newCardForm.locationName.trim() || null,
-      assigned_to_profile_id: newCardForm.assignedToProfileId || null,
-      assigned_to_name: assignedProfile?.fullName || null,
+      assigned_to_profile_id: null,
+      assigned_to_name: assignedServiceLine || null,
       due_date: newCardForm.dueDate || null,
       sort_order: nextSort,
       tags: splitTags(newCardForm.tagsText),
@@ -1290,7 +1310,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       return;
     }
 
-    const patch = cardPatchFromForm(cardForm, profiles);
+    const patch = cardPatchFromForm(cardForm);
 
     if (!schemaReady) {
       setCards((current) =>
@@ -1522,35 +1542,73 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   async function addComment() {
     if (!selectedCard || !newComment.trim()) return;
     if (!schemaReady) {
+      const localComment = {
+        id: `local-comment-${Date.now()}`,
+        card_id: selectedCard.id,
+        body: newComment.trim(),
+        created_by_name: currentUserName,
+        created_at: new Date().toISOString(),
+      };
       setComments((current) => [
-        {
-          id: `local-comment-${Date.now()}`,
-          card_id: selectedCard.id,
-          body: newComment.trim(),
-          created_by_name: currentUserName,
-          created_at: new Date().toISOString(),
-        },
+        localComment,
         ...current,
       ]);
+      setLatestCommentsByCardId((current) => ({ ...current, [selectedCard.id]: localComment }));
       setNewComment("");
       return;
     }
 
-    const { error } = await supabase.from("service_board_card_comments").insert({
-      card_id: selectedCard.id,
-      created_by: currentUserId || null,
-      created_by_name: currentUserName,
-      body: newComment.trim(),
-    });
+    const { data, error } = await supabase
+      .from("service_board_card_comments")
+      .insert({
+        card_id: selectedCard.id,
+        created_by: currentUserId || null,
+        created_by_name: currentUserName,
+        body: newComment.trim(),
+      })
+      .select("id, card_id, body, created_by_name, created_at")
+      .single();
 
     if (error) {
       setMessage(error.message);
       return;
     }
 
+    const createdComment = data as CommentRow;
+    setComments((current) => [createdComment, ...current]);
+    setLatestCommentsByCardId((current) => ({ ...current, [selectedCard.id]: createdComment }));
     await logActivity(selectedCard.id, "commented", null, { body: newComment.trim().slice(0, 80) });
     setNewComment("");
-    await loadCardDetails(selectedCard.id);
+  }
+
+  async function deleteComment(comment: CommentRow) {
+    if (!selectedCard) return;
+    const confirmed = window.confirm("Delete this comment?");
+    if (!confirmed) return;
+
+    const nextComments = comments.filter((item) => item.id !== comment.id);
+    setComments(nextComments);
+    setLatestCommentsByCardId((current) => {
+      const next = { ...current };
+      if (nextComments[0]) {
+        next[selectedCard.id] = nextComments[0];
+      } else {
+        delete next[selectedCard.id];
+      }
+      return next;
+    });
+
+    if (!schemaReady) return;
+
+    const { error } = await supabase.from("service_board_card_comments").delete().eq("id", comment.id);
+    if (error) {
+      setMessage(error.message);
+      await loadCardDetails(selectedCard.id);
+      await loadBoard({ showLoading: false, preserveDeckScroll: true });
+      return;
+    }
+
+    await logActivity(selectedCard.id, "deleted_comment", { body: comment.body.slice(0, 80) }, null);
   }
 
   async function addChecklistItem() {
@@ -1602,6 +1660,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }
 
   const currentColumnId = selectedCard?.columnId ?? "";
+  const selectedCardLatestComment = selectedCard ? latestCommentsByCardId[selectedCard.id]?.body ?? "" : "";
 
   return (
     <main className={`${styles.shell} service-lines-shell`}>
@@ -1807,9 +1866,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               Assigned to
               <select value={newCardForm.assignedToProfileId} onChange={(event) => setNewCardForm({ ...newCardForm, assignedToProfileId: event.target.value })}>
                 <option value="">Unassigned</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.fullName} ({profile.role})
+                {serviceLineAssignmentOptions.map((serviceLine) => (
+                  <option key={serviceLine.key} value={serviceLine.key}>
+                    {serviceLine.label}
                   </option>
                 ))}
               </select>
@@ -1865,6 +1924,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   onSendToQuickLane={(card, lane) => void sendToQuickLane(card, lane)}
                   bullpenColumnId={bullpenColumn?.id ?? ""}
                   quickLaneActions={quickLaneActions}
+                  latestCommentsByCardId={latestCommentsByCardId}
                 />
               ))}
             </SortableContext>
@@ -1897,7 +1957,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
             <div>
               <span>{selectedCard.cardNumber}</span>
               <h2>{selectedCard.title}</h2>
-              <p>{columns.find((column) => column.id === selectedCard.columnId)?.title ?? "Board card"}</p>
+              <p>{selectedCardLatestComment || "No comments yet."}</p>
             </div>
             <button type="button" onClick={() => setSelectedCardId("")} aria-label="Close card">
               X
@@ -1933,9 +1993,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               Assigned to
               <select value={cardForm.assignedToProfileId} onChange={(event) => setCardForm({ ...cardForm, assignedToProfileId: event.target.value })}>
                 <option value="">Unassigned</option>
-                {profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.fullName} ({profile.role})
+                {serviceLineAssignmentOptions.map((serviceLine) => (
+                  <option key={serviceLine.key} value={serviceLine.key}>
+                    {serviceLine.label}
                   </option>
                 ))}
               </select>
@@ -2007,8 +2067,15 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               ) : (
                 comments.map((comment) => (
                   <article key={comment.id}>
-                    <strong>{comment.created_by_name || "TITAN user"}</strong>
-                    <span>{formatTime(comment.created_at)}</span>
+                    <div className={styles.commentHead}>
+                      <div>
+                        <strong>{comment.created_by_name || "TITAN user"}</strong>
+                        <span>{formatTime(comment.created_at)}</span>
+                      </div>
+                      <button type="button" onClick={() => void deleteComment(comment)}>
+                        Delete
+                      </button>
+                    </div>
                     <p>{comment.body}</p>
                   </article>
                 ))
