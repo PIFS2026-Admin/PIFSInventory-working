@@ -598,7 +598,6 @@ function DroppableColumn({
           aria-label={`Edit ${column.title} list`}
         >
           <h2>{column.title}</h2>
-          <p>{column.description}</p>
           {column.dueDate && <small className={styles.columnDueDate}>Due {formatDate(column.dueDate)}</small>}
         </button>
         <div className={styles.columnTools}>
@@ -765,7 +764,7 @@ function SortableBoardCard({
       <button className={styles.cardOpen} type="button" onClick={onSelect}>
         <span className={styles.cardNumber}>{card.cardNumber}</span>
         <strong>{card.title}</strong>
-        <small>{latestComment || card.customerName || card.locationName || "No update yet"}</small>
+        {(latestComment || card.customerName || card.locationName) && <small>{latestComment || card.customerName || card.locationName}</small>}
       </button>
 
       <div className={styles.cardMeta}>
@@ -812,6 +811,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(emptyColumnForm);
   const [boardSearch, setBoardSearch] = useState("");
   const [highlightedSearchMatch, setHighlightedSearchMatch] = useState<{ type: "card" | "list"; id: string } | null>(null);
+  const [activeMobileColumnId, setActiveMobileColumnId] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [latestCommentsByCardId, setLatestCommentsByCardId] = useState<Record<string, CommentRow>>({});
   const [checklist, setChecklist] = useState<ChecklistRow[]>([]);
@@ -859,6 +859,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     restore();
     window.requestAnimationFrame(restore);
   }, [cards, columns]);
+
+  useEffect(() => {
+    if (columns.length === 0) {
+      setActiveMobileColumnId("");
+      return;
+    }
+    setActiveMobileColumnId((current) => (current && columns.some((column) => column.id === current) ? current : columns[0].id));
+  }, [columns]);
 
   const visibleCards = useMemo(() => {
     const search = normalizeSearch(boardSearch);
@@ -1172,6 +1180,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   function scrollToBoardMatch(match: BoardSearchMatch) {
     setHighlightedSearchMatch({ type: match.type, id: match.id });
+    setActiveMobileColumnId(match.columnId);
 
     if (match.type === "card") {
       const card = cards.find((item) => item.id === match.id);
@@ -1203,6 +1212,41 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       return;
     }
     scrollToBoardMatch(firstMatch);
+  }
+
+  function scrollToColumn(columnId: string) {
+    if (!columnId) return;
+    setActiveMobileColumnId(columnId);
+
+    const runScroll = () => {
+      const deck = deckRef.current;
+      const target = deck?.querySelector<HTMLElement>(`[data-column-id="${columnId}"]`);
+      if (!deck || !target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      deckScrollLeftRef.current = deck.scrollLeft;
+    };
+
+    window.requestAnimationFrame(() => window.requestAnimationFrame(runScroll));
+  }
+
+  function scrollMobileColumn(direction: -1 | 1) {
+    if (columns.length === 0) return;
+    const currentIndex = Math.max(0, columns.findIndex((column) => column.id === activeMobileColumnId));
+    const nextIndex = Math.min(columns.length - 1, Math.max(0, currentIndex + direction));
+    scrollToColumn(columns[nextIndex].id);
+  }
+
+  function syncActiveColumnFromDeckScroll(deck: HTMLElement) {
+    deckScrollLeftRef.current = deck.scrollLeft;
+    const columnNodes = Array.from(deck.querySelectorAll<HTMLElement>("[data-column-id]"));
+    if (columnNodes.length === 0) return;
+    const nearestColumn = columnNodes.reduce((nearest, node) => {
+      const nearestDistance = Math.abs(nearest.offsetLeft - deck.scrollLeft);
+      const nodeDistance = Math.abs(node.offsetLeft - deck.scrollLeft);
+      return nodeDistance < nearestDistance ? node : nearest;
+    }, columnNodes[0]);
+    const nextColumnId = nearestColumn.dataset.columnId ?? "";
+    if (nextColumnId) setActiveMobileColumnId((current) => (current === nextColumnId ? current : nextColumnId));
   }
 
   async function logActivity(cardId: string | null, action: string, beforeValue: Record<string, unknown> | null, afterValue: Record<string, unknown> | null) {
@@ -1890,7 +1934,6 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         <div>
           <span>{config.eyebrow}</span>
           <h1>{config.title}</h1>
-          <p>{config.description}</p>
         </div>
         <div className={styles.statusCluster}>
           <span className={schemaReady ? styles.livePill : styles.testPill}>{schemaReady ? "Realtime ready" : "Test mode"}</span>
@@ -1960,6 +2003,31 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           </div>
         )}
       </form>
+
+      {columns.length > 0 && (
+        <section className={styles.mobileLaneControls} aria-label="Mobile list navigation">
+          <button type="button" onClick={() => scrollMobileColumn(-1)} disabled={columns.findIndex((column) => column.id === activeMobileColumnId) <= 0}>
+            Prev
+          </button>
+          <label>
+            List
+            <select value={activeMobileColumnId} onChange={(event) => scrollToColumn(event.target.value)}>
+              {columns.map((column) => (
+                <option key={column.id} value={column.id}>
+                  {column.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => scrollMobileColumn(1)}
+            disabled={columns.findIndex((column) => column.id === activeMobileColumnId) >= columns.length - 1}
+          >
+            Next
+          </button>
+        </section>
+      )}
 
       {showNewColumn && (
         <section className={styles.newCardPanel}>
@@ -2146,7 +2214,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           className={styles.deck}
           aria-label={`${config.title} columns`}
           onScroll={(event) => {
-            deckScrollLeftRef.current = event.currentTarget.scrollLeft;
+            syncActiveColumnFromDeckScroll(event.currentTarget);
           }}
         >
           {loading ? (
