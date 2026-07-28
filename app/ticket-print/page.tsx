@@ -15,6 +15,11 @@ type Ticket = {
   carrier: string;
   poNumber: string;
   truckNumber: string;
+  truckSequence: number;
+  truckCount: number;
+  driverName: string;
+  truckUnitNumber: string;
+  trailerNumber: string;
   shipTo: string;
   receivedFrom: string;
   destination: string;
@@ -52,6 +57,51 @@ type TicketAttachment = {
   documentType: string;
 };
 
+type TicketLineRow = {
+  id: string;
+  afe?: string | null;
+  size?: string | null;
+  grade?: string | null;
+  connection?: string | null;
+  part_number?: string | null;
+  pipe_range?: string | null;
+  condition?: string | null;
+  joints?: number | string | null;
+  footage?: number | string | null;
+};
+
+type DocumentRow = {
+  id: string;
+  document_type?: string | null;
+  file_name?: string | null;
+  file_url?: string | null;
+};
+
+type ReceivingTruckTicket = {
+  id: string;
+  receiving_ticket_id: string;
+  truck_sequence: number | null;
+  truck_label: string | null;
+  carrier: string | null;
+  po_number: string | null;
+  truck_number: string | null;
+  driver_name: string | null;
+  truck_unit_number: string | null;
+  trailer_number: string | null;
+  bol_number: string | null;
+  arrival_at: string | null;
+  missing_box_protectors: number | null;
+  missing_pin_protectors: number | null;
+  pathfinder_name: string | null;
+  pathfinder_signature: string | null;
+  carrier_name: string | null;
+  carrier_signature: string | null;
+  notes: string | null;
+  total_joints: number | null;
+  total_footage: number | null;
+  created_at: string | null;
+};
+
 const emptyTicket: Ticket = {
   id: "",
   type: "receiving",
@@ -62,6 +112,11 @@ const emptyTicket: Ticket = {
   carrier: "",
   poNumber: "",
   truckNumber: "",
+  truckSequence: 0,
+  truckCount: 0,
+  driverName: "",
+  truckUnitNumber: "",
+  trailerNumber: "",
   shipTo: "",
   receivedFrom: "",
   destination: "",
@@ -103,6 +158,19 @@ function normalizePipeRange(value: unknown): "Range 2" | "Range 3" {
 
 function calculateRangeFootage(joints: number, pipeRange: string) {
   return Math.round(Number(joints || 0) * (pipeRange === "Range 3" ? 43.5 : 31.5) * 100) / 100;
+}
+
+function isMissingDatabaseObject(error: unknown) {
+  const message =
+    error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message ?? "") : "";
+
+  return (
+    message.includes("Could not find") ||
+    message.includes("does not exist") ||
+    message.includes("schema cache") ||
+    message.includes("receiving_ticket_trucks") ||
+    message.includes("receiving_ticket_truck_id")
+  );
 }
 
 function scaleTicketLinesToJoints(lines: TicketLine[], requestedJoints: number) {
@@ -211,6 +279,7 @@ export default function TicketPrintPage() {
     async function loadTicket() {
       const type = (getParam("type") || "receiving") as TicketType;
       const id = getParam("id");
+      const truckId = getParam("truckId");
 
       if (!id) {
         setError("Missing ticket id.");
@@ -271,6 +340,11 @@ export default function TicketPrintPage() {
           carrier: data.carrier ?? "",
           poNumber: "",
           truckNumber: "",
+          truckSequence: 0,
+          truckCount: 0,
+          driverName: "",
+          truckUnitNumber: "",
+          trailerNumber: "",
           shipTo: data.released_to ?? "",
           receivedFrom: data.yard_name ?? "",
           destination: data.destination ?? "",
@@ -348,6 +422,11 @@ export default function TicketPrintPage() {
           carrier: "",
           poNumber: "",
           truckNumber: "",
+          truckSequence: 0,
+          truckCount: 0,
+          driverName: "",
+          truckUnitNumber: "",
+          trailerNumber: "",
           shipTo: "",
           receivedFrom: details.fromLocation ?? "",
           destination: details.toLocation ?? "",
@@ -408,6 +487,11 @@ export default function TicketPrintPage() {
           carrier: data.carrier ?? "",
           poNumber: data.po_number ?? "",
           truckNumber: data.truck_number ?? "",
+          truckSequence: 0,
+          truckCount: 0,
+          driverName: "",
+          truckUnitNumber: data.truck_number ?? "",
+          trailerNumber: "",
           shipTo: data.ship_to ?? "",
           receivedFrom: "",
           destination: data.destination ?? "",
@@ -493,17 +577,45 @@ export default function TicketPrintPage() {
       }
 
       const companyName = getCompanyName(data.companies);
+      const { data: truckData, error: truckError } = await supabase
+        .from("receiving_ticket_trucks")
+        .select(
+          "id, receiving_ticket_id, truck_sequence, truck_label, carrier, po_number, truck_number, driver_name, truck_unit_number, trailer_number, bol_number, arrival_at, missing_box_protectors, missing_pin_protectors, pathfinder_name, pathfinder_signature, carrier_name, carrier_signature, notes, total_joints, total_footage, created_at"
+        )
+        .eq("receiving_ticket_id", data.id)
+        .order("truck_sequence", { ascending: true });
+
+      if (truckError && !isMissingDatabaseObject(truckError)) {
+        setError(truckError.message);
+        return;
+      }
+
+      const receivingTrucks = ((truckError ? [] : truckData) ?? []) as ReceivingTruckTicket[];
+      const selectedTruck = truckId ? receivingTrucks.find((truck) => truck.id === truckId) ?? null : null;
+
+      if (truckId && receivingTrucks.length > 0 && !selectedTruck) {
+        setError("Receiving truck ticket not found.");
+        return;
+      }
+
+      const truckCount = receivingTrucks.length || 1;
+      const isTruckPrint = Boolean(selectedTruck);
 
       setTicket({
         id: data.id,
         type: "receiving",
         ticketNumber: data.ticket_number ?? "",
-        bolNumber: "",
-        documentType: "",
+        bolNumber: selectedTruck?.bol_number ?? "",
+        documentType: isTruckPrint ? "receiving_truck" : "receiving_master",
         company: companyName,
-        carrier: data.carrier ?? "",
-        poNumber: data.po_number ?? "",
-        truckNumber: data.truck_number ?? "",
+        carrier: selectedTruck?.carrier ?? data.carrier ?? "",
+        poNumber: selectedTruck?.po_number ?? data.po_number ?? "",
+        truckNumber: selectedTruck?.truck_number ?? data.truck_number ?? "",
+        truckSequence: Number(selectedTruck?.truck_sequence ?? 0),
+        truckCount,
+        driverName: selectedTruck?.driver_name ?? "",
+        truckUnitNumber: selectedTruck?.truck_unit_number ?? "",
+        trailerNumber: selectedTruck?.trailer_number ?? "",
         shipTo: "",
         receivedFrom: companyName,
         destination: data.destination ?? "-",
@@ -511,21 +623,39 @@ export default function TicketPrintPage() {
         releasedTo: "",
         shipDate: "",
         rackLabel: "",
-        missingBoxProtectors: Number(data.missing_box_protectors ?? 0),
-        missingPinProtectors: Number(data.missing_pin_protectors ?? 0),
-        pathfinderName: data.pathfinder_name ?? "",
-        pathfinderSignature: data.pathfinder_signature ?? "",
-        carrierName: data.carrier_name ?? "",
-        carrierSignature: data.carrier_signature ?? "",
-        notes: data.notes ?? "",
-        createdAt: data.created_at ?? "",
+        missingBoxProtectors: Number(selectedTruck?.missing_box_protectors ?? data.missing_box_protectors ?? 0),
+        missingPinProtectors: Number(selectedTruck?.missing_pin_protectors ?? data.missing_pin_protectors ?? 0),
+        pathfinderName: selectedTruck?.pathfinder_name ?? "",
+        pathfinderSignature: selectedTruck?.pathfinder_signature ?? "",
+        carrierName: selectedTruck?.carrier_name ?? selectedTruck?.driver_name ?? "",
+        carrierSignature: selectedTruck?.carrier_signature ?? "",
+        notes: selectedTruck?.notes ?? data.notes ?? "",
+        createdAt: selectedTruck?.arrival_at ?? data.created_at ?? "",
       });
 
-      const { data: lineData, error: lineError } = await supabase
+      let lineQuery = supabase
         .from("ticket_line_items")
-        .select("id, afe, part_number, pipe_range, condition, joints, footage")
+        .select("id, afe, size, grade, connection, part_number, pipe_range, condition, joints, footage, receiving_ticket_truck_id")
         .eq("receiving_ticket_id", data.id)
         .order("id", { ascending: true });
+
+      if (selectedTruck) {
+        lineQuery = lineQuery.eq("receiving_ticket_truck_id", selectedTruck.id);
+      }
+
+      const lineResult = await lineQuery;
+      let lineData = lineResult.data as TicketLineRow[] | null;
+      let lineError = lineResult.error;
+
+      if (lineError && isMissingDatabaseObject(lineError)) {
+        const fallback = await supabase
+          .from("ticket_line_items")
+          .select("id, afe, size, grade, connection, part_number, pipe_range, condition, joints, footage")
+          .eq("receiving_ticket_id", data.id)
+          .order("id", { ascending: true });
+        lineData = fallback.data as TicketLineRow[] | null;
+        lineError = fallback.error;
+      }
 
       if (lineError) {
         setError(lineError.message);
@@ -540,6 +670,9 @@ export default function TicketPrintPage() {
         return {
           id: line.id,
           afe: line.afe ?? "",
+          size: line.size ?? "",
+          grade: line.grade ?? "",
+          connection: line.connection ?? "",
           partNumber: line.part_number ?? "",
           pipeRange,
           condition: line.condition ?? "",
@@ -553,22 +686,47 @@ export default function TicketPrintPage() {
           ? mappedLines
           : [
               {
-                id: data.id,
+                id: selectedTruck?.id ?? data.id,
                 afe: data.afe ?? "",
+                size: "",
+                grade: "",
+                connection: "",
                 partNumber: data.part_number ?? "",
                 pipeRange: normalizePipeRange(data.pipe_range),
                 condition: data.condition ?? "",
-                joints: Number(data.joints ?? 0),
-                footage: calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range)),
+                joints: Number(selectedTruck?.total_joints ?? data.joints ?? 0),
+                footage: Number(
+                  selectedTruck?.total_footage ??
+                    data.footage ??
+                    calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range))
+                ),
               },
             ]
       );
 
-      const { data: attachmentData, error: attachmentError } = await supabase
+      let attachmentQuery = supabase
         .from("documents")
-        .select("id, document_type, file_url, file_name")
+        .select("id, document_type, file_url, file_name, receiving_ticket_truck_id")
         .eq("receiving_ticket_id", data.id)
         .order("created_at", { ascending: true });
+
+      if (selectedTruck) {
+        attachmentQuery = attachmentQuery.eq("receiving_ticket_truck_id", selectedTruck.id);
+      }
+
+      const attachmentResult = await attachmentQuery;
+      let attachmentData = attachmentResult.data as DocumentRow[] | null;
+      let attachmentError = attachmentResult.error;
+
+      if (attachmentError && isMissingDatabaseObject(attachmentError)) {
+        const fallback = await supabase
+          .from("documents")
+          .select("id, document_type, file_url, file_name")
+          .eq("receiving_ticket_id", data.id)
+          .order("created_at", { ascending: true });
+        attachmentData = fallback.data as DocumentRow[] | null;
+        attachmentError = fallback.error;
+      }
 
       if (attachmentError) {
         setError(attachmentError.message);
@@ -576,7 +734,7 @@ export default function TicketPrintPage() {
       }
 
       setAttachments(
-        (attachmentData ?? []).map((attachment: any) => ({
+        (attachmentData ?? []).map((attachment) => ({
           id: attachment.id,
           documentType: attachment.document_type ?? "",
           fileName: attachment.file_name ?? "Attachment",
@@ -621,6 +779,10 @@ export default function TicketPrintPage() {
     );
   }
 
+  const isReceivingTruckPrint = ticket.type === "receiving" && ticket.documentType === "receiving_truck";
+  const isReceivingMasterPrint = ticket.type === "receiving" && ticket.documentType === "receiving_master";
+  const showSignatureGrid = ticket.type !== "receiving" || isReceivingTruckPrint;
+
   return (
     <main className="print-page">
       <div className="print-actions">
@@ -652,17 +814,20 @@ export default function TicketPrintPage() {
                   ? "Transfer Document"
                   : ticket.type === "release"
                     ? "Tubular Release Request"
-                    : "Receiving Ticket"}
+                    : isReceivingTruckPrint
+                      ? `Receiving Ticket - Truck ${ticket.truckSequence} of ${ticket.truckCount}`
+                      : "Master Receiving Ticket"}
             </h2>
             <p>{ticket.ticketNumber}</p>
             {ticket.type === "transfer" && (
               <p>{ticket.receivedFrom || "-"} to {ticket.destination || "-"}</p>
             )}
+            {isReceivingTruckPrint && ticket.bolNumber && <p>BOL {ticket.bolNumber}</p>}
           </div>
           <div className="ticket-date-box">
             <span>Date</span>
             <strong>{formatDate(ticket.type === "release" ? ticket.releaseDate || ticket.createdAt : ticket.createdAt)}</strong>
-            {ticket.type === "shipping" && (
+            {(ticket.type === "shipping" || isReceivingTruckPrint) && (
               <>
                 <span>BOL</span>
                 <strong>{ticket.bolNumber}</strong>
@@ -737,6 +902,28 @@ export default function TicketPrintPage() {
                 <span>Truck Number</span>
                 <strong>{ticket.truckNumber || "-"}</strong>
               </div>
+              {isReceivingMasterPrint && (
+                <div>
+                  <span>Truck Tickets</span>
+                  <strong>{formatNumber(ticket.truckCount)}</strong>
+                </div>
+              )}
+              {isReceivingTruckPrint && (
+                <>
+                  <div>
+                    <span>Driver</span>
+                    <strong>{ticket.driverName || ticket.carrierName || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>Truck / Unit</span>
+                    <strong>{ticket.truckUnitNumber || "-"}</strong>
+                  </div>
+                  <div>
+                    <span>Trailer</span>
+                    <strong>{ticket.trailerNumber || "-"}</strong>
+                  </div>
+                </>
+              )}
               <div>
                 <span>{ticket.type === "shipping" ? "Ship To" : ticket.type === "transfer" ? "From" : "Received From"}</span>
                 <strong>{ticket.type === "shipping" ? ticket.shipTo || "-" : ticket.receivedFrom || "-"}</strong>
@@ -830,28 +1017,30 @@ export default function TicketPrintPage() {
           </section>
         )}
 
-        <section className={`signature-grid ${ticket.type === "release" ? "signature-grid-single" : ""}`}>
-          {ticket.type !== "release" && (
+        {showSignatureGrid && (
+          <section className={`signature-grid ${ticket.type === "release" ? "signature-grid-single" : ""}`}>
+            {ticket.type !== "release" && (
+              <div>
+                <span>
+                  {ticket.pathfinderName && <strong className="printed-signer-name">{ticket.pathfinderName}</strong>}
+                  {printSignatures.pathfinderSignature && (
+                    <img src={printSignatures.pathfinderSignature} alt="Pathfinder Representative Signature" />
+                  )}
+                </span>
+                <p>Pathfinder Representative</p>
+              </div>
+            )}
             <div>
               <span>
-                {ticket.pathfinderName && <strong className="printed-signer-name">{ticket.pathfinderName}</strong>}
-                {printSignatures.pathfinderSignature && (
-                  <img src={printSignatures.pathfinderSignature} alt="Pathfinder Representative Signature" />
+                {ticket.carrierName && <strong className="printed-signer-name">{ticket.carrierName}</strong>}
+                {printSignatures.carrierSignature && (
+                  <img src={printSignatures.carrierSignature} alt={ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"} />
                 )}
               </span>
-              <p>Pathfinder Representative</p>
+              <p>{ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"}</p>
             </div>
-          )}
-          <div>
-            <span>
-              {ticket.carrierName && <strong className="printed-signer-name">{ticket.carrierName}</strong>}
-              {printSignatures.carrierSignature && (
-                <img src={printSignatures.carrierSignature} alt={ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"} />
-              )}
-            </span>
-            <p>{ticket.type === "release" ? "Customer Release Signature" : "Carrier / Driver Signature"}</p>
-          </div>
-        </section>
+          </section>
+        )}
       </section>
     </main>
   );

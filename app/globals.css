@@ -687,12 +687,78 @@ th {
   text-transform: none;
 }
 
+.attachment-list a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--orange-2);
+  background: var(--panel);
+  text-decoration: none;
+}
+
+.attachment-list input {
+  width: min(240px, 55vw);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
 .attachment-list button {
   border: 0;
   color: var(--orange-2);
   background: transparent;
   font-weight: 900;
   cursor: pointer;
+}
+
+.receiving-truck-stack {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.receiving-truck-card {
+  border: 1px solid rgba(249, 115, 22, 0.35);
+  border-radius: 8px;
+  background: rgba(7, 10, 14, 0.72);
+  padding: 14px;
+}
+
+.receiving-truck-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.receiving-truck-header h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.receiving-truck-header span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nested-form-grid {
+  padding: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.receiving-attachment-list {
+  border-style: solid;
 }
 
 .signature-pad-grid {
@@ -960,6 +1026,25 @@ th {
 
 .ticket-line-list a:hover {
   text-decoration: underline;
+}
+
+.receiving-truck-history-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 10px;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.06);
+}
+
+.receiving-truck-history-row .button {
+  width: max-content;
+}
+
+.nested-ticket-files {
+  margin-top: 6px;
+  border-top-style: dashed;
 }
 
 .ticket-count-list {
