@@ -27,12 +27,47 @@ type ReleaseRequestBody = {
   signatureData?: string;
 };
 
-function getErrorMessage(error: any) {
+type UnknownRecord = Record<string, unknown>;
+
+type ReleaseEmailRequest = UnknownRecord & {
+  request_number?: unknown;
+  company_name?: unknown;
+  yard_name?: unknown;
+  rack_label?: unknown;
+  part_summary?: unknown;
+  quantity_joints?: unknown;
+  release_date?: unknown;
+  released_to?: unknown;
+  ship_date?: unknown;
+  carrier?: unknown;
+  destination?: unknown;
+  signature_name?: unknown;
+  notes?: unknown;
+  part_lines?: unknown;
+};
+
+function asRecords(value: unknown): UnknownRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((row): row is UnknownRecord => Boolean(row) && typeof row === "object" && !Array.isArray(row));
+}
+
+function displayValue(value: unknown, fallback = "-") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function getErrorMessage(error: unknown) {
   if (!error) return "Unknown error.";
   if (typeof error === "string") return error;
-  if (typeof error.message === "string" && error.message.trim()) return error.message;
-  if (typeof error.error_description === "string" && error.error_description.trim()) return error.error_description;
-  if (typeof error.error === "string" && error.error.trim()) return error.error;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error !== "object") return "Unknown error.";
+
+  const errorRecord = error as UnknownRecord;
+  if (typeof errorRecord.message === "string" && errorRecord.message.trim()) return errorRecord.message;
+  if (typeof errorRecord.error_description === "string" && errorRecord.error_description.trim()) {
+    return errorRecord.error_description;
+  }
+  if (typeof errorRecord.error === "string" && errorRecord.error.trim()) return errorRecord.error;
 
   try {
     return JSON.stringify(error);
@@ -69,11 +104,11 @@ function normalizePipeRangeValue(value: unknown): "Range 2" | "Range 3" {
 }
 
 function normalizeReleasePartLines(rawLines: unknown, requestedJoints: number) {
-  const rows = Array.isArray(rawLines) ? rawLines : [];
+  const rows = asRecords(rawLines);
   let remaining = Math.max(0, toNumber(requestedJoints));
   const result: Array<Record<string, string | number>> = [];
 
-  for (const row of rows as any[]) {
+  for (const row of rows) {
     const availableJoints = toNumber(row.joints ?? row.total_joints ?? row.bulk_joints);
     if (remaining <= 0 || availableJoints <= 0) continue;
 
@@ -244,30 +279,30 @@ async function generateRequestNumber(adminSupabase: ReturnType<typeof configured
     .lt("created_at", end.toISOString())
     .like("request_number", `${prefix}%`);
 
-  return `${prefix}${nextRequestLetter((data ?? []).map((row: any) => row.request_number))}`;
+  return `${prefix}${nextRequestLetter(((data ?? []) as Array<{ request_number?: unknown }>).map((row) => String(row.request_number ?? "")))}`;
 }
 
-function buildReleaseEmailHtml(request: any) {
+function buildReleaseEmailHtml(request: ReleaseEmailRequest) {
   const actionUrl = `${getSiteUrl()}/`;
-  const partRows = Array.isArray(request.part_lines) ? request.part_lines : [];
+  const partRows = asRecords(request.part_lines);
   return `
     <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
       <h2 style="margin:0 0 6px">TITAN Tubular Release Request</h2>
       <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
       <table style="border-collapse:collapse;width:100%;max-width:680px">
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Request</td><td style="border:1px solid #d1d5db;padding:8px">${request.request_number}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Customer</td><td style="border:1px solid #d1d5db;padding:8px">${request.company_name}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Yard</td><td style="border:1px solid #d1d5db;padding:8px">${request.yard_name}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Rack</td><td style="border:1px solid #d1d5db;padding:8px">${request.rack_label}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Part Numbers</td><td style="border:1px solid #d1d5db;padding:8px">${request.part_summary || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Quantity</td><td style="border:1px solid #d1d5db;padding:8px">${request.quantity_joints} joints</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Release Date</td><td style="border:1px solid #d1d5db;padding:8px">${request.release_date || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Released To</td><td style="border:1px solid #d1d5db;padding:8px">${request.released_to || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Ship Date</td><td style="border:1px solid #d1d5db;padding:8px">${request.ship_date || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Carrier</td><td style="border:1px solid #d1d5db;padding:8px">${request.carrier || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Destination</td><td style="border:1px solid #d1d5db;padding:8px">${request.destination || "-"}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Signed By</td><td style="border:1px solid #d1d5db;padding:8px">${request.signature_name}</td></tr>
-        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Notes</td><td style="border:1px solid #d1d5db;padding:8px">${request.notes || "-"}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Request</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.request_number)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Customer</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.company_name)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Yard</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.yard_name)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Rack</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.rack_label)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Part Numbers</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.part_summary)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Quantity</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.quantity_joints)} joints</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Release Date</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.release_date)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Released To</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.released_to)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Ship Date</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.ship_date)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Carrier</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.carrier)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Destination</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.destination)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Signed By</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.signature_name)}</td></tr>
+        <tr><td style="border:1px solid #d1d5db;padding:8px;font-weight:700">Notes</td><td style="border:1px solid #d1d5db;padding:8px">${displayValue(request.notes)}</td></tr>
       </table>
       ${
         partRows.length > 0
@@ -282,12 +317,12 @@ function buildReleaseEmailHtml(request: any) {
                </tr>
                ${partRows
                  .map(
-                   (line: any) => `<tr>
-                     <td style="border:1px solid #d1d5db;padding:8px">${line.afe || "-"}</td>
-                     <td style="border:1px solid #d1d5db;padding:8px">${line.partNumber || "-"}</td>
-                     <td style="border:1px solid #d1d5db;padding:8px">${line.pipeRange || "-"}</td>
-                     <td style="border:1px solid #d1d5db;padding:8px">${line.condition || "-"}</td>
-                     <td style="border:1px solid #d1d5db;padding:8px">${line.joints || 0}</td>
+                   (line) => `<tr>
+                     <td style="border:1px solid #d1d5db;padding:8px">${displayValue(line.afe)}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${displayValue(line.partNumber)}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${displayValue(line.pipeRange)}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${displayValue(line.condition)}</td>
+                     <td style="border:1px solid #d1d5db;padding:8px">${displayValue(line.joints, "0")}</td>
                    </tr>`
                  )
                  .join("")}
@@ -327,7 +362,7 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     return Response.json({ requests: data ?? [] });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return Response.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
@@ -349,8 +384,6 @@ export async function POST(request: Request) {
     const shipDate = String(body.shipDate ?? "").trim();
     const carrier = String(body.carrier ?? "").trim();
     const destination = String(body.destination ?? "").trim();
-    const partLines = normalizeReleasePartLines(body.partLines, quantityJoints);
-    const partSummary = String(body.partSummary ?? "").trim() || summarizeReleasePartNumbers(partLines);
 
     if (!access.profile.company_id) {
       return Response.json({ error: "Your login is not assigned to a customer company." }, { status: 400 });
@@ -375,24 +408,80 @@ export async function POST(request: Request) {
       );
     }
 
+    const { data: yard, error: yardError } = await adminSupabase
+      .from("yards")
+      .select("id, name")
+      .eq("id", yardId)
+      .maybeSingle();
+
+    if (yardError) throw yardError;
+    if (!yard) {
+      return Response.json({ error: "Selected yard was not found." }, { status: 400 });
+    }
+
+    const { data: rack, error: rackError } = await adminSupabase
+      .from("racks")
+      .select("id, rack_code, yard_id")
+      .eq("id", rackId)
+      .eq("yard_id", yardId)
+      .maybeSingle();
+
+    if (rackError) throw rackError;
+    if (!rack) {
+      return Response.json({ error: "Selected rack was not found in this yard." }, { status: 400 });
+    }
+
+    const { data: rackInventory, error: rackInventoryError } = await adminSupabase
+      .from("pipe_inventory")
+      .select(`
+        id,
+        afe,
+        part_number,
+        size,
+        grade,
+        connection,
+        pipe_range,
+        condition,
+        status,
+        bulk_joints,
+        bulk_footage,
+        total_joints,
+        total_footage
+      `)
+      .eq("company_id", access.profile.company_id)
+      .eq("yard_id", yardId)
+      .eq("rack_id", rackId)
+      .neq("status", "Shipped")
+      .gt("total_joints", 0)
+      .order("created_at", { ascending: false });
+
+    if (rackInventoryError) throw rackInventoryError;
+
+    const availableJoints = (rackInventory ?? []).reduce(
+      (sum: number, row: Record<string, unknown>) => sum + toNumber(row.total_joints ?? row.bulk_joints),
+      0
+    );
+
+    if (availableJoints <= 0) {
+      return Response.json({ error: "No active customer inventory is available in this rack." }, { status: 400 });
+    }
+
+    if (quantityJoints > availableJoints) {
+      return Response.json(
+        { error: `This rack currently has ${availableJoints.toLocaleString()} available joints for your company.` },
+        { status: 400 }
+      );
+    }
+
+    const partLines = normalizeReleasePartLines(rackInventory ?? [], quantityJoints);
+    const partSummary = summarizeReleasePartNumbers(partLines);
+
     if (partLines.length === 0) {
       return Response.json({ error: "No pipe details were included for this release request." }, { status: 400 });
     }
 
     const companyRows = access.profile.companies;
     const company = Array.isArray(companyRows) ? companyRows[0] : companyRows;
-
-    const { data: yard } = await adminSupabase
-      .from("yards")
-      .select("id, name")
-      .eq("id", yardId)
-      .maybeSingle();
-
-    const { data: rack } = await adminSupabase
-      .from("racks")
-      .select("id, rack_code")
-      .eq("id", rackId)
-      .maybeSingle();
 
     const requestNumber = await generateRequestNumber(adminSupabase);
     const releaseRecord = {
@@ -420,7 +509,7 @@ export async function POST(request: Request) {
       status: "Submitted",
     };
 
-    let { data: created, error: insertError } = await adminSupabase
+    const { data: created, error: insertError } = await adminSupabase
       .from("tubular_release_requests")
       .insert(releaseRecord)
       .select("*")
@@ -505,13 +594,13 @@ export async function POST(request: Request) {
           {
             title: "Rack Part Details",
             headers: ["TU#", "Part Number", "Range", "Condition", "Joints", "Footage"],
-            rows: (Array.isArray(displayRequest.part_lines) ? displayRequest.part_lines : []).map((line: any) => [
-              line.afe || "-",
-              line.partNumber || "-",
-              line.pipeRange || "-",
-              line.condition || "-",
-              line.joints || 0,
-              line.footage || 0,
+            rows: asRecords(displayRequest.part_lines).map((line) => [
+              displayValue(line.afe),
+              displayValue(line.partNumber),
+              displayValue(line.pipeRange),
+              displayValue(line.condition),
+              displayValue(line.joints, "0"),
+              displayValue(line.footage, "0"),
             ]),
           },
         ],
@@ -523,7 +612,7 @@ export async function POST(request: Request) {
         html: buildReleaseEmailHtml(displayRequest),
         attachments: [releaseAttachment],
       });
-    } catch (emailError: any) {
+    } catch (emailError: unknown) {
       return Response.json({
         request: displayRequest,
         emailSent: false,
@@ -532,7 +621,7 @@ export async function POST(request: Request) {
     }
 
     return Response.json({ request: displayRequest, emailSent });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return Response.json({ error: getErrorMessage(error) }, { status: 500 });
   }
 }
