@@ -22,6 +22,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../../../lib/supabase";
+import { goBackOrFallback } from "../../../../lib/navigation";
 import {
   ServiceLineBoardConfig,
   serviceLineBoardTagColors,
@@ -1907,7 +1908,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
   return (
     <main className={`${styles.shell} service-lines-shell`}>
-      <header className={styles.header}>
+      <header className={`${styles.header} titan-page-header`}>
         <button className={`brand compact brand-home-link ${styles.brand}`} type="button" onClick={() => navigate("/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
@@ -1916,7 +1917,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         </button>
 
         <div className={styles.headerActions}>
-          <button className="button" type="button" onClick={() => navigate(config.backHref)}>
+          <button className="button" type="button" onClick={() => goBackOrFallback(config.backHref)}>
             Back
           </button>
           <button className="button" type="button" onClick={() => void loadBoard({ preserveDeckScroll: true })}>

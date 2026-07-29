@@ -833,7 +833,7 @@ export default function HardbandPage() {
 
   return (
     <main className="hardband-shell">
-      <header className="hardband-header">
+      <header className="hardband-header titan-page-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>

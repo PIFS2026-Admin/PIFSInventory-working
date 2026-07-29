@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 
 type DocumentDetail = Record<string, unknown>;
@@ -248,15 +248,15 @@ export default function DocumentDetailPage() {
 
   return (
     <main className="page-shell">
-      <section className="page-header">
+      <section className="page-header titan-page-header">
         <div>
           <p className="eyebrow">Document Control</p>
           <h1>{document ? displayValue(document.title) : "Document Detail"}</h1>
           <p className="muted-text">Review document metadata.</p>
         </div>
-        <Link className="button" href="/document-control">
+        <button className="button" type="button" onClick={() => goBackOrFallback("/document-control")}>
           Back to Document Control
-        </Link>
+        </button>
       </section>
 
       {message && <div className="modal-message">{message}</div>}

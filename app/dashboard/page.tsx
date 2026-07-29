@@ -885,7 +885,7 @@ export default function DashboardPage() {
   return (
     <main className="dashboard-shell">
       <CommandCenterSnapshotStyles />
-      <header className="dashboard-header">
+      <header className="dashboard-header titan-page-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <div className="brand-mark">PF</div>
           <div>

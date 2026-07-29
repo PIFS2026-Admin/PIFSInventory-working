@@ -4,6 +4,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 import { formatPoMoney, normalizePoStatus } from "../../../lib/purchaseOrderLifecycle";
 import { normalizeServiceLine } from "../../../lib/serviceLines";
@@ -130,7 +131,7 @@ function PurchaseOrderPrintContent() {
   return (
     <main className={styles.shell}>
       <div className={`${styles.actions} no-print`}>
-        <button className="button" onClick={() => window.location.assign("/purchase-orders")}>Back to POs</button>
+        <button className="button" onClick={() => goBackOrFallback("/purchase-orders")}>Back to POs</button>
         <button className="button primary" onClick={() => window.print()}>Print / Save PDF</button>
       </div>
 

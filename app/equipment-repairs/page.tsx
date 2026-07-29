@@ -21,6 +21,7 @@ import {
   mergeEquipmentAssetRows,
   type TitanEquipmentAsset,
 } from "../../lib/titanEquipmentAssets";
+import { goBackOrFallback } from "../../lib/navigation";
 import { normalizeServiceLine, serviceLineOptions } from "../../lib/serviceLines";
 import styles from "./equipment-repairs.module.css";
 
@@ -1780,9 +1781,9 @@ export default function EquipmentRepairsPage() {
             <span className="dot"></span>Equipment Repairs
           </h2>
           <p>Equipment repair work orders are for internal users only.</p>
-          <a className="ci-btn mini" href="/home">
-            Back Home
-          </a>
+          <button className="ci-btn mini" type="button" onClick={() => goBackOrFallback("/home")}>
+            Back
+          </button>
         </section>
       </main>
     );
@@ -1790,7 +1791,7 @@ export default function EquipmentRepairsPage() {
 
   return (
     <main className={`module-shell equipment-repairs-shell consum-scope ${styles.scope}`}>
-      <section className="page-head no-print">
+      <section className="page-head titan-page-header no-print">
         <div>
           <div className="pt">Equipment Repairs</div>
           <div className="ps">

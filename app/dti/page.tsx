@@ -1663,7 +1663,7 @@ export default function DtiPage() {
   return (
     <main className="dashboard-shell dti-shell">
       <DtiManagementStyles />
-      <header className="dashboard-header">
+      <header className="dashboard-header titan-page-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>

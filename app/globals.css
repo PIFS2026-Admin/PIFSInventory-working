@@ -36,6 +36,44 @@ textarea {
 button {
   cursor: pointer;
 }
+select:not([multiple]) {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid #354052 !important;
+  border-radius: 6px !important;
+  background:
+    linear-gradient(45deg, transparent 50%, #f4f6f8 50%) calc(100% - 17px) calc(50% - 3px) / 6px 6px no-repeat,
+    linear-gradient(135deg, #f4f6f8 50%, transparent 50%) calc(100% - 13px) calc(50% - 3px) / 6px 6px no-repeat,
+    linear-gradient(180deg, #171c23, #12171d) !important;
+  color: #f4f6f8 !important;
+  padding: 0 36px 0 13px !important;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+}
+
+select:not([multiple]):hover {
+  border-color: #465267 !important;
+}
+
+select:not([multiple]):focus {
+  border-color: var(--orange) !important;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  outline: none;
+}
+
+select:not([multiple]):disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+select option {
+  background: #12171d;
+  color: #f4f6f8;
+}
 
 .app-shell {
   min-height: 100vh;
@@ -59,6 +97,109 @@ button {
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+}
+/* Shared TITAN page header. Keep every module header using the same shell. */
+.titan-page-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  width: 100%;
+  margin: 0 0 16px !important;
+  padding: 12px 14px !important;
+  border: 1px solid rgba(70, 82, 101, 0.74) !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, rgba(28, 32, 40, 0.95), rgba(12, 15, 20, 0.95)) !important;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28) !important;
+  box-sizing: border-box;
+}
+
+.titan-page-header > * {
+  min-width: 0;
+}
+
+.titan-page-header .brand,
+.titan-page-header .brand-home-link,
+.titan-page-header .comm-home-brand {
+  min-width: 0;
+  margin-bottom: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.titan-page-header .brand-title {
+  color: var(--text);
+  font-size: clamp(17px, 1.35vw, 22px);
+  line-height: 1.08;
+}
+
+.titan-page-header .brand-subtitle,
+.titan-page-header .ps,
+.titan-page-header .muted-text {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.titan-page-header .pt,
+.titan-page-header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(22px, 2.1vw, 34px);
+  line-height: 1.04;
+  letter-spacing: 0;
+}
+
+.titan-page-header .statusline,
+.titan-page-header .dashboard-actions,
+.titan-page-header .customer-actions,
+.titan-page-header .page-actions,
+.titan-page-header .module-actions,
+.titan-page-header [class*="actions"],
+.titan-page-header [class*="Actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .titan-page-header {
+    align-items: stretch !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 12px !important;
+    border-radius: 12px !important;
+  }
+
+  .titan-page-header .pt,
+  .titan-page-header h1 {
+    font-size: clamp(24px, 8vw, 34px);
+    overflow-wrap: anywhere;
+  }
+
+  .titan-page-header .statusline,
+  .titan-page-header .dashboard-actions,
+  .titan-page-header .customer-actions,
+  .titan-page-header .page-actions,
+  .titan-page-header .module-actions,
+  .titan-page-header [class*="actions"],
+  .titan-page-header [class*="Actions"] {
+    justify-content: stretch;
+  }
+
+  .titan-page-header .statusline > *,
+  .titan-page-header .dashboard-actions > *,
+  .titan-page-header .customer-actions > *,
+  .titan-page-header .page-actions > *,
+  .titan-page-header .module-actions > *,
+  .titan-page-header [class*="actions"] > *,
+  .titan-page-header [class*="Actions"] > * {
+    flex: 1 1 150px;
+  }
 }
 
 .brand-home-link {

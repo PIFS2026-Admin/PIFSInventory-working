@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { goBackOrFallback, goHome } from "../lib/navigation";
 
 const hiddenRoutes = ["/login", "/customer", "/print", "/ticket-print"];
 
@@ -35,25 +36,16 @@ export default function GlobalTitanNavigation() {
 
   const showBack = path !== "/home";
 
-  function goBack() {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-
-    window.location.href = "/home";
-  }
-
   return (
     <nav className="global-titan-nav" aria-label="TITAN screen navigation">
       {showBack && (
-        <button className="global-titan-nav-button" type="button" onClick={goBack}>
+        <button className="global-titan-nav-button" type="button" onClick={() => goBackOrFallback()}>
           <span aria-hidden="true">‹</span>
           <strong>Back</strong>
         </button>
       )}
 
-      <button className="global-titan-nav-home" type="button" onClick={() => (window.location.href = "/home")}>
+      <button className="global-titan-nav-home" type="button" onClick={goHome}>
         <img src="/titan_logo.jpg" alt="" aria-hidden="true" />
         <strong>TITAN by Pathfinder Inspections</strong>
       </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 
 type Job = {
@@ -192,7 +193,7 @@ export default function HardbandPrintPage() {
   }
 
   function goBack() {
-    window.location.href = "/hardband";
+    goBackOrFallback("/hardband");
   }
 
   if (!job) {

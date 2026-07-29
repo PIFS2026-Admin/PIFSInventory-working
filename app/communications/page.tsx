@@ -1894,7 +1894,7 @@ export default function CommunicationsPage() {
     return (
       <main className="communications-page">
         <section className="module">
-          <div className="page-head">
+          <div className="page-head titan-page-header">
             <button className="brand compact brand-home-link comm-home-brand" type="button" onClick={() => (window.location.href = "/home")}>
               <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
               <div>
@@ -1924,7 +1924,7 @@ export default function CommunicationsPage() {
       </datalist>
 
       <section className="module">
-        <div className="page-head">
+        <div className="page-head titan-page-header">
           <div className="comm-mobile-app-head">
             <h1>Chat</h1>
             <div className="comm-mobile-head-actions">

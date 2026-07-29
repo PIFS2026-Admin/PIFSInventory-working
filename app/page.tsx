@@ -5291,7 +5291,7 @@ export default function Home() {
 
         {shouldShowPageMessage(message) && <div className="modal-message">{message}</div>}
 
-        <header className={styles.yardMapHeader}>
+        <header className={`${styles.yardMapHeader} titan-page-header`}>
           <div>
             <span>Yard View</span>
             <h1>{selectedYard?.name ?? "Pathfinder Yard"}</h1>

@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "./service-lines.module.css";
+import { goBackOrFallback, goHome } from "../../lib/navigation";
 
 export type ServiceLineAction = {
   title: string;
@@ -30,7 +31,7 @@ export default function ServiceLineScreen({
 }: ServiceLineScreenProps) {
   return (
     <main className={`${styles.shell} service-lines-shell`}>
-      <header className={styles.topbar}>
+      <header className={`${styles.topbar} titan-page-header`}>
         <button className={`brand compact brand-home-link ${styles.brand}`} type="button" onClick={() => navigate("/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>
@@ -39,10 +40,10 @@ export default function ServiceLineScreen({
         </button>
 
         <div className={styles.topActions}>
-          <button className="button" type="button" onClick={() => navigate(backHref)}>
+          <button className="button" type="button" onClick={() => goBackOrFallback(backHref)}>
             Back
           </button>
-          <button className="button primary" type="button" onClick={() => navigate("/home")}>
+          <button className="button primary" type="button" onClick={goHome}>
             Home
           </button>
         </div>

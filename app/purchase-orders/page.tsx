@@ -966,7 +966,7 @@ export default function PurchaseOrdersPage() {
   if (!canUsePurchaseOrders && !loading) {
     return (
       <main className="module-shell">
-        <section className="module-header">
+        <section className="module-header titan-page-header">
           <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
             <div>
@@ -983,7 +983,7 @@ export default function PurchaseOrdersPage() {
 
   return (
     <main className={`module-shell po-module po-lifecycle ${styles.scope}`}>
-      <section className="module-header">
+      <section className="module-header titan-page-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
           <div>

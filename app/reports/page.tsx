@@ -579,7 +579,7 @@ export default function ReportsPage() {
 
   return (
     <main className={styles.scope}>
-      <section className={styles.header}>
+      <section className={`${styles.header} titan-page-header`}>
         <div>
           <span className={styles.eyebrow}>Reports</span>
           <h1>Custom Report Builder</h1>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { shouldShowPageMessage } from "../../../lib/pageMessages";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { DtiManagementStyles } from "../DtiManagementStyles";
 
 type UserRole =
@@ -487,7 +488,7 @@ export default function CreateDtiJobPage() {
   return (
     <main className="dashboard-shell dti-shell">
       <DtiManagementStyles />
-      <header className="dashboard-header">
+      <header className="dashboard-header titan-page-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
           <div>
@@ -497,7 +498,7 @@ export default function CreateDtiJobPage() {
         </button>
 
         <div className="dashboard-actions">
-          <button className="button" type="button" onClick={() => (window.location.href = "/dti")}>Back to DTI Management</button>
+          <button className="button" type="button" onClick={() => goBackOrFallback("/dti")}>Back to DTI Management</button>
           <button className="button" type="button" onClick={() => (window.location.href = "/home")}>TITAN Home</button>
         </div>
       </header>

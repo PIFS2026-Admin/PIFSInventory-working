@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useState } from "react";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { normalizeServiceLine, serviceLineOptions } from "../../../lib/serviceLines";
 import { supabase } from "../../../lib/supabase";
 
@@ -128,15 +128,15 @@ export default function UploadDocumentPage() {
 
   return (
     <main className="page-shell">
-      <section className="page-header">
+      <section className="page-header titan-page-header">
         <div>
           <p className="eyebrow">Document Control</p>
           <h1>Upload Document</h1>
           <p className="muted-text">Upload a file and save its document record.</p>
         </div>
-        <Link className="button" href="/document-control">
+        <button className="button" type="button" onClick={() => goBackOrFallback("/document-control")}>
           Back to Documents
-        </Link>
+        </button>
       </section>
 
       {message && <div className="modal-message">{message}</div>}
@@ -255,9 +255,9 @@ export default function UploadDocumentPage() {
         </div>
 
         <div className="slide-actions">
-          <Link className="button" href="/document-control">
+          <button className="button" type="button" onClick={() => goBackOrFallback("/document-control")}>
             Cancel
-          </Link>
+          </button>
           <button className="button primary" disabled={saving} type="submit">
             {saving ? "Uploading..." : "Upload Document"}
           </button>

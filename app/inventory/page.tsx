@@ -3626,7 +3626,7 @@ export default function InventoryModulePage() {
   if (!canUseInventory && !loading) {
     return (
       <main className="module-shell">
-        <section className="module-header">
+        <section className="module-header titan-page-header">
           <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
             <img className="brand-logo" src="/titan_logo.jpg" alt="TITAN" />
             <div>
@@ -3643,7 +3643,7 @@ export default function InventoryModulePage() {
 
   return (
     <main className={`module-shell inventory-module consum-scope ${inventoryStyles.inventoryPolish} ${activeView === "orders" || activeView === "cart" ? "store-mode" : ""}`}>
-      <section className="page-head no-print">
+      <section className="page-head titan-page-header no-print">
         <div>
           <div className="pt">Consumables — Inventory Control</div>
           <div className="ps">

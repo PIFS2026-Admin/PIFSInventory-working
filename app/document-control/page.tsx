@@ -98,7 +98,7 @@ export default function DocumentControlPage() {
 
   return (
     <main className="page-shell">
-      <section className="page-header">
+      <section className="page-header titan-page-header">
         <div>
           <p className="eyebrow">Document Control</p>
           <h1>Document Library</h1>

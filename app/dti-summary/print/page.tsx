@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 
 type Summary = {
@@ -174,12 +175,7 @@ export default function DtiDailySummaryPrintPage() {
   }
 
   function goBack() {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-
-    window.location.href = "/dti-summary";
+    goBackOrFallback("/dti-summary");
   }
 
   if (!summary) {

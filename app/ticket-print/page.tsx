@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { goBackOrFallback } from "../../lib/navigation";
 import { supabase } from "../../lib/supabase";
 
 type TicketType = "receiving" | "shipping" | "transfer" | "release";
@@ -768,7 +769,7 @@ export default function TicketPrintPage() {
   }, [ticket.pathfinderSignature, ticket.carrierSignature]);
 
   function goBack() {
-    window.location.href = "/";
+    goBackOrFallback("/");
   }
 
   if (error) {
