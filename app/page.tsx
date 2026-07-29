@@ -5295,7 +5295,6 @@ export default function Home() {
           <div>
             <span>Yard View</span>
             <h1>{selectedYard?.name ?? "Pathfinder Yard"}</h1>
-            <p>{filteredInventory.length} visible line items / {selectedTotals.joints.toLocaleString()} selected joints / {selectedTotals.footage.toLocaleString()} selected ft</p>
           </div>
 
           <div className={styles.yardMapHeaderActions}>
@@ -5341,7 +5340,6 @@ export default function Home() {
         <section className={`rack-section ${styles.yardMapSection}`}>
           <div className={styles.yardMapInstruction}>
             <strong>{layoutMode ? "Layout editor" : "Rack map"}</strong>
-            <span>{layoutMode ? "Select, move, resize, name, and save racks." : "Click a rack for details. Hover shows customer and pipe contents."}</span>
           </div>
 
           <div className={styles.yardCustomerFilter}>
