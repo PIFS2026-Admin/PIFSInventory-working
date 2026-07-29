@@ -33,6 +33,7 @@ type InventoryYard = {
 type WorkOrderStatus = "Draft" | "Open" | "In Repair" | "Awaiting Parts" | "Ready for Review" | "Closed" | "Cancelled";
 type WorkOrderPriority = "Low" | "Normal" | "High" | "Critical";
 type TabKey = "dashboard" | "orders" | "details";
+type RepairDateBasis = "opened" | "closed" | "updated";
 
 type WorkOrder = {
   id: string;
@@ -237,6 +238,63 @@ function dateTimeLocal(value: string) {
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60000);
   return localDate.toISOString().slice(0, 16);
+}
+
+function dateInputValue(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfMonthInput(date = new Date()) {
+  const next = new Date(date);
+  next.setDate(1);
+  return dateInputValue(next);
+}
+
+function startOfYearInput(date = new Date()) {
+  const next = new Date(date);
+  next.setMonth(0, 1);
+  return dateInputValue(next);
+}
+
+function addDaysInput(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return dateInputValue(next);
+}
+
+function orderDateByBasis(order: WorkOrder, basis: RepairDateBasis) {
+  if (basis === "closed") return order.closedAt || order.completedAt || "";
+  if (basis === "updated") return order.updatedAt || order.closedAt || order.openedAt || order.createdAt;
+  return order.openedAt || order.createdAt || order.updatedAt;
+}
+
+function dateMatchesRange(value: string, start: string, end: string) {
+  if (!start && !end) return true;
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  if (start) {
+    const startDate = new Date(`${start}T00:00:00`);
+    if (date < startDate) return false;
+  }
+  if (end) {
+    const endDate = new Date(`${end}T23:59:59.999`);
+    if (date > endDate) return false;
+  }
+  return true;
+}
+
+function repairDateBasisLabel(basis: RepairDateBasis) {
+  if (basis === "closed") return "Closed date";
+  if (basis === "updated") return "Last updated";
+  return "Opened date";
+}
+
+function daysOpen(order: WorkOrder) {
+  const start = new Date(order.openedAt || order.createdAt || order.updatedAt);
+  const end = order.closedAt ? new Date(order.closedAt) : new Date();
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / 86400000));
 }
 
 function toIsoFromLocal(value: string) {
@@ -561,6 +619,121 @@ function workOrderDocumentHtml(options: {
     </html>`;
 }
 
+function repairCostReportHtml(options: {
+  orders: WorkOrder[];
+  yardName: string;
+  dateBasis: RepairDateBasis;
+  startDate: string;
+  endDate: string;
+}) {
+  const { orders, yardName, dateBasis, startDate, endDate } = options;
+  const active = orders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
+  const totalHours = orders.reduce((sum, order) => sum + order.laborHours, 0);
+  const laborCost = orders.reduce((sum, order) => sum + order.totalLaborCost, 0);
+  const partsCost = orders.reduce((sum, order) => sum + order.totalPartsCost, 0);
+  const totalCost = orders.reduce((sum, order) => sum + order.totalCost, 0);
+  const reportRange = `${startDate || "All dates"} to ${endDate || "Current"}`;
+  const rows = orders
+    .map(
+      (order) => `<tr>
+        <td>${escapeHtml(order.workOrderNumber)}</td>
+        <td>${escapeHtml(order.status)}</td>
+        <td>${escapeHtml(order.priority)}</td>
+        <td>${escapeHtml(order.equipmentName || "-")}</td>
+        <td>${escapeHtml(order.equipmentNumber || "-")}</td>
+        <td>${escapeHtml(order.department || "-")}</td>
+        <td>${escapeHtml(order.assignedTo || "Unassigned")}</td>
+        <td>${escapeHtml(dateText(orderDateByBasis(order, dateBasis)))}</td>
+        <td>${escapeHtml(decimal(order.laborHours))}</td>
+        <td>${escapeHtml(money(order.totalLaborCost))}</td>
+        <td>${escapeHtml(money(order.totalPartsCost))}</td>
+        <td>${escapeHtml(money(order.totalCost))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  return `<!doctype html>
+    <html>
+      <head>
+        <title>TITAN Equipment Repair Cost Report</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { margin: 0; background: #f8fafc; color: #111827; font-family: Arial, sans-serif; }
+          .actions { display: flex; justify-content: flex-end; gap: 8px; max-width: 1260px; margin: 12px auto; padding: 0 12px; }
+          .actions button { border: 0; border-radius: 6px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
+          .primary { background: #f97316; color: #111827; }
+          .secondary { background: #111827; color: #fff; }
+          .sheet { max-width: 1260px; margin: 0 auto 30px; background: #fff; padding: 28px; border: 1px solid #cbd5e1; }
+          .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 3px solid #111827; padding-bottom: 16px; }
+          .brand { display: flex; align-items: center; gap: 14px; }
+          .brand img { width: 138px; max-height: 72px; object-fit: contain; }
+          h1 { margin: 0; font-size: 28px; letter-spacing: .02em; }
+          .eyebrow { color: #f97316; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+          .meta { text-align: right; font-size: 12px; line-height: 1.45; }
+          .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 18px 0; }
+          .kpi { border: 1px solid #cbd5e1; padding: 10px; min-height: 64px; }
+          .kpi span { display: block; color: #64748b; font-size: 9px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+          .kpi strong { display: block; margin-top: 6px; font-size: 18px; }
+          table { width: 100%; border-collapse: collapse; font-size: 10px; }
+          th { background: #111827; color: #fff; text-align: left; padding: 7px; }
+          td { border: 1px solid #cbd5e1; padding: 7px; vertical-align: top; }
+          .total-row td { font-weight: 900; background: #fff7ed; }
+          .footer { margin-top: 16px; border-top: 2px solid #111827; padding-top: 8px; font-size: 10px; color: #475569; }
+          @media print {
+            body { background: #fff; }
+            .actions { display: none; }
+            .sheet { border: 0; margin: 0; max-width: none; padding: 0.25in; }
+            @page { size: landscape; margin: 0.3in; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="actions">
+          <button class="secondary" onclick="window.close()">Close</button>
+          <button class="primary" onclick="window.print()">Print / Save PDF</button>
+        </div>
+        <main class="sheet">
+          <section class="top">
+            <div class="brand">
+              <img src="/titan_logo.jpg" alt="TITAN" />
+              <div>
+                <div class="eyebrow">Equipment Repairs</div>
+                <h1>Repair Cost Report</h1>
+              </div>
+            </div>
+            <div class="meta">
+              <strong>${escapeHtml(yardName || "All yards")}</strong><br />
+              ${escapeHtml(repairDateBasisLabel(dateBasis))}: ${escapeHtml(reportRange)}<br />
+              Generated ${escapeHtml(new Date().toLocaleString())}
+            </div>
+          </section>
+          <section class="kpis">
+            <div class="kpi"><span>Records</span><strong>${escapeHtml(whole(orders.length))}</strong></div>
+            <div class="kpi"><span>Active</span><strong>${escapeHtml(whole(active.length))}</strong></div>
+            <div class="kpi"><span>Labor Hours</span><strong>${escapeHtml(decimal(totalHours))}</strong></div>
+            <div class="kpi"><span>Labor Cost</span><strong>${escapeHtml(money(laborCost))}</strong></div>
+            <div class="kpi"><span>Parts Cost</span><strong>${escapeHtml(money(partsCost))}</strong></div>
+            <div class="kpi"><span>Total Cost</span><strong>${escapeHtml(money(totalCost))}</strong></div>
+          </section>
+          <table>
+            <thead>
+              <tr>
+                <th>WO #</th><th>Status</th><th>Priority</th><th>Equipment</th><th>Equipment #</th><th>Service Line</th><th>Assigned</th><th>Date</th><th>Hours</th><th>Labor</th><th>Parts</th><th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || `<tr><td colspan="12">No work orders match this report.</td></tr>`}
+              <tr class="total-row"><td colspan="8">Totals</td><td>${escapeHtml(decimal(totalHours))}</td><td>${escapeHtml(money(laborCost))}</td><td>${escapeHtml(money(partsCost))}</td><td>${escapeHtml(money(totalCost))}</td></tr>
+            </tbody>
+          </table>
+          <div class="footer">
+            Pathfinder Inspections &amp; Field Services / 7501 Groening St., Odessa, TX 79765 / (432) 233-3600 / pifstitan.com
+          </div>
+        </main>
+      </body>
+    </html>`;
+}
+
 function accessAllowed(role: string, moduleKeys: ModuleKey[], permissions: PermissionMap | null) {
   if (role === "customer") return false;
   if (["admin", "owner", "maintenance_manager", "mechanic_manager", "maintenance_lead", "maintenance_hand", "mechanic", "repair_tech", "employee"].includes(role)) return true;
@@ -606,6 +779,9 @@ export default function EquipmentRepairsPage() {
   const [statusFilter, setStatusFilter] = useState("active");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [technicianFilter, setTechnicianFilter] = useState("all");
+  const [repairDateBasis, setRepairDateBasis] = useState<RepairDateBasis>("opened");
+  const [repairStartDate, setRepairStartDate] = useState("");
+  const [repairEndDate, setRepairEndDate] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -674,6 +850,7 @@ export default function EquipmentRepairsPage() {
       const technicianMatches =
         technicianFilter === "all" ||
         (technicianFilter === "unassigned" ? !assignedName : assignedName === technicianFilter.toLowerCase());
+      const dateMatches = dateMatchesRange(orderDateByBasis(order, repairDateBasis), repairStartDate, repairEndDate);
       const termMatches =
         !term ||
         [
@@ -688,9 +865,16 @@ export default function EquipmentRepairsPage() {
           .join(" ")
           .toLowerCase()
           .includes(term);
-      return statusMatches && priorityMatches && technicianMatches && termMatches;
+      return statusMatches && priorityMatches && technicianMatches && dateMatches && termMatches;
     });
-  }, [priorityFilter, search, statusFilter, technicianFilter, visibleWorkOrders]);
+  }, [priorityFilter, repairDateBasis, repairEndDate, repairStartDate, search, statusFilter, technicianFilter, visibleWorkOrders]);
+
+  const filteredWorkOrderIds = useMemo(() => new Set(filteredWorkOrders.map((order) => order.id)), [filteredWorkOrders]);
+  const filteredParts = useMemo(() => visibleParts.filter((part) => filteredWorkOrderIds.has(part.workOrderId)), [filteredWorkOrderIds, visibleParts]);
+  const filteredLabor = useMemo(
+    () => laborEntries.filter((entry) => filteredWorkOrderIds.has(entry.workOrderId)),
+    [filteredWorkOrderIds, laborEntries],
+  );
 
   const activeBoardOrders = useMemo(
     () => filteredWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status)),
@@ -698,18 +882,39 @@ export default function EquipmentRepairsPage() {
   );
 
   const metrics = useMemo(() => {
-    const activeOrders = visibleWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
+    const activeOrders = filteredWorkOrders.filter((order) => !["Closed", "Cancelled"].includes(order.status));
+    const closedOrders = filteredWorkOrders.filter((order) => order.status === "Closed");
     return {
       open: activeOrders.length,
+      closed: closedOrders.length,
       awaitingParts: activeOrders.filter((order) => order.status === "Awaiting Parts").length,
       critical: activeOrders.filter((order) => order.priority === "Critical").length,
-      laborHours: activeOrders.reduce((sum, order) => sum + order.laborHours, 0),
-      partsCost: activeOrders.reduce((sum, order) => sum + order.totalPartsCost, 0),
-      totalCost: activeOrders.reduce((sum, order) => sum + order.totalCost, 0),
-      postedParts: visibleParts.filter((part) => part.postedToInventory).length,
-      unpostedParts: visibleParts.filter((part) => !part.postedToInventory).length,
+      laborHours: filteredLabor.reduce((sum, entry) => sum + entry.hours, 0) || filteredWorkOrders.reduce((sum, order) => sum + order.laborHours, 0),
+      laborCost: filteredWorkOrders.reduce((sum, order) => sum + order.totalLaborCost, 0),
+      partsCost: filteredParts.reduce((sum, part) => sum + part.lineTotal, 0) || filteredWorkOrders.reduce((sum, order) => sum + order.totalPartsCost, 0),
+      totalCost: filteredWorkOrders.reduce((sum, order) => sum + order.totalCost, 0),
+      postedParts: filteredParts.filter((part) => part.postedToInventory).length,
+      unpostedParts: filteredParts.filter((part) => !part.postedToInventory).length,
+      avgAgeDays: activeOrders.length ? activeOrders.reduce((sum, order) => sum + daysOpen(order), 0) / activeOrders.length : 0,
     };
-  }, [visibleParts, visibleWorkOrders]);
+  }, [filteredLabor, filteredParts, filteredWorkOrders]);
+
+  const serviceLineCosts = useMemo(() => {
+    const costs = new Map<string, number>();
+    filteredWorkOrders.forEach((order) => {
+      const key = order.department || "Unassigned";
+      costs.set(key, (costs.get(key) || 0) + order.totalCost);
+    });
+    return Array.from(costs.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 6);
+  }, [filteredWorkOrders]);
+
+  const topCostOrders = useMemo(
+    () => [...filteredWorkOrders].sort((left, right) => right.totalCost - left.totalCost).slice(0, 8),
+    [filteredWorkOrders],
+  );
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -756,19 +961,6 @@ export default function EquipmentRepairsPage() {
   }, [items, partLookup]);
 
   const selectedPartItem = items.find((item) => item.id === partForm.itemId) || null;
-
-  useEffect(() => {
-    loadPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (selectedYardId) {
-      window.localStorage.setItem("titan_equipment_repair_yard_id", selectedYardId);
-      reloadModuleData(selectedYardId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedYardId]);
 
   async function loadPage() {
     setLoading(true);
@@ -967,7 +1159,7 @@ export default function EquipmentRepairsPage() {
     const baseSelect = "id,item_code,item_name,category,location,qty_on_hand,min_quantity,unit_price,uom,active,yard_id";
     let query = supabase.from("inventory_items").select(baseSelect).eq("active", true).order("item_code").limit(3000);
     if (yardId) query = query.eq("yard_id", yardId);
-    let result = await query;
+    const result = await query;
     let data = (result.data || []) as Record<string, unknown>[];
     let error = result.error;
 
@@ -1255,6 +1447,23 @@ export default function EquipmentRepairsPage() {
     setStatusFilter("active");
     setPriorityFilter("all");
     setTechnicianFilter("all");
+    setRepairDateBasis("opened");
+    setRepairStartDate("");
+    setRepairEndDate("");
+  }
+
+  function setRepairDatePreset(preset: "month" | "last30" | "year" | "clear") {
+    if (preset === "clear") {
+      setRepairStartDate("");
+      setRepairEndDate("");
+      return;
+    }
+
+    const now = new Date();
+    setRepairEndDate(dateInputValue(now));
+    if (preset === "month") setRepairStartDate(startOfMonthInput(now));
+    if (preset === "last30") setRepairStartDate(addDaysInput(now, -30));
+    if (preset === "year") setRepairStartDate(startOfYearInput(now));
   }
 
   function handlePartLookupChange(value: string) {
@@ -1438,6 +1647,24 @@ export default function EquipmentRepairsPage() {
     URL.revokeObjectURL(url);
   }
 
+  function printCostReport() {
+    const printWindow = window.open("", "_blank", "width=1200,height=850");
+    if (!printWindow) {
+      setMessage("Pop-up blocked. Allow pop-ups to print the cost report.");
+      return;
+    }
+    printWindow.document.write(
+      repairCostReportHtml({
+        orders: filteredWorkOrders,
+        yardName: selectedYard?.name || "",
+        dateBasis: repairDateBasis,
+        startDate: repairStartDate,
+        endDate: repairEndDate,
+      }),
+    );
+    printWindow.document.close();
+  }
+
   function printWorkOrder() {
     if (!selectedWorkOrder) {
       setMessage("Save or select a work order before printing.");
@@ -1496,6 +1723,20 @@ export default function EquipmentRepairsPage() {
 
     setEmailingWorkOrderId("");
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (selectedYardId) {
+      window.localStorage.setItem("titan_equipment_repair_yard_id", selectedYardId);
+      reloadModuleData(selectedYardId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYardId]);
 
   if (loading) {
     return (
@@ -1581,6 +1822,9 @@ export default function EquipmentRepairsPage() {
           <button className="ci-btn mini" type="button" onClick={exportCsv} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
             Export CSV
           </button>
+          <button className="ci-btn mini" type="button" onClick={printCostReport} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
+            Print Cost Report
+          </button>
         </div>
       </section>
 
@@ -1603,9 +1847,11 @@ export default function EquipmentRepairsPage() {
             <span className="dot"></span>Repair Command Board
             <span className="ct">{filteredWorkOrders.length.toLocaleString()} visible</span>
           </h2>
-          <p>Find the equipment, open the work order, add repair time, and post parts when they come out of consumables.</p>
+          <p>
+            Filter the repair load for {selectedYard?.name || "this yard"}, then print a cost report for the exact view on screen.
+          </p>
         </div>
-        <div className="repair-filter-row">
+        <div className="repair-filter-row repair-filter-row-wide">
           <label className="ci-field">
             <span className="lab">Status</span>
             <select className="ci-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
@@ -1628,6 +1874,22 @@ export default function EquipmentRepairsPage() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="ci-field">
+            <span className="lab">Date Field</span>
+            <select className="ci-select" value={repairDateBasis} onChange={(event) => setRepairDateBasis(event.target.value as RepairDateBasis)}>
+              <option value="opened">Opened Date</option>
+              <option value="closed">Closed Date</option>
+              <option value="updated">Last Updated</option>
+            </select>
+          </label>
+          <label className="ci-field">
+            <span className="lab">Start Date</span>
+            <input className="ci-input" type="date" value={repairStartDate} onChange={(event) => setRepairStartDate(event.target.value)} />
+          </label>
+          <label className="ci-field">
+            <span className="lab">End Date</span>
+            <input className="ci-input" type="date" value={repairEndDate} onChange={(event) => setRepairEndDate(event.target.value)} />
           </label>
           <label className="ci-field">
             <span className="lab">Technician</span>
@@ -1653,6 +1915,23 @@ export default function EquipmentRepairsPage() {
               placeholder="Search WO#, equipment, service line, assigned tech..."
             />
           </label>
+        </div>
+        <div className="repair-date-presets">
+          <button className="ci-btn mini" type="button" onClick={() => setRepairDatePreset("month")}>
+            This Month
+          </button>
+          <button className="ci-btn mini" type="button" onClick={() => setRepairDatePreset("last30")}>
+            Last 30 Days
+          </button>
+          <button className="ci-btn mini" type="button" onClick={() => setRepairDatePreset("year")}>
+            This Year
+          </button>
+          <button className="ci-btn mini" type="button" onClick={() => setRepairDatePreset("clear")}>
+            Clear Dates
+          </button>
+          <button className="ci-btn pri mini" type="button" onClick={printCostReport} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
+            Print Cost Report
+          </button>
         </div>
         <div className="repair-quick-board">
           <div className="repair-quick-head">
@@ -1696,31 +1975,36 @@ export default function EquipmentRepairsPage() {
         </div>
       </section>
 
-      <section className="kpis k5 repair-kpi-strip">
-        <article className="kpi warn">
-          <div className="lab">Open Work Orders</div>
-          <div className="val mono">{whole(metrics.open)}</div>
-          <div className="note">Active repair load</div>
+      <section className="repair-overview-cards no-print">
+        <article className="repair-overview-card warn">
+          <span>Active Work Orders</span>
+          <strong>{whole(metrics.open)}</strong>
+          <small>{whole(filteredWorkOrders.length)} total records in view</small>
         </article>
-        <article className="kpi steel">
-          <div className="lab">Awaiting Parts</div>
-          <div className="val mono">{whole(metrics.awaitingParts)}</div>
-          <div className="note">{whole(metrics.unpostedParts)} lines waiting to post</div>
+        <article className="repair-overview-card steel">
+          <span>Awaiting Parts</span>
+          <strong>{whole(metrics.awaitingParts)}</strong>
+          <small>{whole(metrics.unpostedParts)} part lines waiting to post</small>
         </article>
-        <article className="kpi bad">
-          <div className="lab">Critical</div>
-          <div className="val mono orange">{whole(metrics.critical)}</div>
-          <div className="note">Priority repair work</div>
+        <article className="repair-overview-card bad">
+          <span>Critical</span>
+          <strong>{whole(metrics.critical)}</strong>
+          <small>Priority repair work</small>
         </article>
-        <article className="kpi">
-          <div className="lab">Repair Hours</div>
-          <div className="val mono">{decimal(metrics.laborHours)}</div>
-          <div className="note">Open work order time</div>
+        <article className="repair-overview-card">
+          <span>Closed</span>
+          <strong>{whole(metrics.closed)}</strong>
+          <small>{repairDateBasisLabel(repairDateBasis)}</small>
         </article>
-        <article className="kpi good">
-          <div className="lab">Repair Cost</div>
-          <div className="val mono">{money(metrics.totalCost)}</div>
-          <div className="note">{money(metrics.partsCost)} parts used</div>
+        <article className="repair-overview-card">
+          <span>Repair Hours</span>
+          <strong>{decimal(metrics.laborHours)}</strong>
+          <small>Average age {decimal(metrics.avgAgeDays)} days</small>
+        </article>
+        <article className="repair-overview-card good">
+          <span>Repair Cost</span>
+          <strong>{money(metrics.totalCost)}</strong>
+          <small>{money(metrics.partsCost)} parts / {money(metrics.laborCost)} labor</small>
         </article>
       </section>
 
@@ -1808,6 +2092,49 @@ export default function EquipmentRepairsPage() {
               <div>
                 <strong>Parts Cost</strong>
                 <span>{money(metrics.partsCost)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="card repair-cost-report-card">
+            <div className="repair-card-head compact">
+              <h2>
+                <span className="dot"></span>Cost Report Overview
+                <span className="ct">{filteredWorkOrders.length.toLocaleString()} records</span>
+              </h2>
+              <button className="ci-btn mini" type="button" onClick={printCostReport} disabled={!canExportWorkOrders || !filteredWorkOrders.length}>
+                Print
+              </button>
+            </div>
+            <div className="repair-report-panels">
+              <div>
+                <div className="repair-panel-label">Highest Cost Work Orders</div>
+                <div className="repair-cost-table">
+                  {topCostOrders.map((order) => (
+                    <button key={order.id} className="repair-cost-row" type="button" onClick={() => editWorkOrder(order)}>
+                      <div>
+                        <strong>{order.equipmentName || "Equipment repair"}</strong>
+                        <small>{order.workOrderNumber} / {order.assignedTo || "Unassigned"}</small>
+                      </div>
+                      <span>{order.department || "Unassigned"}</span>
+                      <span>{decimal(order.laborHours)} hrs</span>
+                      <strong>{money(order.totalCost)}</strong>
+                    </button>
+                  ))}
+                  {!topCostOrders.length && <div className="repair-job-empty">No cost records match this view.</div>}
+                </div>
+              </div>
+              <div>
+                <div className="repair-panel-label">Cost By Service Line</div>
+                <div className="repair-service-costs">
+                  {serviceLineCosts.map((line) => (
+                    <div key={line.label} className="repair-service-cost-row">
+                      <span>{line.label}</span>
+                      <strong>{money(line.value)}</strong>
+                    </div>
+                  ))}
+                  {!serviceLineCosts.length && <div className="repair-job-empty">No service line cost found.</div>}
+                </div>
               </div>
             </div>
           </div>

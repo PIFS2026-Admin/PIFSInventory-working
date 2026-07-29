@@ -119,6 +119,11 @@
   gap: 10px;
 }
 
+.scope :global(.repair-filter-row-wide) {
+  grid-template-columns: minmax(130px, 0.7fr) minmax(130px, 0.7fr) minmax(130px, 0.7fr) minmax(130px, 0.7fr) minmax(130px, 0.7fr) minmax(170px, 0.75fr) minmax(260px, 1.25fr);
+  grid-column: 1 / -1;
+}
+
 .scope :global(.repair-filter-row label) {
   margin: 0;
 }
@@ -139,6 +144,13 @@
 
 .scope :global(.repair-search-field) {
   min-width: 0;
+}
+
+.scope :global(.repair-date-presets) {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  gap: 8px;
 }
 
 .scope :global(.repair-quick-board) {
@@ -259,8 +271,63 @@
   text-transform: uppercase;
 }
 
-.scope :global(.repair-kpi-strip) {
+.scope :global(.repair-overview-cards) {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 12px;
   margin-bottom: 0;
+}
+
+.scope :global(.repair-overview-card) {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(31, 41, 55, 0.58), rgba(2, 6, 23, 0.3)),
+    rgba(17, 24, 39, 0.86);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.scope :global(.repair-overview-card.warn) {
+  border-left: 3px solid #f97316;
+}
+
+.scope :global(.repair-overview-card.steel) {
+  border-left: 3px solid #60a5fa;
+}
+
+.scope :global(.repair-overview-card.bad) {
+  border-left: 3px solid #ef4444;
+}
+
+.scope :global(.repair-overview-card.good) {
+  border-left: 3px solid #34d399;
+}
+
+.scope :global(.repair-overview-card span) {
+  display: block;
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-overview-card strong) {
+  display: block;
+  overflow: hidden;
+  margin: 7px 0 4px;
+  color: #fff;
+  font-family: "Courier New", monospace;
+  font-size: clamp(22px, 2vw, 31px);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope :global(.repair-overview-card small) {
+  color: var(--muted);
 }
 
 .scope :global(.repair-tabs) {
@@ -283,6 +350,94 @@
 
 .scope :global(.repair-queue-card) {
   grid-row: span 2;
+}
+
+.scope :global(.repair-cost-report-card) {
+  grid-column: 1 / -1;
+}
+
+.scope :global(.repair-report-panels) {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+  gap: 12px;
+}
+
+.scope :global(.repair-panel-label) {
+  margin-bottom: 8px;
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scope :global(.repair-cost-table),
+.scope :global(.repair-service-costs) {
+  display: grid;
+  gap: 7px;
+}
+
+.scope :global(.repair-cost-row) {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.35fr) minmax(120px, 0.75fr) minmax(82px, 0.45fr) minmax(100px, 0.55fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.42);
+  color: #f8fafc;
+  padding: 10px;
+  text-align: left;
+}
+
+.scope :global(.repair-cost-row:hover) {
+  border-color: rgba(249, 115, 22, 0.58);
+  background: rgba(124, 45, 18, 0.2);
+}
+
+.scope :global(.repair-cost-row div),
+.scope :global(.repair-cost-row strong),
+.scope :global(.repair-cost-row span),
+.scope :global(.repair-cost-row small) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope :global(.repair-cost-row small),
+.scope :global(.repair-cost-row span) {
+  color: var(--muted);
+}
+
+.scope :global(.repair-service-cost-row) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 9px 0;
+}
+
+.scope :global(.repair-service-cost-row:last-child) {
+  border-bottom: 0;
+}
+
+.scope :global(.repair-service-cost-row span) {
+  min-width: 0;
+  overflow: hidden;
+  color: #f8fafc;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope :global(.repair-service-cost-row strong) {
+  color: #fed7aa;
+  font-family: "Courier New", monospace;
 }
 
 .scope :global(.repair-card-head) {
@@ -984,8 +1139,14 @@
   .scope :global(.repair-dashboard-grid),
   .scope :global(.repair-detail-grid),
   .scope :global(.repair-command-panel),
-  .scope :global(.repair-filter-row) {
+  .scope :global(.repair-filter-row),
+  .scope :global(.repair-filter-row-wide),
+  .scope :global(.repair-report-panels) {
     grid-template-columns: 1fr;
+  }
+
+  .scope :global(.repair-overview-cards) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .scope :global(.repair-cost-card) {
@@ -998,6 +1159,10 @@
 
   .scope :global(.repair-order-row > span:nth-last-child(-n + 3)) {
     display: none;
+  }
+
+  .scope :global(.repair-cost-row) {
+    grid-template-columns: minmax(0, 1fr) minmax(100px, auto);
   }
 }
 
@@ -1036,8 +1201,12 @@
     width: 100%;
   }
 
-  .scope :global(.repair-kpi-strip) {
+  .scope :global(.repair-overview-cards) {
     grid-template-columns: 1fr;
+  }
+
+  .scope :global(.repair-date-presets .ci-btn) {
+    flex: 1 1 calc(50% - 6px);
   }
 
   .scope :global(.repair-card-head),
@@ -1083,6 +1252,11 @@
 
   .scope :global(.repair-order-row > span:nth-last-child(-n + 3)) {
     display: inline-flex;
+  }
+
+  .scope :global(.repair-cost-row) {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 
   .scope :global(.repair-form-grid),
