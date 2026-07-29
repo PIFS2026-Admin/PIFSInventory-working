@@ -3,6 +3,7 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { shouldShowPageMessage } from "../../lib/pageMessages";
+import { DtiManagementStyles } from "./DtiManagementStyles";
 
 type UserRole =
   | "admin"
@@ -29,6 +30,58 @@ type Inspector = {
   fullName: string;
   role: InspectorRole;
   isActive: boolean;
+};
+
+type CompanyRow = {
+  id: string;
+  name: string | null;
+};
+
+type InspectorRow = {
+  id: string;
+  full_name: string | null;
+  role: string | null;
+  is_active: boolean | null;
+};
+
+type DtiJobRow = {
+  id: string;
+  job_number: string | null;
+  company_id: string | null;
+  job_date: string | null;
+  field_ticket_number: string | null;
+  inspection_type: string | null;
+  inspection_company: string | null;
+  rig: string | null;
+  operator: string | null;
+  lead_inspector: string | null;
+  field_superintendent: string | null;
+  pad_location: string | null;
+  crew_lead: string | null;
+  reviewed_by: string | null;
+  review_date: string | null;
+  reviewer_signature: string | null;
+  status: string | null;
+  overall_result: string | null;
+  notes: string | null;
+  closed_at: string | null;
+  created_at: string | null;
+  companies: unknown;
+};
+
+type DtiChecklistResponseRow = {
+  id: string;
+  dti_job_id: string | null;
+  section: string | null;
+  category: string | null;
+  requirement: string | null;
+  definition: string | null;
+  priority: string | null;
+  weight: number | string | null;
+  score: number | string | null;
+  notes: string | null;
+  red_flag: boolean | null;
+  sort_order: number | string | null;
 };
 
 type Profile = {
@@ -108,7 +161,37 @@ type CloseForm = {
   signature: string;
 };
 
+type DtiFilters = {
+  keyword: string;
+  rig: string;
+  jobType: string;
+  customer: string;
+  jobNumber: string;
+  fieldTicketNumber: string;
+  status: string;
+  leadInspector: string;
+  level2Inspector: string;
+  startDate: string;
+  endDate: string;
+};
+
 const statusOptions: JobStatus[] = ["Open", "In Progress", "Review", "Closed"];
+
+const emptyFilters: DtiFilters = {
+  keyword: "",
+  rig: "",
+  jobType: "",
+  customer: "",
+  jobNumber: "",
+  fieldTicketNumber: "",
+  status: "Active",
+  leadInspector: "",
+  level2Inspector: "",
+  startDate: "",
+  endDate: "",
+};
+
+const jobsPerPage = 25;
 
 const emptyJobForm: JobForm = {
   customer: "",
@@ -520,6 +603,16 @@ function getCompanyName(value: unknown) {
   return readName(value);
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unexpected DTI error.";
+}
+
+function uniqueJobValues(jobs: DtiJob[], pick: (job: DtiJob) => string) {
+  return [...new Set(jobs.map(pick).map((value) => value.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+}
+
 function normalizeRole(value: unknown): UserRole {
   const role = String(value ?? "customer");
   if (
@@ -683,10 +776,11 @@ export default function DtiPage() {
     reviewDate: new Date().toISOString().slice(0, 10),
     signature: "",
   });
-  const [statusFilter, setStatusFilter] = useState("Active");
+  const [filters, setFilters] = useState<DtiFilters>(emptyFilters);
+  const [sortBy, setSortBy] = useState("Newest");
+  const [page, setPage] = useState(1);
   const [sectionFilter, setSectionFilter] = useState("All Sections");
   const [printSection, setPrintSection] = useState("All Sections");
-  const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading DTI management...");
   const [saving, setSaving] = useState(false);
   const [emailingReport, setEmailingReport] = useState(false);
@@ -699,24 +793,6 @@ export default function DtiPage() {
     return jobs.find((job) => job.id === selectedJobId) ?? null;
   }, [jobs, selectedJobId]);
 
-  const leadInspectorOptions = useMemo(
-    () =>
-      inspectors.filter(
-        (inspector) => inspector.isActive && (inspector.role === "lead_inspector" || inspector.role === "both")
-      ),
-    [inspectors]
-  );
-
-  const crewLeadOptions = useMemo(
-    () =>
-      inspectors.filter(
-        (inspector) =>
-          inspector.isActive &&
-          (inspector.role === "level_2_inspector" || inspector.role === "crew_lead" || inspector.role === "both")
-      ),
-    [inspectors]
-  );
-
   const selectedResponses = useMemo(() => {
     if (!selectedJob) return [];
     return responses
@@ -725,14 +801,31 @@ export default function DtiPage() {
       .sort((a, b) => a.sortOrder - b.sortOrder);
   }, [responses, selectedJob, sectionFilter]);
 
-  const filteredJobs = useMemo(() => {
-    const needle = search.trim().toLowerCase();
+  const filterOptions = useMemo(
+    () => ({
+      customers: uniqueJobValues(jobs, (job) => job.company),
+      rigs: uniqueJobValues(jobs, (job) => job.rig),
+      jobTypes: uniqueJobValues(jobs, (job) => job.inspectionType),
+      leadInspectors: uniqueJobValues(jobs, (job) => job.leadInspector),
+      level2Inspectors: uniqueJobValues(jobs, (job) => job.crewLead),
+    }),
+    [jobs]
+  );
 
-    return jobs.filter((job) => {
+  const filteredJobs = useMemo(() => {
+    const keyword = filters.keyword.trim().toLowerCase();
+    const jobNumberNeedle = filters.jobNumber.trim().toLowerCase();
+    const ticketNeedle = filters.fieldTicketNumber.trim().toLowerCase();
+
+    const nextJobs = jobs.filter((job) => {
       const statusMatch =
-        statusFilter === "All" ||
-        (statusFilter === "Active" && job.status !== "Closed") ||
-        job.status === statusFilter;
+        filters.status === "All" ||
+        (filters.status === "Active" && job.status !== "Closed") ||
+        job.status === filters.status;
+
+      const dateMatch =
+        (!filters.startDate || job.jobDate >= filters.startDate) &&
+        (!filters.endDate || job.jobDate <= filters.endDate);
 
       const text = [
         job.jobNumber,
@@ -740,15 +833,57 @@ export default function DtiPage() {
         job.rig,
         job.operator,
         job.fieldTicketNumber,
+        job.inspectionType,
         job.leadInspector,
         job.fieldSuperintendent,
+        job.crewLead,
+        job.padLocation,
       ]
         .join(" ")
         .toLowerCase();
 
-      return statusMatch && (!needle || text.includes(needle));
+      return (
+        statusMatch &&
+        dateMatch &&
+        (!keyword || text.includes(keyword)) &&
+        (!filters.rig || job.rig === filters.rig) &&
+        (!filters.jobType || job.inspectionType === filters.jobType) &&
+        (!filters.customer || job.company === filters.customer) &&
+        (!jobNumberNeedle || job.jobNumber.toLowerCase().includes(jobNumberNeedle)) &&
+        (!ticketNeedle || job.fieldTicketNumber.toLowerCase().includes(ticketNeedle)) &&
+        (!filters.leadInspector || job.leadInspector === filters.leadInspector) &&
+        (!filters.level2Inspector || job.crewLead === filters.level2Inspector)
+      );
     });
-  }, [jobs, search, statusFilter]);
+
+    return [...nextJobs].sort((a, b) => {
+      if (sortBy === "Oldest") return a.createdAt.localeCompare(b.createdAt);
+      if (sortBy === "Date") return b.jobDate.localeCompare(a.jobDate);
+      if (sortBy === "Customer") return a.company.localeCompare(b.company);
+      if (sortBy === "Rig") return a.rig.localeCompare(b.rig);
+      if (sortBy === "Status") return a.status.localeCompare(b.status);
+      return b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [filters, jobs, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / jobsPerPage));
+  const pagedJobs = filteredJobs.slice((page - 1) * jobsPerPage, page * jobsPerPage);
+
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: keyof DtiFilters; label: string }> = [];
+    if (filters.keyword) chips.push({ key: "keyword", label: `Search: ${filters.keyword}` });
+    if (filters.rig) chips.push({ key: "rig", label: `Rig: ${filters.rig}` });
+    if (filters.jobType) chips.push({ key: "jobType", label: `Type: ${filters.jobType}` });
+    if (filters.customer) chips.push({ key: "customer", label: `Customer: ${filters.customer}` });
+    if (filters.jobNumber) chips.push({ key: "jobNumber", label: `Job #: ${filters.jobNumber}` });
+    if (filters.fieldTicketNumber) chips.push({ key: "fieldTicketNumber", label: `Ticket #: ${filters.fieldTicketNumber}` });
+    if (filters.status !== "Active") chips.push({ key: "status", label: `Status: ${filters.status}` });
+    if (filters.leadInspector) chips.push({ key: "leadInspector", label: `Lead: ${filters.leadInspector}` });
+    if (filters.level2Inspector) chips.push({ key: "level2Inspector", label: `Level 2: ${filters.level2Inspector}` });
+    if (filters.startDate) chips.push({ key: "startDate", label: `From: ${filters.startDate}` });
+    if (filters.endDate) chips.push({ key: "endDate", label: `To: ${filters.endDate}` });
+    return chips;
+  }, [filters]);
 
   const metrics = useMemo(() => {
     const activeJobs = jobs.filter((job) => job.status !== "Closed");
@@ -861,10 +996,6 @@ export default function DtiPage() {
       .sort((a, b) => b.average - a.average || b.jobs - a.jobs || a.lead.localeCompare(b.lead));
   }, [jobs, responses]);
 
-  useEffect(() => {
-    loadPage();
-  }, []);
-
   async function loadPage() {
     setMessage("Loading DTI management...");
 
@@ -872,7 +1003,7 @@ export default function DtiPage() {
     const user = sessionData.session?.user;
 
     if (!user) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -895,17 +1026,17 @@ export default function DtiPage() {
     };
 
     if (loadedProfile.role === "customer") {
-      window.location.href = "/customer";
+      window.location.assign("/customer");
       return;
     }
 
     if (loadedProfile.role === "dti_inspector") {
-      window.location.href = "/dti-summary";
+      window.location.assign("/dti-summary");
       return;
     }
 
     if (!DTI_MANAGEMENT_ROLES.includes(loadedProfile.role)) {
-      window.location.href = "/home";
+      window.location.assign("/home");
       return;
     }
 
@@ -919,6 +1050,10 @@ export default function DtiPage() {
     setMessage("");
   }
 
+  useEffect(() => {
+    void Promise.resolve().then(loadPage);
+  }, []);
+
   async function loadCompanies() {
     const { data, error } = await supabase
       .from("companies")
@@ -930,7 +1065,8 @@ export default function DtiPage() {
       return;
     }
 
-    setCompanies((data ?? []).map((company: any) => ({ id: company.id, name: company.name ?? "" })));
+    const companyRows = (data ?? []) as CompanyRow[];
+    setCompanies(companyRows.map((company) => ({ id: company.id, name: company.name ?? "" })));
   }
 
   async function loadInspectors() {
@@ -945,8 +1081,9 @@ export default function DtiPage() {
       return;
     }
 
+    const inspectorRows = (data ?? []) as InspectorRow[];
     setInspectors(
-      (data ?? []).map((inspector: any) => ({
+      inspectorRows.map((inspector) => ({
         id: inspector.id,
         fullName: inspector.full_name ?? "",
         role: (inspector.role ?? "lead_inspector") as InspectorRole,
@@ -989,7 +1126,8 @@ export default function DtiPage() {
       return;
     }
 
-    const jobIds = (jobData ?? []).map((job: any) => job.id);
+    const jobRows = (jobData ?? []) as DtiJobRow[];
+    const jobIds = jobRows.map((job) => job.id);
 
     const { data: responseData, error: responseError } = jobIds.length
       ? await supabase
@@ -1017,7 +1155,7 @@ export default function DtiPage() {
       return;
     }
 
-    const mappedJobs: DtiJob[] = (jobData ?? []).map((job: any) => ({
+    const mappedJobs: DtiJob[] = jobRows.map((job) => ({
       id: job.id,
       jobNumber: job.job_number ?? "",
       companyId: job.company_id ?? "",
@@ -1035,7 +1173,7 @@ export default function DtiPage() {
       reviewedBy: job.reviewed_by ?? "",
       reviewDate: formatDate(job.review_date),
       reviewerSignature: job.reviewer_signature ?? "",
-      status: (statusOptions.includes(job.status) ? job.status : "Open") as JobStatus,
+      status: statusOptions.includes(job.status as JobStatus) ? (job.status as JobStatus) : "Open",
       overallResult: job.overall_result ?? "Review",
       notes: job.notes ?? "",
       closedAt: job.closed_at ?? "",
@@ -1044,7 +1182,7 @@ export default function DtiPage() {
 
     setJobs(mappedJobs);
     setResponses(
-      (responseData ?? []).map((response: any) => ({
+      ((responseData ?? []) as DtiChecklistResponseRow[]).map((response) => ({
         id: response.id,
         dtiJobId: response.dti_job_id ?? "",
         section: response.section ?? "",
@@ -1062,6 +1200,11 @@ export default function DtiPage() {
 
     if (selectedJobId && !mappedJobs.some((job) => job.id === selectedJobId)) {
       setSelectedJobId("");
+    }
+
+    const requestedJobId = new URLSearchParams(window.location.search).get("job");
+    if (!selectedJobId && requestedJobId && mappedJobs.some((job) => job.id === requestedJobId)) {
+      setSelectedJobId(requestedJobId);
     }
   }
 
@@ -1204,12 +1347,12 @@ export default function DtiPage() {
       await loadJobs();
       setSelectedJobId(job.id);
       setMessage(`${jobNumber} created.`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (createdJobId) {
         await supabase.from("dti_jobs").delete().eq("id", createdJobId);
       }
 
-      setMessage(`Create DTI job failed while ${stage}: ${error.message}`);
+      setMessage(`Create DTI job failed while ${stage}: ${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -1268,8 +1411,8 @@ export default function DtiPage() {
 
       await loadJobs();
       setMessage(`${selectedJob.jobNumber} checklist saved.`);
-    } catch (error: any) {
-      setMessage(`Save checklist failed: ${error.message}`);
+    } catch (error: unknown) {
+      setMessage(`Save checklist failed: ${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -1312,8 +1455,8 @@ export default function DtiPage() {
 
       await loadJobs();
       setMessage(`${selectedJob.jobNumber} status changed to ${status}.`);
-    } catch (error: any) {
-      setMessage(`Status failed: ${error.message}`);
+    } catch (error: unknown) {
+      setMessage(`Status failed: ${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -1361,8 +1504,8 @@ export default function DtiPage() {
 
       await loadJobs();
       setMessage(`${selectedJob.jobNumber} closed and locked.`);
-    } catch (error: any) {
-      setMessage(`Close DTI job failed: ${error.message}`);
+    } catch (error: unknown) {
+      setMessage(`Close DTI job failed: ${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -1464,8 +1607,8 @@ export default function DtiPage() {
       }
 
       setMessage(`DTI report emailed to ${recipientEmail.trim()}.`);
-    } catch (error: any) {
-      setMessage(`Email DTI report failed: ${error.message}`);
+    } catch (error: unknown) {
+      setMessage(`Email DTI report failed: ${getErrorMessage(error)}`);
     } finally {
       setEmailingReport(false);
     }
@@ -1508,8 +1651,8 @@ export default function DtiPage() {
 
       await loadJobs();
       setMessage(`${job.jobNumber} deleted.`);
-    } catch (error: any) {
-      setMessage(`Delete DTI job failed: ${error.message}`);
+    } catch (error: unknown) {
+      setMessage(`Delete DTI job failed: ${getErrorMessage(error)}`);
     } finally {
       setSaving(false);
     }
@@ -1519,6 +1662,7 @@ export default function DtiPage() {
 
   return (
     <main className="dashboard-shell dti-shell">
+      <DtiManagementStyles />
       <header className="dashboard-header">
         <button className="brand compact brand-home-link" type="button" onClick={() => (window.location.href = "/home")}>
           <img className="brand-logo-img" src="/titan_logo.jpg" alt="TITAN" />
@@ -1529,6 +1673,8 @@ export default function DtiPage() {
         </button>
 
         <div className="dashboard-actions">
+          <button className="button primary" onClick={() => (window.location.href = "/dti/create")}>Create DTI Job</button>
+          <button className="button" onClick={() => (window.location.href = "/dti/grading-setup")}>Grading Setup</button>
           <button className="button" onClick={loadPage}>Refresh</button>
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
           <button className="button" onClick={() => (window.location.href = "/dashboard")}>Command Center</button>
@@ -1645,170 +1791,210 @@ export default function DtiPage() {
         )}
       </section>
 
-      <section className="dashboard-grid dti-main-grid">
-        <section className="dashboard-card">
-          <h2>Create DTI Job</h2>
-          <div className="form-grid dti-create-grid">
-            <label>
-              Customer
-              <input
-                list="dti-company-list"
-                value={jobForm.customer}
-                onChange={(event) => setJobForm({ ...jobForm, customer: event.target.value })}
-                placeholder="Customer name"
-                disabled={!canEdit}
-              />
-              <datalist id="dti-company-list">
-                {companies.map((company) => <option key={company.id} value={company.name} />)}
-              </datalist>
-            </label>
-
-            <label>
-              Date
-              <input
-                type="date"
-                value={jobForm.jobDate}
-                onChange={(event) => setJobForm({ ...jobForm, jobDate: event.target.value })}
-                disabled={!canEdit}
-              />
-            </label>
-
-            <label>
-              Field Ticket #
-              <input value={jobForm.fieldTicketNumber} onChange={(event) => setJobForm({ ...jobForm, fieldTicketNumber: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Inspection Type
-              <select value={jobForm.inspectionType} onChange={(event) => setJobForm({ ...jobForm, inspectionType: event.target.value })} disabled={!canEdit}>
-                <option>DTI Field Inspection</option>
-                <option>Cat 3 Inspection</option>
-                <option>Cat 4 Inspection</option>
-                <option>Cat 5 Inspection</option>
-                <option>BHA Inspection</option>
-                <option>Customer Audit</option>
-              </select>
-            </label>
-
-            <label>
-              Inspection Company
-              <input value={jobForm.inspectionCompany} onChange={(event) => setJobForm({ ...jobForm, inspectionCompany: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Rig
-              <input value={jobForm.rig} onChange={(event) => setJobForm({ ...jobForm, rig: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Operator
-              <input value={jobForm.operator} onChange={(event) => setJobForm({ ...jobForm, operator: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Lead Inspector
-              <select
-                value={jobForm.leadInspector}
-                onChange={(event) => setJobForm({ ...jobForm, leadInspector: event.target.value })}
-                disabled={!canEdit}
-              >
-                <option value="">Select lead inspector</option>
-                {leadInspectorOptions.map((inspector) => (
-                  <option key={inspector.id} value={inspector.fullName}>
-                    {inspector.fullName}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              Field ERS / Superintendent
-              <input value={jobForm.fieldSuperintendent} onChange={(event) => setJobForm({ ...jobForm, fieldSuperintendent: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Pad / Location
-              <input value={jobForm.padLocation} onChange={(event) => setJobForm({ ...jobForm, padLocation: event.target.value })} disabled={!canEdit} />
-            </label>
-
-            <label>
-              Level 2 Inspector
-              <select
-                value={jobForm.crewLead}
-                onChange={(event) => setJobForm({ ...jobForm, crewLead: event.target.value })}
-                disabled={!canEdit}
-              >
-                <option value="">Select Level 2 Inspector</option>
-                {crewLeadOptions.map((inspector) => (
-                  <option key={inspector.id} value={inspector.fullName}>
-                    {inspector.fullName}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="full">
-              Notes
-              <textarea value={jobForm.notes} onChange={(event) => setJobForm({ ...jobForm, notes: event.target.value })} disabled={!canEdit} />
-            </label>
+      <section className="dashboard-card wide dti-job-register">
+        <div className="section-heading dti-register-heading">
+          <div>
+            <h2>DTI Jobs</h2>
+            <p>
+              {filteredJobs.length} of {jobs.length} jobs shown
+              {filteredJobs.length > jobsPerPage ? ` / page ${page} of ${totalPages}` : ""}
+            </p>
           </div>
+          <div className="dashboard-actions">
+            <button className="button primary" type="button" onClick={() => (window.location.href = "/dti/create")}>
+              Create DTI Job
+            </button>
+            <button className="button" type="button" onClick={() => (window.location.href = "/dti/grading-setup")}>
+              Grading Setup
+            </button>
+          </div>
+        </div>
 
-          <button className="button primary" onClick={createJob} disabled={!canEdit || saving}>
-            {saving ? "Saving..." : "Create DTI Job"}
-          </button>
-        </section>
-
-        <section className="dashboard-card">
-          <h2>DTI Jobs</h2>
-          <div className="hardband-filter-row">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search jobs, rig, customer..." />
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+        <div className="dti-filter-toolbar">
+          <label>
+            Lookup
+            <input
+              value={filters.keyword}
+              onChange={(event) => setFilters({ ...filters, keyword: event.target.value })}
+              placeholder="Customer, rig, inspector, ticket, notes..."
+            />
+          </label>
+          <label>
+            Customer
+            <select value={filters.customer} onChange={(event) => setFilters({ ...filters, customer: event.target.value })}>
+              <option value="">All customers</option>
+              {filterOptions.customers.map((customer) => <option key={customer}>{customer}</option>)}
+            </select>
+          </label>
+          <label>
+            Rig
+            <select value={filters.rig} onChange={(event) => setFilters({ ...filters, rig: event.target.value })}>
+              <option value="">All rigs</option>
+              {filterOptions.rigs.map((rig) => <option key={rig}>{rig}</option>)}
+            </select>
+          </label>
+          <label>
+            Job Type
+            <select value={filters.jobType} onChange={(event) => setFilters({ ...filters, jobType: event.target.value })}>
+              <option value="">All types</option>
+              {filterOptions.jobTypes.map((type) => <option key={type}>{type}</option>)}
+            </select>
+          </label>
+          <label>
+            Job Number
+            <input
+              value={filters.jobNumber}
+              onChange={(event) => setFilters({ ...filters, jobNumber: event.target.value })}
+              placeholder="DTI-..."
+            />
+          </label>
+          <label>
+            Field Ticket
+            <input
+              value={filters.fieldTicketNumber}
+              onChange={(event) => setFilters({ ...filters, fieldTicketNumber: event.target.value })}
+              placeholder="Ticket #"
+            />
+          </label>
+          <label>
+            Status
+            <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
               <option>Active</option>
               <option>All</option>
               {statusOptions.map((status) => <option key={status}>{status}</option>)}
             </select>
+          </label>
+          <label>
+            Lead Inspector
+            <select value={filters.leadInspector} onChange={(event) => setFilters({ ...filters, leadInspector: event.target.value })}>
+              <option value="">All leads</option>
+              {filterOptions.leadInspectors.map((lead) => <option key={lead}>{lead}</option>)}
+            </select>
+          </label>
+          <label>
+            Level 2 Inspector
+            <select value={filters.level2Inspector} onChange={(event) => setFilters({ ...filters, level2Inspector: event.target.value })}>
+              <option value="">All Level 2</option>
+              {filterOptions.level2Inspectors.map((inspector) => <option key={inspector}>{inspector}</option>)}
+            </select>
+          </label>
+          <label>
+            Start Date
+            <input type="date" value={filters.startDate} onChange={(event) => setFilters({ ...filters, startDate: event.target.value })} />
+          </label>
+          <label>
+            End Date
+            <input type="date" value={filters.endDate} onChange={(event) => setFilters({ ...filters, endDate: event.target.value })} />
+          </label>
+          <label>
+            Sort
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+              <option>Newest</option>
+              <option>Oldest</option>
+              <option>Date</option>
+              <option>Customer</option>
+              <option>Rig</option>
+              <option>Status</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="dti-active-filters">
+          {activeFilterChips.map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => setFilters({ ...filters, [chip.key]: chip.key === "status" ? "Active" : "" })}
+            >
+              {chip.label} x
+            </button>
+          ))}
+          {activeFilterChips.length > 0 && (
+            <button type="button" className="clear" onClick={() => setFilters(emptyFilters)}>
+              Clear filters
+            </button>
+          )}
+        </div>
+
+        {filteredJobs.length === 0 ? (
+          <div className="dti-empty-state">
+            <h3>No DTI jobs match this view.</h3>
+            <p>Clear filters or create a new DTI job to start a scorecard.</p>
           </div>
+        ) : (
+          <div className="table-wrap dti-job-table-wrap">
+            <table className="dti-job-table">
+              <thead>
+                <tr>
+                  <th>Job #</th>
+                  <th>Date</th>
+                  <th>Customer</th>
+                  <th>Rig</th>
+                  <th>Inspection Type</th>
+                  <th>Lead Inspector</th>
+                  <th>Level 2</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Grade</th>
+                  <th>Scored</th>
+                  <th>Red Flags</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedJobs.map((job) => {
+                  const jobResponses = responses.filter((response) => response.dtiJobId === job.id);
+                  const summary = scoreSummary(jobResponses);
 
-          <div className="hardband-job-list tall">
-            {filteredJobs.map((job) => {
-              const jobResponses = responses.filter((response) => response.dtiJobId === job.id);
-              const summary = scoreSummary(jobResponses);
-
-              return (
-                <article
-                  key={job.id}
-                  className={`dti-job-card ${selectedJob?.id === job.id ? "active" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="dti-job-open-button"
-                    onClick={() => setSelectedJobId((current) => (current === job.id ? "" : job.id))}
-                  >
-                    <strong>{job.jobNumber}</strong>
-                    <span>{job.company} / Rig {job.rig || "-"} / {job.status}</span>
-                    <small>
-                      Score {summary.averageText} / Grade {summary.grade} / {summary.scoredCount} scored / {summary.redCount} red flags
-                    </small>
-                    <small>{job.jobDate || job.createdAt}</small>
-                  </button>
-                  {canClose && (
-                    <button
-                      type="button"
-                      className="dti-job-delete-button"
-                      title={`Delete ${job.jobNumber}`}
-                      disabled={saving}
-                      onClick={() => deleteDtiJob(job)}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </article>
-              );
-            })}
-
-            {filteredJobs.length === 0 && <p className="muted-text">No DTI jobs match this view.</p>}
+                  return (
+                    <tr key={job.id} className={selectedJob?.id === job.id ? "selected" : ""}>
+                      <td>
+                        <button className="dti-table-open" type="button" onClick={() => setSelectedJobId(job.id)}>
+                          {job.jobNumber}
+                        </button>
+                      </td>
+                      <td>{job.jobDate || job.createdAt}</td>
+                      <td>{job.company}</td>
+                      <td>{job.rig || "-"}</td>
+                      <td>{job.inspectionType || "-"}</td>
+                      <td>{job.leadInspector || "-"}</td>
+                      <td>{job.crewLead || "-"}</td>
+                      <td><span className="dti-pill">{job.status}</span></td>
+                      <td>{summary.averageText}</td>
+                      <td>{summary.grade}</td>
+                      <td>{summary.scoredCount}</td>
+                      <td>{summary.redCount}</td>
+                      <td>
+                        <div className="dti-row-actions">
+                          <button type="button" className="button mini" onClick={() => setSelectedJobId(job.id)}>View</button>
+                          <button type="button" className="button mini" onClick={() => setSelectedJobId(job.id)}>Grade</button>
+                          <button type="button" className="button mini" onClick={() => window.open(`/dti/print?id=${job.id}&section=All%20Sections`, "_blank")}>Print</button>
+                          {canClose && (
+                            <button type="button" className="button mini danger" disabled={saving} onClick={() => deleteDtiJob(job)}>
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        </section>
+        )}
+
+        {filteredJobs.length > jobsPerPage && (
+          <div className="dti-pagination">
+            <button className="button" type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
+              Previous
+            </button>
+            <span>Page {page} of {totalPages}</span>
+            <button className="button" type="button" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>
+              Next
+            </button>
+          </div>
+        )}
       </section>
 
       {!selectedJob && (
