@@ -39,3 +39,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local build backups / scratch artifacts
+/.next-broken-*/
+/.next-broken-crm-*/
+/.next-broken-receiving-*/
+/.npm-cache/
+/.tmp-*/
+/.git-titan/
+/.tempGitPath
+/tmp/
+/_tmp_*
+
+# local logs and one-off diagnostics
+*.log
+tmp-*.mjs
+
+# local import/export data and generated handoff files
+/crm-csv-files/
+/outputs/
+/PipeYardInventory.jsx
