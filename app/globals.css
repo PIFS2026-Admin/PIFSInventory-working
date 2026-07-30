@@ -8350,10 +8350,11 @@ html.titan-standalone body {
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version {
+    display: block !important;
     width: 100% !important;
-    height: 10.1in !important;
-    min-height: 10.1in !important;
-    max-height: 10.1in !important;
+    height: 10.05in !important;
+    min-height: 10.05in !important;
+    max-height: 10.05in !important;
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
@@ -8362,36 +8363,38 @@ html.titan-standalone body {
     overflow: hidden !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
-    font-size: 8.3pt !important;
-    line-height: 1.1 !important;
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+    font-size: 7.8pt !important;
+    line-height: 1.04 !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-letterhead {
-    grid-template-columns: 2.08in 1fr !important;
-    gap: 0.3in !important;
-    margin-bottom: 0.1in !important;
+    grid-template-columns: 1.95in 1fr !important;
+    gap: 0.26in !important;
+    margin-bottom: 0.06in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-letterhead img {
-    width: 1.7in !important;
-    margin-top: 0.08in !important;
+    width: 1.45in !important;
+    margin-top: 0.05in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-title-block h1 {
-    font-size: 20pt !important;
-    margin-bottom: 0.08in !important;
+    font-size: 18pt !important;
+    margin-bottom: 0.05in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-print-line,
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-print-count {
-    gap: 0.06in !important;
-    min-height: 0.15in !important;
+    gap: 0.045in !important;
+    min-height: 0.125in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-print-line strong,
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-print-count strong {
-    min-height: 0.12in !important;
-    padding: 0 0.03in 0.01in !important;
+    min-height: 0.105in !important;
+    padding: 0 0.025in 0.005in !important;
     border-bottom-width: 0.75pt !important;
   }
 
@@ -8400,60 +8403,74 @@ html.titan-standalone body {
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-top-fields.print {
-    gap: 0.05in 0.16in !important;
-    margin: 0.02in 0 0.09in 2.08in !important;
+    gap: 0.035in 0.14in !important;
+    margin: 0.015in 0 0.055in 1.95in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-long-lines.print {
-    gap: 0.06in !important;
-    padding-top: 0.09in !important;
-    margin-bottom: 0.11in !important;
+    gap: 0.045in !important;
+    padding-top: 0.06in !important;
+    margin-bottom: 0.07in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-box-grid {
-    gap: 0.09in 0.12in !important;
+    gap: 0.065in 0.1in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-count-box {
-    min-height: 2.2in !important;
-    padding: 0.08in 0.09in !important;
+    min-height: 1.84in !important;
+    padding: 0.055in 0.07in !important;
     border-width: 1.5pt !important;
-    gap: 0.04in !important;
+    gap: 0.022in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-count-box.compact {
-    min-height: 0.72in !important;
+    min-height: 0.52in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-split-row.print {
-    gap: 0.06in !important;
+    gap: 0.045in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-print-notes {
-    min-height: 0.5in !important;
-    line-height: 1.28 !important;
-    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 0.17in, rgba(31, 41, 55, 0.24) 0.18in) !important;
+    min-height: 0.28in !important;
+    max-height: 0.28in !important;
+    overflow: hidden !important;
+    line-height: 1.18 !important;
+    background-image: none !important;
+    border-bottom: 0.75pt solid #d7d7d7 !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-bottom-counts.print {
-    gap: 0.1in !important;
-    margin: 0.1in 0 0.07in !important;
+    gap: 0.075in !important;
+    margin: 0.065in 0 0.04in !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-remarks.print {
-    min-height: 1.2in !important;
-    gap: 0.03in !important;
+    display: block !important;
+    min-height: 0 !important;
+    max-height: 0.78in !important;
+    gap: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-remarks.print p {
-    line-height: 1.35 !important;
-    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 0.21in, rgba(31, 41, 55, 0.2) 0.22in) !important;
+    min-height: 0.45in !important;
+    max-height: 0.45in !important;
+    overflow: hidden !important;
+    line-height: 1.22 !important;
+    background-image: none !important;
+    border-bottom: 0.75pt solid #d7d7d7 !important;
   }
 
   .dti-summary-print-page .inspection-summary-sheet.print-version .summary-footer.print {
     grid-template-columns: 1.08fr 1fr !important;
-    gap: 0.1in !important;
-    margin-top: auto !important;
+    gap: 0.08in !important;
+    margin-top: 0.16in !important;
+    font-size: 7.1pt !important;
+    break-before: avoid !important;
+    page-break-before: avoid !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
