@@ -40,15 +40,21 @@ type Ticket = {
 
 type TicketLine = {
   id: string;
+  company?: string;
+  receivingTicketTruckId?: string;
   afe: string;
   partNumber: string;
   size?: string;
+  weight?: string;
   grade?: string;
   connection?: string;
   pipeRange: "Range 2" | "Range 3";
   condition: string;
   joints: number;
   footage: number;
+  missingBoxProtectors?: number;
+  missingPinProtectors?: number;
+  notes?: string;
 };
 
 type TicketAttachment = {
@@ -60,8 +66,11 @@ type TicketAttachment = {
 
 type TicketLineRow = {
   id: string;
+  receiving_ticket_truck_id?: string | null;
+  companies?: unknown;
   afe?: string | null;
   size?: string | null;
+  weight?: string | null;
   grade?: string | null;
   connection?: string | null;
   part_number?: string | null;
@@ -69,6 +78,9 @@ type TicketLineRow = {
   condition?: string | null;
   joints?: number | string | null;
   footage?: number | string | null;
+  missing_box_protectors?: number | string | null;
+  missing_pin_protectors?: number | string | null;
+  notes?: string | null;
 };
 
 type DocumentRow = {
@@ -76,6 +88,47 @@ type DocumentRow = {
   document_type?: string | null;
   file_name?: string | null;
   file_url?: string | null;
+};
+
+type ReleasePartLine = {
+  afe?: string | null;
+  partNumber?: string | null;
+  part_number?: string | null;
+  size?: string | null;
+  grade?: string | null;
+  connection?: string | null;
+  pipeRange?: string | null;
+  pipe_range?: string | null;
+  condition?: string | null;
+  joints?: number | string | null;
+  total_joints?: number | string | null;
+  bulk_joints?: number | string | null;
+  footage?: number | string | null;
+  total_footage?: number | string | null;
+  bulk_footage?: number | string | null;
+};
+
+type TransferDetails = {
+  company?: string;
+  ticketNumber?: string;
+  documentNumber?: string;
+  from?: string;
+  fromLocation?: string;
+  to?: string;
+  toLocation?: string;
+  notes?: string;
+  comment?: string;
+  createdAt?: string;
+  pathfinderName?: string;
+  pathfinderSignature?: string;
+  carrierName?: string;
+  carrierSignature?: string;
+  afe?: string;
+  partNumber?: string;
+  pipeRange?: string;
+  condition?: string;
+  joints?: number | string | null;
+  lines?: ReleasePartLine[];
 };
 
 type ReceivingTruckTicket = {
@@ -213,6 +266,19 @@ function getCompanyName(value: unknown) {
   return readName(value);
 }
 
+function makePipeDescription(line: TicketLine) {
+  const spec = [line.size, line.weight, line.grade, line.connection].filter(Boolean).join(" ");
+  return [spec, line.partNumber, line.pipeRange, line.condition].filter(Boolean).join(" / ") || line.partNumber || "-";
+}
+
+function makeTruckLabel(truck?: ReceivingTruckTicket) {
+  if (!truck) return "Truck";
+  const label = truck.truck_label || (truck.truck_sequence ? `Truck ${truck.truck_sequence}` : "Truck");
+  const truckNumber = truck.truck_number || truck.truck_unit_number;
+  const bol = truck.bol_number ? `BOL ${truck.bol_number}` : "";
+  return [label, truckNumber, bol].filter(Boolean).join(" / ");
+}
+
 function makeSignatureBlack(value: string) {
   return new Promise<string>((resolve) => {
     if (!value || !value.startsWith("data:image")) {
@@ -259,12 +325,21 @@ function makeSignatureBlack(value: string) {
 export default function TicketPrintPage() {
   const [ticket, setTicket] = useState<Ticket>(emptyTicket);
   const [lines, setLines] = useState<TicketLine[]>([]);
+  const [receivingTrucks, setReceivingTrucks] = useState<ReceivingTruckTicket[]>([]);
   const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
   const [printSignatures, setPrintSignatures] = useState({
     pathfinderSignature: "",
     carrierSignature: "",
   });
   const [error, setError] = useState("");
+
+  const isReceivingTruckPrint = ticket.type === "receiving" && ticket.documentType === "receiving_truck";
+  const isReceivingMasterPrint = ticket.type === "receiving" && ticket.documentType === "receiving_master";
+  const showSignatureGrid = ticket.type !== "receiving" || isReceivingTruckPrint;
+  const receivingTruckById = useMemo(
+    () => new Map(receivingTrucks.map((truck) => [truck.id, truck])),
+    [receivingTrucks]
+  );
 
   const totals = useMemo(() => {
     return lines.reduce(
@@ -276,11 +351,85 @@ export default function TicketPrintPage() {
     );
   }, [lines]);
 
+  const receivingSizeTotals = useMemo(() => {
+    if (!isReceivingMasterPrint) return [];
+
+    const totalsBySize = new Map<
+      string,
+      { size: string; joints: number; footage: number; missingBoxProtectors: number; missingPinProtectors: number }
+    >();
+
+    for (const line of lines) {
+      const size = line.size || "Unspecified";
+      const existing =
+        totalsBySize.get(size) ??
+        { size, joints: 0, footage: 0, missingBoxProtectors: 0, missingPinProtectors: 0 };
+
+      existing.joints += Number(line.joints || 0);
+      existing.footage += Number(line.footage || 0);
+      existing.missingBoxProtectors += Number(line.missingBoxProtectors || 0);
+      existing.missingPinProtectors += Number(line.missingPinProtectors || 0);
+      totalsBySize.set(size, existing);
+    }
+
+    return Array.from(totalsBySize.values()).sort((left, right) => left.size.localeCompare(right.size));
+  }, [isReceivingMasterPrint, lines]);
+
+  const receivingSpecTotals = useMemo(() => {
+    if (!isReceivingMasterPrint) return [];
+
+    const totalsBySpec = new Map<
+      string,
+      {
+        description: string;
+        joints: number;
+        footage: number;
+        missingBoxProtectors: number;
+        missingPinProtectors: number;
+        trucks: Map<string, number>;
+      }
+    >();
+
+    for (const line of lines) {
+      const key = [line.size || "", line.weight || "", line.grade || "", line.connection || "", line.partNumber || "", line.pipeRange, line.condition || ""].join("|");
+      const existing =
+        totalsBySpec.get(key) ??
+        {
+          description: makePipeDescription(line),
+          joints: 0,
+          footage: 0,
+          missingBoxProtectors: 0,
+          missingPinProtectors: 0,
+          trucks: new Map<string, number>(),
+        };
+      const truckLabel = makeTruckLabel(
+        line.receivingTicketTruckId ? receivingTruckById.get(line.receivingTicketTruckId) : undefined
+      );
+
+      existing.joints += Number(line.joints || 0);
+      existing.footage += Number(line.footage || 0);
+      existing.missingBoxProtectors += Number(line.missingBoxProtectors || 0);
+      existing.missingPinProtectors += Number(line.missingPinProtectors || 0);
+      existing.trucks.set(truckLabel, (existing.trucks.get(truckLabel) ?? 0) + Number(line.joints || 0));
+      totalsBySpec.set(key, existing);
+    }
+
+    return Array.from(totalsBySpec.values()).sort((left, right) => left.description.localeCompare(right.description));
+  }, [isReceivingMasterPrint, lines, receivingTruckById]);
+
+  const lineTablePrefixColumnCount =
+    (isReceivingMasterPrint ? 1 : 0) +
+    (ticket.type === "receiving" ? 1 : 0) +
+    2 +
+    (ticket.type === "receiving" ? 4 : ticket.type === "release" ? 3 : 0) +
+    2;
+
   useEffect(() => {
     async function loadTicket() {
       const type = (getParam("type") || "receiving") as TicketType;
       const id = getParam("id");
       const truckId = getParam("truckId");
+      setReceivingTrucks([]);
 
       if (!id) {
         setError("Missing ticket id.");
@@ -301,7 +450,7 @@ export default function TicketPrintPage() {
           return;
         }
 
-        let partLines = Array.isArray(data.part_lines) ? data.part_lines : [];
+        let partLines: ReleasePartLine[] = Array.isArray(data.part_lines) ? (data.part_lines as ReleasePartLine[]) : [];
 
         if (partLines.length === 0 && data.company_id && data.rack_id) {
           const { data: inventoryRows } = await supabase
@@ -310,7 +459,7 @@ export default function TicketPrintPage() {
             .eq("company_id", data.company_id)
             .eq("rack_id", data.rack_id);
 
-          partLines = (inventoryRows ?? []).map((row: any) => {
+          partLines = ((inventoryRows ?? []) as ReleasePartLine[]).map((row) => {
             const pipeRange = normalizePipeRange(row.pipe_range);
             const joints = Number(row.total_joints ?? row.bulk_joints ?? 0);
             const storedFootage = row.total_footage ?? row.bulk_footage;
@@ -363,7 +512,7 @@ export default function TicketPrintPage() {
           createdAt: data.created_at ?? "",
         });
 
-        const mappedPartLines = partLines.map((line: any, index: number) => {
+        const mappedPartLines = partLines.map((line, index) => {
             const pipeRange = normalizePipeRange(line.pipeRange ?? line.pipe_range);
             const joints = Number(line.joints ?? line.total_joints ?? line.bulk_joints ?? 0);
             const storedFootage = line.footage ?? line.total_footage ?? line.bulk_footage;
@@ -403,10 +552,10 @@ export default function TicketPrintPage() {
           return;
         }
 
-        let details: any = {};
+        let details: TransferDetails = {};
 
         try {
-          details = JSON.parse(data.file_url || "{}");
+          details = JSON.parse(data.file_url || "{}") as TransferDetails;
         } catch {
           details = {};
         }
@@ -522,7 +671,7 @@ export default function TicketPrintPage() {
         }
 
         setLines(
-          (lineData ?? []).map((line: any) => {
+          ((lineData ?? []) as TicketLineRow[]).map((line) => {
             const pipeRange = normalizePipeRange(line.pipe_range);
             const joints = Number(line.joints ?? 0);
             const storedFootage = line.footage === null || line.footage === undefined ? NaN : Number(line.footage);
@@ -551,7 +700,7 @@ export default function TicketPrintPage() {
         }
 
         setAttachments(
-          (attachmentData ?? []).map((attachment: any) => ({
+          ((attachmentData ?? []) as DocumentRow[]).map((attachment) => ({
             id: attachment.id,
             documentType: attachment.document_type ?? "",
             fileName: attachment.file_name ?? "Attachment",
@@ -592,6 +741,7 @@ export default function TicketPrintPage() {
       }
 
       const receivingTrucks = ((truckError ? [] : truckData) ?? []) as ReceivingTruckTicket[];
+      setReceivingTrucks(receivingTrucks);
       const selectedTruck = truckId ? receivingTrucks.find((truck) => truck.id === truckId) ?? null : null;
 
       if (truckId && receivingTrucks.length > 0 && !selectedTruck) {
@@ -636,8 +786,10 @@ export default function TicketPrintPage() {
 
       let lineQuery = supabase
         .from("ticket_line_items")
-        .select("id, afe, size, grade, connection, part_number, pipe_range, condition, joints, footage, receiving_ticket_truck_id")
+        .select("id, afe, size, weight, grade, connection, part_number, pipe_range, condition, joints, footage, receiving_ticket_truck_id, missing_box_protectors, missing_pin_protectors, notes, companies(name)")
         .eq("receiving_ticket_id", data.id)
+        .order("receiving_ticket_truck_id", { ascending: true })
+        .order("line_sequence", { ascending: true })
         .order("id", { ascending: true });
 
       if (selectedTruck) {
@@ -663,15 +815,18 @@ export default function TicketPrintPage() {
         return;
       }
 
-      const mappedLines = (lineData ?? []).map((line: any) => {
+      const mappedLines = (lineData ?? []).map((line: TicketLineRow) => {
         const pipeRange = normalizePipeRange(line.pipe_range);
         const joints = Number(line.joints ?? 0);
         const storedFootage = line.footage === null || line.footage === undefined ? NaN : Number(line.footage);
 
         return {
           id: line.id,
+          company: getCompanyName(line.companies),
+          receivingTicketTruckId: line.receiving_ticket_truck_id ?? "",
           afe: line.afe ?? "",
           size: line.size ?? "",
+          weight: line.weight ?? "",
           grade: line.grade ?? "",
           connection: line.connection ?? "",
           partNumber: line.part_number ?? "",
@@ -679,6 +834,9 @@ export default function TicketPrintPage() {
           condition: line.condition ?? "",
           joints,
           footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
+          missingBoxProtectors: Number(line.missing_box_protectors ?? 0),
+          missingPinProtectors: Number(line.missing_pin_protectors ?? 0),
+          notes: line.notes ?? "",
         };
       });
 
@@ -688,8 +846,11 @@ export default function TicketPrintPage() {
           : [
               {
                 id: selectedTruck?.id ?? data.id,
+                company: companyName,
+                receivingTicketTruckId: selectedTruck?.id ?? "",
                 afe: data.afe ?? "",
                 size: "",
+                weight: "",
                 grade: "",
                 connection: "",
                 partNumber: data.part_number ?? "",
@@ -701,6 +862,9 @@ export default function TicketPrintPage() {
                     data.footage ??
                     calculateRangeFootage(Number(data.joints ?? 0), normalizePipeRange(data.pipe_range))
                 ),
+                missingBoxProtectors: Number(selectedTruck?.missing_box_protectors ?? data.missing_box_protectors ?? 0),
+                missingPinProtectors: Number(selectedTruck?.missing_pin_protectors ?? data.missing_pin_protectors ?? 0),
+                notes: selectedTruck?.notes ?? data.notes ?? "",
               },
             ]
       );
@@ -779,10 +943,6 @@ export default function TicketPrintPage() {
       </main>
     );
   }
-
-  const isReceivingTruckPrint = ticket.type === "receiving" && ticket.documentType === "receiving_truck";
-  const isReceivingMasterPrint = ticket.type === "receiving" && ticket.documentType === "receiving_master";
-  const showSignatureGrid = ticket.type !== "receiving" || isReceivingTruckPrint;
 
   return (
     <main className="print-page">
@@ -950,14 +1110,79 @@ export default function TicketPrintPage() {
           </section>
         )}
 
+        {isReceivingMasterPrint && receivingSizeTotals.length > 0 && (
+          <section className="ticket-notes">
+            <h3>Receiving Summary By Size</h3>
+            <table className="ticket-table ticket-summary-table">
+              <thead>
+                <tr>
+                  <th>Pipe Size</th>
+                  <th>Joints</th>
+                  <th>Footage</th>
+                  <th>Missing Box</th>
+                  <th>Missing Pin</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receivingSizeTotals.map((row) => (
+                  <tr key={row.size}>
+                    <td>{row.size}</td>
+                    <td>{formatNumber(row.joints)}</td>
+                    <td>{formatNumber(row.footage)}</td>
+                    <td>{formatNumber(row.missingBoxProtectors)}</td>
+                    <td>{formatNumber(row.missingPinProtectors)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        {isReceivingMasterPrint && receivingSpecTotals.length > 0 && (
+          <section className="ticket-notes">
+            <h3>Receiving Summary By Complete Pipe Description</h3>
+            <table className="ticket-table ticket-summary-table">
+              <thead>
+                <tr>
+                  <th>Pipe Description</th>
+                  <th>Joints</th>
+                  <th>Footage</th>
+                  <th>Missing Box</th>
+                  <th>Missing Pin</th>
+                  <th>Truck Breakdown</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receivingSpecTotals.map((row) => (
+                  <tr key={row.description}>
+                    <td>{row.description}</td>
+                    <td>{formatNumber(row.joints)}</td>
+                    <td>{formatNumber(row.footage)}</td>
+                    <td>{formatNumber(row.missingBoxProtectors)}</td>
+                    <td>{formatNumber(row.missingPinProtectors)}</td>
+                    <td>
+                      {Array.from(row.trucks.entries())
+                        .map(([truck, joints]) => `${truck}: ${formatNumber(joints)} jts`)
+                        .join("; ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
+
         <table className="ticket-table">
           <thead>
             <tr>
+              {isReceivingMasterPrint && <th>Truck / BOL</th>}
+              {ticket.type === "receiving" && <th>Customer / Owner</th>}
               <th>TU#</th>
               <th>Part Number</th>
-              {ticket.type === "release" && (
+              {(ticket.type === "receiving" || ticket.type === "release") && (
                 <>
                   <th>Size</th>
+                  {ticket.type === "receiving" && <th>Weight</th>}
                   <th>Grade</th>
                   <th>Connection</th>
                 </>
@@ -966,16 +1191,28 @@ export default function TicketPrintPage() {
               <th>Condition</th>
               <th>Joints</th>
               <th>Footage</th>
+              {ticket.type === "receiving" && (
+                <>
+                  <th>Missing Box</th>
+                  <th>Missing Pin</th>
+                  <th>Notes</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {lines.map((line) => (
               <tr key={line.id}>
+                {isReceivingMasterPrint && (
+                  <td>{makeTruckLabel(line.receivingTicketTruckId ? receivingTruckById.get(line.receivingTicketTruckId) : undefined)}</td>
+                )}
+                {ticket.type === "receiving" && <td>{line.company || ticket.company || "-"}</td>}
                 <td>{line.afe}</td>
                 <td>{line.partNumber}</td>
-                {ticket.type === "release" && (
+                {(ticket.type === "receiving" || ticket.type === "release") && (
                   <>
                     <td>{line.size || "-"}</td>
+                    {ticket.type === "receiving" && <td>{line.weight || "-"}</td>}
                     <td>{line.grade || "-"}</td>
                     <td>{line.connection || "-"}</td>
                   </>
@@ -984,10 +1221,17 @@ export default function TicketPrintPage() {
                 <td>{line.condition}</td>
                 <td>{formatNumber(line.joints)}</td>
                 <td>{formatNumber(line.footage)}</td>
+                {ticket.type === "receiving" && (
+                  <>
+                    <td>{formatNumber(line.missingBoxProtectors ?? 0)}</td>
+                    <td>{formatNumber(line.missingPinProtectors ?? 0)}</td>
+                    <td>{line.notes || "-"}</td>
+                  </>
+                )}
               </tr>
             ))}
             <tr>
-              <td colSpan={ticket.type === "release" ? 7 : 4}>
+              <td colSpan={lineTablePrefixColumnCount}>
                 <strong>Totals</strong>
               </td>
               <td>
@@ -996,6 +1240,17 @@ export default function TicketPrintPage() {
               <td>
                 <strong>{formatNumber(totals.footage)}</strong>
               </td>
+              {ticket.type === "receiving" && (
+                <>
+                  <td>
+                    <strong>{formatNumber(ticket.missingBoxProtectors)}</strong>
+                  </td>
+                  <td>
+                    <strong>{formatNumber(ticket.missingPinProtectors)}</strong>
+                  </td>
+                  <td />
+                </>
+              )}
             </tr>
           </tbody>
         </table>

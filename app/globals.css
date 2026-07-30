@@ -902,6 +902,64 @@ th {
   border-style: solid;
 }
 
+.pipe-line-items-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16, 19, 24, 0.72);
+}
+
+.pipe-line-items-heading,
+.pipe-line-item-header,
+.pipe-line-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pipe-line-items-heading strong,
+.pipe-line-item-header strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.pipe-line-items-heading span,
+.pipe-line-item-header span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: none;
+}
+
+.pipe-line-items-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.pipe-line-item-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(249, 115, 22, 0.28);
+  border-radius: 8px;
+  background: rgba(7, 10, 14, 0.86);
+}
+
+.pipe-line-item-grid {
+  border-top: 1px solid var(--line);
+}
+
+.pipe-line-item-actions {
+  justify-content: flex-end;
+}
+
 .signature-pad-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -4403,7 +4461,7 @@ th {
 @media print {
   @page {
     size: letter portrait;
-    margin: 0.15in;
+    margin: 0.12in;
   }
 
   .daily-summary-shell,
@@ -4428,36 +4486,43 @@ th {
     padding: 0 !important;
   }
 
-  .inspection-summary-sheet {
-    width: 8.2in !important;
-    min-height: auto !important;
+  .inspection-summary-sheet.print-version {
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 8.26in !important;
+    height: 10.76in !important;
+    min-height: 10.76in !important;
+    max-height: 10.76in !important;
     border: 0 !important;
     box-shadow: none !important;
     margin: 0 !important;
-    padding: 0.12in !important;
+    padding: 0.18in 0.22in 0.14in !important;
     transform: none !important;
     background: #ffffff !important;
     color: #111827 !important;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
     font-size: 10px !important;
-    line-height: 1.12 !important;
+    line-height: 1.08 !important;
+    overflow: hidden !important;
   }
 
-  .summary-letterhead {
+  .inspection-summary-sheet.print-version .summary-letterhead {
     grid-template-columns: 1.65in 1fr !important;
     gap: 0.18in !important;
-    margin-bottom: 6px !important;
+    margin-bottom: 5px !important;
+    flex: 0 0 auto !important;
   }
 
-  .summary-letterhead img {
-    width: 1.45in !important;
+  .inspection-summary-sheet.print-version .summary-letterhead img {
+    width: 1.38in !important;
     margin-top: 0 !important;
   }
 
-  .summary-title-block h1 {
-    font-size: 20px !important;
-    margin-bottom: 4px !important;
+  .inspection-summary-sheet.print-version .summary-title-block h1 {
+    font-size: 19px !important;
+    margin-bottom: 3px !important;
   }
 
   .summary-line-field,
@@ -4470,37 +4535,54 @@ th {
   .inspection-summary-sheet.print-version .summary-print-count {
     display: flex !important;
     align-items: flex-end !important;
-    gap: 5px !important;
-    min-height: 16px !important;
+    gap: 4px !important;
+    min-height: 15px !important;
     white-space: nowrap !important;
   }
 
   .inspection-summary-sheet.print-version .summary-print-line strong,
   .inspection-summary-sheet.print-version .summary-print-count strong {
-    min-height: 15px !important;
+    min-height: 14px !important;
     border-bottom: 1px solid #8f8f8f !important;
-    padding: 0 3px !important;
+    padding: 0 3px 0 !important;
   }
 
   .inspection-summary-sheet.print-version .summary-top-fields {
     grid-template-columns: 1fr 1fr !important;
-    margin: 3px 0 5px 1.63in !important;
+    gap: 3px 12px !important;
+    margin: 2px 0 4px 1.56in !important;
+    flex: 0 0 auto !important;
   }
 
   .inspection-summary-sheet.print-version .summary-print-page-count {
     grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-long-lines {
+    gap: 5px !important;
+    padding-top: 5px !important;
+    margin: 0 0 6px !important;
+    flex: 0 0 auto !important;
   }
 
   .inspection-summary-sheet.print-version .summary-box-grid {
     grid-template-columns: 1fr 1fr !important;
+    gap: 7px !important;
+    margin: 5px 0 !important;
+    flex: 0 0 auto !important;
   }
 
   .inspection-summary-sheet.print-version .summary-split-row.print {
     grid-template-columns: 1fr 0.8fr 0.8fr !important;
+    gap: 5px !important;
   }
 
   .inspection-summary-sheet.print-version .summary-bottom-counts.print {
     grid-template-columns: repeat(4, 1fr) !important;
+    gap: 8px !important;
+    margin: 6px 0 5px !important;
+    flex: 0 0 auto !important;
   }
 
   .summary-top-fields,
@@ -4511,42 +4593,53 @@ th {
     margin: 4px 0 !important;
   }
 
-  .summary-box-grid {
-    gap: 6px !important;
-    margin: 6px 0 !important;
+  .inspection-summary-sheet.print-version .summary-count-box {
+    min-height: 1.2in !important;
+    padding: 4px 6px !important;
+    border-width: 2px !important;
+    gap: 2px !important;
   }
 
-  .summary-count-box {
-    min-height: 1.26in !important;
-    padding: 5px !important;
-    border-width: 2px !important;
+  .inspection-summary-sheet.print-version .summary-count-box.compact {
+    min-height: 0.56in !important;
+  }
+
+  .inspection-summary-sheet.print-version .summary-remarks.print {
+    margin: 3px 0 0 !important;
+    flex: 1 1 auto !important;
+    min-height: 0.78in !important;
+    display: flex !important;
+    flex-direction: column !important;
     gap: 3px !important;
   }
 
-  .summary-count-box.compact {
-    min-height: 0.62in !important;
-  }
-
-  .summary-remarks {
-    margin-top: 4px !important;
-  }
-
-  .summary-remarks textarea,
-  .summary-remarks.print p {
-    min-height: 0.62in !important;
+  .inspection-summary-sheet.print-version .summary-remarks.print p {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    line-height: 1.35 !important;
+    padding-top: 2px !important;
   }
 
   .summary-note-lines {
     min-height: 24px !important;
   }
 
-  .summary-print-notes {
-    min-height: 34px !important;
-    line-height: 1.25 !important;
+  .inspection-summary-sheet.print-version .summary-print-notes {
+    min-height: 28px !important;
+    line-height: 1.2 !important;
   }
 
-  .summary-footer {
-    margin-top: 6px !important;
+  .inspection-summary-sheet.print-version .summary-footer {
+    flex: 0 0 auto !important;
+    display: grid !important;
+    grid-template-columns: 1.2fr 1fr !important;
+    gap: 8px !important;
+    align-items: end !important;
+    margin: 5px 0 0 !important;
+    break-before: avoid !important;
+    page-break-before: avoid !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 

@@ -89,6 +89,7 @@ type InventoryRow = {
   afe: string;
   partNumber: string;
   size: string;
+  weight: string;
   grade: string;
   connection: string;
   pipeRange: PipeRange;
@@ -112,6 +113,7 @@ type ReceiveForm = SignatureFields & {
   afe: string;
   partNumber: string;
   size: string;
+  weight: string;
   grade: string;
   connection: string;
   pipeRange: PipeRange;
@@ -121,6 +123,26 @@ type ReceiveForm = SignatureFields & {
   missingBoxProtectors: string;
   missingPinProtectors: string;
   inspectionDue: string;
+  notes: string;
+};
+
+type ReceivePipeLineItem = {
+  id: string;
+  ticketLineId?: string;
+  pipeInventoryId?: string | null;
+  customer: string;
+  afe: string;
+  partNumber: string;
+  size: string;
+  weight: string;
+  grade: string;
+  connection: string;
+  pipeRange: PipeRange;
+  condition: string;
+  status: string;
+  joints: string;
+  missingBoxProtectors: string;
+  missingPinProtectors: string;
   notes: string;
 };
 
@@ -140,6 +162,7 @@ type ReceiveTruckLine = {
   joints: string;
   missingBoxProtectors: string;
   missingPinProtectors: string;
+  pipeLines: ReceivePipeLineItem[];
   pathfinderName: string;
   pathfinderSignature: string;
   carrierName: string;
@@ -346,12 +369,21 @@ type TicketLine = {
   receivingTicketTruckId: string;
   shippingTicketId: string;
   company: string;
+  companyId: string | null;
+  pipeInventoryId: string | null;
   afe: string;
   partNumber: string;
+  size: string;
+  weight: string;
+  grade: string;
+  connection: string;
   pipeRange: PipeRange;
   condition: string;
   joints: number;
   footage: number;
+  missingBoxProtectors: number;
+  missingPinProtectors: number;
+  notes: string;
 };
 
 type TicketAttachment = {
@@ -537,6 +569,7 @@ const emptyReceiveForm: ReceiveForm = {
   afe: "",
   partNumber: "",
   size: "2 3/8",
+  weight: "",
   grade: "J55",
   connection: "8rd EUE",
   pipeRange: "Range 2",
@@ -567,6 +600,7 @@ const emptyReceiveTruckLine: ReceiveTruckLine = {
   joints: "",
   missingBoxProtectors: "0",
   missingPinProtectors: "0",
+  pipeLines: [],
   pathfinderName: "",
   pathfinderSignature: "",
   carrierName: "",
@@ -1429,6 +1463,7 @@ export default function Home() {
         rig,
         part_number,
         size,
+        weight,
         grade,
         connection,
         pipe_range,
@@ -1483,6 +1518,7 @@ export default function Home() {
         afe: row.afe ?? "",
         partNumber: row.part_number ?? "",
         size: row.size ?? "",
+        weight: row.weight ?? "",
         grade: row.grade ?? "",
         connection: row.connection ?? "",
         pipeRange,
@@ -1918,6 +1954,7 @@ export default function Home() {
         afe: row.afe ?? "",
         partNumber: row.part_number ?? "",
         size: row.size ?? "",
+        weight: row.weight ?? "",
         grade: row.grade ?? "",
         connection: row.connection ?? "",
         pipeRange,
@@ -2167,12 +2204,20 @@ export default function Home() {
         receiving_ticket_truck_id,
         shipping_ticket_id,
         company_id,
+        pipe_inventory_id,
         afe,
         part_number,
+        size,
+        weight,
+        grade,
+        connection,
         pipe_range,
         condition,
         joints,
         footage,
+        missing_box_protectors,
+        missing_pin_protectors,
+        notes,
         companies(name)
       `)
       .order("id", { ascending: false });
@@ -2324,12 +2369,21 @@ export default function Home() {
           receivingTicketTruckId: row.receiving_ticket_truck_id ?? "",
           shippingTicketId: row.shipping_ticket_id ?? "",
           company: company?.name ?? "Unknown",
+          companyId: row.company_id ?? null,
+          pipeInventoryId: row.pipe_inventory_id ?? null,
           afe: row.afe ?? "",
           partNumber: row.part_number ?? "",
+          size: row.size ?? "",
+          weight: row.weight ?? "",
+          grade: row.grade ?? "",
+          connection: row.connection ?? "",
           pipeRange,
           condition: row.condition ?? "",
           joints,
           footage: Number.isFinite(storedFootage) ? storedFootage : calculateRangeFootage(joints, pipeRange),
+          missingBoxProtectors: Number(row.missing_box_protectors ?? 0),
+          missingPinProtectors: Number(row.missing_pin_protectors ?? 0),
+          notes: row.notes ?? "",
         };
       })
     );
@@ -2984,8 +3038,104 @@ export default function Home() {
     }));
   }
 
+  function makeReceivePipeLineItem(overrides: Partial<ReceivePipeLineItem> = {}): ReceivePipeLineItem {
+    return {
+      id: overrides.id ?? crypto.randomUUID(),
+      ticketLineId: overrides.ticketLineId,
+      pipeInventoryId: overrides.pipeInventoryId ?? null,
+      customer: overrides.customer ?? receiveForm.customer,
+      afe: overrides.afe ?? receiveForm.afe,
+      partNumber: overrides.partNumber ?? receiveForm.partNumber,
+      size: overrides.size ?? receiveForm.size,
+      weight: overrides.weight ?? receiveForm.weight,
+      grade: overrides.grade ?? receiveForm.grade,
+      connection: overrides.connection ?? receiveForm.connection,
+      pipeRange: overrides.pipeRange ?? receiveForm.pipeRange,
+      condition: overrides.condition ?? receiveForm.condition,
+      status: overrides.status ?? receiveForm.status,
+      joints: overrides.joints ?? receiveForm.joints,
+      missingBoxProtectors: overrides.missingBoxProtectors ?? receiveForm.missingBoxProtectors ?? "0",
+      missingPinProtectors: overrides.missingPinProtectors ?? receiveForm.missingPinProtectors ?? "0",
+      notes: overrides.notes ?? "",
+    };
+  }
+
+  function makeReceivePipeLineFromTicketLine(line: TicketLine): ReceivePipeLineItem {
+    return makeReceivePipeLineItem({
+      id: line.id,
+      ticketLineId: line.id,
+      pipeInventoryId: line.pipeInventoryId,
+      customer: line.company,
+      afe: line.afe,
+      partNumber: line.partNumber,
+      size: line.size,
+      weight: line.weight,
+      grade: line.grade,
+      connection: line.connection,
+      pipeRange: line.pipeRange,
+      condition: line.condition,
+      status: "Received",
+      joints: String(line.joints || ""),
+      missingBoxProtectors: String(line.missingBoxProtectors || 0),
+      missingPinProtectors: String(line.missingPinProtectors || 0),
+      notes: line.notes,
+    });
+  }
+
+  function makeReceivePipeLineFromForm(form: ReceiveForm, overrides: Partial<ReceivePipeLineItem> = {}) {
+    return makeReceivePipeLineItem({
+      customer: form.customer,
+      afe: form.afe,
+      partNumber: form.partNumber,
+      size: form.size,
+      weight: form.weight,
+      grade: form.grade,
+      connection: form.connection,
+      pipeRange: form.pipeRange,
+      condition: form.condition,
+      status: form.status,
+      joints: form.joints,
+      missingBoxProtectors: form.missingBoxProtectors,
+      missingPinProtectors: form.missingPinProtectors,
+      notes: "",
+      ...overrides,
+    });
+  }
+
+  function receivePipeLineJoints(line: ReceivePipeLineItem) {
+    return Math.max(0, Math.trunc(Number(line.joints || 0)));
+  }
+
+  function receivePipeLineFootage(line: ReceivePipeLineItem) {
+    return calculateRangeFootage(receivePipeLineJoints(line), line.pipeRange);
+  }
+
+  function receiveTruckPipeTotals(line: ReceiveTruckLine) {
+    return line.pipeLines.reduce(
+      (totals, pipeLine) => ({
+        joints: totals.joints + receivePipeLineJoints(pipeLine),
+        footage: totals.footage + receivePipeLineFootage(pipeLine),
+        missingBoxProtectors: totals.missingBoxProtectors + Math.max(0, Math.trunc(Number(pipeLine.missingBoxProtectors || 0))),
+        missingPinProtectors: totals.missingPinProtectors + Math.max(0, Math.trunc(Number(pipeLine.missingPinProtectors || 0))),
+      }),
+      { joints: 0, footage: 0, missingBoxProtectors: 0, missingPinProtectors: 0 }
+    );
+  }
+
   function makeReceiveTruckLine(overrides: Partial<ReceiveTruckLine> = {}): ReceiveTruckLine {
     const nextSequence = overrides.truckSequence ?? receiveTruckLines.length + 1;
+    const pipeLines =
+      overrides.pipeLines && overrides.pipeLines.length > 0
+        ? overrides.pipeLines
+        : [
+            makeReceivePipeLineItem({
+              joints: overrides.joints ?? receiveForm.joints,
+              missingBoxProtectors: overrides.missingBoxProtectors ?? receiveForm.missingBoxProtectors ?? "0",
+              missingPinProtectors: overrides.missingPinProtectors ?? receiveForm.missingPinProtectors ?? "0",
+              notes: overrides.notes ?? "",
+            }),
+          ];
+
     return {
       ...emptyReceiveTruckLine,
       id: overrides.id ?? crypto.randomUUID(),
@@ -2997,6 +3147,7 @@ export default function Home() {
       joints: overrides.joints ?? receiveForm.joints,
       missingBoxProtectors: overrides.missingBoxProtectors ?? receiveForm.missingBoxProtectors ?? "0",
       missingPinProtectors: overrides.missingPinProtectors ?? receiveForm.missingPinProtectors ?? "0",
+      pipeLines,
       pathfinderName: overrides.pathfinderName ?? receiveForm.pathfinderName,
       pathfinderSignature: overrides.pathfinderSignature ?? receiveForm.pathfinderSignature,
       carrierName: overrides.carrierName ?? receiveForm.carrierName,
@@ -3019,6 +3170,7 @@ export default function Home() {
         bolNumber: "",
         arrivalAt: "",
         joints: "",
+        pipeLines: [makeReceivePipeLineItem({ joints: "" })],
         files: [],
         attachments: [],
       }),
@@ -3033,6 +3185,103 @@ export default function Home() {
 
   function removeReceiveTruckLine(id: string) {
     setReceiveTruckLines((current) => current.filter((line) => line.id !== id));
+  }
+
+  function addReceiveTruckPipeLine(truckLineId: string) {
+    setReceiveTruckLines((current) =>
+      current.map((line) => {
+        if (line.id !== truckLineId) return line;
+        const lastLine = line.pipeLines[line.pipeLines.length - 1];
+        return {
+          ...line,
+          pipeLines: [
+            ...line.pipeLines,
+            makeReceivePipeLineItem({
+              ...(lastLine ?? {}),
+              id: crypto.randomUUID(),
+              ticketLineId: undefined,
+              pipeInventoryId: null,
+              joints: "",
+              missingBoxProtectors: "0",
+              missingPinProtectors: "0",
+            }),
+          ],
+        };
+      })
+    );
+  }
+
+  function duplicateReceiveTruckPipeLine(truckLineId: string, pipeLineId: string) {
+    setReceiveTruckLines((current) =>
+      current.map((line) => {
+        if (line.id !== truckLineId) return line;
+        const source = line.pipeLines.find((pipeLine) => pipeLine.id === pipeLineId);
+        if (!source) return line;
+
+        return {
+          ...line,
+          pipeLines: [
+            ...line.pipeLines,
+            {
+              ...source,
+              id: crypto.randomUUID(),
+              ticketLineId: undefined,
+              pipeInventoryId: null,
+            },
+          ],
+        };
+      })
+    );
+  }
+
+  function updateReceiveTruckPipeLine(truckLineId: string, pipeLineId: string, updates: Partial<ReceivePipeLineItem>) {
+    setReceiveTruckLines((current) =>
+      current.map((line) =>
+        line.id === truckLineId
+          ? {
+              ...line,
+              pipeLines: line.pipeLines.map((pipeLine) =>
+                pipeLine.id === pipeLineId ? { ...pipeLine, ...updates } : pipeLine
+              ),
+            }
+          : line
+      )
+    );
+  }
+
+  function removeReceiveTruckPipeLine(truckLineId: string, pipeLineId: string) {
+    setReceiveTruckLines((current) =>
+      current.map((line) =>
+        line.id === truckLineId
+          ? {
+              ...line,
+              pipeLines:
+                line.pipeLines.length <= 1
+                  ? line.pipeLines
+                  : line.pipeLines.filter((pipeLine) => pipeLine.id !== pipeLineId),
+            }
+          : line
+      )
+    );
+  }
+
+  function applyPartToReceivePipeLine(truckLineId: string, pipeLineId: string, partId: string) {
+    const part = partNumbers.find((item) => item.id === partId);
+    if (!part) return;
+
+    const updates: Partial<ReceivePipeLineItem> = {
+      partNumber: part.partNumber,
+      size: part.size,
+      grade: part.grade,
+      connection: part.connection,
+      pipeRange: part.pipeRange,
+    };
+
+    if (part.company !== "Global") {
+      updates.customer = part.company;
+    }
+
+    updateReceiveTruckPipeLine(truckLineId, pipeLineId, updates);
   }
 
   function addReceiveTruckFiles(id: string, files: FileList | null) {
@@ -3082,7 +3331,18 @@ export default function Home() {
     setActiveReceiveTicketId("");
     setActiveReceiveTicketNumber("");
     setReceiveForm(emptyReceiveForm);
-    setReceiveTruckLines([{ ...emptyReceiveTruckLine, id: crypto.randomUUID(), truckSequence: 1, truckLabel: "Truck 1" }]);
+    setReceiveTruckLines([
+      makeReceiveTruckLine({
+        id: crypto.randomUUID(),
+        truckSequence: 1,
+        truckLabel: "Truck 1",
+        carrier: emptyReceiveForm.carrier,
+        poNumber: emptyReceiveForm.poNumber,
+        truckNumber: emptyReceiveForm.truckNumber,
+        joints: "",
+        pipeLines: [makeReceivePipeLineFromForm(emptyReceiveForm, { joints: "" })],
+      }),
+    ]);
     setReceiveFiles([]);
     setReceiveOpen(true);
   }
@@ -3104,6 +3364,7 @@ export default function Home() {
       (left.rig || "") === (right.rig || "") &&
       left.partNumber === right.partNumber &&
       (left.size || "") === (right.size || "") &&
+      (left.weight || "") === (right.weight || "") &&
       (left.grade || "") === (right.grade || "") &&
       (left.connection || "") === (right.connection || "") &&
       left.pipeRange === right.pipeRange &&
@@ -3123,6 +3384,7 @@ export default function Home() {
     rig?: string | null;
     partNumber: string;
     size?: string | null;
+    weight?: string | null;
     grade?: string | null;
     connection?: string | null;
     pipeRange: PipeRange;
@@ -3155,6 +3417,7 @@ export default function Home() {
     query = nullableFilter(query, "operator", options.operator);
     query = nullableFilter(query, "rig", options.rig);
     query = nullableFilter(query, "size", options.size);
+    query = nullableFilter(query, "weight", options.weight);
     query = nullableFilter(query, "grade", options.grade);
     query = nullableFilter(query, "connection", options.connection);
     query = nullableFilter(query, "condition", options.condition);
@@ -3184,6 +3447,7 @@ export default function Home() {
     rig?: string | null;
     partNumber: string;
     size?: string | null;
+    weight?: string | null;
     grade?: string | null;
     connection?: string | null;
     pipeRange: PipeRange;
@@ -3223,6 +3487,7 @@ export default function Home() {
         rig: cleanInventoryValue(options.rig),
         part_number: options.partNumber,
         size: cleanInventoryValue(options.size),
+        weight: cleanInventoryValue(options.weight),
         grade: cleanInventoryValue(options.grade),
         connection: cleanInventoryValue(options.connection),
         pipe_range: options.pipeRange,
@@ -3283,6 +3548,28 @@ export default function Home() {
             const truckLines = ticketLines.filter((line) => line.receivingTicketTruckId === truck.id);
             const truckJoints =
               truckLines.reduce((sum, line) => sum + line.joints, 0) || truck.totalJoints || "";
+            const pipeLines =
+              truckLines.length > 0
+                ? truckLines.map(makeReceivePipeLineFromTicketLine)
+                : [
+                    makeReceivePipeLineItem({
+                      customer: ticket.company,
+                      afe: ticket.afe || firstLine?.afe || "",
+                      partNumber: ticket.partNumber || firstLine?.partNumber || "",
+                      size: ticket.size || firstLine?.size || "",
+                      weight: firstLine?.weight || "",
+                      grade: ticket.grade || firstLine?.grade || "",
+                      connection: ticket.connection || firstLine?.connection || "",
+                      pipeRange: ticket.pipeRange || firstLine?.pipeRange || "Range 2",
+                      condition: ticket.condition || firstLine?.condition || "New",
+                      status: "Received",
+                      joints: String(truckJoints || ""),
+                      missingBoxProtectors: String(truck.missingBoxProtectors || 0),
+                      missingPinProtectors: String(truck.missingPinProtectors || 0),
+                      notes: truck.notes,
+                    }),
+                  ];
+
             return makeReceiveTruckLine({
               id: truck.id,
               ticketTruckId: truck.id,
@@ -3299,6 +3586,7 @@ export default function Home() {
               joints: String(truckJoints || ""),
               missingBoxProtectors: String(truck.missingBoxProtectors),
               missingPinProtectors: String(truck.missingPinProtectors),
+              pipeLines,
               pathfinderName: truck.pathfinderName,
               pathfinderSignature: truck.pathfinderSignature,
               carrierName: truck.carrierName,
@@ -3319,6 +3607,24 @@ export default function Home() {
               joints: "",
               missingBoxProtectors: "0",
               missingPinProtectors: "0",
+              pipeLines: [
+                firstLine
+                  ? makeReceivePipeLineFromTicketLine(firstLine)
+                  : makeReceivePipeLineItem({
+                      customer: ticket.company,
+                      afe: ticket.afe,
+                      partNumber: ticket.partNumber,
+                      size: ticket.size,
+                      grade: ticket.grade,
+                      connection: ticket.connection,
+                      pipeRange: ticket.pipeRange,
+                      condition: ticket.condition,
+                      status: "Received",
+                      joints: "",
+                      missingBoxProtectors: "0",
+                      missingPinProtectors: "0",
+                    }),
+              ],
               notes: ticket.notes,
               attachments: ticketAttachments.filter((attachment) => attachment.receivingTicketId === ticket.id),
             }),
@@ -3336,9 +3642,10 @@ export default function Home() {
       destination: destinationValueFromName(ticket.destination),
       afe: ticket.afe || firstLine?.afe || "",
       partNumber: ticket.partNumber || firstLine?.partNumber || "",
-      size: ticket.size,
-      grade: ticket.grade,
-      connection: ticket.connection,
+      size: ticket.size || firstLine?.size || "",
+      weight: firstLine?.weight || "",
+      grade: ticket.grade || firstLine?.grade || "",
+      connection: ticket.connection || firstLine?.connection || "",
       pipeRange: ticket.pipeRange || firstLine?.pipeRange || "Range 2",
       condition: ticket.condition || firstLine?.condition || "New",
       status: "Received",
@@ -3490,7 +3797,15 @@ export default function Home() {
     setSelectedRows([]);
     setActiveReceiveTicketId("");
     setActiveReceiveTicketNumber("");
-    setReceiveTruckLines([{ ...emptyReceiveTruckLine, id: crypto.randomUUID(), truckSequence: 1, truckLabel: "Truck 1" }]);
+    setReceiveTruckLines([
+      makeReceiveTruckLine({
+        id: crypto.randomUUID(),
+        truckSequence: 1,
+        truckLabel: "Truck 1",
+        joints: "",
+        pipeLines: [makeReceivePipeLineFromForm({ ...emptyReceiveForm, destination: `rack:${label}` }, { joints: "" })],
+      }),
+    ]);
     setReceiveFiles([]);
     setReceiveForm({ ...emptyReceiveForm, destination: `rack:${label}` });
     setRackDetailOpen(false);
@@ -3840,7 +4155,15 @@ export default function Home() {
       ...emptyReceiveForm,
       destination: `zone:${zone.code}`,
     });
-    setReceiveTruckLines([{ ...emptyReceiveTruckLine, id: crypto.randomUUID(), truckSequence: 1, truckLabel: "Truck 1" }]);
+    setReceiveTruckLines([
+      makeReceiveTruckLine({
+        id: crypto.randomUUID(),
+        truckSequence: 1,
+        truckLabel: "Truck 1",
+        joints: "",
+        pipeLines: [makeReceivePipeLineFromForm({ ...emptyReceiveForm, destination: `zone:${zone.code}` }, { joints: "" })],
+      }),
+    ]);
     setReceiveFiles([]);
     setZoneDetailOpen(false);
     setReceiveOpen(true);
@@ -4159,43 +4482,60 @@ export default function Home() {
       return;
     }
 
-    if (!receiveForm.partNumber.trim()) {
-      setMessage("Part number is required.");
-      return;
-    }
-
     const truckLines =
       receiveTruckLines.length > 0
         ? receiveTruckLines
         : [
-            {
-              ...emptyReceiveTruckLine,
+            makeReceiveTruckLine({
               id: "primary",
               carrier: receiveForm.carrier,
               poNumber: receiveForm.poNumber,
               truckNumber: receiveForm.truckNumber,
               truckLabel: "Truck 1",
-              driverName: "",
-              truckUnitNumber: "",
-              trailerNumber: "",
-              bolNumber: "",
-              arrivalAt: "",
               joints: receiveForm.joints,
-              missingBoxProtectors: receiveForm.missingBoxProtectors,
-              missingPinProtectors: receiveForm.missingPinProtectors,
-              pathfinderName: receiveForm.pathfinderName,
-              pathfinderSignature: receiveForm.pathfinderSignature,
-              carrierName: receiveForm.carrierName,
-              carrierSignature: receiveForm.carrierSignature,
+              pipeLines: [makeReceivePipeLineFromForm(receiveForm)],
               notes: receiveForm.notes,
-              files: [],
-              attachments: [],
-            },
+            }),
           ];
 
     const cleanTruckLines = truckLines.map((line, index) => {
-      const joints = Number(line.joints || 0);
-      const pipeRange = receiveForm.pipeRange;
+      const pipeLines = (line.pipeLines.length > 0 ? line.pipeLines : [makeReceivePipeLineFromForm(receiveForm, { joints: line.joints })])
+        .map((pipeLine, lineIndex) => {
+          const joints = Math.trunc(Number(pipeLine.joints || 0));
+          const missingBoxProtectors = Math.trunc(Number(pipeLine.missingBoxProtectors || 0));
+          const missingPinProtectors = Math.trunc(Number(pipeLine.missingPinProtectors || 0));
+          const pipeRange = normalizePipeRange(pipeLine.pipeRange);
+
+          return {
+            ...pipeLine,
+            lineSequence: lineIndex + 1,
+            customer: (pipeLine.customer || receiveForm.customer).trim(),
+            afe: pipeLine.afe.trim(),
+            partNumber: pipeLine.partNumber.trim(),
+            size: pipeLine.size.trim(),
+            weight: pipeLine.weight.trim(),
+            grade: pipeLine.grade.trim(),
+            connection: pipeLine.connection.trim(),
+            pipeRange,
+            condition: (pipeLine.condition || receiveForm.condition || "New").trim(),
+            status: (pipeLine.status || receiveForm.status || "Received").trim(),
+            joints,
+            footage: calculateRangeFootage(joints, pipeRange),
+            missingBoxProtectors,
+            missingPinProtectors,
+            notes: pipeLine.notes.trim(),
+          };
+        });
+
+      const totals = pipeLines.reduce(
+        (sum, pipeLine) => ({
+          joints: sum.joints + pipeLine.joints,
+          footage: sum.footage + pipeLine.footage,
+          missingBoxProtectors: sum.missingBoxProtectors + pipeLine.missingBoxProtectors,
+          missingPinProtectors: sum.missingPinProtectors + pipeLine.missingPinProtectors,
+        }),
+        { joints: 0, footage: 0, missingBoxProtectors: 0, missingPinProtectors: 0 }
+      );
 
       return {
         ...line,
@@ -4208,25 +4548,57 @@ export default function Home() {
         truckUnitNumber: line.truckUnitNumber.trim(),
         trailerNumber: line.trailerNumber.trim(),
         bolNumber: line.bolNumber.trim(),
-        joints,
-        footage: calculateRangeFootage(joints, pipeRange),
-        missingBoxProtectors: Math.max(0, Number(line.missingBoxProtectors || 0)),
-        missingPinProtectors: Math.max(0, Number(line.missingPinProtectors || 0)),
+        joints: totals.joints,
+        footage: totals.footage,
+        missingBoxProtectors: totals.missingBoxProtectors,
+        missingPinProtectors: totals.missingPinProtectors,
+        pipeLines,
         label: `Truck ${index + 1}`,
         arrivalAtIso: dateTimeLocalToIso(line.arrivalAt),
         notes: line.notes.trim(),
       };
     });
 
-    if (cleanTruckLines.some((line) => line.joints <= 0)) {
-      setMessage("Each receiving truck line must have joints before saving.");
-      return;
+    for (const truckLine of cleanTruckLines) {
+      if (truckLine.pipeLines.length === 0) {
+        setMessage(`${truckLine.label} needs at least one pipe line item.`);
+        return;
+      }
+
+      for (const pipeLine of truckLine.pipeLines) {
+        if (!pipeLine.customer) {
+          setMessage(`${truckLine.label}, line ${pipeLine.lineSequence}: customer or owner is required.`);
+          return;
+        }
+
+        if (!pipeLine.partNumber) {
+          setMessage(`${truckLine.label}, line ${pipeLine.lineSequence}: part number is required.`);
+          return;
+        }
+
+        if (pipeLine.joints <= 0) {
+          setMessage(`${truckLine.label}, line ${pipeLine.lineSequence}: enter a positive joint count.`);
+          return;
+        }
+
+        if (pipeLine.joints < 0 || pipeLine.missingBoxProtectors < 0 || pipeLine.missingPinProtectors < 0) {
+          setMessage(`${truckLine.label}, line ${pipeLine.lineSequence}: quantities cannot be negative.`);
+          return;
+        }
+
+        if (pipeLine.missingBoxProtectors > pipeLine.joints || pipeLine.missingPinProtectors > pipeLine.joints) {
+          setMessage(`${truckLine.label}, line ${pipeLine.lineSequence}: missing protector counts cannot exceed the joint count.`);
+          return;
+        }
+      }
     }
 
-    const totalJoints = cleanTruckLines.reduce((sum, line) => sum + line.joints, 0);
-    const totalFootage = cleanTruckLines.reduce((sum, line) => sum + line.footage, 0);
-    const missingBoxProtectors = cleanTruckLines.reduce((sum, line) => sum + line.missingBoxProtectors, 0);
-    const missingPinProtectors = cleanTruckLines.reduce((sum, line) => sum + line.missingPinProtectors, 0);
+    const allPipeLines = cleanTruckLines.flatMap((truckLine) => truckLine.pipeLines);
+    const firstPipeLine = allPipeLines[0];
+    const totalJoints = allPipeLines.reduce((sum, line) => sum + line.joints, 0);
+    const totalFootage = allPipeLines.reduce((sum, line) => sum + line.footage, 0);
+    const missingBoxProtectors = allPipeLines.reduce((sum, line) => sum + line.missingBoxProtectors, 0);
+    const missingPinProtectors = allPipeLines.reduce((sum, line) => sum + line.missingPinProtectors, 0);
     const carrierSummary = Array.from(new Set(cleanTruckLines.map((line) => line.carrier).filter(Boolean))).join(", ");
     const poSummary = Array.from(new Set(cleanTruckLines.map((line) => line.poNumber).filter(Boolean))).join(", ");
     const truckSummary = Array.from(
@@ -4236,11 +4608,36 @@ export default function Home() {
     setSavingReceive(true);
 
     try {
-      const companyId = await findOrCreateCompany(receiveForm.customer);
+      const headerCompanyId = await findOrCreateCompany(receiveForm.customer || firstPipeLine.customer);
       const { rack, zone } = getDestination(receiveForm.destination);
       const destinationName = rack?.label ?? zone?.name ?? receiveForm.destination;
       let receivingTicketId = activeReceiveTicketId;
       let ticketNumber = activeReceiveTicketNumber;
+
+      const ticketPayload = {
+        company_id: headerCompanyId,
+        yard_id: selectedYard.id,
+        carrier: carrierSummary || null,
+        po_number: poSummary || null,
+        truck_number: truckSummary || null,
+        destination: destinationName,
+        missing_box_protectors: missingBoxProtectors,
+        missing_pin_protectors: missingPinProtectors,
+        pathfinder_name: null,
+        pathfinder_signature: null,
+        carrier_name: null,
+        carrier_signature: null,
+        notes: receiveForm.notes || null,
+        afe: firstPipeLine.afe || null,
+        part_number: firstPipeLine.partNumber,
+        size: firstPipeLine.size || null,
+        grade: firstPipeLine.grade || null,
+        connection: firstPipeLine.connection || null,
+        pipe_range: firstPipeLine.pipeRange,
+        condition: firstPipeLine.condition || "New",
+        joints: totalJoints,
+        footage: totalFootage,
+      };
 
       if (activeReceiveTicketId) {
         const { data: existingTicket, error: existingTicketError } = await supabase
@@ -4255,30 +4652,7 @@ export default function Home() {
 
         const { error: updateTicketError } = await supabase
           .from("receiving_tickets")
-          .update({
-            company_id: companyId,
-            yard_id: selectedYard.id,
-            carrier: carrierSummary || null,
-            po_number: poSummary || null,
-            truck_number: truckSummary || null,
-            destination: destinationName,
-            missing_box_protectors: missingBoxProtectors,
-            missing_pin_protectors: missingPinProtectors,
-            pathfinder_name: null,
-            pathfinder_signature: null,
-            carrier_name: null,
-            carrier_signature: null,
-            notes: receiveForm.notes || null,
-            afe: receiveForm.afe || null,
-            part_number: receiveForm.partNumber,
-            size: receiveForm.size || null,
-            grade: receiveForm.grade || null,
-            connection: receiveForm.connection || null,
-            pipe_range: receiveForm.pipeRange,
-            condition: receiveForm.condition || "New",
-            joints: totalJoints,
-            footage: totalFootage,
-          })
+          .update(ticketPayload)
           .eq("id", activeReceiveTicketId);
 
         if (updateTicketError) throw updateTicketError;
@@ -4288,29 +4662,8 @@ export default function Home() {
         const { data: receivingTicket, error: ticketError } = await supabase
           .from("receiving_tickets")
           .insert({
-            company_id: companyId,
-            yard_id: selectedYard.id,
+            ...ticketPayload,
             ticket_number: ticketNumber,
-            carrier: carrierSummary || null,
-            po_number: poSummary || null,
-            truck_number: truckSummary || null,
-            destination: destinationName,
-            missing_box_protectors: missingBoxProtectors,
-            missing_pin_protectors: missingPinProtectors,
-            pathfinder_name: null,
-            pathfinder_signature: null,
-            carrier_name: null,
-            carrier_signature: null,
-            notes: receiveForm.notes || null,
-            afe: receiveForm.afe || null,
-            part_number: receiveForm.partNumber,
-            size: receiveForm.size || null,
-            grade: receiveForm.grade || null,
-            connection: receiveForm.connection || null,
-            pipe_range: receiveForm.pipeRange,
-            condition: receiveForm.condition || "New",
-            joints: totalJoints,
-            footage: totalFootage,
           })
           .select("id")
           .single();
@@ -4322,33 +4675,33 @@ export default function Home() {
 
       if (!receivingTicketId) throw new Error("Receiving ticket id is missing.");
 
-      const createdInventoryIds: string[] = [];
+      const touchedInventoryIds: string[] = [];
 
-      for (const line of cleanTruckLines) {
+      for (const truckLine of cleanTruckLines) {
         const truckPayload = {
           receiving_ticket_id: receivingTicketId,
-          truck_sequence: line.truckSequence,
-          truck_label: `Truck ${line.truckSequence}`,
-          carrier: line.carrier || null,
-          po_number: line.poNumber || null,
-          truck_number: line.truckNumber || null,
-          driver_name: line.driverName || null,
-          truck_unit_number: line.truckUnitNumber || null,
-          trailer_number: line.trailerNumber || null,
-          bol_number: line.bolNumber || null,
-          arrival_at: line.arrivalAtIso,
-          missing_box_protectors: line.missingBoxProtectors,
-          missing_pin_protectors: line.missingPinProtectors,
-          pathfinder_name: line.pathfinderName || null,
-          pathfinder_signature: line.pathfinderSignature || null,
-          carrier_name: line.carrierName || line.driverName || null,
-          carrier_signature: line.carrierSignature || null,
-          notes: line.notes || null,
-          total_joints: line.joints,
-          total_footage: line.footage,
+          truck_sequence: truckLine.truckSequence,
+          truck_label: `Truck ${truckLine.truckSequence}`,
+          carrier: truckLine.carrier || null,
+          po_number: truckLine.poNumber || null,
+          truck_number: truckLine.truckNumber || null,
+          driver_name: truckLine.driverName || null,
+          truck_unit_number: truckLine.truckUnitNumber || null,
+          trailer_number: truckLine.trailerNumber || null,
+          bol_number: truckLine.bolNumber || null,
+          arrival_at: truckLine.arrivalAtIso,
+          missing_box_protectors: truckLine.missingBoxProtectors,
+          missing_pin_protectors: truckLine.missingPinProtectors,
+          pathfinder_name: truckLine.pathfinderName || null,
+          pathfinder_signature: truckLine.pathfinderSignature || null,
+          carrier_name: truckLine.carrierName || truckLine.driverName || null,
+          carrier_signature: truckLine.carrierSignature || null,
+          notes: truckLine.notes || null,
+          total_joints: truckLine.joints,
+          total_footage: truckLine.footage,
         };
 
-        let receivingTicketTruckId = line.ticketTruckId;
+        let receivingTicketTruckId = truckLine.ticketTruckId;
 
         if (receivingTicketTruckId) {
           const { error: truckUpdateError } = await supabase
@@ -4368,99 +4721,114 @@ export default function Home() {
           receivingTicketTruckId = truckData?.id;
         }
 
-        if (!receivingTicketTruckId) throw new Error(`${line.label} was saved but did not return a truck ticket id.`);
+        if (!receivingTicketTruckId) throw new Error(`${truckLine.label} was saved but did not return a truck ticket id.`);
+
         const { data: existingLineData, error: existingLineError } = await supabase
           .from("ticket_line_items")
-          .select("id, pipe_inventory_id, joints, footage")
+          .select("id, pipe_inventory_id, company_id, joints, footage, pipe_range")
           .eq("receiving_ticket_truck_id", receivingTicketTruckId)
-          .order("id", { ascending: true })
-          .limit(1);
+          .order("line_sequence", { ascending: true })
+          .order("id", { ascending: true });
 
         if (existingLineError) throw existingLineError;
 
-        const existingLine = Array.isArray(existingLineData) ? existingLineData[0] : null;
-        let savedInventoryLineId = existingLine?.pipe_inventory_id ?? null;
+        const existingLines = Array.isArray(existingLineData) ? existingLineData : [];
+        const keptLineIds = new Set<string>();
 
-        if (!existingLine?.id) {
-          savedInventoryLineId = await addToInventoryLine({
-            companyId,
-            yardId: selectedYard.id,
-            rackId: rack?.id ?? null,
-            zoneId: zone?.id ?? null,
-            afe: receiveForm.afe,
-            operator: receiveForm.operator,
-            rig: receiveForm.rig,
-            partNumber: receiveForm.partNumber,
-            size: receiveForm.size,
-            grade: receiveForm.grade,
-            connection: receiveForm.connection,
-            pipeRange: receiveForm.pipeRange,
-            condition: receiveForm.condition || "New",
-            status: receiveForm.status || "Received",
-            inspectionDue: receiveForm.inspectionDue || null,
-            joints: line.joints,
-            footage: line.footage,
-          });
+        for (const pipeLine of truckLine.pipeLines) {
+          const lineCompanyId = await findOrCreateCompany(pipeLine.customer);
+          const existingLine =
+            existingLines.find((line) => line.id === pipeLine.ticketLineId) ??
+            existingLines.find((line) => !keptLineIds.has(line.id) && !truckLine.pipeLines.some((item) => item.ticketLineId === line.id));
+          let savedInventoryLineId = pipeLine.pipeInventoryId || existingLine?.pipe_inventory_id || null;
 
-          createdInventoryIds.push(savedInventoryLineId);
+          if (!savedInventoryLineId) {
+            savedInventoryLineId = await addToInventoryLine({
+              companyId: lineCompanyId,
+              yardId: selectedYard.id,
+              rackId: rack?.id ?? null,
+              zoneId: zone?.id ?? null,
+              afe: pipeLine.afe,
+              operator: receiveForm.operator,
+              rig: receiveForm.rig,
+              partNumber: pipeLine.partNumber,
+              size: pipeLine.size,
+              weight: pipeLine.weight,
+              grade: pipeLine.grade,
+              connection: pipeLine.connection,
+              pipeRange: pipeLine.pipeRange,
+              condition: pipeLine.condition || "New",
+              status: pipeLine.status || "Received",
+              inspectionDue: receiveForm.inspectionDue || null,
+              joints: pipeLine.joints,
+              footage: pipeLine.footage,
+            });
 
-          const { error: lineInsertError } = await supabase.from("ticket_line_items").insert({
+            touchedInventoryIds.push(savedInventoryLineId);
+          }
+
+          const linePayload = {
             receiving_ticket_id: receivingTicketId,
             receiving_ticket_truck_id: receivingTicketTruckId,
             pipe_inventory_id: savedInventoryLineId,
-            company_id: companyId,
-            part_number: receiveForm.partNumber,
-            afe: receiveForm.afe || null,
-            size: receiveForm.size || null,
-            grade: receiveForm.grade || null,
-            connection: receiveForm.connection || null,
-            pipe_range: receiveForm.pipeRange,
-            condition: receiveForm.condition || "New",
-            joints: line.joints,
-            footage: line.footage,
-          });
+            company_id: lineCompanyId,
+            part_number: pipeLine.partNumber,
+            afe: pipeLine.afe || null,
+            size: pipeLine.size || null,
+            weight: pipeLine.weight || null,
+            grade: pipeLine.grade || null,
+            connection: pipeLine.connection || null,
+            pipe_range: pipeLine.pipeRange,
+            condition: pipeLine.condition || "New",
+            joints: pipeLine.joints,
+            footage: pipeLine.footage,
+            missing_box_protectors: pipeLine.missingBoxProtectors,
+            missing_pin_protectors: pipeLine.missingPinProtectors,
+            line_sequence: pipeLine.lineSequence,
+            notes: pipeLine.notes || null,
+          };
 
-          if (lineInsertError) throw lineInsertError;
+          if (!existingLine?.id) {
+            const { data: insertedLine, error: lineInsertError } = await supabase
+              .from("ticket_line_items")
+              .insert(linePayload)
+              .select("id")
+              .single();
 
-          const { error: transactionError } = await supabase.from("pipe_transactions").insert({
-            pipe_inventory_id: savedInventoryLineId,
-            company_id: companyId,
-            yard_id: selectedYard.id,
-            transaction_type: "receive",
-            from_location: line.truckNumber || line.truckUnitNumber ? `Truck ${line.truckNumber || line.truckUnitNumber}` : null,
-            to_location: destinationName,
-            quantity_joints: line.joints,
-            quantity_footage: line.footage,
-            comment: line.notes || receiveForm.notes || `Received ${line.label} on ticket ${ticketNumber}`,
-          });
+            if (lineInsertError) throw lineInsertError;
+            if (insertedLine?.id) keptLineIds.add(insertedLine.id);
 
-          if (transactionError) throw transactionError;
-        } else {
+            const { error: transactionError } = await supabase.from("pipe_transactions").insert({
+              pipe_inventory_id: savedInventoryLineId,
+              company_id: lineCompanyId,
+              yard_id: selectedYard.id,
+              transaction_type: "receive",
+              from_location: truckLine.truckNumber || truckLine.truckUnitNumber ? `Truck ${truckLine.truckNumber || truckLine.truckUnitNumber}` : null,
+              to_location: destinationName,
+              quantity_joints: pipeLine.joints,
+              quantity_footage: pipeLine.footage,
+              comment: pipeLine.notes || truckLine.notes || receiveForm.notes || `Received ${truckLine.label} line ${pipeLine.lineSequence} on ticket ${ticketNumber}`,
+            });
+
+            if (transactionError) throw transactionError;
+            continue;
+          }
+
+          keptLineIds.add(existingLine.id);
+
           const { error: lineUpdateError } = await supabase
             .from("ticket_line_items")
-            .update({
-              receiving_ticket_id: receivingTicketId,
-              receiving_ticket_truck_id: receivingTicketTruckId,
-              company_id: companyId,
-              part_number: receiveForm.partNumber,
-              afe: receiveForm.afe || null,
-              size: receiveForm.size || null,
-              grade: receiveForm.grade || null,
-              connection: receiveForm.connection || null,
-              pipe_range: receiveForm.pipeRange,
-              condition: receiveForm.condition || "New",
-              joints: line.joints,
-              footage: line.footage,
-            })
+            .update(linePayload)
             .eq("id", existingLine.id);
 
           if (lineUpdateError) throw lineUpdateError;
 
           if (savedInventoryLineId) {
             const priorJoints = Number(existingLine.joints ?? 0);
-            const priorFootage = Number(existingLine.footage ?? calculateRangeFootage(priorJoints, receiveForm.pipeRange));
-            const jointDelta = line.joints - priorJoints;
-            const footageDelta = line.footage - priorFootage;
+            const priorPipeRange = normalizePipeRange(existingLine.pipe_range);
+            const priorFootage = Number(existingLine.footage ?? calculateRangeFootage(priorJoints, priorPipeRange));
+            const jointDelta = pipeLine.joints - priorJoints;
+            const footageDelta = pipeLine.footage - priorFootage;
             const { data: inventoryLineData, error: inventoryLineError } = await supabase
               .from("pipe_inventory")
               .select("bulk_joints")
@@ -4470,20 +4838,24 @@ export default function Home() {
             if (inventoryLineError) throw inventoryLineError;
 
             const nextInventoryJoints = Math.max(0, Number(inventoryLineData?.bulk_joints ?? 0) + jointDelta);
-            const nextInventoryFootage = calculateRangeFootage(nextInventoryJoints, receiveForm.pipeRange);
+            const nextInventoryFootage = calculateRangeFootage(nextInventoryJoints, pipeLine.pipeRange);
             const { error: inventoryUpdateError } = await supabase
               .from("pipe_inventory")
               .update({
-                afe: cleanInventoryValue(receiveForm.afe),
+                company_id: lineCompanyId,
+                rack_id: rack?.id ?? null,
+                workflow_zone_id: zone?.id ?? null,
+                afe: cleanInventoryValue(pipeLine.afe),
                 operator: cleanInventoryValue(receiveForm.operator),
                 rig: cleanInventoryValue(receiveForm.rig),
-                part_number: receiveForm.partNumber,
-                size: cleanInventoryValue(receiveForm.size),
-                grade: cleanInventoryValue(receiveForm.grade),
-                connection: cleanInventoryValue(receiveForm.connection),
-                pipe_range: receiveForm.pipeRange,
-                condition: cleanInventoryValue(receiveForm.condition),
-                status: cleanInventoryValue(receiveForm.status),
+                part_number: pipeLine.partNumber,
+                size: cleanInventoryValue(pipeLine.size),
+                weight: cleanInventoryValue(pipeLine.weight),
+                grade: cleanInventoryValue(pipeLine.grade),
+                connection: cleanInventoryValue(pipeLine.connection),
+                pipe_range: pipeLine.pipeRange,
+                condition: cleanInventoryValue(pipeLine.condition),
+                status: cleanInventoryValue(pipeLine.status),
                 inspection_due_date: receiveForm.inspectionDue || null,
                 bulk_joints: nextInventoryJoints,
                 bulk_footage: nextInventoryFootage,
@@ -4496,14 +4868,14 @@ export default function Home() {
             if (jointDelta !== 0 || footageDelta !== 0) {
               const { error: transactionError } = await supabase.from("pipe_transactions").insert({
                 pipe_inventory_id: savedInventoryLineId,
-                company_id: companyId,
+                company_id: lineCompanyId,
                 yard_id: selectedYard.id,
                 transaction_type: "adjust",
-                from_location: line.truckNumber || line.truckUnitNumber ? `Truck ${line.truckNumber || line.truckUnitNumber}` : null,
+                from_location: truckLine.truckNumber || truckLine.truckUnitNumber ? `Truck ${truckLine.truckNumber || truckLine.truckUnitNumber}` : null,
                 to_location: destinationName,
                 quantity_joints: jointDelta,
                 quantity_footage: footageDelta,
-                comment: `Adjusted ${line.label} on receiving ticket ${ticketNumber}`,
+                comment: `Adjusted ${truckLine.label} line ${pipeLine.lineSequence} on receiving ticket ${ticketNumber}`,
               });
 
               if (transactionError) throw transactionError;
@@ -4511,21 +4883,73 @@ export default function Home() {
           }
         }
 
+        for (const removedLine of existingLines.filter((line) => !keptLineIds.has(line.id))) {
+          const removedInventoryId = removedLine.pipe_inventory_id;
+          const removedCompanyId = removedLine.company_id ?? headerCompanyId;
+          const removedJoints = Number(removedLine.joints ?? 0);
+          const removedPipeRange = normalizePipeRange(removedLine.pipe_range);
+          const removedFootage = Number(removedLine.footage ?? calculateRangeFootage(removedJoints, removedPipeRange));
+
+          if (removedInventoryId) {
+            const { data: inventoryLineData, error: inventoryLineError } = await supabase
+              .from("pipe_inventory")
+              .select("bulk_joints, bulk_footage")
+              .eq("id", removedInventoryId)
+              .single();
+
+            if (inventoryLineError) throw inventoryLineError;
+
+            const nextInventoryJoints = Math.max(0, Number(inventoryLineData?.bulk_joints ?? 0) - removedJoints);
+            const nextInventoryFootage = Math.max(0, Number(inventoryLineData?.bulk_footage ?? 0) - removedFootage);
+            const { error: inventoryUpdateError } = await supabase
+              .from("pipe_inventory")
+              .update({
+                bulk_joints: nextInventoryJoints,
+                bulk_footage: nextInventoryFootage,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", removedInventoryId);
+
+            if (inventoryUpdateError) throw inventoryUpdateError;
+
+            const { error: transactionError } = await supabase.from("pipe_transactions").insert({
+              pipe_inventory_id: removedInventoryId,
+              company_id: removedCompanyId,
+              yard_id: selectedYard.id,
+              transaction_type: "adjust",
+              from_location: destinationName,
+              to_location: "Removed from receiving ticket",
+              quantity_joints: -removedJoints,
+              quantity_footage: -removedFootage,
+              comment: `Removed line from receiving ticket ${ticketNumber}`,
+            });
+
+            if (transactionError) throw transactionError;
+          }
+
+          const { error: deleteLineError } = await supabase
+            .from("ticket_line_items")
+            .delete()
+            .eq("id", removedLine.id);
+
+          if (deleteLineError) throw deleteLineError;
+        }
+
         await saveTicketAttachments({
-          files: line.files,
-          companyId,
-          inventoryId: savedInventoryLineId,
+          files: truckLine.files,
+          companyId: headerCompanyId,
+          inventoryId: touchedInventoryIds[0],
           receivingTicketId,
           receivingTicketTruckId,
-          ticketNumber: `${ticketNumber}/${line.label.replace(/\s+/g, "-")}`,
+          ticketNumber: `${ticketNumber}/${truckLine.label.replace(/\s+/g, "-")}`,
           folder: "receiving",
         });
       }
 
       await saveTicketAttachments({
         files: receiveFiles,
-        companyId,
-        inventoryId: createdInventoryIds[0],
+        companyId: headerCompanyId,
+        inventoryId: touchedInventoryIds[0],
         receivingTicketId,
         ticketNumber,
         folder: "receiving",
@@ -4540,7 +4964,7 @@ export default function Home() {
       setReceiveForm(emptyReceiveForm);
       setReceiveTruckLines([]);
       setReceiveFiles([]);
-      setMessage(`${activeReceiveTicketId ? "Receiving ticket updated" : "Receiving saved"}. Ticket ${ticketNumber} with ${cleanTruckLines.length} truck ticket(s).`);
+      setMessage(`${activeReceiveTicketId ? "Receiving ticket updated" : "Receiving saved"}. Ticket ${ticketNumber} with ${cleanTruckLines.length} truck ticket(s) and ${allPipeLines.length} pipe line item(s).`);
     } catch (error: any) {
       setMessage(`Receive failed: ${error.message}`);
     } finally {
@@ -4592,6 +5016,7 @@ export default function Home() {
         rig: receiveForm.rig,
         partNumber: receiveForm.partNumber,
         size: receiveForm.size,
+        weight: receiveForm.weight,
         grade: receiveForm.grade,
         connection: receiveForm.connection,
         pipeRange: receiveForm.pipeRange,
@@ -6182,6 +6607,7 @@ export default function Home() {
 
               <label className="full">Part Number<input value={receiveForm.partNumber} onChange={(event) => setReceiveForm({ ...receiveForm, partNumber: event.target.value })} placeholder="5.000 DRILL PIPE NC50 19.50 LB" /></label>
               <label>Size<input value={receiveForm.size} onChange={(event) => setReceiveForm({ ...receiveForm, size: event.target.value })} /></label>
+              <label>Weight<input value={receiveForm.weight} onChange={(event) => setReceiveForm({ ...receiveForm, weight: event.target.value })} placeholder="19.50 LB" /></label>
               <label>Grade<input value={receiveForm.grade} onChange={(event) => setReceiveForm({ ...receiveForm, grade: event.target.value })} /></label>
               <label>Connection<input value={receiveForm.connection} onChange={(event) => setReceiveForm({ ...receiveForm, connection: event.target.value })} placeholder="PH6, NC50, 8rd EUE" /></label>
 
@@ -6254,43 +6680,6 @@ export default function Home() {
               <label>Operator<input value={receiveForm.operator} onChange={(event) => setReceiveForm({ ...receiveForm, operator: event.target.value })} placeholder="Exxon Mobile" /></label>
               <label>Rig<input value={receiveForm.rig} onChange={(event) => setReceiveForm({ ...receiveForm, rig: event.target.value })} placeholder="Ensign T125" /></label>
 
-              <label>TU#<input value={receiveForm.afe} onChange={(event) => setReceiveForm({ ...receiveForm, afe: event.target.value })} /></label>
-              <label>
-                Saved Part
-                <select value="" onChange={(event) => applyPartToReceive(event.target.value)}>
-                  <option value="">Choose saved part...</option>
-                  {partNumbers.map((part) => (
-                    <option key={part.id} value={part.id}>
-                      {partOptionLabel(part)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="full">Part Number<input value={receiveForm.partNumber} onChange={(event) => setReceiveForm({ ...receiveForm, partNumber: event.target.value })} placeholder="2 3/8 J55 8rd EUE" /></label>
-              <label>Size<input value={receiveForm.size} onChange={(event) => setReceiveForm({ ...receiveForm, size: event.target.value })} /></label>
-              <label>Grade<input value={receiveForm.grade} onChange={(event) => setReceiveForm({ ...receiveForm, grade: event.target.value })} /></label>
-              <label>Connection<input value={receiveForm.connection} onChange={(event) => setReceiveForm({ ...receiveForm, connection: event.target.value })} placeholder="PH6, NC50, 8rd EUE" /></label>
-              <label>
-                Range
-                <select value={receiveForm.pipeRange} onChange={(event) => setReceiveForm({ ...receiveForm, pipeRange: normalizePipeRange(event.target.value) })}>
-                  {pipeRangeOptions.map((option) => <option key={option}>{option}</option>)}
-                </select>
-              </label>
-
-              <label>
-                Condition
-                <select value={receiveForm.condition} onChange={(event) => setReceiveForm({ ...receiveForm, condition: event.target.value })}>
-                  {conditionOptions.map((option) => <option key={option}>{option}</option>)}
-                </select>
-              </label>
-
-              <label>
-                Status
-                <select value={receiveForm.status} onChange={(event) => setReceiveForm({ ...receiveForm, status: event.target.value })}>
-                  {statusOptions.map((option) => <option key={option}>{option}</option>)}
-                </select>
-              </label>
-
               <section className="ticket-card full">
                 <div className="section-heading compact-heading">
                   <div>
@@ -6304,7 +6693,7 @@ export default function Home() {
                 ) : (
                   <div className="receiving-truck-stack">
                     {receiveTruckLines.map((line, index) => {
-                      const lineJoints = Number(line.joints || 0);
+                      const truckTotals = receiveTruckPipeTotals(line);
                       const truckFiles = line.files;
 
                       return (
@@ -6312,7 +6701,7 @@ export default function Home() {
                           <div className="receiving-truck-header">
                             <div>
                               <h4>Truck {index + 1} of {receiveTruckLines.length}</h4>
-                              <span>{line.ticketTruckId ? "Saved truck ticket" : "New truck ticket"}</span>
+                              <span>{truckTotals.joints.toLocaleString()} joints / {truckTotals.footage.toLocaleString()} ft</span>
                             </div>
                             {receiveTruckLines.length > 1 && (
                               <button type="button" className="button danger-button" onClick={() => removeReceiveTruckLine(line.id)}>
@@ -6330,10 +6719,95 @@ export default function Home() {
                             <label>Trailer<input value={line.trailerNumber} onChange={(event) => updateReceiveTruckLine(line.id, { trailerNumber: event.target.value })} /></label>
                             <label>BOL Number<input value={line.bolNumber} onChange={(event) => updateReceiveTruckLine(line.id, { bolNumber: event.target.value })} /></label>
                             <label>Arrival<input type="datetime-local" value={line.arrivalAt} onChange={(event) => updateReceiveTruckLine(line.id, { arrivalAt: event.target.value })} /></label>
-                            <label>Joints<input type="number" min="0" value={line.joints} onChange={(event) => updateReceiveTruckLine(line.id, { joints: event.target.value })} /></label>
-                            <label>Calculated Footage<input readOnly value={calculateRangeFootage(lineJoints, receiveForm.pipeRange).toLocaleString()} /></label>
-                            <label>Missing Box Protectors<input type="number" min="0" value={line.missingBoxProtectors} onChange={(event) => updateReceiveTruckLine(line.id, { missingBoxProtectors: event.target.value })} /></label>
-                            <label>Missing Pin Protectors<input type="number" min="0" value={line.missingPinProtectors} onChange={(event) => updateReceiveTruckLine(line.id, { missingPinProtectors: event.target.value })} /></label>
+                            <div className="full pipe-line-items-panel">
+                              <div className="pipe-line-items-heading">
+                                <div>
+                                  <strong>Pipe Line Items</strong>
+                                  <span>{line.pipeLines.length} line(s) / {truckTotals.joints.toLocaleString()} truck joints</span>
+                                </div>
+                                <button type="button" className="button" onClick={() => addReceiveTruckPipeLine(line.id)}>
+                                  Add Pipe Line Item
+                                </button>
+                              </div>
+                              <div className="pipe-line-items-stack">
+                                {line.pipeLines.map((pipeLine, pipeLineIndex) => {
+                                  const pipeJoints = receivePipeLineJoints(pipeLine);
+                                  const pipeFootage = receivePipeLineFootage(pipeLine);
+
+                                  return (
+                                    <article key={pipeLine.id} className="pipe-line-item-card">
+                                      <div className="pipe-line-item-header">
+                                        <strong>Line {pipeLineIndex + 1}</strong>
+                                        <span>{pipeJoints.toLocaleString()} joints / {pipeFootage.toLocaleString()} ft</span>
+                                      </div>
+                                      <div className="form-grid nested-form-grid pipe-line-item-grid">
+                                        <label>
+                                          Customer / Owner
+                                          <input
+                                            list="customer-name-options"
+                                            value={pipeLine.customer}
+                                            onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { customer: event.target.value })}
+                                          />
+                                        </label>
+                                        <label>
+                                          Saved Part
+                                          <select value="" onChange={(event) => applyPartToReceivePipeLine(line.id, pipeLine.id, event.target.value)}>
+                                            <option value="">Choose saved part...</option>
+                                            {partNumbers.map((part) => (
+                                              <option key={part.id} value={part.id}>
+                                                {partOptionLabel(part)}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <label>TU#<input value={pipeLine.afe} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { afe: event.target.value })} /></label>
+                                        <label>Part Number<input value={pipeLine.partNumber} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { partNumber: event.target.value })} /></label>
+                                        <label>Pipe Size<input value={pipeLine.size} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { size: event.target.value })} /></label>
+                                        <label>Weight<input value={pipeLine.weight} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { weight: event.target.value })} placeholder="19.50 LB" /></label>
+                                        <label>Grade<input value={pipeLine.grade} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { grade: event.target.value })} /></label>
+                                        <label>Connection<input value={pipeLine.connection} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { connection: event.target.value })} /></label>
+                                        <label>
+                                          Range
+                                          <select value={pipeLine.pipeRange} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { pipeRange: normalizePipeRange(event.target.value) })}>
+                                            {pipeRangeOptions.map((option) => <option key={option}>{option}</option>)}
+                                          </select>
+                                        </label>
+                                        <label>
+                                          Condition
+                                          <select value={pipeLine.condition} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { condition: event.target.value })}>
+                                            {conditionOptions.map((option) => <option key={option}>{option}</option>)}
+                                          </select>
+                                        </label>
+                                        <label>
+                                          Status
+                                          <select value={pipeLine.status} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { status: event.target.value })}>
+                                            {statusOptions.map((option) => <option key={option}>{option}</option>)}
+                                          </select>
+                                        </label>
+                                        <label>Joints<input type="number" min="0" value={pipeLine.joints} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { joints: event.target.value })} /></label>
+                                        <label>Calculated Footage<input readOnly value={pipeFootage.toLocaleString()} /></label>
+                                        <label>Missing Box Protectors<input type="number" min="0" value={pipeLine.missingBoxProtectors} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { missingBoxProtectors: event.target.value })} /></label>
+                                        <label>Missing Pin Protectors<input type="number" min="0" value={pipeLine.missingPinProtectors} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { missingPinProtectors: event.target.value })} /></label>
+                                        <label className="full">Line Notes<textarea value={pipeLine.notes} onChange={(event) => updateReceiveTruckPipeLine(line.id, pipeLine.id, { notes: event.target.value })} /></label>
+                                      </div>
+                                      <div className="pipe-line-item-actions">
+                                        <button type="button" className="button" onClick={() => duplicateReceiveTruckPipeLine(line.id, pipeLine.id)}>
+                                          Duplicate
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="button danger-button"
+                                          onClick={() => removeReceiveTruckPipeLine(line.id, pipeLine.id)}
+                                          disabled={line.pipeLines.length <= 1}
+                                        >
+                                          Remove Line
+                                        </button>
+                                      </div>
+                                    </article>
+                                  );
+                                })}
+                              </div>
+                            </div>
                             <label>
                               Snap BOL / Photo
                               <input

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 
@@ -70,7 +70,9 @@ function display(value: unknown) {
   return String(value);
 }
 
-function mapRow(row: any): Summary {
+type SummaryRow = Record<string, unknown>;
+
+function mapRow(row: SummaryRow): Summary {
   return {
     id: text(row.id),
     summaryNumber: text(row.summary_number),
@@ -146,11 +148,7 @@ export default function DtiDailySummaryPrintPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [message, setMessage] = useState("Loading daily summary...");
 
-  useEffect(() => {
-    loadSummary();
-  }, []);
-
-  async function loadSummary() {
+  const loadSummary = useCallback(async () => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("id");
 
@@ -172,7 +170,15 @@ export default function DtiDailySummaryPrintPage() {
 
     setSummary(mapRow(data));
     setMessage("");
-  }
+  }, []);
+
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => {
+      void loadSummary();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
+  }, [loadSummary]);
 
   function goBack() {
     goBackOrFallback("/dti-summary");
