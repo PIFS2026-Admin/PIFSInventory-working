@@ -89,28 +89,28 @@ function mapRow(row: SummaryRow): Summary {
     totalDamages: count(row.total_damages),
     damageSeatBox: count(row.damage_seat_box),
     damageSeatPin: count(row.damage_seat_pin),
-  damageThreadsBox: count(row.damage_threads_box),
-  damageThreadsPin: count(row.damage_threads_pin),
-  shortBox: count(row.short_box),
-  damagedHardbandBox: count(row.damaged_hardband_box ?? row.short_box),
-  damagedHardbandPin: count(row.damaged_hardband_pin),
-  bentTube: count(row.bent_tube),
-  damageOther: text(row.damage_other),
-  damageOtherDescription: text(row.damage_other_description ?? row.damage_other),
-  damageOtherQuantity: count(row.damage_other_quantity),
-  damageNotes: text(row.damage_notes),
+    damageThreadsBox: count(row.damage_threads_box),
+    damageThreadsPin: count(row.damage_threads_pin),
+    shortBox: count(row.short_box),
+    damagedHardbandBox: count(row.damaged_hardband_box ?? row.short_box),
+    damagedHardbandPin: count(row.damaged_hardband_pin),
+    bentTube: count(row.bent_tube),
+    damageOther: text(row.damage_other),
+    damageOtherDescription: text(row.damage_other_description ?? row.damage_other),
+    damageOtherQuantity: count(row.damage_other_quantity),
+    damageNotes: text(row.damage_notes),
     totalDbr: count(row.total_dbr),
     minTongBox: count(row.min_tong_box),
     minTongPin: count(row.min_tong_pin),
     tstrBox: count(row.tstr_box),
     tstrPin: count(row.tstr_pin),
     emi: count(row.emi),
-  damagedTube: count(row.damaged_tube),
-  minWall: count(row.min_wall),
-  dbrOther: text(row.dbr_other),
-  dbrOtherDescription: text(row.dbr_other_description ?? row.dbr_other),
-  dbrOtherQuantity: count(row.dbr_other_quantity),
-  dbrNotes: text(row.dbr_notes),
+    damagedTube: count(row.damaged_tube),
+    minWall: count(row.min_wall),
+    dbrOther: text(row.dbr_other),
+    dbrOtherDescription: text(row.dbr_other_description ?? row.dbr_other),
+    dbrOtherQuantity: count(row.dbr_other_quantity),
+    dbrNotes: text(row.dbr_notes),
     totalRefaces: count(row.total_refaces),
     refacePin: count(row.reface_pin),
     refaceBox: count(row.reface_box),
@@ -186,14 +186,14 @@ export default function DtiDailySummaryPrintPage() {
 
   if (!summary) {
     return (
-      <main className="print-page summary-print-shell">
+      <main className="print-page summary-print-shell dti-summary-print-page">
         <section className="inspection-summary-sheet">{message}</section>
       </main>
     );
   }
 
   return (
-    <main className="print-page summary-print-shell">
+    <main className="print-page summary-print-shell dti-summary-print-page">
       <div className="print-actions no-print">
         <button className="button" onClick={goBack}>Back</button>
         <button className="button primary" onClick={() => window.print()}>Print / Save PDF</button>
