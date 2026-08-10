@@ -770,6 +770,7 @@ export default function EquipmentRepairsPage() {
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState("");
   const [workOrderForm, setWorkOrderForm] = useState<WorkOrderForm>(emptyWorkOrderForm);
   const [partForm, setPartForm] = useState<PartForm>(emptyPartForm);
+  const [partPriceDrafts, setPartPriceDrafts] = useState<Record<string, string>>({});
   const [laborForm, setLaborForm] = useState<LaborForm>(emptyLaborForm);
   const [search, setSearch] = useState("");
   const [equipmentLookup, setEquipmentLookup] = useState("");
@@ -1433,6 +1434,47 @@ export default function EquipmentRepairsPage() {
     setPartLookup("");
     await loadWorkOrders(selectedYardId);
     setMessage(item ? "Part added. Post it when the part is actually used." : "Manual part added to this work order.");
+    setSaving(false);
+  }
+
+  async function updatePartUnitPrice(part: WorkOrderPart) {
+    if (!canManageWorkOrders) return;
+
+    const unitCost = numberValue(partPriceDrafts[part.id] ?? part.unitCost);
+    if (unitCost < 0) {
+      setMessage("Unit price cannot be negative.");
+      return;
+    }
+
+    const lineTotal = part.quantityUsed * unitCost;
+    setSaving(true);
+    setMessage("");
+    const { error } = await supabase
+      .from("equipment_repair_work_order_parts")
+      .update({ unit_cost: unitCost, line_total: lineTotal })
+      .eq("id", part.id);
+
+    if (error) {
+      setMessage(`Unit price update failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+
+    await writeAudit(part.workOrderId, "update_part_unit_price", {
+      part_id: part.id,
+      item_code: part.itemCode || null,
+      item_name: part.itemName,
+      previous_unit_cost: part.unitCost,
+      unit_cost: unitCost,
+      line_total: lineTotal,
+    }).catch(() => undefined);
+    setPartPriceDrafts((current) => {
+      const next = { ...current };
+      delete next[part.id];
+      return next;
+    });
+    await loadWorkOrders(selectedYardId);
+    setMessage(`${part.itemName} unit price updated to ${money(unitCost)}.`);
     setSaving(false);
   }
 
@@ -2584,7 +2626,7 @@ export default function EquipmentRepairsPage() {
                   <tr>
                     <th>Part</th>
                     <th>Qty</th>
-                    <th>Unit</th>
+                    <th>Unit Price</th>
                     <th>Total</th>
                     <th>Inventory</th>
                   </tr>
@@ -2597,7 +2639,31 @@ export default function EquipmentRepairsPage() {
                         <span>{part.itemName}</span>
                       </td>
                       <td>{decimal(part.quantityUsed)}</td>
-                      <td>{money(part.unitCost)}</td>
+                      <td>
+                        <div className="repair-price-editor">
+                          <span aria-hidden="true">$</span>
+                          <input
+                            aria-label={`Unit price for ${part.itemName}`}
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={partPriceDrafts[part.id] ?? String(part.unitCost)}
+                            onChange={(event) =>
+                              setPartPriceDrafts((current) => ({ ...current, [part.id]: event.target.value }))
+                            }
+                            disabled={!canManageWorkOrders}
+                          />
+                          <button
+                            className="ci-btn mini"
+                            type="button"
+                            onClick={() => updatePartUnitPrice(part)}
+                            disabled={saving || !canManageWorkOrders}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </td>
                       <td>{money(part.lineTotal)}</td>
                       <td>
                         {part.postedToInventory ? (

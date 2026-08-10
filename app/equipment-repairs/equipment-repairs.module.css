@@ -1130,6 +1130,38 @@
   color: var(--muted);
 }
 
+.scope :global(.repair-price-editor) {
+  display: grid;
+  grid-template-columns: auto minmax(74px, 100px) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.scope :global(.repair-price-editor > span) {
+  display: inline;
+  margin: 0;
+  color: #fed7aa;
+  font-weight: 900;
+}
+
+.scope :global(.repair-price-editor input) {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  background: #0b0f15;
+  color: #f8fafc;
+  font: inherit;
+}
+
+.scope :global(.repair-price-editor input:focus) {
+  border-color: #f97316;
+  outline: 2px solid rgba(249, 115, 22, 0.18);
+  outline-offset: 1px;
+}
+
 .scope :global(.repair-warning) {
   border-color: rgba(249, 115, 22, 0.55);
   background: rgba(124, 45, 18, 0.2);
