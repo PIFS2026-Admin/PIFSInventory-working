@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, type CSSProperties, type DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
+import { serviceLineOptions } from "../../lib/serviceLines";
 import { supabase } from "../../lib/supabase";
 import { mondayAutomationBoards, mondayCrmBoards, mondayCrmTotals, type MondayCrmBoard } from "./mondayExportBlueprint";
 import styles from "./crm.module.css";
@@ -230,6 +231,22 @@ type EditingCrmCell = {
   value: string;
 } | null;
 
+type NewCrmJobForm = {
+  title: string;
+  groupName: string;
+  contact: string;
+  operator: string;
+  rig: string;
+  jobDateTime: string;
+  state: string;
+  county: string;
+  salesperson: string;
+  serviceLine: string;
+  jobType: string;
+  lead: string;
+  description: string;
+};
+
 type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
 type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
 type CsvImportEntity = "account" | "contact" | "opportunity" | "activity" | "task";
@@ -258,6 +275,22 @@ type CsvImportResponse = {
     warnings: number;
   };
   error?: string;
+};
+
+const emptyNewJobForm: NewCrmJobForm = {
+  title: "",
+  groupName: "Requested",
+  contact: "",
+  operator: "",
+  rig: "",
+  jobDateTime: "",
+  state: "",
+  county: "",
+  salesperson: "",
+  serviceLine: "DTI",
+  jobType: "",
+  lead: "",
+  description: "",
 };
 
 type FullMondayImportResponse = {
@@ -943,6 +976,8 @@ export default function CrmPage() {
   const [dropGroupName, setDropGroupName] = useState("");
   const [boardActionMessage, setBoardActionMessage] = useState("");
   const [boardActionError, setBoardActionError] = useState("");
+  const [newJobForm, setNewJobForm] = useState<NewCrmJobForm | null>(null);
+  const [creatingJob, setCreatingJob] = useState(false);
 
   const boards = useMemo(() => result?.boards ?? [], [result?.boards]);
   const previewRecords = useMemo(() => buildPreviewRecords(boards, boardMappings), [boards, boardMappings]);
@@ -1073,6 +1108,62 @@ export default function CrmPage() {
     }
 
     return true;
+  }
+
+  function openNewJobForm(groupName = "Requested") {
+    setBoardActionError("");
+    setBoardActionMessage("");
+    setNewJobForm({ ...emptyNewJobForm, groupName });
+  }
+
+  function updateNewJobField<K extends keyof NewCrmJobForm>(field: K, value: NewCrmJobForm[K]) {
+    setNewJobForm((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  async function createNewJob() {
+    if (!newJobForm || creatingJob) return;
+    const title = cleanText(newJobForm.title);
+    if (!title) {
+      setBoardActionError("Enter a job name before creating the job.");
+      return;
+    }
+
+    setCreatingJob(true);
+    setBoardActionError("");
+    setBoardActionMessage(`Creating ${title}...`);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        window.location.assign("/login");
+        return;
+      }
+
+      const response = await fetch("/api/crm/board-cell", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newJobForm),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "TITAN could not create this job.");
+
+      setCollapsedGroups((current) => ({
+        ...current,
+        [groupCollapseKey("job-schedule", newJobForm.groupName)]: false,
+      }));
+      setNewJobForm(null);
+      await loadCrmReview();
+      setBoardActionMessage(`${title} was created in ${newJobForm.groupName}.`);
+    } catch (error) {
+      setBoardActionError(error instanceof Error ? error.message : "TITAN could not create this job.");
+      setBoardActionMessage("");
+    } finally {
+      setCreatingJob(false);
+    }
   }
 
   function beginRecordDrag(event: DragEvent<HTMLElement>, record: CrmReviewRecord) {
@@ -2014,7 +2105,15 @@ export default function CrmPage() {
           </div>
 
           <div className={styles.mondayCommandBar}>
-            <button className={styles.mondayNewButton} type="button">{boardActionLabel(activeBoard)}</button>
+            <button
+              className={styles.mondayNewButton}
+              type="button"
+              onClick={() => {
+                if (activeBoard.key === "job-schedule") openNewJobForm();
+              }}
+            >
+              {boardActionLabel(activeBoard)}
+            </button>
             <label className={styles.mondayInlineSearch}>
               <span>Search</span>
               <input
@@ -2154,7 +2253,12 @@ export default function CrmPage() {
                               <td className={styles.mondayAddColumn}></td>
                             </tr>
                           ))}
-                          <tr className={styles.mondayAddRow}>
+                          <tr
+                            className={styles.mondayAddRow}
+                            onClick={() => {
+                              if (activeBoard.key === "job-schedule") openNewJobForm(group.name);
+                            }}
+                          >
                             <td className={styles.mondaySelectColumn}></td>
                             <td colSpan={activeBoard.columns.length + 1}>+ Add {activeBoard.key === "job-schedule" ? "job" : "item"}</td>
                           </tr>
@@ -2164,6 +2268,90 @@ export default function CrmPage() {
                   </section>
                 );
               })}
+            </div>
+          )}
+
+          {newJobForm && (
+            <div className={styles.crmAttachmentBackdrop} role="presentation" onClick={() => !creatingJob && setNewJobForm(null)}>
+              <form
+                className={styles.crmNewJobDialog}
+                aria-label="Create new CRM job"
+                onClick={(event) => event.stopPropagation()}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  createNewJob();
+                }}
+              >
+                <header>
+                  <div>
+                    <span className={styles.eyebrow}>Job Schedule</span>
+                    <h2>Create New Job</h2>
+                  </div>
+                  <button type="button" aria-label="Close new job form" onClick={() => setNewJobForm(null)} disabled={creatingJob}>x</button>
+                </header>
+                <div className={styles.crmNewJobBody}>
+                  <label className={`${styles.field} ${styles.crmNewJobWide}`}>
+                    <span>Job</span>
+                    <input autoFocus required value={newJobForm.title} onChange={(event) => updateNewJobField("title", event.target.value)} placeholder="Customer, rig, or job name" />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Board Section</span>
+                    <select value={newJobForm.groupName} onChange={(event) => updateNewJobField("groupName", event.target.value)}>
+                      {mondayCrmBoards[0].groups.map((group) => <option key={group.name} value={group.name}>{group.name}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span>Service Line</span>
+                    <select value={newJobForm.serviceLine} onChange={(event) => updateNewJobField("serviceLine", event.target.value)}>
+                      {serviceLineOptions.map((serviceLine) => <option key={serviceLine} value={serviceLine}>{serviceLine}</option>)}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span>Operator</span>
+                    <input value={newJobForm.operator} onChange={(event) => updateNewJobField("operator", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Rig</span>
+                    <input value={newJobForm.rig} onChange={(event) => updateNewJobField("rig", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Contact</span>
+                    <input value={newJobForm.contact} onChange={(event) => updateNewJobField("contact", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Job Date / Time</span>
+                    <input type="datetime-local" value={newJobForm.jobDateTime} onChange={(event) => updateNewJobField("jobDateTime", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Job Type</span>
+                    <input value={newJobForm.jobType} onChange={(event) => updateNewJobField("jobType", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Lead</span>
+                    <input value={newJobForm.lead} onChange={(event) => updateNewJobField("lead", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Salesperson</span>
+                    <input value={newJobForm.salesperson} onChange={(event) => updateNewJobField("salesperson", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>State</span>
+                    <input value={newJobForm.state} onChange={(event) => updateNewJobField("state", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>County</span>
+                    <input value={newJobForm.county} onChange={(event) => updateNewJobField("county", event.target.value)} />
+                  </label>
+                  <label className={`${styles.field} ${styles.crmNewJobWide}`}>
+                    <span>Job Description</span>
+                    <textarea value={newJobForm.description} onChange={(event) => updateNewJobField("description", event.target.value)} />
+                  </label>
+                </div>
+                <footer className={styles.crmNewJobFooter}>
+                  <button className="button" type="button" onClick={() => setNewJobForm(null)} disabled={creatingJob}>Cancel</button>
+                  <button className="button primary" type="submit" disabled={creatingJob}>{creatingJob ? "Creating..." : "Create Job"}</button>
+                </footer>
+              </form>
             </div>
           )}
 

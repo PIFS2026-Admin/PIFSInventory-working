@@ -28,6 +28,22 @@ type BoardCellBody = {
   source?: unknown;
 };
 
+type CreateJobBody = {
+  title?: unknown;
+  groupName?: unknown;
+  contact?: unknown;
+  operator?: unknown;
+  rig?: unknown;
+  jobDateTime?: unknown;
+  state?: unknown;
+  county?: unknown;
+  salesperson?: unknown;
+  serviceLine?: unknown;
+  jobType?: unknown;
+  lead?: unknown;
+  description?: unknown;
+};
+
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 const crmBoardFilesBucket = "crm-board-files";
 
@@ -249,6 +265,40 @@ async function parseBoardCellBody(request: Request) {
   return { body, file };
 }
 
+function newJobMetadata(body: CreateJobBody, externalId: string) {
+  const groupName = cleanText(body.groupName) || "Requested";
+  const title = cleanText(body.title);
+  const fields: Record<string, string> = {
+    Name: title,
+    Contacts: cleanText(body.contact),
+    Operator: cleanText(body.operator),
+    Rig: cleanText(body.rig),
+    "Job Date/Time": cleanText(body.jobDateTime),
+    State: cleanText(body.state),
+    County: cleanText(body.county),
+    Salesperson: cleanText(body.salesperson),
+    "Service Line": cleanText(body.serviceLine),
+    Status: groupName,
+    "Job Type": cleanText(body.jobType),
+    "Job Description": cleanText(body.description),
+    Lead: cleanText(body.lead),
+    "Date Requested": new Date().toISOString().slice(0, 10),
+    "Item ID (auto generated)": externalId,
+  };
+
+  return {
+    groupName,
+    unmappedFieldValues: Object.fromEntries(Object.entries(fields).filter(([, value]) => Boolean(value))),
+    monday: {
+      boardName: "Job Schedule",
+      itemName: title,
+      itemId: externalId,
+      groupName,
+    },
+    createdInTitan: true,
+  };
+}
+
 function attachmentUrlFromMetadata(metadata: CrmMetadata, column: string, requestedName: string) {
   const attachments = isObject(metadata.titanBoardAttachments) ? metadata.titanBoardAttachments : {};
   const columnAttachments = Array.isArray(attachments[column]) ? attachments[column] : [];
@@ -320,6 +370,57 @@ export async function GET(request: Request) {
     }
 
     return Response.json({ url: await browserAttachmentUrl(adminSupabase, storedUrl) });
+  } catch (error) {
+    return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const adminSupabase = configuredSupabase();
+    const authorization = await authorizeWade(request, adminSupabase);
+    if ("error" in authorization) return authorization.error;
+
+    const body = (await request.json().catch(() => ({}))) as CreateJobBody;
+    const title = cleanText(body.title);
+    const groupName = cleanText(body.groupName) || "Requested";
+    const serviceLine = cleanText(body.serviceLine);
+
+    if (!title) {
+      return Response.json({ error: "Job name is required." }, { status: 400 });
+    }
+
+    const externalId = `TITAN-JOB-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const metadata = newJobMetadata(body, externalId);
+    const insertPayload = {
+      opportunity_name: title,
+      pipeline_name: serviceLine || "Job Schedule",
+      stage: groupName,
+      status: statusFromGroup(groupName),
+      source_system: "titan",
+      external_id: externalId,
+      metadata,
+      created_by: authorization.userId,
+    };
+
+    const { data: createdJob, error: insertError } = await adminSupabase
+      .from("crm_opportunities")
+      .insert(insertPayload)
+      .select("id, opportunity_name, pipeline_name, stage, status, external_id, metadata, created_at, updated_at")
+      .single();
+
+    if (insertError) throw insertError;
+
+    await adminSupabase.from("crm_audit_log").insert({
+      entity_type: "crm_opportunities",
+      entity_id: createdJob.id,
+      action: "crm_job_created",
+      user_id: authorization.userId,
+      before_value: null,
+      after_value: insertPayload,
+    });
+
+    return Response.json({ ok: true, job: createdJob }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
