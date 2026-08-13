@@ -928,6 +928,33 @@
   text-align: left;
 }
 
+.mondayFileControls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mondayFileAddButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 6px;
+  background: #1b202a;
+  color: #ffca73;
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.mondayFileAddButton:hover {
+  border-color: rgba(249, 115, 22, 0.72);
+  background: rgba(249, 115, 22, 0.14);
+}
+
 .mondayFileButton span {
   display: inline-flex;
   align-items: center;

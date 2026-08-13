@@ -249,6 +249,82 @@ async function parseBoardCellBody(request: Request) {
   return { body, file };
 }
 
+function attachmentUrlFromMetadata(metadata: CrmMetadata, column: string, requestedName: string) {
+  const attachments = isObject(metadata.titanBoardAttachments) ? metadata.titanBoardAttachments : {};
+  const columnAttachments = Array.isArray(attachments[column]) ? attachments[column] : [];
+  const requested = normalizeText(requestedName);
+  const matchingAttachment = columnAttachments.find((attachment) => {
+    const name = normalizeText(attachment.name);
+    const url = normalizeText(attachment.url);
+    return requested && (name === requested || url === requested);
+  });
+  const attachment = matchingAttachment ?? columnAttachments[0];
+  const attachmentUrl = cleanText(attachment?.url);
+  if (attachmentUrl) return attachmentUrl;
+
+  const fields = isObject(metadata.unmappedFieldValues) ? metadata.unmappedFieldValues : {};
+  const rawValue = cleanText(fields[column]);
+  return /^https?:\/\//i.test(rawValue) ? rawValue : "";
+}
+
+async function browserAttachmentUrl(
+  adminSupabase: ReturnType<typeof configuredSupabase>,
+  storedUrl: string,
+) {
+  if (/^https?:\/\//i.test(storedUrl)) return storedUrl;
+
+  const storagePrefix = `storage://${crmBoardFilesBucket}/`;
+  if (!storedUrl.startsWith(storagePrefix)) {
+    throw new Error("This attachment does not have a valid TITAN file location.");
+  }
+
+  const path = storedUrl.slice(storagePrefix.length);
+  if (!path) throw new Error("This attachment file path is missing.");
+
+  const { data, error } = await adminSupabase.storage.from(crmBoardFilesBucket).createSignedUrl(path, 120);
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error("TITAN could not create a secure file link.");
+  return data.signedUrl;
+}
+
+export async function GET(request: Request) {
+  try {
+    const adminSupabase = configuredSupabase();
+    const authorization = await authorizeWade(request, adminSupabase);
+    if ("error" in authorization) return authorization.error;
+
+    const url = new URL(request.url);
+    const recordId = cleanText(url.searchParams.get("recordId"));
+    const entityType = cleanText(url.searchParams.get("entityType")) as EntityType;
+    const column = cleanText(url.searchParams.get("column"));
+    const fileName = cleanText(url.searchParams.get("fileName"));
+    const table = crmTables[entityType];
+
+    if (!recordId || !table || !column) {
+      return Response.json({ error: "A valid CRM record and file column are required." }, { status: 400 });
+    }
+
+    const { data: row, error: loadError } = await adminSupabase
+      .from(table)
+      .select("metadata")
+      .eq("id", recordId)
+      .maybeSingle();
+
+    if (loadError) throw loadError;
+    if (!row) return Response.json({ error: "CRM record was not found." }, { status: 404 });
+
+    const metadata = isObject(row.metadata) ? (row.metadata as CrmMetadata) : {};
+    const storedUrl = attachmentUrlFromMetadata(metadata, column, fileName);
+    if (!storedUrl) {
+      return Response.json({ error: "This file name was imported without a downloadable file link." }, { status: 404 });
+    }
+
+    return Response.json({ url: await browserAttachmentUrl(adminSupabase, storedUrl) });
+  } catch (error) {
+    return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
 export async function PATCH(request: Request) {
   try {
     const adminSupabase = configuredSupabase();

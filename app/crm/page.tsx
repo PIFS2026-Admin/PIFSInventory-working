@@ -937,6 +937,7 @@ export default function CrmPage() {
   const [boardSearch, setBoardSearch] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [attachmentMenu, setAttachmentMenu] = useState<CrmBoardAttachmentMenu>(null);
+  const [openingAttachmentKey, setOpeningAttachmentKey] = useState("");
   const [draggingRecord, setDraggingRecord] = useState<DraggingCrmRecord>(null);
   const [editingCell, setEditingCell] = useState<EditingCrmCell>(null);
   const [dropGroupName, setDropGroupName] = useState("");
@@ -1173,6 +1174,51 @@ export default function CrmPage() {
     await saveAttachment(menu, fileName, url, null, "From Link");
   }
 
+  async function openAttachment(record: CrmReviewRecord, column: string, value: string) {
+    const fileName = attachmentDisplayName(value);
+    const attachmentKey = `${record.id}:${column}:${fileName}`;
+    const openedWindow = window.open("about:blank", "_blank");
+
+    setOpeningAttachmentKey(attachmentKey);
+    setBoardActionError("");
+    setBoardActionMessage(`Opening ${fileName}...`);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        openedWindow?.close();
+        window.location.assign("/login");
+        return;
+      }
+
+      const query = new URLSearchParams({
+        recordId: record.id,
+        entityType: record.entityType,
+        column,
+        fileName,
+      });
+      const response = await fetch(`/api/crm/board-cell?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.url) throw new Error(body.error || "TITAN could not open this file.");
+
+      if (openedWindow) {
+        openedWindow.location.replace(body.url);
+      } else {
+        window.location.assign(body.url);
+      }
+      setBoardActionMessage(`${fileName} opened.`);
+    } catch (error) {
+      openedWindow?.close();
+      setBoardActionError(error instanceof Error ? error.message : "TITAN could not open this file.");
+      setBoardActionMessage("");
+    } finally {
+      setOpeningAttachmentKey("");
+    }
+  }
+
   async function saveAttachment(
     menu: NonNullable<CrmBoardAttachmentMenu>,
     fileName: string,
@@ -1324,11 +1370,51 @@ export default function CrmPage() {
       const hasValue = Boolean(value && value !== "-");
 
       if (activeBoard.key === "job-schedule" && isBoardAttachmentColumn(column)) {
+        const fileName = attachmentDisplayName(value);
+        const attachmentKey = `${record.id}:${column}:${fileName}`;
+
+        if (hasValue) {
+          return (
+            <div className={styles.mondayFileControls}>
+              <button
+                className={`${styles.mondayFileButton} ${styles.mondayFileButtonActive}`}
+                type="button"
+                title={`Open ${fileName}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openAttachment(record, column, value);
+                }}
+                disabled={openingAttachmentKey === attachmentKey}
+              >
+                <span>file</span>
+                <strong>{openingAttachmentKey === attachmentKey ? "Opening..." : fileName}</strong>
+              </button>
+              <button
+                className={styles.mondayFileAddButton}
+                type="button"
+                title={`Add another ${column}`}
+                aria-label={`Add another ${column}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setAttachmentMenu({
+                    recordId: record.id,
+                    entityType: record.entityType,
+                    column,
+                    value,
+                  });
+                }}
+              >
+                +
+              </button>
+            </div>
+          );
+        }
+
         return (
           <button
-            className={`${styles.mondayFileButton} ${hasValue ? styles.mondayFileButtonActive : ""}`}
+            className={styles.mondayFileButton}
             type="button"
-            title={hasValue ? value : `Add ${column}`}
+            title={`Add ${column}`}
             onClick={() =>
               setAttachmentMenu({
                 recordId: record.id,
@@ -1338,8 +1424,8 @@ export default function CrmPage() {
               })
             }
           >
-            <span>{hasValue ? "file" : "+"}</span>
-            <strong>{hasValue ? attachmentDisplayName(value) : "Add file"}</strong>
+            <span>+</span>
+            <strong>Add file</strong>
           </button>
         );
       }
