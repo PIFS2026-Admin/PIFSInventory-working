@@ -2014,11 +2014,15 @@ export default function CrmPage() {
                     {!isCollapsed && <div className={styles.mondayTableWrap}>
                       <table className={styles.mondayTable}>
                         <colgroup>
-                          <col style={{ width: "48px" }} />
+                          <col className={styles.mondaySelectCol} style={{ width: "48px" }} />
                           {activeBoard.columns.map((column, index) => (
-                            <col key={column} style={{ width: mondayColumnWidth(column, index) }} />
+                            <col
+                              key={column}
+                              className={index === 0 ? styles.mondayJobCol : undefined}
+                              style={{ width: mondayColumnWidth(column, index) }}
+                            />
                           ))}
-                          <col style={{ width: "56px" }} />
+                          <col className={styles.mondayAddCol} style={{ width: "56px" }} />
                         </colgroup>
                         <thead>
                           <tr>
