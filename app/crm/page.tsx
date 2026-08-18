@@ -247,6 +247,18 @@ type NewCrmJobForm = {
   description: string;
 };
 
+type CrmDocumentRegisterRow = {
+  key: string;
+  record: CrmReviewRecord;
+  column: "Invoice" | "Signed Invoice" | "Field Ticket";
+  fileName: string;
+  customer: string;
+  rig: string;
+  salesperson: string;
+  jobDate: string;
+  status: string;
+};
+
 type CrmReviewView = "all" | "account" | "contact" | "opportunity" | "activity" | "exceptions";
 type CrmExceptionAction = "ignore" | "resolve" | "import_anyway";
 type CsvImportEntity = "account" | "contact" | "opportunity" | "activity" | "task";
@@ -330,6 +342,7 @@ const csvEntityOptions: Array<{ value: CsvImportEntity; label: string }> = [
 ];
 
 const mondayAttachmentColumns = new Set(["Directions", "Pre Job Checklist", "Invoice", "Signed Invoice", "Report"]);
+const crmDocumentColumns: CrmDocumentRegisterRow["column"][] = ["Invoice", "Signed Invoice", "Field Ticket"];
 
 const targetFieldOptions: Record<TargetEntity, Array<{ value: string; label: string }>> = {
   account: [
@@ -832,6 +845,54 @@ function attachmentDisplayName(value: string) {
   return splitMondayValues(value)[0] || "Add file";
 }
 
+function attachmentNames(value: string) {
+  return cleanText(value)
+    .split(/\s*,\s*/)
+    .map(cleanText)
+    .filter((item) => item && item !== "-");
+}
+
+function crmDocumentRows(records: CrmReviewRecord[]) {
+  const jobBoard = mondayCrmBoards.find((board) => board.key === "job-schedule") ?? mondayCrmBoards[0];
+  return records.filter((record) => recordBelongsToBoard(record, jobBoard)).flatMap((record) => {
+    const customer = detailLookup(record, ["Operator", "Customer", "Operator Accounts", "Account", "Company"]) || record.title;
+    const rig = detailLookup(record, ["Rig", "Rigs", "Rig/Contractor", "Contractor"]);
+    const salesperson = detailLookup(record, ["Salesperson", "Salesman", "Sales Rep", "People"]);
+    const jobDate = detailLookup(record, ["Job Date/Time", "Date Requested", "Job Date", "Date"]);
+
+    return crmDocumentColumns.flatMap((column) => {
+      const value = detailLookup(record, [column]);
+      return attachmentNames(value).map((fileName, index) => ({
+        key: `${record.entityType}:${record.id}:${column}:${index}:${fileName}`,
+        record,
+        column,
+        fileName,
+        customer: customer || "Unassigned customer",
+        rig: rig || "Unassigned rig",
+        salesperson: salesperson || "Unassigned salesperson",
+        jobDate: jobDate || record.updatedAt,
+        status: column === "Signed Invoice" ? "Signed" : column === "Invoice" ? "Invoice on file" : "Field ticket on file",
+      }));
+    });
+  });
+}
+
+function uniqueDocumentValues(rows: CrmDocumentRegisterRow[], field: "customer" | "rig" | "salesperson") {
+  return Array.from(new Set(rows.map((row) => row[field]).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function formatDocumentDate(value: string) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString();
+}
+
+function documentTimestamp(value: string) {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function groupCollapseKey(boardKey: string, groupName: string) {
   return `${boardKey}:${groupName}`;
 }
@@ -966,8 +1027,13 @@ export default function CrmPage() {
   const [fullImporting, setFullImporting] = useState(false);
   const [fullImportResult, setFullImportResult] = useState<FullMondayImportResponse | null>(null);
   const [fullImportError, setFullImportError] = useState("");
-  const [activeBoardKey, setActiveBoardKey] = useState<MondayCrmBoard["key"] | "automations">("job-schedule");
+  const [activeBoardKey, setActiveBoardKey] = useState<MondayCrmBoard["key"] | "invoices" | "automations">("job-schedule");
   const [boardSearch, setBoardSearch] = useState("");
+  const [documentCustomer, setDocumentCustomer] = useState("All customers");
+  const [documentRig, setDocumentRig] = useState("All rigs");
+  const [documentSalesperson, setDocumentSalesperson] = useState("All salespeople");
+  const [documentType, setDocumentType] = useState("All documents");
+  const [documentSort, setDocumentSort] = useState("Newest first");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [attachmentMenu, setAttachmentMenu] = useState<CrmBoardAttachmentMenu>(null);
   const [openingAttachmentKey, setOpeningAttachmentKey] = useState("");
@@ -1039,6 +1105,27 @@ export default function CrmPage() {
     () => mondayCrmBoards.find((board) => board.key === activeBoardKey) ?? mondayCrmBoards[0],
     [activeBoardKey],
   );
+  const documentRows = useMemo(() => crmDocumentRows(crmRecords), [crmRecords]);
+  const filteredDocumentRows = useMemo(() => {
+    const query = normalizeText(boardSearch);
+    const rows = documentRows.filter((row) => {
+      const searchMatches = !query || [row.record.title, row.fileName, row.customer, row.rig, row.salesperson, row.status]
+        .map(normalizeText)
+        .some((value) => value.includes(query));
+      return searchMatches
+        && (documentCustomer === "All customers" || row.customer === documentCustomer)
+        && (documentRig === "All rigs" || row.rig === documentRig)
+        && (documentSalesperson === "All salespeople" || row.salesperson === documentSalesperson)
+        && (documentType === "All documents" || row.column === documentType);
+    });
+
+    return rows.sort((a, b) => {
+      if (documentSort === "Customer") return a.customer.localeCompare(b.customer) || a.rig.localeCompare(b.rig);
+      if (documentSort === "Rig") return a.rig.localeCompare(b.rig) || a.customer.localeCompare(b.customer);
+      if (documentSort === "Salesperson") return a.salesperson.localeCompare(b.salesperson) || a.customer.localeCompare(b.customer);
+      return documentTimestamp(b.jobDate) - documentTimestamp(a.jobDate);
+    });
+  }, [boardSearch, documentCustomer, documentRig, documentRows, documentSalesperson, documentSort, documentType]);
   const activeBoardRecords = useMemo(() => {
     const query = normalizeText(boardSearch);
     return boardRecords(crmRecords, activeBoard).filter((record) => {
@@ -2068,6 +2155,14 @@ export default function CrmPage() {
               );
             })}
             <button
+              className={activeBoardKey === "invoices" ? styles.mondayBoardNavActive : ""}
+              type="button"
+              onClick={() => setActiveBoardKey("invoices")}
+            >
+              <span>Invoices & Tickets</span>
+              <small>{documentRows.length} documents</small>
+            </button>
+            <button
               className={activeBoardKey === "automations" ? styles.mondayBoardNavActive : ""}
               type="button"
               onClick={() => setActiveBoardKey("automations")}
@@ -2081,17 +2176,17 @@ export default function CrmPage() {
         <section className={styles.mondayMainBoard}>
           <div className={styles.mondayBoardHeader}>
             <div>
-              <h1>{activeBoardKey === "automations" ? "Automations" : activeBoard.title}</h1>
-              <div className={styles.mondayViewTabs}>
-                <span className={styles.mondayViewTabActive}>Main table</span>
-                <span>Category Counts</span>
-                <span>Calendar</span>
-                <span>Casing Board</span>
-                <span>Hardbanding Board</span>
-                <span>Table</span>
-                <span>Map</span>
-                <span>+</span>
-              </div>
+              <h1>{activeBoardKey === "automations" ? "Automations" : activeBoardKey === "invoices" ? "Invoices & Field Tickets" : activeBoard.title}</h1>
+              {activeBoardKey !== "invoices" && <div className={styles.mondayViewTabs}>
+                  <span className={styles.mondayViewTabActive}>Main table</span>
+                  <span>Category Counts</span>
+                  <span>Calendar</span>
+                  <span>Casing Board</span>
+                  <span>Hardbanding Board</span>
+                  <span>Table</span>
+                  <span>Map</span>
+                  <span>+</span>
+                </div>}
             </div>
             <div className={styles.mondayTopActions}>
               <span>{crmRecords.length.toLocaleString()} live records</span>
@@ -2105,7 +2200,7 @@ export default function CrmPage() {
           </div>
 
           <div className={styles.mondayCommandBar}>
-            <button
+            {activeBoardKey !== "invoices" && <button
               className={styles.mondayNewButton}
               type="button"
               onClick={() => {
@@ -2113,7 +2208,7 @@ export default function CrmPage() {
               }}
             >
               {boardActionLabel(activeBoard)}
-            </button>
+            </button>}
             <label className={styles.mondayInlineSearch}>
               <span>Search</span>
               <input
@@ -2122,9 +2217,11 @@ export default function CrmPage() {
                 placeholder="Search this board"
               />
             </label>
-            <button type="button">Person</button>
-            <button type="button">Filter</button>
-            <button type="button">Group by</button>
+            {activeBoardKey !== "invoices" && <>
+              <button type="button">Person</button>
+              <button type="button">Filter</button>
+              <button type="button">Group by</button>
+            </>}
           </div>
 
           {boardActionError && <div className={styles.mondayBoardError}>{boardActionError}</div>}
@@ -2132,6 +2229,100 @@ export default function CrmPage() {
 
           {reviewLoading && !reviewResult ? (
             <div className={styles.reviewEmpty}>Loading CRM workspace...</div>
+          ) : activeBoardKey === "invoices" ? (
+            <section className={styles.crmDocumentRegister}>
+              <div className={styles.crmDocumentFilters}>
+                <label>
+                  <span>Customer</span>
+                  <select value={documentCustomer} onChange={(event) => setDocumentCustomer(event.target.value)}>
+                    <option>All customers</option>
+                    {uniqueDocumentValues(documentRows, "customer").map((value) => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Rig</span>
+                  <select value={documentRig} onChange={(event) => setDocumentRig(event.target.value)}>
+                    <option>All rigs</option>
+                    {uniqueDocumentValues(documentRows, "rig").map((value) => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Salesperson</span>
+                  <select value={documentSalesperson} onChange={(event) => setDocumentSalesperson(event.target.value)}>
+                    <option>All salespeople</option>
+                    {uniqueDocumentValues(documentRows, "salesperson").map((value) => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Document</span>
+                  <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                    <option>All documents</option>
+                    {crmDocumentColumns.map((value) => <option key={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Sort</span>
+                  <select value={documentSort} onChange={(event) => setDocumentSort(event.target.value)}>
+                    <option>Newest first</option>
+                    <option>Customer</option>
+                    <option>Rig</option>
+                    <option>Salesperson</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className={styles.crmDocumentSummary}>
+                <strong>{filteredDocumentRows.length.toLocaleString()} documents</strong>
+                <span>{new Set(filteredDocumentRows.map((row) => row.record.id)).size.toLocaleString()} jobs</span>
+                <span>{filteredDocumentRows.filter((row) => row.column.includes("Invoice")).length.toLocaleString()} invoices</span>
+                <span>{filteredDocumentRows.filter((row) => row.column === "Field Ticket").length.toLocaleString()} field tickets</span>
+              </div>
+
+              <div className={styles.crmDocumentTableWrap}>
+                <table className={styles.crmDocumentTable}>
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Job</th>
+                      <th>Customer</th>
+                      <th>Rig</th>
+                      <th>Salesperson</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredDocumentRows.map((row) => {
+                      const openingKey = `${row.record.id}:${row.column}:${row.fileName}`;
+                      return (
+                        <tr key={row.key}>
+                          <td>
+                            <button
+                              className={styles.crmDocumentLink}
+                              type="button"
+                              disabled={openingAttachmentKey === openingKey}
+                              onClick={() => openAttachment(row.record, row.column, row.fileName)}
+                            >
+                              <span>{row.column}</span>
+                              <strong>{openingAttachmentKey === openingKey ? "Opening..." : row.fileName}</strong>
+                            </button>
+                          </td>
+                          <td>{row.record.title}</td>
+                          <td>{row.customer}</td>
+                          <td>{row.rig}</td>
+                          <td>{row.salesperson}</td>
+                          <td>{formatDocumentDate(row.jobDate)}</td>
+                          <td><span className={styles.crmDocumentStatus}>{row.status}</span></td>
+                        </tr>
+                      );
+                    })}
+                    {filteredDocumentRows.length === 0 && (
+                      <tr><td colSpan={7} className={styles.crmDocumentEmpty}>No attached invoices or field tickets match these filters.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           ) : activeBoardKey === "automations" ? (
             <div className={styles.automationGrid}>
               {mondayAutomationBoards.map((automation) => (
