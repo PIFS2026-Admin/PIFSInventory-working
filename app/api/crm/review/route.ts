@@ -15,6 +15,7 @@ type CrmMetadata = {
     itemName?: string;
   };
   unmappedFieldValues?: Record<string, unknown>;
+  titanBoardAttachments?: Record<string, Array<Record<string, unknown>>>;
   [key: string]: unknown;
 };
 
@@ -30,6 +31,7 @@ type CrmReviewRecord = {
   sourceSystem: string;
   updatedAt: string;
   details: Record<string, string>;
+  attachments: Record<string, Array<{ name: string; url: string; source: string; addedAt: string }>>;
 };
 
 const wadeCrmEmail = "wade@pathfinderinspections.com";
@@ -140,6 +142,26 @@ function metadataDetails(metadata: unknown, base: Record<string, unknown> = {}) 
   return details;
 }
 
+function metadataAttachments(metadata: unknown) {
+  const parsed = (metadata && typeof metadata === "object" ? metadata : {}) as CrmMetadata;
+  const output: Record<string, Array<{ name: string; url: string; source: string; addedAt: string }>> = {};
+
+  Object.entries(parsed.titanBoardAttachments ?? {}).forEach(([column, attachments]) => {
+    if (!Array.isArray(attachments)) return;
+    const valid = attachments
+      .map((attachment) => ({
+        name: cleanText(attachment?.name || attachment?.url),
+        url: cleanText(attachment?.url),
+        source: cleanText(attachment?.source),
+        addedAt: cleanText(attachment?.addedAt),
+      }))
+      .filter((attachment) => attachment.name && attachment.url);
+    if (valid.length > 0) output[column] = valid;
+  });
+
+  return output;
+}
+
 function formatMoney(value: unknown) {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric) || numeric === 0) return "";
@@ -243,6 +265,7 @@ export async function GET(request: Request) {
           phone: account.phone,
           website: account.website,
         }),
+        attachments: metadataAttachments(account.metadata),
       };
     });
 
@@ -267,6 +290,7 @@ export async function GET(request: Request) {
           mobile: contact.mobile,
           status: contact.status,
         }),
+        attachments: metadataAttachments(contact.metadata),
       };
     });
 
@@ -291,6 +315,7 @@ export async function GET(request: Request) {
           estimated_value: opportunity.estimated_value,
           probability: opportunity.probability,
         }),
+        attachments: metadataAttachments(opportunity.metadata),
       };
     });
 
@@ -315,6 +340,7 @@ export async function GET(request: Request) {
           completed_at: activity.completed_at,
           status: activity.completed_at ? "Completed" : "Open",
         }),
+        attachments: metadataAttachments(activity.metadata),
       };
     });
 

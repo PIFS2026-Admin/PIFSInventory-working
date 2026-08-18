@@ -174,6 +174,7 @@ type CrmReviewRecord = {
   sourceSystem?: string;
   updatedAt: string;
   details?: Record<string, string>;
+  attachments?: Record<string, Array<{ name: string; url: string; source: string; addedAt: string }>>;
 };
 
 type CrmImportException = {
@@ -250,7 +251,8 @@ type NewCrmJobForm = {
 type CrmDocumentRegisterRow = {
   key: string;
   record: CrmReviewRecord;
-  column: "Invoice" | "Signed Invoice" | "Field Ticket";
+  column: "Invoice" | "Signed Invoice" | "Field Ticket Document";
+  documentType: "Invoice" | "Signed Invoice" | "Field Ticket";
   fileName: string;
   customer: string;
   rig: string;
@@ -341,8 +343,8 @@ const csvEntityOptions: Array<{ value: CsvImportEntity; label: string }> = [
   { value: "task", label: "Tasks / Follow-ups" },
 ];
 
-const mondayAttachmentColumns = new Set(["Directions", "Pre Job Checklist", "Invoice", "Signed Invoice", "Report"]);
-const crmDocumentColumns: CrmDocumentRegisterRow["column"][] = ["Invoice", "Signed Invoice", "Field Ticket"];
+const mondayAttachmentColumns = new Set(["Directions", "Pre Job Checklist", "Invoice", "Signed Invoice", "Field Ticket Document", "Report"]);
+const crmDocumentColumns: CrmDocumentRegisterRow["column"][] = ["Invoice", "Signed Invoice", "Field Ticket Document"];
 
 const targetFieldOptions: Record<TargetEntity, Array<{ value: string; label: string }>> = {
   account: [
@@ -845,13 +847,6 @@ function attachmentDisplayName(value: string) {
   return splitMondayValues(value)[0] || "Add file";
 }
 
-function attachmentNames(value: string) {
-  return cleanText(value)
-    .split(/\s*,\s*/)
-    .map(cleanText)
-    .filter((item) => item && item !== "-");
-}
-
 function crmDocumentRows(records: CrmReviewRecord[]) {
   const jobBoard = mondayCrmBoards.find((board) => board.key === "job-schedule") ?? mondayCrmBoards[0];
   return records.filter((record) => recordBelongsToBoard(record, jobBoard)).flatMap((record) => {
@@ -861,12 +856,19 @@ function crmDocumentRows(records: CrmReviewRecord[]) {
     const jobDate = detailLookup(record, ["Job Date/Time", "Date Requested", "Job Date", "Date"]);
 
     return crmDocumentColumns.flatMap((column) => {
-      const value = detailLookup(record, [column]);
-      return attachmentNames(value).map((fileName, index) => ({
-        key: `${record.entityType}:${record.id}:${column}:${index}:${fileName}`,
+      const storedAttachments = record.attachments?.[column] ?? [];
+      const legacyValue = detailLookup(record, [column]);
+      const legacyAttachments = /^https?:\/\//i.test(legacyValue)
+        ? [{ name: attachmentDisplayName(legacyValue), url: legacyValue, source: "Imported link", addedAt: record.updatedAt }]
+        : [];
+      const attachments = storedAttachments.length > 0 ? storedAttachments : legacyAttachments;
+      const documentType: CrmDocumentRegisterRow["documentType"] = column === "Field Ticket Document" ? "Field Ticket" : column;
+      return attachments.map((attachment, index) => ({
+        key: `${record.entityType}:${record.id}:${column}:${index}:${attachment.name || attachment.url}`,
         record,
         column,
-        fileName,
+        documentType,
+        fileName: attachment.name || attachment.url,
         customer: customer || "Unassigned customer",
         rig: rig || "Unassigned rig",
         salesperson: salesperson || "Unassigned salesperson",
@@ -936,7 +938,8 @@ function isMondayFileColumn(column: string) {
     normalized.includes("report") ||
     normalized.includes("directions") ||
     normalized.includes("checklist") ||
-    normalized.includes("monday doc")
+    normalized.includes("monday doc") ||
+    normalized === "field ticket document"
   );
 }
 
@@ -1116,7 +1119,7 @@ export default function CrmPage() {
         && (documentCustomer === "All customers" || row.customer === documentCustomer)
         && (documentRig === "All rigs" || row.rig === documentRig)
         && (documentSalesperson === "All salespeople" || row.salesperson === documentSalesperson)
-        && (documentType === "All documents" || row.column === documentType);
+        && (documentType === "All documents" || row.documentType === documentType);
     });
 
     return rows.sort((a, b) => {
@@ -1352,8 +1355,8 @@ export default function CrmPage() {
     await saveAttachment(menu, fileName, url, null, "From Link");
   }
 
-  async function openAttachment(record: CrmReviewRecord, column: string, value: string) {
-    const fileName = attachmentDisplayName(value);
+  async function openAttachment(record: CrmReviewRecord, column: string, value: string, exactName = false) {
+    const fileName = exactName ? cleanText(value) : attachmentDisplayName(value);
     const attachmentKey = `${record.id}:${column}:${fileName}`;
     const openedWindow = window.open("about:blank", "_blank");
 
@@ -1440,6 +1443,7 @@ export default function CrmPage() {
     if (saved) {
       setAttachmentMenu(null);
       setBoardActionMessage(`${cleanName} attached to ${menu.column}.`);
+      await loadCrmReview();
       return;
     }
 
@@ -2257,7 +2261,7 @@ export default function CrmPage() {
                   <span>Document</span>
                   <select value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
                     <option>All documents</option>
-                    {crmDocumentColumns.map((value) => <option key={value}>{value}</option>)}
+                    {(["Invoice", "Signed Invoice", "Field Ticket"] as const).map((value) => <option key={value}>{value}</option>)}
                   </select>
                 </label>
                 <label>
@@ -2274,8 +2278,8 @@ export default function CrmPage() {
               <div className={styles.crmDocumentSummary}>
                 <strong>{filteredDocumentRows.length.toLocaleString()} documents</strong>
                 <span>{new Set(filteredDocumentRows.map((row) => row.record.id)).size.toLocaleString()} jobs</span>
-                <span>{filteredDocumentRows.filter((row) => row.column.includes("Invoice")).length.toLocaleString()} invoices</span>
-                <span>{filteredDocumentRows.filter((row) => row.column === "Field Ticket").length.toLocaleString()} field tickets</span>
+                <span>{filteredDocumentRows.filter((row) => row.documentType.includes("Invoice")).length.toLocaleString()} invoices</span>
+                <span>{filteredDocumentRows.filter((row) => row.documentType === "Field Ticket").length.toLocaleString()} field tickets</span>
               </div>
 
               <div className={styles.crmDocumentTableWrap}>
@@ -2301,9 +2305,9 @@ export default function CrmPage() {
                               className={styles.crmDocumentLink}
                               type="button"
                               disabled={openingAttachmentKey === openingKey}
-                              onClick={() => openAttachment(row.record, row.column, row.fileName)}
+                              onClick={() => openAttachment(row.record, row.column, row.fileName, true)}
                             >
-                              <span>{row.column}</span>
+                              <span>{row.documentType}</span>
                               <strong>{openingAttachmentKey === openingKey ? "Opening..." : row.fileName}</strong>
                             </button>
                           </td>

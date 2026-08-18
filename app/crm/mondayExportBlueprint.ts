@@ -62,6 +62,7 @@ export const mondayCrmBoards: MondayCrmBoard[] = [
       "Pre Job Notes",
       "Signed Invoice",
       "Field Ticket",
+      "Field Ticket Document",
       "Report",
       "Date Requested",
       "Status 2",
