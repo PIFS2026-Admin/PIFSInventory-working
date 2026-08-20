@@ -1,0 +1,149 @@
+.page {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 24px 0 110px;
+}
+
+.header,
+.sectionHeading,
+.zoneHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header {
+  border-bottom: 1px solid #303846;
+  padding-bottom: 18px;
+  margin-bottom: 18px;
+}
+
+.header span,
+.sectionHeading span {
+  color: #f97316;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.header h1,
+.sectionHeading h2,
+.zoneHeader h3 {
+  margin: 4px 0 0;
+}
+
+.actions,
+.form,
+.zoneHeader form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.message,
+.section {
+  border: 1px solid #303846;
+  background: #14181e;
+  border-radius: 8px;
+}
+
+.message {
+  border-color: #9a4b19;
+  color: #fed7aa;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.section {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.sectionHeading {
+  margin-bottom: 18px;
+}
+
+.sectionHeading > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sectionHeading > div > span {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #9a4b19;
+  border-radius: 6px;
+}
+
+.form label,
+.yardPicker {
+  display: grid;
+  gap: 7px;
+  flex: 1;
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.form input,
+.yardPicker select,
+.zoneHeader input {
+  width: 100%;
+  min-height: 44px;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border: 1px solid #303846;
+  padding: 14px;
+  border-radius: 6px;
+}
+
+.summary strong { font-size: 26px; }
+.summary span { color: #9ca3af; }
+
+.zonePanel {
+  border-top: 1px solid #303846;
+  padding-top: 18px;
+}
+
+.zoneList {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.zoneList > div {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(120px, .6fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #303846;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.zoneList span { color: #9ca3af; }
+
+@media (max-width: 680px) {
+  .page { width: calc(100% - 24px); padding-top: 16px; }
+  .header, .sectionHeading, .zoneHeader, .form, .zoneHeader form { align-items: stretch; flex-direction: column; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .summary { grid-template-columns: 1fr 1fr; }
+  .zoneList > div { grid-template-columns: 1fr 1fr; }
+  .zoneList > div strong { grid-column: 1; }
+}

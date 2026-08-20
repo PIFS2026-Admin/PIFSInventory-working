@@ -321,6 +321,14 @@ export async function GET(request: Request) {
 
     if (!["admin", "employee", "internal", "yard_manager", "sales"].includes(role)) {
       query = query.eq("company_id", access.profile.company_id);
+      const { data: assignments, error: assignmentError } = await adminSupabase
+        .from("inventory_user_yards")
+        .select("yard_id")
+        .eq("user_id", access.user.id);
+      if (assignmentError) throw assignmentError;
+      const yardIds = (assignments ?? []).map((row: any) => row.yard_id).filter(Boolean);
+      if (!yardIds.length) return Response.json({ requests: [] });
+      query = query.in("yard_id", yardIds);
     }
 
     const { data, error } = await query;
@@ -360,6 +368,20 @@ export async function POST(request: Request) {
       return Response.json({ error: "A yard and rack are required." }, { status: 400 });
     }
 
+    const role = String(access.profile.role ?? "").toLowerCase();
+    if (role === "customer") {
+      const { data: assignment, error: assignmentError } = await adminSupabase
+        .from("inventory_user_yards")
+        .select("yard_id")
+        .eq("user_id", access.user.id)
+        .eq("yard_id", yardId)
+        .maybeSingle();
+      if (assignmentError) throw assignmentError;
+      if (!assignment) {
+        return Response.json({ error: "You do not have access to this yard." }, { status: 403 });
+      }
+    }
+
     if (!Number.isFinite(quantityJoints) || quantityJoints <= 0) {
       return Response.json({ error: "Quantity to release must be greater than zero." }, { status: 400 });
     }
@@ -390,9 +412,14 @@ export async function POST(request: Request) {
 
     const { data: rack } = await adminSupabase
       .from("racks")
-      .select("id, rack_code")
+      .select("id, rack_code, yard_id")
       .eq("id", rackId)
+      .eq("yard_id", yardId)
       .maybeSingle();
+
+    if (!rack) {
+      return Response.json({ error: "The selected rack does not belong to this yard." }, { status: 400 });
+    }
 
     const requestNumber = await generateRequestNumber(adminSupabase);
     const releaseRecord = {

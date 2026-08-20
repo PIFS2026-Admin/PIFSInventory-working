@@ -5,6 +5,7 @@ type YardRow = {
   name: string;
   code: string;
   is_active?: boolean | null;
+  owner_company_id?: string | null;
 };
 
 const defaultYards = [
@@ -79,20 +80,21 @@ export async function GET(request: Request) {
 
     const { data: profile, error: profileError } = await adminSupabase
       .from("profiles")
-      .select("role")
+      .select("role, company_id")
       .eq("id", userData.user.id)
       .maybeSingle();
 
     if (profileError) throw profileError;
 
     const role = String(profile?.role ?? "").toLowerCase();
+    const profileCompanyId = String(profile?.company_id ?? "");
     const email = String(userData.user.email ?? "").toLowerCase();
     const isWade = email === "wade@pathfinderinspections.com";
     const canSeeAllYards = isWade || role === "admin";
 
     const { data: activeYards, error: yardsError } = await adminSupabase
       .from("yards")
-      .select("id, name, code, is_active")
+      .select("id, name, code, is_active, owner_company_id")
       .eq("is_active", true);
 
     if (yardsError) throw yardsError;
@@ -100,7 +102,7 @@ export async function GET(request: Request) {
     const yards = (activeYards ?? []) as YardRow[];
 
     if (canSeeAllYards) {
-      return Response.json({ yards: sortYards(yards) });
+      return Response.json({ yards: sortYards(yards).map((yard) => ({ ...yard, canManage: true })) });
     }
 
     const allowedYardIds = new Set<string>();
@@ -128,7 +130,12 @@ export async function GET(request: Request) {
     }
 
     const visibleYards = yards.filter((yard) => allowedYardIds.has(yard.id));
-    return Response.json({ yards: sortYards(visibleYards) });
+    return Response.json({
+      yards: sortYards(visibleYards).map((yard) => ({
+        ...yard,
+        canManage: role === "customer" && Boolean(profileCompanyId) && yard.owner_company_id === profileCompanyId,
+      })),
+    });
   } catch (error: any) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }

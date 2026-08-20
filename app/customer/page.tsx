@@ -252,7 +252,20 @@ export default function CustomerPage() {
       companyLogoUrl: company?.logo_url ?? "",
     });
 
-    const { data: inventoryData, error: inventoryError } = await supabase
+    const accessToken = sessionData.session?.access_token ?? "";
+    const yardResponse = await fetch("/api/yard-options", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    const yardResult = await yardResponse.json().catch(() => ({}));
+    const assignedYardIds = Array.isArray(yardResult?.yards)
+      ? yardResult.yards.map((yard: any) => String(yard.id)).filter(Boolean)
+      : [];
+
+    let inventoryData: any[] = [];
+    let inventoryError: any = null;
+    if (assignedYardIds.length > 0) {
+      const inventoryResult = await supabase
       .from("pipe_inventory")
       .select(`
         id,
@@ -272,7 +285,11 @@ export default function CustomerPage() {
         workflow_zones(name, code)
       `)
       .eq("company_id", profileData.company_id)
+      .in("yard_id", assignedYardIds)
       .order("created_at", { ascending: false });
+      inventoryData = inventoryResult.data ?? [];
+      inventoryError = inventoryResult.error;
+    }
 
     if (inventoryError) {
       setMessage(`Inventory failed: ${inventoryError.message}`);
@@ -318,19 +335,28 @@ export default function CustomerPage() {
         .filter((row: CustomerInventory) => row.status !== "Shipped" && (row.joints > 0 || row.footage > 0))
     );
 
-    const { data: receiveTickets } = await supabase
-      .from("receiving_tickets")
-      .select("id, ticket_number, carrier, truck_number, created_at")
-      .eq("company_id", profileData.company_id)
-      .order("created_at", { ascending: false })
-      .limit(25);
-
-    const { data: shipTickets } = await supabase
-      .from("shipping_tickets")
-      .select("id, ticket_number, bol_number, carrier, truck_number, destination, created_at")
-      .eq("company_id", profileData.company_id)
-      .order("created_at", { ascending: false })
-      .limit(25);
+    let receiveTickets: any[] = [];
+    let shipTickets: any[] = [];
+    if (assignedYardIds.length > 0) {
+      const [receiveResult, shipResult] = await Promise.all([
+        supabase
+          .from("receiving_tickets")
+          .select("id, ticket_number, carrier, truck_number, created_at")
+          .eq("company_id", profileData.company_id)
+          .in("yard_id", assignedYardIds)
+          .order("created_at", { ascending: false })
+          .limit(25),
+        supabase
+          .from("shipping_tickets")
+          .select("id, ticket_number, bol_number, carrier, truck_number, destination, created_at")
+          .eq("company_id", profileData.company_id)
+          .in("yard_id", assignedYardIds)
+          .order("created_at", { ascending: false })
+          .limit(25),
+      ]);
+      receiveTickets = receiveResult.data ?? [];
+      shipTickets = shipResult.data ?? [];
+    }
 
     const mappedReceive: CustomerTicket[] = (receiveTickets ?? []).map((ticket: any) => ({
       id: ticket.id,
@@ -356,7 +382,6 @@ export default function CustomerPage() {
 
     setTickets([...mappedReceive, ...mappedShip].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
 
-    const accessToken = sessionData.session?.access_token;
     if (accessToken) {
       const response = await fetch("/api/tubular-release-requests", {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -700,6 +725,7 @@ export default function CustomerPage() {
         <div className="customer-actions">
           {profile && <NotificationCenter />}
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
+          <button className="button" onClick={() => (window.location.href = "/customer/yard-setup")}>Yard Setup</button>
           <a className="button primary customer-release-button" href="#release-request">Release Request</a>
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>

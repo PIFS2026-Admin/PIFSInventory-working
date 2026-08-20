@@ -53,6 +53,7 @@ type YardRecord = {
   id: string;
   name: string;
   code: string;
+  canManage?: boolean;
 };
 
 async function loadYardViewPermission(role: string, token: string) {
@@ -1099,6 +1100,8 @@ export default function Home() {
   const [savingHardbandLine, setSavingHardbandLine] = useState(false);
   const [message, setMessage] = useState("");
   const isReadOnlyRole = profileRole === "sales" || role === "customer";
+  const canManageCustomerYard = profileRole === "customer";
+  const canEditSelectedYardLayout = profileRole !== "sales" && (!canManageCustomerYard || selectedYard?.canManage === true);
   const canUseAdminTools = profileRole === "admin" || profileRole === "employee";
   const mapShellRef = useRef<HTMLDivElement | null>(null);
   const [yardMapScale, setYardMapScale] = useState(1);
@@ -1582,6 +1585,7 @@ export default function Home() {
       id: yard.id,
       name: yard.name,
       code: yard.code,
+      canManage: yard.canManage === true,
     }));
     setYardOptions(availableYards);
 
@@ -2756,7 +2760,7 @@ export default function Home() {
   }
 
   async function refreshYardView() {
-    await loadYardSetup();
+    await loadYardSetup(selectedYard?.id);
     await loadTickets();
     await loadReports();
     setMessage("Yard view refreshed.");
@@ -2816,9 +2820,8 @@ export default function Home() {
   }
 
   useEffect(() => {
-    loadYardSetup();
-
     const params = new URLSearchParams(window.location.search);
+    loadYardSetup(params.get("yard") ?? undefined);
     if (params.get("open") === "reports") {
       openReports();
     }
@@ -3917,19 +3920,33 @@ export default function Home() {
         is_active: rack.enabled !== false,
       }));
 
-      let { error } = await supabase
-        .from("racks")
-        .upsert(rows, { onConflict: "yard_id,rack_code" });
-
-      if (error && String(error.message ?? "").includes("layout_")) {
-        const fallbackRows = rows.map(({ layout_width, layout_height, ...row }) => row);
-        const fallbackResult = await supabase
+      if (canManageCustomerYard) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const response = await fetch("/api/customer-yards", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "save-racks", yardId: selectedYard.id, racks: rows }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "Yard rack layout could not be saved.");
+      } else {
+        let { error } = await supabase
           .from("racks")
-          .upsert(fallbackRows, { onConflict: "yard_id,rack_code" });
-        error = fallbackResult.error;
-      }
+          .upsert(rows, { onConflict: "yard_id,rack_code" });
 
-      if (error) throw error;
+        if (error && String(error.message ?? "").includes("layout_")) {
+          const fallbackRows = rows.map(({ layout_width, layout_height, ...row }) => row);
+          const fallbackResult = await supabase
+            .from("racks")
+            .upsert(fallbackRows, { onConflict: "yard_id,rack_code" });
+          error = fallbackResult.error;
+        }
+
+        if (error) throw error;
+      }
 
       await loadYardSetup();
       setLayoutMode(false);
@@ -3937,6 +3954,34 @@ export default function Home() {
     } catch (error: any) {
       setMessage(`Layout save failed: ${error.message}`);
     }
+  }
+
+  function addRack() {
+    const label = normalizeRackCode(window.prompt("Rack name", `RACK ${rackLayout.length + 1}`) ?? "");
+    if (!label) return;
+    if (rackLayout.some((rack) => rack.label === label)) {
+      setMessage(`Rack ${label} already exists.`);
+      return;
+    }
+
+    const positionIndex = rackLayout.length;
+    const rack: RackConfig = {
+      id: label,
+      label,
+      capacity: 500,
+      sort_order: positionIndex + 1,
+      layoutX: 24 + (positionIndex % 8) * 120,
+      layoutY: 24 + Math.floor(positionIndex / 8) * 82,
+      layoutWidth: rackTileSize.width,
+      layoutHeight: rackTileSize.height,
+      layoutGroup: "CUSTOM",
+      rotation: 0,
+      enabled: true,
+    };
+
+    setRackLayout((current) => [...current, rack]);
+    setSelectedLayoutRackLabel(label);
+    setMessage(`Rack ${label} added. Move or resize it, then click Save Layout.`);
   }
   function renameRack(label: string) {
     const nextLabel = normalizeRackCode(window.prompt("New rack label", label) ?? "");
@@ -4182,11 +4227,28 @@ export default function Home() {
     if (!window.confirm(`Delete rack ${label}?`)) return;
 
     if (rack.id !== rack.label) {
-      const { error } = await supabase.from("racks").delete().eq("id", rack.id);
+      if (canManageCustomerYard && selectedYard) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const response = await fetch("/api/customer-yards", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${sessionData.session?.access_token ?? ""}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "delete-rack", yardId: selectedYard.id, rackId: rack.id }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setMessage(`Delete rack failed: ${result.error || "Unknown error."}`);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from("racks").delete().eq("id", rack.id);
 
-      if (error) {
-        setMessage(`Delete rack failed: ${error.message}`);
-        return;
+        if (error) {
+          setMessage(`Delete rack failed: ${error.message}`);
+          return;
+        }
       }
     }
 
@@ -5734,10 +5796,13 @@ export default function Home() {
             >
               Show All
             </button>
-            {layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
-            <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
-              {layoutMode ? "Done Layout" : "Edit Layout"}
-            </button>
+            {canEditSelectedYardLayout && layoutMode && <button className="button primary" onClick={saveRackLayout}>Save Layout</button>}
+            {canEditSelectedYardLayout && layoutMode && <button className="button" onClick={addRack}>Add Rack</button>}
+            {canEditSelectedYardLayout && (
+              <button className={`button ${layoutMode ? "primary" : ""}`} onClick={() => setLayoutMode((current) => !current)}>
+                {layoutMode ? "Done Layout" : "Edit Layout"}
+              </button>
+            )}
           </div>
         </header>
 
