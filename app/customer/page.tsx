@@ -699,6 +699,7 @@ export default function CustomerPage() {
 
         <div className="customer-actions">
           {profile && <NotificationCenter />}
+          <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>
           <a className="button primary customer-release-button" href="#release-request">Release Request</a>
           <button className="button" onClick={loadCustomerPortal}>Refresh</button>
           <button className="button" onClick={() => setPasswordOpen(true)}>Change Password</button>

@@ -58,11 +58,21 @@ async function ensureDefaultYards(adminSupabase: ReturnType<typeof configuredSup
 
   const { data: yards, error: yardError } = await adminSupabase
     .from("yards")
-    .select("id, name, code");
+    .select("id, name, code, is_active")
+    .order("name", { ascending: true });
 
   if (yardError) throw yardError;
 
   return yards ?? [];
+}
+
+function normalizeYardCode(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
 }
 
 async function listAssignments(adminSupabase: ReturnType<typeof configuredSupabase>) {
@@ -168,11 +178,68 @@ export async function POST(request: Request) {
       .eq("id", userData.user.id)
       .single();
 
-    if (profileError || !profile || !["admin", "employee"].includes(profile.role)) {
+    if (profileError || !profile || !["admin", "employee", "owner"].includes(profile.role)) {
       return Response.json({ error: "You do not have access to yard setup." }, { status: 403 });
     }
 
     const yards = await ensureDefaultYards(adminSupabase);
+
+    if (action === "create-yard") {
+      const name = String(body.name ?? "").trim();
+      const code = normalizeYardCode(body.code || name);
+
+      if (!name || !code) {
+        return Response.json({ error: "Yard name and code are required." }, { status: 400 });
+      }
+
+      const { data: createdYard, error: createError } = await adminSupabase
+        .from("yards")
+        .insert({ name, code, is_active: true })
+        .select("id, name, code, is_active")
+        .single();
+
+      if (createError) {
+        const message = getErrorMessage(createError);
+        const duplicate = message.toLowerCase().includes("duplicate") || message.toLowerCase().includes("unique");
+        return Response.json(
+          { error: duplicate ? `A yard with code ${code} already exists.` : message },
+          { status: 400 }
+        );
+      }
+
+      const listResult = await listAssignments(adminSupabase);
+      const refreshedYards = await ensureDefaultYards(adminSupabase);
+      return Response.json({
+        ok: true,
+        yard: createdYard,
+        yards: refreshedYards,
+        assignments: listResult.assignments,
+      });
+    }
+
+    if (action === "set-yard-active") {
+      const yardId = String(body.yardId ?? "").trim();
+      const isActive = body.isActive !== false;
+
+      if (!yardId) {
+        return Response.json({ error: "Yard is required." }, { status: 400 });
+      }
+
+      const { error: updateError } = await adminSupabase
+        .from("yards")
+        .update({ is_active: isActive })
+        .eq("id", yardId);
+
+      if (updateError) throw updateError;
+
+      const listResult = await listAssignments(adminSupabase);
+      const refreshedYards = await ensureDefaultYards(adminSupabase);
+      return Response.json({
+        ok: true,
+        yards: refreshedYards,
+        assignments: listResult.assignments,
+      });
+    }
 
     if (action === "save-user-yards") {
       const userId = String(body.userId ?? "").trim();

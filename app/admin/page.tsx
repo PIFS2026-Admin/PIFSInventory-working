@@ -45,6 +45,7 @@ type Yard = {
   id: string;
   name: string;
   code: string;
+  isActive: boolean;
 };
 
 type InventoryUserYard = {
@@ -189,6 +190,7 @@ const companyLogoBucket = "company-logos";
 
 const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
 const inventoryYardAssignableRoles: UserRole[] = [
+  "customer",
   "owner",
   "admin",
   "employee",
@@ -226,6 +228,11 @@ const emptyZoneForm = {
   name: "",
   code: "",
   sortOrder: "0",
+};
+
+const emptyYardForm = {
+  name: "",
+  code: "",
 };
 
 const emptyPartForm = {
@@ -356,8 +363,8 @@ const adminControls: AdminControlCard[] = [
   },
   {
     key: "yard-access",
-    title: "Inventory / PO Yard Access",
-    description: "Assign internal users to the yards they can work in.",
+    title: "Yard Access",
+    description: "Assign employees and customers to only the yards they may open.",
     group: "Users",
   },
   {
@@ -552,6 +559,7 @@ export default function AdminPage() {
   const [userForm, setUserForm] = useState<AdminUserForm>(emptyUserForm);
   const [rackForm, setRackForm] = useState(emptyRackForm);
   const [zoneForm, setZoneForm] = useState(emptyZoneForm);
+  const [yardForm, setYardForm] = useState(emptyYardForm);
   const [partForm, setPartForm] = useState(emptyPartForm);
   const [inspectorForm, setInspectorForm] = useState(emptyInspectorForm);
   const [optionForm, setOptionForm] = useState(emptyOptionForm);
@@ -820,6 +828,7 @@ export default function AdminPage() {
           id: yard.id,
           name: yard.name ?? "",
           code: yard.code ?? "",
+          isActive: yard.is_active !== false,
         })));
 
         setYards(mapped);
@@ -829,10 +838,10 @@ export default function AdminPage() {
           setMessage(result.setupMessage || inventoryYardSetupMessage);
         }
 
-        const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId);
+        const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId && yard.isActive);
         const nextYardId = selectedStillExists
           ? selectedYardId
-          : mapped.find((yard) => yard.code === "PIFS")?.id || mapped[0]?.id || "";
+          : mapped.find((yard) => yard.code === "PIFS" && yard.isActive)?.id || mapped.find((yard) => yard.isActive)?.id || "";
         setSelectedYardId(nextYardId);
 
         if (nextYardId) {
@@ -845,7 +854,7 @@ export default function AdminPage() {
 
     const { data, error } = await supabase
       .from("yards")
-      .select("id, name, code");
+      .select("id, name, code, is_active");
 
     if (error) {
       setMessage(`Yards failed: ${error.message}`);
@@ -856,14 +865,15 @@ export default function AdminPage() {
       id: yard.id,
       name: yard.name ?? "",
       code: yard.code ?? "",
+      isActive: yard.is_active !== false,
     })));
 
     setYards(mapped);
 
-    const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId);
+    const selectedStillExists = mapped.some((yard) => yard.id === selectedYardId && yard.isActive);
     const nextYardId = selectedStillExists
       ? selectedYardId
-      : mapped.find((yard) => yard.code === "PIFS")?.id || mapped[0]?.id || "";
+      : mapped.find((yard) => yard.code === "PIFS" && yard.isActive)?.id || mapped.find((yard) => yard.isActive)?.id || "";
     setSelectedYardId(nextYardId);
 
     if (nextYardId) {
@@ -908,6 +918,7 @@ export default function AdminPage() {
         id: yard.id,
         name: yard.name ?? "",
         code: yard.code ?? "",
+        isActive: yard.is_active !== false,
       }))));
     }
 
@@ -1716,6 +1727,11 @@ export default function AdminPage() {
       return;
     }
 
+    if (userForm.role === "customer" && newUserYardSelection.length === 0) {
+      setMessage("Customer users must be assigned to at least one yard.");
+      return;
+    }
+
     setLoading(true);
 
     const response = await fetch("/api/admin-users", {
@@ -1933,6 +1949,65 @@ export default function AdminPage() {
     setInventoryUserYards(mapInventoryUserYards(result.assignments ?? []));
     setMessage(`Yard access saved for ${selectedYardAccessUser?.fullName || "user"}.`);
     setLoading(false);
+  }
+
+  async function runYardAction(payload: Record<string, unknown>) {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    if (!token) throw new Error("Sign in again before changing yard setup.");
+
+    const response = await fetch("/api/admin-inventory-yards", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Yard setup failed.");
+    return result;
+  }
+
+  async function createYard() {
+    const name = yardForm.name.trim();
+    const code = yardForm.code.trim() || makeCode(name).toUpperCase();
+    if (!name || !code) {
+      setMessage("Yard name and code are required.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+    try {
+      const result = await runYardAction({ action: "create-yard", name, code });
+      setYardForm(emptyYardForm);
+      await loadYards();
+      if (result.yard?.id) {
+        setSelectedYardId(result.yard.id);
+        await Promise.all([loadRacks(result.yard.id), loadZones(result.yard.id)]);
+      }
+      setMessage(`${name} created. Add racks and work zones below, then assign customer access.`);
+    } catch (error: any) {
+      setMessage(error.message || "Could not create yard.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function setYardActive(yard: Yard, isActive: boolean) {
+    setLoading(true);
+    setMessage("");
+    try {
+      await runYardAction({ action: "set-yard-active", yardId: yard.id, isActive });
+      await loadYards();
+      setMessage(`${yard.name} ${isActive ? "activated" : "deactivated"}. Existing records were preserved.`);
+    } catch (error: any) {
+      setMessage(error.message || "Could not update yard.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function createRack() {
@@ -2297,13 +2372,13 @@ export default function AdminPage() {
             <div className="create-user-yard-box">
               <div className="admin-section-title compact-title">
                 <div>
-                  <h4>Inventory / PO Yard Access</h4>
-                  <p>Choose the yard or yards this user can work in.</p>
+                  <h4>Yard Access</h4>
+                  <p>Choose the only yard or yards this user may open in TITAN.</p>
                 </div>
               </div>
 
               <div className="yard-access-grid">
-                {yards.map((yard) => (
+                {yards.filter((yard) => yard.isActive).map((yard) => (
                   <label key={yard.id} className="yard-access-card">
                     <input
                       type="checkbox"
@@ -2327,7 +2402,7 @@ export default function AdminPage() {
               <div className="yard-access-actions">
                 <button
                   className="button"
-                  onClick={() => setNewUserYardSelection(yards.map((yard) => yard.id))}
+                  onClick={() => setNewUserYardSelection(yards.filter((yard) => yard.isActive).map((yard) => yard.id))}
                   disabled={loading || yards.length === 0}
                 >
                   Select All
@@ -2959,8 +3034,8 @@ export default function AdminPage() {
       <details className="ticket-card admin-card admin-collapsible admin-control-section" data-admin-control="yard-access" open={activeControl === "yard-access"}>
         <summary>
           <div>
-            <h3>Inventory / PO Yard Access</h3>
-            <p>Assign one or more inventory yards to internal users. Wade still sees every yard by default.</p>
+            <h3>Yard Access</h3>
+            <p>Assign employees or customer logins to only the yards they may open. Wade and admins retain full access.</p>
           </div>
           <span>Open / close</span>
         </summary>
@@ -2983,7 +3058,7 @@ export default function AdminPage() {
           {yardAccessUserId && (
             <>
               <div className="yard-access-grid">
-                {yards.map((yard) => (
+                {yards.filter((yard) => yard.isActive || yardAccessSelection.includes(yard.id)).map((yard) => (
                   <label key={yard.id} className="yard-access-card">
                     <input
                       type="checkbox"
@@ -3001,7 +3076,7 @@ export default function AdminPage() {
               <div className="yard-access-actions">
                 <button
                   className="button"
-                  onClick={() => setYardAccessSelection(yards.map((yard) => yard.id))}
+                  onClick={() => setYardAccessSelection(yards.filter((yard) => yard.isActive).map((yard) => yard.id))}
                   disabled={loading}
                 >
                   Select All
@@ -3021,7 +3096,7 @@ export default function AdminPage() {
           )}
 
           {!yardAccessUserId && (
-            <p className="muted-text">Choose a user to assign Gillette, Casper, Dickinson, or any other inventory yard.</p>
+            <p className="muted-text">Choose a user, then assign one or more active yards. Customer accounts will not see unassigned yards.</p>
           )}
         </div>
       </details>
@@ -3273,8 +3348,80 @@ export default function AdminPage() {
         </summary>
         <div className="admin-collapsible-body">
 
+        <section className="ticket-card admin-card">
+          <div className="admin-section-title">
+            <div>
+              <h3>Create & Manage Yards</h3>
+              <p>Create a separate yard, build its rack layout, and assign only the appropriate users or customers.</p>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label>
+              Yard Name
+              <input
+                value={yardForm.name}
+                onChange={(event) =>
+                  setYardForm((current) => ({
+                    name: event.target.value,
+                    code: current.code || makeCode(event.target.value).toUpperCase(),
+                  }))
+                }
+                placeholder="Customer Odessa Yard"
+              />
+            </label>
+            <label>
+              Yard Code
+              <input
+                value={yardForm.code}
+                onChange={(event) =>
+                  setYardForm((current) => ({
+                    ...current,
+                    code: event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"),
+                  }))
+                }
+                placeholder="CUSTOMER_ODESSA"
+              />
+            </label>
+          </div>
+          <button className="button primary" type="button" onClick={createYard} disabled={loading}>
+            Create Yard
+          </button>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Yard</th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {yards.map((yard) => (
+                  <tr key={`manage-${yard.id}`}>
+                    <td>{yard.name}</td>
+                    <td>{yard.code}</td>
+                    <td>{yard.isActive ? "Active" : "Inactive"}</td>
+                    <td>
+                      <button
+                        className="button"
+                        type="button"
+                        onClick={() => setYardActive(yard, !yard.isActive)}
+                        disabled={loading}
+                      >
+                        {yard.isActive ? "Deactivate" : "Activate"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <label>
-          Yard
+          Yard Layout To Edit
           <select
             value={selectedYardId}
             onChange={async (event) => {
@@ -3282,7 +3429,7 @@ export default function AdminPage() {
               await Promise.all([loadRacks(event.target.value), loadZones(event.target.value)]);
             }}
           >
-            {yards.map((yard) => (
+            {yards.filter((yard) => yard.isActive).map((yard) => (
               <option key={yard.id} value={yard.id}>
                 {yard.name}
               </option>

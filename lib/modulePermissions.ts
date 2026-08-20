@@ -398,6 +398,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
 
   if (role === "customer") {
     allow(permissions, ["customer_portal", "release_requests", "reports", "exports"], ["view", "create", "export"]);
+    allow(permissions, ["tubular_inventory"], ["view"]);
     return permissions;
   }
 

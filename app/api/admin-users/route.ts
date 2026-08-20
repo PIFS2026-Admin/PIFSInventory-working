@@ -236,6 +236,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (role === "customer" && yardIds.length === 0) {
+      return Response.json(
+        { error: "Customer users must be assigned to at least one yard." },
+        { status: 400 }
+      );
+    }
+
     const moduleKeys =
       role === "customer"
         ? []
@@ -315,7 +322,7 @@ export async function POST(request: Request) {
     let yardAccessWarning = "";
     let moduleAccessWarning = "";
 
-    if (role !== "customer" && yardIds.length > 0) {
+    if (yardIds.length > 0) {
       const { error: yardAccessError } = await adminSupabase
         .from("inventory_user_yards")
         .insert(
