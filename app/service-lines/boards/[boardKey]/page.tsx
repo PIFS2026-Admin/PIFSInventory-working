@@ -25,6 +25,7 @@ import { supabase } from "../../../../lib/supabase";
 import { goBackOrFallback } from "../../../../lib/navigation";
 import {
   ServiceLineBoardConfig,
+  isServiceLineBoardKey,
   serviceLineBoardTagColors,
   serviceLineBoardConfigs,
 } from "../../../../lib/serviceLineBoards";
@@ -484,7 +485,7 @@ function createFallbackCards(config: ServiceLineBoardConfig, columns: BoardColum
       customerName: card.customerName ?? "",
       locationName: card.locationName ?? "",
       assignedToProfileId: "",
-      assignedToName: "",
+      assignedToName: serviceLineAssignmentLabel(config.serviceLineKey),
       dueDate: "",
       sortOrder: (index + 1) * 100,
       tags: card.tags,
@@ -795,8 +796,9 @@ function SortableBoardCard({
 }
 
 export default function ServiceLineBoardPage({ params }: PageProps) {
-  const boardKey = "dti";
+  const boardKey = isServiceLineBoardKey(params.boardKey) ? params.boardKey : "dti";
   const config = serviceLineBoardConfigs[boardKey];
+  const defaultColumnForm = useMemo<ColumnForm>(() => ({ ...emptyColumnForm, serviceLineKey: config.serviceLineKey }), [config.serviceLineKey]);
   const fallbackColumns = useMemo(() => createFallbackColumns(config), [config]);
   const fallbackCards = useMemo(() => createFallbackCards(config, fallbackColumns), [config, fallbackColumns]);
   const [board, setBoard] = useState<BoardRow | null>(null);
@@ -807,9 +809,9 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [newCardForm, setNewCardForm] = useState<CardForm>(emptyCardForm);
   const [showNewCard, setShowNewCard] = useState(false);
   const [showNewColumn, setShowNewColumn] = useState(false);
-  const [newColumnForm, setNewColumnForm] = useState<ColumnForm>(emptyColumnForm);
+  const [newColumnForm, setNewColumnForm] = useState<ColumnForm>(defaultColumnForm);
   const [editingColumnId, setEditingColumnId] = useState("");
-  const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(emptyColumnForm);
+  const [editColumnForm, setEditColumnForm] = useState<ColumnForm>(defaultColumnForm);
   const [boardSearch, setBoardSearch] = useState("");
   const [highlightedSearchMatch, setHighlightedSearchMatch] = useState<{ type: "card" | "list"; id: string } | null>(null);
   const [activeMobileColumnId, setActiveMobileColumnId] = useState("");
@@ -862,11 +864,15 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }, [cards, columns]);
 
   useEffect(() => {
-    if (columns.length === 0) {
-      setActiveMobileColumnId("");
-      return;
-    }
-    setActiveMobileColumnId((current) => (current && columns.some((column) => column.id === current) ? current : columns[0].id));
+    const timer = window.setTimeout(() => {
+      if (columns.length === 0) {
+        setActiveMobileColumnId("");
+        return;
+      }
+      setActiveMobileColumnId((current) => (current && columns.some((column) => column.id === current) ? current : columns[0].id));
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [columns]);
 
   const visibleCards = useMemo(() => {
@@ -938,14 +944,14 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }, [boardSearch, cards, columns, latestCommentsByCardId]);
 
   const selectedCard = useMemo(() => cards.find((card) => card.id === selectedCardId) ?? null, [cards, selectedCardId]);
-  const bullpenColumn = useMemo(() => columns.find(isBullpenColumn) ?? null, [columns]);
+  const bullpenColumn = useMemo(() => (boardKey === "dti" ? columns.find(isBullpenColumn) ?? null : null), [boardKey, columns]);
   const quickLaneActions = useMemo<QuickLaneAction[]>(
     () =>
-      quickLaneDefinitions.map((lane) => ({
+      boardKey === "dti" ? quickLaneDefinitions.map((lane) => ({
         ...lane,
         columnId: findQuickLaneColumn(columns, lane)?.id ?? "",
-      })),
-    [columns]
+      })) : [],
+    [boardKey, columns]
   );
   const applyFallbackMode = useCallback(
     (nextMessage: string) => {
@@ -1343,7 +1349,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   }
 
   function startNewCardForColumn(column: BoardColumn) {
-    setNewCardForm({ ...emptyCardForm, columnId: column.id, locationName: column.title });
+    setNewCardForm({ ...emptyCardForm, columnId: column.id, locationName: column.title, assignedToProfileId: config.serviceLineKey });
     setShowNewCard(true);
     setShowNewColumn(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1382,7 +1388,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
           dueDate: newColumnForm.dueDate,
         },
       ]);
-      setNewColumnForm(emptyColumnForm);
+      setNewColumnForm(defaultColumnForm);
       setShowNewColumn(false);
       setMessage("Added this test lane locally. Run the SQL to persist lanes and realtime movement.");
       return;
@@ -1409,7 +1415,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
       before_value: null,
       after_value: { title: payload.title, due_date: columnDueDatesReady ? newColumnForm.dueDate || null : undefined },
     });
-    setNewColumnForm(emptyColumnForm);
+    setNewColumnForm(defaultColumnForm);
     setShowNewColumn(false);
     await loadBoard();
     if (savedWithoutDueDate) {
@@ -1422,7 +1428,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     setEditColumnForm({
       title: column.title,
       description: column.description,
-      serviceLineKey: serviceLineKeyFromColor(column.color) || serviceLineAssignmentKey(column.title) || "hotshot",
+      serviceLineKey: serviceLineKeyFromColor(column.color) || serviceLineAssignmentKey(column.title) || config.serviceLineKey,
       dueDate: column.dueDate,
     });
     setShowNewColumn(false);
@@ -1460,7 +1466,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
         )
       );
       setEditingColumnId("");
-      setEditColumnForm(emptyColumnForm);
+      setEditColumnForm(defaultColumnForm);
       setMessage("Updated this test list locally. Run the SQL to persist boards and realtime movement.");
       return;
     }
@@ -1476,7 +1482,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
 
     await logActivity(null, "updated_lane", { title: column.title, due_date: column.dueDate || null }, { title: patch.title, due_date: columnDueDatesReady ? editColumnForm.dueDate || null : undefined });
     setEditingColumnId("");
-    setEditColumnForm(emptyColumnForm);
+    setEditColumnForm(defaultColumnForm);
     await loadBoard({ showLoading: false, preserveDeckScroll: true });
     if (savedWithoutDueDate) {
       setMessage("List saved. Run the list due date SQL to make due dates persist.");
@@ -1945,7 +1951,11 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
             className="button primary"
             type="button"
             onClick={() => {
-              setNewCardForm((current) => ({ ...current, columnId: current.columnId || columns[0]?.id || "" }));
+              setNewCardForm((current) => ({
+                ...current,
+                columnId: current.columnId || columns[0]?.id || "",
+                assignedToProfileId: current.assignedToProfileId || config.serviceLineKey,
+              }));
               setShowNewCard((open) => !open);
               setShowNewColumn(false);
             }}
@@ -2126,7 +2136,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
               type="button"
               onClick={() => {
                 setEditingColumnId("");
-                setEditColumnForm(emptyColumnForm);
+                setEditColumnForm(defaultColumnForm);
               }}
             >
               Cancel

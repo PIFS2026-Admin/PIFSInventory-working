@@ -5,6 +5,7 @@ import {
   wtxOperationsBoardColumns,
   wtxOperationsBoardStarterCards,
 } from "./wtxOperationsBoardSeed";
+import { wtxTubingJobBoardColumns, wtxTubingJobBoardStarterCards } from "./wtxTubingJobBoardSeed";
 
 export type ServiceLineBoardColumnConfig = {
   key: string;
@@ -103,26 +104,12 @@ export const serviceLineBoardConfigs: Record<ServiceLineBoardKey, ServiceLineBoa
   tubing: {
     key: "tubing",
     serviceLineKey: "tubing",
-    title: "Tubing Work Board",
-    eyebrow: "Service Line Board",
-    description: "Track tubing service work across scheduling, production, review, and closeout.",
+    title: "Tubing Job Board",
+    eyebrow: "Live Tubing Job Board",
+    description: "Track Tubing jobs from incoming work through waterblast, inspection, repairs, invoicing, and completion.",
     backHref: "/service-lines/tubing",
-    columns: [
-      { key: "requested", title: "Requested", description: "New tubing requests.", color: "#fb923c" },
-      { key: "scheduled", title: "Scheduled", description: "Work has been scheduled.", color: "#60a5fa" },
-      { key: "in_progress", title: "In Progress", description: "Work is active.", color: "#facc15" },
-      { key: "review", title: "Review", description: "Needs review or paperwork.", color: "#a78bfa" },
-      { key: "complete", title: "Complete", description: "Work is complete.", color: "#34d399" },
-    ],
-    starterCards: [
-      {
-        title: "Tubing workflow placeholder",
-        description: "Use this until tubing forms and production records are connected.",
-        priority: "Normal",
-        tags: ["tubing"],
-        columnKey: "requested",
-      },
-    ],
+    columns: wtxTubingJobBoardColumns,
+    starterCards: wtxTubingJobBoardStarterCards,
   },
   hotshot: {
     key: "hotshot",
