@@ -283,6 +283,7 @@ function decodePngAsRgb(buffer: Buffer): PdfRasterImage | null {
 }
 
 let cachedPathfinderLogo: PdfRasterImage | null | undefined;
+let cachedTubingDriftTemplate: PdfRasterImage | null | undefined;
 
 function getPathfinderLogo() {
   if (cachedPathfinderLogo !== undefined) return cachedPathfinderLogo;
@@ -536,6 +537,19 @@ function buildDtiSummaryPdf(summary: Record<string, any>) {
   return buildSinglePagePdf(commands, logo);
 }
 
+function getTubingDriftTemplate() {
+  if (cachedTubingDriftTemplate !== undefined) return cachedTubingDriftTemplate;
+
+  try {
+    const templatePath = join(process.cwd(), "public", "tubing-drift-verification-template.png");
+    cachedTubingDriftTemplate = decodePngAsRgb(readFileSync(templatePath));
+  } catch {
+    cachedTubingDriftTemplate = null;
+  }
+
+  return cachedTubingDriftTemplate;
+}
+
 function buildTubingDriftVerificationPdf(verification: Record<string, any>) {
   const commands: string[] = ["1 1 1 rg 0 0 612 792 re f", "0 0 0 rg", "0 0 0 RG"];
   const signatureData = dtiValue(verification, "signature_data");
@@ -666,6 +680,82 @@ function buildTubingDriftVerificationPdf(verification: Record<string, any>) {
     undefined,
     signatureImage ? [{ name: "Signature", image: signatureImage }] : [],
   );
+}
+
+function buildUploadedTubingDriftVerificationPdf(verification: Record<string, any>) {
+  const template = getTubingDriftTemplate();
+  if (!template) return buildTubingDriftVerificationPdf(verification);
+
+  const commands = ["1 1 1 rg 0 0 612 792 re f", "q 612 0 0 792 0 0 cm /DriftTemplate Do Q", "0 0 0 rg"];
+  const signatureData = dtiValue(verification, "signature_data");
+  const signatureImage = signatureData.startsWith("data:image/png;base64,")
+    ? decodePngAsRgb(Buffer.from(signatureData.slice(signatureData.indexOf(",") + 1), "base64"))
+    : null;
+
+  function textAt(value: unknown, leftPercent: number, topPercent: number, size = 8, bold = true) {
+    const x = pageWidth * (leftPercent / 100);
+    const y = pageHeight - pageHeight * (topPercent / 100) - size;
+    commands.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapeDtiPdfText(value)}) Tj ET`);
+  }
+
+  function centeredText(value: unknown, topPercent: number) {
+    const clean = cleanDtiPdfText(value);
+    const estimatedWidth = clean.length * 4.3;
+    const centerX = pageWidth * 0.55;
+    const x = Math.max(pageWidth * 0.465, centerX - estimatedWidth / 2);
+    const y = pageHeight - pageHeight * (topPercent / 100) - 8;
+    commands.push(`BT /F2 8 Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapeDtiPdfText(clean)}) Tj ET`);
+  }
+
+  textAt(verification.drift_serial_number, 26.5, 16.1, 8.5);
+  textAt(verification.verification_date, 66.5, 16.1, 8.5);
+  textAt(verification.checked_out_by, 30.5, 19.5, 8.5);
+  textAt(verification.ft_tu_number, 17, 22.8, 8.5);
+
+  const diameterRows = [
+    ["end_a_0_diameter", 31.7],
+    ["end_a_90_diameter", 38.0],
+    ["center_0_diameter", 44.3],
+    ["center_90_diameter", 50.6],
+    ["end_b_0_diameter", 56.9],
+    ["end_b_90_diameter", 63.2],
+  ] as const;
+  const resultRows = [
+    ["end_a_0_result", 31.9],
+    ["end_a_90_result", 38.2],
+    ["center_0_result", 44.5],
+    ["center_90_result", 50.8],
+    ["end_b_0_result", 57.1],
+    ["end_b_90_result", 63.4],
+  ] as const;
+
+  diameterRows.forEach(([key, top]) => centeredText(verification[key], top));
+  resultRows.forEach(([key, top]) => {
+    if (verification[key] === "Pass") textAt("X", 79.1, top, 9);
+    if (verification[key] === "Fail") textAt("X", 90.8, top, 9);
+  });
+
+  centeredText(verification.overall_length, 69.5);
+  if (verification.overall_result === "Pass") textAt("X", 79.4, 69.7, 9);
+  if (verification.overall_result === "Fail") textAt("X", 91, 69.7, 9);
+
+  wrapPdfLines(verification.comments, 100, 3).forEach((item, index) => {
+    textAt(item, 6.6, 75 + index * 1.05, 7.2, false);
+  });
+
+  const images = [{ name: "DriftTemplate", image: template }];
+  if (signatureImage) {
+    images.push({ name: "Signature", image: signatureImage });
+    const x = pageWidth * 0.655;
+    const width = pageWidth * 0.27;
+    const height = pageHeight * 0.043;
+    const y = pageHeight - pageHeight * 0.183 - height;
+    commands.push(`q ${width.toFixed(2)} 0 0 ${height.toFixed(2)} ${x.toFixed(2)} ${y.toFixed(2)} cm /Signature Do Q`);
+  } else if (verification.signature_data) {
+    textAt(`/s/ ${verification.checked_out_by ?? ""}`, 66, 20, 9);
+  }
+
+  return buildSinglePagePdf(commands, undefined, images);
 }
 
 function buildPdf(options: PdfOptions) {
@@ -822,7 +912,7 @@ export function createTubingDriftVerificationPdfAttachment(options: TubingDriftV
   return {
     name: filename,
     contentType: "application/pdf",
-    contentBytes: buildTubingDriftVerificationPdf(options.verification).toString("base64"),
+    contentBytes: buildUploadedTubingDriftVerificationPdf(options.verification).toString("base64"),
   };
 }
 
