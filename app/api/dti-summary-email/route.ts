@@ -136,7 +136,7 @@ export async function POST(request: Request) {
     const token = authorization.replace(/^Bearer\s+/i, "").trim();
 
     if (!token) {
-      return Response.json({ error: "You must be signed in to email DTI summaries." }, { status: 401 });
+      return Response.json({ error: "You must be signed in to email daily summaries." }, { status: 401 });
     }
 
     const { data: userData, error: userError } = await publicClient.auth.getUser(token);
@@ -154,18 +154,22 @@ export async function POST(request: Request) {
       return Response.json({ error: "Your user profile could not be loaded." }, { status: 403 });
     }
 
-    const allowedRoles = ["admin", "employee", "sales", "dti_superintendent", "dti_inspector"];
+    const body = await request.json();
+    const serviceLine = String(body.serviceLine ?? "DTI") === "Tubing" ? "Tubing" : "DTI";
+    const isTubing = serviceLine === "Tubing";
+    const allowedRoles = isTubing
+      ? ["admin", "employee", "service_line_manager", "tubing_lead", "tubing_hand"]
+      : ["admin", "employee", "sales", "dti_superintendent", "dti_inspector", "dti_lead", "level_2_inspector"];
     if (!allowedRoles.includes(String(profile.role))) {
-      return Response.json({ error: "You do not have permission to email DTI summaries." }, { status: 403 });
+      return Response.json({ error: `You do not have permission to email ${serviceLine} summaries.` }, { status: 403 });
     }
 
-    const body = await request.json();
     const summaryId = String(body.summaryId ?? "").trim();
     const recipientEmail = String(body.recipientEmail ?? "").trim();
     const note = String(body.note ?? "").trim();
 
     if (!summaryId || !recipientEmail) {
-      return Response.json({ error: "DTI daily summary and recipient email are required." }, { status: 400 });
+      return Response.json({ error: `${serviceLine} daily summary and recipient email are required.` }, { status: 400 });
     }
 
     if (!recipientEmail.includes("@")) {
@@ -173,29 +177,29 @@ export async function POST(request: Request) {
     }
 
     const { data: summary, error: summaryError } = await adminClient
-      .from("dti_daily_summaries")
+      .from(isTubing ? "tubing_daily_summaries" : "dti_daily_summaries")
       .select("*")
       .eq("id", summaryId)
       .single();
 
     if (summaryError || !summary) {
-      return Response.json({ error: summaryError?.message ?? "DTI daily summary not found." }, { status: 404 });
+      return Response.json({ error: summaryError?.message ?? `${serviceLine} daily summary not found.` }, { status: 404 });
     }
 
     const siteUrl = getSiteUrl();
-    const reportUrl = `${siteUrl}/dti-summary/print?id=${encodeURIComponent(summary.id)}`;
-    const subject = `TITAN DTI Daily Summary - ${summary.summary_number}`;
+    const reportUrl = `${siteUrl}/${isTubing ? "tubing-summary" : "dti-summary"}/print?id=${encodeURIComponent(summary.id)}`;
+    const subject = `TITAN ${serviceLine} Daily Summary - ${summary.summary_number}`;
 
     const attachment = createDtiSummaryPdfAttachment({
-      filename: `${safePdfFilename(`DTI-Daily-Summary-${summary.summary_number || summary.id}`)}.pdf`,
+      filename: `${safePdfFilename(`${serviceLine}-Daily-Summary-${summary.summary_number || summary.id}`)}.pdf`,
       summary,
     });
 
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827">
-        <h2 style="margin:0 0 6px">TITAN DTI Daily Summary</h2>
+        <h2 style="margin:0 0 6px">TITAN ${serviceLine} Daily Summary</h2>
         <p style="margin:0 0 18px;color:#f97316;font-weight:700">Powering smarter pipe management</p>
-        <p>A DTI daily inspection summary is attached as a PDF for review.</p>
+        <p>A ${serviceLine} daily inspection summary is attached as a PDF for review.</p>
         <p>
           <strong>Summary:</strong> ${summary.summary_number}<br />
           <strong>Date:</strong> ${summary.summary_date || "-"}<br />

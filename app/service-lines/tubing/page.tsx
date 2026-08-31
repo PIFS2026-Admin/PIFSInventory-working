@@ -5,10 +5,10 @@ export default function TubingServiceLinePage() {
     <ServiceLineScreen
       eyebrow="Service Lines"
       title="Tubing"
-      subtitle="Tubing module workspace."
+      subtitle="Open the Tubing workspace you need."
       backHref="/service-lines"
       actions={[
-        { title: "Tubing Buildout Pending", href: "/service-lines" },
+        { title: "Daily Summaries", href: "/tubing-summary" },
       ]}
     />
   );

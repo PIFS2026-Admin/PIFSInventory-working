@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const token = authorization.replace(/^Bearer\s+/i, "").trim();
 
     if (!token) {
-      return Response.json({ error: "You must be signed in to post DTI summaries." }, { status: 401 });
+      return Response.json({ error: "You must be signed in to post daily summaries." }, { status: 401 });
     }
 
     const { data: userData, error: userError } = await publicClient.auth.getUser(token);
@@ -67,32 +67,36 @@ export async function POST(request: Request) {
       return Response.json({ error: "Your user profile could not be loaded." }, { status: 403 });
     }
 
-    const allowedRoles = ["admin", "employee", "dti_superintendent", "dti_inspector"];
+    const body = await request.json();
+    const serviceLine = String(body.serviceLine ?? "DTI") === "Tubing" ? "Tubing" : "DTI";
+    const isTubing = serviceLine === "Tubing";
+    const allowedRoles = isTubing
+      ? ["admin", "employee", "service_line_manager", "tubing_lead", "tubing_hand"]
+      : ["admin", "employee", "dti_superintendent", "dti_inspector", "dti_lead", "level_2_inspector"];
     if (!allowedRoles.includes(String(profile.role))) {
-      return Response.json({ error: "You do not have permission to post DTI summaries." }, { status: 403 });
+      return Response.json({ error: `You do not have permission to post ${serviceLine} summaries.` }, { status: 403 });
     }
 
-    const body = await request.json();
     const summaryId = String(body.summaryId ?? "").trim();
 
     if (!summaryId) {
-      return Response.json({ error: "DTI daily summary is required." }, { status: 400 });
+      return Response.json({ error: `${serviceLine} daily summary is required.` }, { status: 400 });
     }
 
     const { data: summary, error: summaryError } = await adminClient
-      .from("dti_daily_summaries")
+      .from(isTubing ? "tubing_daily_summaries" : "dti_daily_summaries")
       .select("id, summary_number, summary_date, operator, contractor, location, field_invoice, total_joints_inspected, total_damages, total_dbr, total_refaces, total_hardbands, inspected_by, inspection_report_name, inspection_report_url")
       .eq("id", summaryId)
       .single();
 
     if (summaryError || !summary) {
-      return Response.json({ error: summaryError?.message ?? "DTI daily summary not found." }, { status: 404 });
+      return Response.json({ error: summaryError?.message ?? `${serviceLine} daily summary not found.` }, { status: 404 });
     }
 
     const siteUrl = getSiteUrl();
-    const reportUrl = `${siteUrl}/dti-summary/print?id=${encodeURIComponent(summary.id)}`;
+    const reportUrl = `${siteUrl}/${isTubing ? "tubing-summary" : "dti-summary"}/print?id=${encodeURIComponent(summary.id)}`;
     const lines = [
-      "TITAN Daily Summary Posted",
+      `TITAN ${serviceLine} Daily Summary Posted`,
       `Summary: ${summary.summary_number ?? "-"}`,
       `Date: ${summary.summary_date ?? "-"}`,
       `Operator: ${summary.operator ?? "-"}`,
@@ -129,7 +133,7 @@ export async function POST(request: Request) {
     }
 
     await adminClient
-      .from("dti_daily_summaries")
+      .from(isTubing ? "tubing_daily_summaries" : "dti_daily_summaries")
       .update({ status: "Posted", updated_at: new Date().toISOString() })
       .eq("id", summaryId);
 
