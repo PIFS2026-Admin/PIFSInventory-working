@@ -372,9 +372,7 @@
   .location,
   .diameter span,
   .comments label,
-  .signatureHeader span,
-  .legend,
-  .footnote {
+  .signatureHeader span {
     color: var(--muted);
   }
 
@@ -422,6 +420,94 @@
     position: sticky;
     z-index: 20;
     top: 0;
+  }
+
+  .sectionTitle {
+    border: 1px solid rgba(249, 115, 22, 0.55);
+    border-radius: 7px 7px 0 0;
+    background: #17120e;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 11px 10px;
+  }
+
+  .legend,
+  .legend tbody,
+  .legend tr,
+  .legend td {
+    display: block;
+    width: 100%;
+  }
+
+  .legend {
+    border: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 15px;
+  }
+
+  .legend thead {
+    display: none;
+  }
+
+  .legend tbody {
+    display: grid;
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .legend tr {
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.38);
+    border-radius: 7px;
+    background: #0d1117;
+  }
+
+  .legend td {
+    border: 0;
+    color: #fff;
+    line-height: 1.35;
+    padding: 10px 12px;
+  }
+
+  .legend td:first-child {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    font-weight: 800;
+  }
+
+  .legend td:first-child::before,
+  .legend td:last-child::before {
+    display: block;
+    margin-bottom: 3px;
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+  }
+
+  .legend td:first-child::before {
+    content: "Description";
+  }
+
+  .legend td:last-child {
+    color: #fdba74;
+    font-weight: 900;
+  }
+
+  .legend td:last-child::before {
+    content: "Drift diameter range (inches)";
+  }
+
+  .footnote {
+    border-color: rgba(249, 115, 22, 0.42);
+    border-radius: 7px;
+    background: rgba(249, 115, 22, 0.08);
+    color: #e2e8f0;
+    font-size: 13px;
+    line-height: 1.45;
+    padding: 12px;
+    text-align: left;
   }
 }
 
