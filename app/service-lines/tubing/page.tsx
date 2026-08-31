@@ -9,6 +9,7 @@ export default function TubingServiceLinePage() {
       backHref="/service-lines"
       actions={[
         { title: "Daily Summaries", href: "/tubing-summary" },
+        { title: "Drift Verification", href: "/tubing-drift-verification" },
       ]}
     />
   );

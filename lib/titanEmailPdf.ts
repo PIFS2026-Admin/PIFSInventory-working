@@ -34,6 +34,11 @@ type DtiSummaryPdfOptions = {
   summary: Record<string, any>;
 };
 
+type TubingDriftVerificationPdfOptions = {
+  filename: string;
+  verification: Record<string, any>;
+};
+
 type PdfRasterImage = {
   width: number;
   height: number;
@@ -292,7 +297,11 @@ function getPathfinderLogo() {
   return cachedPathfinderLogo;
 }
 
-function buildSinglePagePdf(commands: string[], image?: PdfRasterImage | null) {
+function buildSinglePagePdf(
+  commands: string[],
+  image?: PdfRasterImage | null,
+  additionalImages: Array<{ name: string; image: PdfRasterImage }> = [],
+) {
   const objects: Buffer[] = [];
   const addObject = (body: string | Buffer) => {
     objects.push(typeof body === "string" ? Buffer.from(body, ascii) : body);
@@ -317,9 +326,20 @@ function buildSinglePagePdf(commands: string[], image?: PdfRasterImage | null) {
         image.rgbStream,
       )
     : null;
+  const additionalImageIds = additionalImages.map(({ name, image: item }) => ({
+    name,
+    id: addStreamObject(
+      `/Type /XObject /Subtype /Image /Width ${item.width} /Height ${item.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode`,
+      item.rgbStream,
+    ),
+  }));
   const content = Buffer.from(commands.join("\n"), ascii);
   const contentId = addStreamObject("", content);
-  const imageResource = imageId ? `/XObject << /PathfinderLogo ${imageId} 0 R >>` : "";
+  const imageResources = [
+    ...(imageId ? [`/PathfinderLogo ${imageId} 0 R`] : []),
+    ...additionalImageIds.map((item) => `/${item.name} ${item.id} 0 R`),
+  ];
+  const imageResource = imageResources.length ? `/XObject << ${imageResources.join(" ")} >>` : "";
   const pageId = addObject(
     `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${regularFontId} 0 R /F2 ${boldFontId} 0 R >> ${imageResource} >> /Contents ${contentId} 0 R >>`,
   );
@@ -516,6 +536,138 @@ function buildDtiSummaryPdf(summary: Record<string, any>) {
   return buildSinglePagePdf(commands, logo);
 }
 
+function buildTubingDriftVerificationPdf(verification: Record<string, any>) {
+  const commands: string[] = ["1 1 1 rg 0 0 612 792 re f", "0 0 0 rg", "0 0 0 RG"];
+  const signatureData = dtiValue(verification, "signature_data");
+  const signatureImage = signatureData.startsWith("data:image/png;base64,")
+    ? decodePngAsRgb(Buffer.from(signatureData.slice(signatureData.indexOf(",") + 1), "base64"))
+    : null;
+
+  function textAt(value: unknown, x: number, y: number, size = 8, bold = false) {
+    commands.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${escapeDtiPdfText(value)}) Tj ET`);
+  }
+
+  function line(x1: number, y1: number, x2: number, y2: number, width = 0.75) {
+    commands.push(`0 0 0 RG ${width} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  }
+
+  function rect(x: number, y: number, width: number, height: number, strokeWidth = 0.75) {
+    commands.push(`0 0 0 RG ${strokeWidth} w ${x} ${y} ${width} ${height} re S`);
+  }
+
+  function fillRect(x: number, y: number, width: number, height: number, color: [number, number, number]) {
+    commands.push(`${color.join(" ")} rg ${x} ${y} ${width} ${height} re f 0 0 0 rg`);
+  }
+
+  function metaField(label: string, value: unknown, x: number, y: number, width: number) {
+    textAt(label.toUpperCase(), x + 8, y + 16, 7.2, true);
+    textAt(value, x + 104, y + 16, 8, true);
+    line(x + 102, y + 13, x + width - 8, y + 13, 0.45);
+  }
+
+  const rows = [
+    ["1. END A - 0 degrees", "end_a_0_diameter", "end_a_0_result"],
+    ["2. END A - 90 degrees", "end_a_90_diameter", "end_a_90_result"],
+    ["3. CENTER - 0 degrees", "center_0_diameter", "center_0_result"],
+    ["4. CENTER - 90 degrees", "center_90_diameter", "center_90_result"],
+    ["5. END B - 0 degrees", "end_b_0_diameter", "end_b_0_result"],
+    ["6. END B - 90 degrees", "end_b_90_diameter", "end_b_90_result"],
+  ];
+
+  line(30, 760, 582, 760, 6);
+  textAt("TITAN", 42, 721, 24, true);
+  textAt("by Pathfinder Inspections", 42, 706, 8.5, true);
+  textAt("DRIFT VERIFICATION", 286, 725, 23, true);
+  commands.push("0.95 0.35 0.08 rg");
+  textAt("SIGN OUT SHEET", 314, 699, 20, true);
+  commands.push("0 0 0 rg");
+  textAt("FOR TRACEABILITY AND ACCURACY", 333, 681, 8.5, true);
+  line(30, 670, 582, 670, 2);
+
+  rect(30, 598, 552, 66);
+  line(306, 598, 306, 664);
+  line(30, 631, 582, 631);
+  metaField("Drift Serial Number", verification.drift_serial_number, 30, 631, 276);
+  metaField("Date", verification.verification_date, 306, 631, 276);
+  metaField("Checked Out By", verification.checked_out_by, 30, 598, 276);
+  metaField("FT# or TU#", verification.ft_tu_number, 306, 598, 276);
+
+  fillRect(30, 576, 552, 22, [0.08, 0.08, 0.08]);
+  commands.push("1 1 1 rg");
+  textAt("DRIFT DIMENSIONAL VERIFICATION", 218, 583, 10, true);
+  commands.push("0 0 0 rg");
+
+  rect(30, 548, 552, 28);
+  line(266, 548, 266, 576);
+  line(430, 548, 430, 576);
+  textAt("MEASUREMENT LOCATION", 92, 558, 8, true);
+  textAt("DIAMETER (INCHES)", 299, 558, 8, true);
+  textAt("PASS / FAIL", 480, 558, 8, true);
+
+  const rowHeight = 45;
+  rows.forEach(([label, diameterKey, resultKey], index) => {
+    const y = 548 - rowHeight * (index + 1);
+    rect(30, y, 552, rowHeight);
+    line(266, y, 266, y + rowHeight);
+    line(430, y, 430, y + rowHeight);
+    textAt(label, 42, y + 18, 8.3, true);
+    textAt(dtiValue(verification, diameterKey), 322, y + 20, 9, true);
+    textAt("inches", 367, y + 12, 6.8, false);
+    const result = dtiValue(verification, resultKey);
+    textAt(`${result === "Pass" ? "[X]" : "[ ]"} PASS`, 452, y + 18, 8, true);
+    textAt(`${result === "Fail" ? "[X]" : "[ ]"} FAIL`, 518, y + 18, 8, true);
+  });
+
+  const overallY = 233;
+  rect(30, overallY, 552, 45);
+  line(266, overallY, 266, overallY + 45);
+  line(430, overallY, 430, overallY + 45);
+  textAt("OVERALL LENGTH (MINIMUM 42.0 in)", 42, overallY + 18, 8, true);
+  textAt(dtiValue(verification, "overall_length"), 322, overallY + 20, 9, true);
+  textAt("inches", 367, overallY + 12, 6.8, false);
+  const overallResult = dtiValue(verification, "overall_result");
+  textAt(`${overallResult === "Pass" ? "[X]" : "[ ]"} PASS`, 452, overallY + 18, 8, true);
+  textAt(`${overallResult === "Fail" ? "[X]" : "[ ]"} FAIL`, 518, overallY + 18, 8, true);
+
+  rect(30, 174, 552, 59);
+  textAt("COMMENTS / NOTES:", 40, 217, 7.5, true);
+  wrapPdfLines(verification.comments, 92, 3).forEach((item, index) => textAt(item, 40, 203 - index * 11, 7.2, false));
+  textAt("SIGNATURE:", 350, 217, 7.5, true);
+  if (signatureImage) {
+    commands.push("q 150 0 0 30 414 194 cm /Signature Do Q");
+  } else {
+    textAt(verification.signature_data ? `/s/ ${dtiValue(verification, "checked_out_by")}` : "", 414, 199, 10, true);
+  }
+  line(410, 195, 570, 195, 0.55);
+
+  fillRect(30, 152, 552, 22, [0.08, 0.08, 0.08]);
+  commands.push("1 1 1 rg");
+  textAt("DRIFT DIAMETER REFERENCE LEGEND (API 5CT)", 181, 159, 9, true);
+  commands.push("0 0 0 rg");
+  const legendRows = [
+    ["2 7/8 OD, 7.9 lb", "2.229 to 2.234"],
+    ["2 3/8 OD, 5.95 lb", "1.773 to 1.778"],
+    ["2 7/8 OD, 6.5 lb", "2.347 to 2.352"],
+    ["2 3/8 OD, 4.7 lb", "1.901 to 1.906"],
+    ["2 7/8 OD, FSS265 connection", "1.938 to 1.943"],
+  ];
+  legendRows.forEach(([description, range], index) => {
+    const y = 132 - index * 18;
+    rect(30, y, 552, 18);
+    line(365, y, 365, y + 18);
+    textAt(description, 42, y + 6, 7.2, false);
+    textAt(range, 452, y + 6, 7.2, true);
+  });
+  rect(30, 28, 552, 14);
+  textAt("* If pipe ID is coated, a poly drift must be used after manufacturer specifications have been acquired.", 66, 33, 6.8, true);
+
+  return buildSinglePagePdf(
+    commands,
+    undefined,
+    signatureImage ? [{ name: "Signature", image: signatureImage }] : [],
+  );
+}
+
 function buildPdf(options: PdfOptions) {
   const pages: string[][] = [[]];
   let y = pageHeight - margin;
@@ -659,6 +811,18 @@ export function createDtiSummaryPdfAttachment(options: DtiSummaryPdfOptions): Ti
     name: filename,
     contentType: "application/pdf",
     contentBytes: buildDtiSummaryPdf(options.summary).toString("base64"),
+  };
+}
+
+export function createTubingDriftVerificationPdfAttachment(options: TubingDriftVerificationPdfOptions): TitanEmailAttachment {
+  const filename = options.filename.toLowerCase().endsWith(".pdf")
+    ? options.filename
+    : `${options.filename}.pdf`;
+
+  return {
+    name: filename,
+    contentType: "application/pdf",
+    contentBytes: buildTubingDriftVerificationPdf(options.verification).toString("base64"),
   };
 }
 
