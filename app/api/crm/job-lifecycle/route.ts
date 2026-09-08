@@ -38,6 +38,18 @@ type ConnectionBody = {
   mode?: unknown;
 };
 
+type JobDocumentRow = {
+  id: string;
+  job_id: string;
+  document_type: string;
+  display_name: string;
+  storage_url: string;
+  source_module: string;
+  source_column: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
 const terminalStatuses = new Set(["complete", "completed", "invoiced", "cancelled", "canceled", "void", "voided"]);
 
 function configuredSupabase() {
@@ -96,11 +108,111 @@ function isTerminalStatus(status: string) {
   return terminalStatuses.has(normalized(status));
 }
 
+function validUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function missingRelation(error: { code?: string; message?: string } | null) {
+  return error?.code === "PGRST205" || normalized(error?.message).includes("schema cache");
+}
+
+async function secureDocumentUrl(
+  adminSupabase: ReturnType<typeof configuredSupabase>,
+  document: JobDocumentRow,
+) {
+  if (/^https?:\/\//i.test(document.storage_url)) return document.storage_url;
+
+  const match = document.storage_url.match(/^storage:\/\/([^/]+)\/(.+)$/i);
+  if (!match) throw new Error("This document does not have a valid TITAN file location.");
+
+  const [, bucket, path] = match;
+  const { data, error } = await adminSupabase.storage.from(bucket).createSignedUrl(path, 120);
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error("TITAN could not create a secure document link.");
+  return data.signedUrl;
+}
+
+async function loadJobDetail(
+  adminSupabase: ReturnType<typeof configuredSupabase>,
+  jobId: string,
+) {
+  const [jobResult, linksResult, eventsResult, documentsResult] = await Promise.all([
+    adminSupabase.from("titan_jobs").select("*").eq("id", jobId).is("archived_at", null).maybeSingle(),
+    adminSupabase
+      .from("titan_job_links")
+      .select("id, module_key, record_type, record_id, relationship_type, is_primary, metadata, created_at, updated_at")
+      .eq("job_id", jobId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: true }),
+    adminSupabase
+      .from("titan_job_events")
+      .select("id, event_type, source_module, from_status, to_status, summary, before_value, after_value, created_at")
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: false })
+      .limit(250),
+    adminSupabase
+      .from("titan_job_documents")
+      .select("id, job_id, document_type, display_name, storage_url, source_module, source_column, metadata, created_at")
+      .eq("job_id", jobId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false }),
+  ]);
+
+  if (jobResult.error) throw jobResult.error;
+  if (!jobResult.data) return Response.json({ error: "Connected job was not found." }, { status: 404 });
+  if (linksResult.error) throw linksResult.error;
+  if (eventsResult.error) throw eventsResult.error;
+
+  const registryReady = !documentsResult.error;
+  if (documentsResult.error && !missingRelation(documentsResult.error)) throw documentsResult.error;
+
+  return Response.json({
+    ok: true,
+    job: jobResult.data,
+    links: linksResult.data ?? [],
+    events: eventsResult.data ?? [],
+    documents: registryReady ? documentsResult.data ?? [] : [],
+    documentRegistryReady: registryReady,
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
     const authorization = await authorizeWade(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
+
+    const url = new URL(request.url);
+    const jobId = String(url.searchParams.get("jobId") ?? "").trim();
+    const documentId = String(url.searchParams.get("documentId") ?? "").trim();
+
+    if (documentId) {
+      if (!validUuid(documentId)) {
+        return Response.json({ error: "A valid job document is required." }, { status: 400 });
+      }
+
+      const { data, error } = await adminSupabase
+        .from("titan_job_documents")
+        .select("id, job_id, document_type, display_name, storage_url, source_module, source_column, metadata, created_at")
+        .eq("id", documentId)
+        .is("archived_at", null)
+        .maybeSingle();
+
+      if (error) {
+        if (missingRelation(error)) {
+          return Response.json({ error: "Run supabase/titan_job_document_registry.sql before opening job documents." }, { status: 409 });
+        }
+        throw error;
+      }
+      if (!data) return Response.json({ error: "Job document was not found." }, { status: 404 });
+
+      return Response.json({ ok: true, url: await secureDocumentUrl(adminSupabase, data as JobDocumentRow) });
+    }
+
+    if (jobId) {
+      if (!validUuid(jobId)) return Response.json({ error: "A valid TITAN job is required." }, { status: 400 });
+      return loadJobDetail(adminSupabase, jobId);
+    }
 
     const jobs: LifecycleRow[] = [];
     const pageSize = 1000;
@@ -182,7 +294,7 @@ export async function POST(request: Request) {
     const jobId = String(body.jobId ?? "").trim();
     const mode = String(body.mode ?? "preview").trim().toLowerCase();
 
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+    if (!validUuid(jobId)) {
       return Response.json({ error: "A valid TITAN job is required." }, { status: 400 });
     }
 

@@ -85,6 +85,8 @@
 .tableWrap td strong,
 .tableWrap td small { display: block; }
 .tableWrap td small { margin-top: 3px; color: #8f99a9; font-size: 10px; }
+.jobLink { display: block; color: #f7f7fb; font-weight: 900; overflow-wrap: anywhere; text-decoration-color: #f97316; text-underline-offset: 3px; }
+.jobLink:hover { color: #fdba74; }
 .serviceLine,
 .status,
 .linked,

@@ -303,7 +303,10 @@ export default function ConnectedJobsPage() {
               <tbody>
                 {visibleJobs.map((job) => (
                   <tr key={job.id}>
-                    <td data-label="Job"><strong>{job.title}</strong><small>{job.job_number}</small></td>
+                    <td data-label="Job">
+                      <a className={styles.jobLink} href={`/crm/jobs/${encodeURIComponent(job.id)}`}>{job.title}</a>
+                      <small>{job.job_number}</small>
+                    </td>
                     <td data-label="Service Line"><span className={styles.serviceLine} style={{ borderColor: serviceLineColor(job.service_line) }}>{job.service_line}</span></td>
                     <td data-label="Status"><span className={styles.status}>{job.lifecycle_status}</span></td>
                     <td data-label="Scheduled">{formatDate(job.scheduled_start)}</td>
