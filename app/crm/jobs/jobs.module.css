@@ -24,7 +24,11 @@
 .titleBlock h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.05; }
 .headerActions { display: flex; gap: 8px; }
 .headerActions button,
+.headerActions a,
 .scopeControl button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 40px;
   border: 1px solid #3a4352;
   border-radius: 6px;
@@ -32,6 +36,7 @@
   color: #f7f7fb;
   font-weight: 850;
   padding: 8px 14px;
+  text-decoration: none;
 }
 
 .metrics {
@@ -164,7 +169,7 @@
   .header { align-items: flex-start; }
   .titleBlock img { width: 50px; height: 34px; }
   .titleBlock h1 { font-size: 22px; }
-  .headerActions button:first-child { display: none; }
+  .headerActions button:first-child, .headerActions a { display: none; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .toolbar { grid-template-columns: 1fr; }
   .searchField { grid-column: auto; grid-row: auto; }

@@ -567,6 +567,21 @@ export async function PATCH(request: Request) {
         return Response.json({ error: "Describe the repeated issue before saving the debrief." }, { status: 400 });
       }
 
+      const hasSubstantiveDebrief = [
+        body.stationBehind,
+        body.varianceDriver,
+        body.wentWell,
+        body.slowedBy,
+        body.safetyObservations,
+        body.grayAreaSummary,
+        body.customerFeedback,
+        body.repeatNote,
+        body.lessonsLearned,
+      ].some((value) => cleanText(value));
+      if (!hasSubstantiveDebrief) {
+        return Response.json({ error: "Record at least one meaningful closeout observation before saving the debrief." }, { status: 400 });
+      }
+
       const payload = {
         job_id: jobId,
         on_plan: body.onPlan === null || body.onPlan === undefined || body.onPlan === "" ? null : booleanValue(body.onPlan),
