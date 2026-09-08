@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { goBackOrFallback } from "../../../../lib/navigation";
@@ -105,6 +106,31 @@ type JobDebrief = {
   updated_at: string;
 };
 
+type BriefSpecification = {
+  id: string;
+  specification_number: string;
+  customer_name: string | null;
+  scope: "Customer" | "Company";
+  service_line: string;
+  title: string;
+  requirement_text: string;
+  effective_date: string;
+};
+
+type BriefSignal = {
+  id: string;
+  candidate_number: string;
+  job_id: string;
+  source_type: "Deviation" | "Debrief";
+  candidate_type: string;
+  trigger_text: string | null;
+  requirement_text: string;
+  confidence: "Low" | "Medium" | "High";
+  review_status: "Pending" | "Under Review" | "Decided";
+  decision: string | null;
+  updated_at: string;
+};
+
 type DeviationForm = {
   id: string;
   component: string;
@@ -149,6 +175,12 @@ type DetailResponse = {
   deviations?: JobDeviation[];
   debrief?: JobDebrief | null;
   intelligenceReady?: boolean;
+  preJobBrief?: {
+    specifications: BriefSpecification[];
+    openSignals: BriefSignal[];
+    jobSpecificLessons: BriefSignal[];
+  };
+  specIntelligenceReady?: boolean;
   error?: string;
 };
 
@@ -302,6 +334,7 @@ export default function ConnectedJobDetailPage() {
   const documents = useMemo(() => response?.documents ?? [], [response?.documents]);
   const events = useMemo(() => response?.events ?? [], [response?.events]);
   const deviations = useMemo(() => response?.deviations ?? [], [response?.deviations]);
+  const preJobBrief = response?.preJobBrief;
   const operationsHref = job ? operationalHref(job, links) : "";
 
   async function openDocument(document: JobDocument) {
@@ -422,6 +455,50 @@ export default function ConnectedJobDetailPage() {
             <div><span>Scheduled</span><strong>{formatDate(job.scheduled_start, true)}</strong></div>
             <div><span>Documents</span><strong>{documents.length}</strong></div>
             {operationsHref ? <a href={operationsHref}>Open Operations</a> : null}
+          </section>
+
+          <section className={`${styles.panel} ${styles.briefPanel}`}>
+            <div className={styles.panelHeader}>
+              <div><span>Prepared from approved specifications and prior field intelligence</span><h2>Pre-Job Intelligence Brief</h2></div>
+              <Link href="/crm/intelligence">Open Job Intelligence</Link>
+            </div>
+            {!response?.specIntelligenceReady ? (
+              <div className={styles.empty}>Run the Specification Intelligence SQL to activate the pre-job brief.</div>
+            ) : (
+              <div className={styles.briefGrid}>
+                <section className={styles.requirementsSection}>
+                  <div className={styles.briefSectionHeading}><h3>Controlled Requirements</h3><span>{preJobBrief?.specifications.length ?? 0}</span></div>
+                  {preJobBrief?.specifications.length ? <div className={styles.briefList}>{preJobBrief.specifications.map((specification) => (
+                    <article key={specification.id} className={styles.approvedBrief}>
+                      <div><strong>{specification.title}</strong><span>{specification.specification_number} · {specification.scope}</span></div>
+                      <p>{specification.requirement_text}</p>
+                    </article>
+                  ))}</div> : <div className={styles.briefEmpty}>No approved customer or company requirements currently match this job.</div>}
+                </section>
+
+                <section>
+                  <div className={styles.briefSectionHeading}><h3>Pending Review</h3><span>{preJobBrief?.openSignals.length ?? 0}</span></div>
+                  <div className={styles.pendingNotice}>Awareness only. These records are not approved requirements or authorization.</div>
+                  {preJobBrief?.openSignals.length ? <div className={styles.briefList}>{preJobBrief.openSignals.map((signal) => (
+                    <article key={signal.id} className={styles.pendingBrief}>
+                      <div><strong>{signal.trigger_text || signal.candidate_type}</strong><span>{signal.candidate_number} · {signal.review_status}</span></div>
+                      <p>{signal.requirement_text}</p>
+                    </article>
+                  ))}</div> : <div className={styles.briefEmpty}>No open repeat issues or candidate lessons match this customer and service line.</div>}
+                </section>
+
+                <section>
+                  <div className={styles.briefSectionHeading}><h3>Prior Job-Specific Lessons</h3><span>{preJobBrief?.jobSpecificLessons.length ?? 0}</span></div>
+                  {preJobBrief?.jobSpecificLessons.length ? <div className={styles.briefList}>{preJobBrief.jobSpecificLessons.map((lesson) => (
+                    <article key={lesson.id}>
+                      <div><strong>{lesson.trigger_text || lesson.candidate_type}</strong><span>{lesson.candidate_number} · Historical context</span></div>
+                      <p>{lesson.requirement_text}</p>
+                      <Link href={`/crm/jobs/${encodeURIComponent(lesson.job_id)}`}>Open source job</Link>
+                    </article>
+                  ))}</div> : <div className={styles.briefEmpty}>No prior job-specific lessons match this customer and service line.</div>}
+                </section>
+              </div>
+            )}
           </section>
 
           <div className={styles.contentGrid}>

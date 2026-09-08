@@ -232,6 +232,47 @@ async function loadJobDetail(
   if (deviationsResult.error && !missingRelation(deviationsResult.error)) throw deviationsResult.error;
   if (debriefResult.error && !missingRelation(debriefResult.error)) throw debriefResult.error;
 
+  const [specificationsResult, candidatesResult] = await Promise.all([
+    adminSupabase
+      .from("titan_customer_specifications")
+      .select("id, specification_number, customer_name, scope, service_line, title, requirement_text, effective_date, status")
+      .eq("status", "Active")
+      .order("effective_date", { ascending: false })
+      .limit(1000),
+    adminSupabase
+      .from("titan_spec_candidates")
+      .select("id, candidate_number, job_id, source_type, customer_name, service_line, candidate_type, trigger_text, requirement_text, confidence, review_status, decision, updated_at")
+      .in("review_status", ["Pending", "Under Review", "Decided"])
+      .order("updated_at", { ascending: false })
+      .limit(1000),
+  ]);
+  const specIntelligenceReady = !specificationsResult.error && !candidatesResult.error;
+  if (specificationsResult.error && !missingRelation(specificationsResult.error)) throw specificationsResult.error;
+  if (candidatesResult.error && !missingRelation(candidatesResult.error)) throw candidatesResult.error;
+
+  const job = jobResult.data;
+  const sameServiceLine = (value: unknown) => {
+    const key = normalized(value);
+    return key === "all" || key === normalized(job.service_line);
+  };
+  const sameCustomer = (value: unknown) => Boolean(normalized(job.customer_name))
+    && normalized(value) === normalized(job.customer_name);
+  const specifications = specIntelligenceReady
+    ? (specificationsResult.data ?? []).filter((specification) => sameServiceLine(specification.service_line)
+      && (specification.scope === "Company" || sameCustomer(specification.customer_name)))
+    : [];
+  const relatedCandidates = specIntelligenceReady
+    ? (candidatesResult.data ?? []).filter((candidate) => candidate.job_id !== job.id
+      && sameServiceLine(candidate.service_line)
+      && sameCustomer(candidate.customer_name))
+    : [];
+  const openSignals = relatedCandidates
+    .filter((candidate) => candidate.review_status === "Pending" || candidate.review_status === "Under Review")
+    .slice(0, 8);
+  const jobSpecificLessons = relatedCandidates
+    .filter((candidate) => candidate.review_status === "Decided" && candidate.decision === "Job-Specific")
+    .slice(0, 8);
+
   return Response.json({
     ok: true,
     job: jobResult.data,
@@ -242,6 +283,8 @@ async function loadJobDetail(
     deviations: intelligenceReady ? deviationsResult.data ?? [] : [],
     debrief: intelligenceReady ? debriefResult.data ?? null : null,
     intelligenceReady,
+    preJobBrief: { specifications, openSignals, jobSpecificLessons },
+    specIntelligenceReady,
   });
 }
 
