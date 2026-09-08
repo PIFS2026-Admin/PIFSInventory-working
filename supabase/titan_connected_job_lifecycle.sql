@@ -107,7 +107,7 @@ returns text
 language sql
 immutable
 as $$
-  select lower(regexp_replace(coalesce(value, ''), '[^a-z0-9]+', '', 'g'));
+  select regexp_replace(lower(coalesce(value, '')), '[^a-z0-9]+', '', 'g');
 $$;
 
 create or replace function public.titan_job_metadata_field(metadata jsonb, requested_key text)
