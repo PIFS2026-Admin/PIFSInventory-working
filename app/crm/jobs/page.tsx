@@ -45,6 +45,26 @@ type LifecycleResponse = {
   error?: string;
 };
 
+type ConnectionResult = {
+  ok?: boolean;
+  canConnect?: boolean;
+  alreadyConnected?: boolean;
+  connected?: boolean;
+  reason?: string;
+  jobId?: string;
+  jobNumber?: string;
+  title?: string;
+  serviceLine?: string;
+  boardKey?: string;
+  boardName?: string;
+  columnName?: string;
+  customerName?: string | null;
+  locationName?: string | null;
+  dueDate?: string | null;
+  targetHref?: string;
+  error?: string;
+};
+
 const terminalStatuses = new Set(["complete", "completed", "invoiced", "cancelled", "canceled", "void", "voided"]);
 
 function normalized(value: unknown) {
@@ -76,6 +96,15 @@ function serviceLineColor(value: string) {
   return "#a78bfa";
 }
 
+function boardHref(serviceLine: string) {
+  const key = normalized(serviceLine);
+  if (key === "hardbanding" || key === "hardband" || key === "hb") return "/service-lines/boards/hardbanding";
+  if (key === "cdt") return "/service-lines/boards/cdt";
+  if (key === "tubing") return "/service-lines/boards/tubing";
+  if (key === "hotshot") return "/service-lines/boards/hotshot";
+  return "";
+}
+
 export default function ConnectedJobsPage() {
   const [response, setResponse] = useState<LifecycleResponse | null>(null);
   const [message, setMessage] = useState("Loading connected jobs...");
@@ -83,6 +112,10 @@ export default function ConnectedJobsPage() {
   const [scope, setScope] = useState<"active" | "all">("active");
   const [serviceLine, setServiceLine] = useState("All service lines");
   const [status, setStatus] = useState("All statuses");
+  const [connectionJob, setConnectionJob] = useState<LifecycleJob | null>(null);
+  const [connectionResult, setConnectionResult] = useState<ConnectionResult | null>(null);
+  const [connectionMessage, setConnectionMessage] = useState("");
+  const [connecting, setConnecting] = useState(false);
 
   const loadJobs = useCallback(async () => {
     setMessage("Loading connected jobs...");
@@ -145,6 +178,48 @@ export default function ConnectedJobsPage() {
   }, [jobs, scope, search, serviceLine, status]);
 
   const metrics = response?.metrics;
+
+  async function runConnection(job: LifecycleJob, mode: "preview" | "connect") {
+    if (connecting) return;
+    setConnecting(true);
+    setConnectionJob(job);
+    setConnectionMessage(mode === "preview" ? "Preparing connection preview..." : "Connecting job...");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        window.location.assign("/login");
+        return;
+      }
+
+      const request = await fetch("/api/crm/job-lifecycle", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ jobId: job.id, mode }),
+      });
+      const body = (await request.json().catch(() => ({}))) as ConnectionResult;
+      if (!request.ok) throw new Error(body.error || "TITAN could not prepare this connection.");
+      setConnectionResult(body);
+      setConnectionMessage("");
+      if (mode === "connect" && body.connected) await loadJobs();
+    } catch (error) {
+      setConnectionResult(null);
+      setConnectionMessage(error instanceof Error ? error.message : "TITAN could not prepare this connection.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  function closeConnection() {
+    if (connecting) return;
+    setConnectionJob(null);
+    setConnectionResult(null);
+    setConnectionMessage("");
+  }
 
   return (
     <main className={styles.page}>
@@ -217,6 +292,7 @@ export default function ConnectedJobsPage() {
                   <th>Location</th>
                   <th>Lead</th>
                   <th>Connection</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -235,12 +311,67 @@ export default function ConnectedJobsPage() {
                         {Number(job.linked_record_count ?? 0) > 0 ? `${job.linked_record_count} linked` : "Not linked"}
                       </span>
                     </td>
+                    <td data-label="Action">
+                      {Number(job.linked_record_count ?? 0) > 0 && boardHref(job.service_line) ? (
+                        <a className={styles.openButton} href={boardHref(job.service_line)}>Open Board</a>
+                      ) : boardHref(job.service_line) && !isTerminal(job.lifecycle_status) ? (
+                        <button className={styles.connectButton} type="button" onClick={() => void runConnection(job, "preview")}>Preview</button>
+                      ) : normalized(job.service_line) === "dti" && !isTerminal(job.lifecycle_status) ? (
+                        <span className={styles.pendingAction}>DTI Jobs next</span>
+                      ) : (
+                        <span className={styles.pendingAction}>-</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </section>
+      )}
+
+      {connectionJob && (
+        <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) closeConnection();
+        }}>
+          <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="connection-title">
+            <div className={styles.modalHeader}>
+              <div>
+                <span>{connectionJob.job_number}</span>
+                <h2 id="connection-title">Connect {connectionJob.title}</h2>
+              </div>
+              <button type="button" onClick={closeConnection} aria-label="Close connection preview">×</button>
+            </div>
+
+            {connectionMessage ? (
+              <div className={styles.modalMessage}>{connectionMessage}</div>
+            ) : connectionResult ? (
+              <div className={styles.previewGrid}>
+                {connectionResult.reason ? <div className={styles.blockedReason}>{connectionResult.reason}</div> : null}
+                {connectionResult.boardName ? <div><span>Destination Board</span><strong>{connectionResult.boardName}</strong></div> : null}
+                {connectionResult.columnName ? <div><span>Entry List</span><strong>{connectionResult.columnName}</strong></div> : null}
+                <div><span>Service Line</span><strong>{connectionJob.service_line}</strong></div>
+                <div><span>Status</span><strong>{connectionJob.lifecycle_status}</strong></div>
+                <div><span>Customer / Operator</span><strong>{connectionResult.customerName || connectionJob.customer_name || connectionJob.operator_name || "-"}</strong></div>
+                <div><span>Rig</span><strong>{connectionJob.rig_name || "-"}</strong></div>
+                <div><span>Scheduled</span><strong>{formatDate(connectionResult.dueDate || connectionJob.scheduled_start)}</strong></div>
+                <div><span>Location</span><strong>{connectionResult.locationName || locationLabel(connectionJob)}</strong></div>
+              </div>
+            ) : null}
+
+            <div className={styles.modalActions}>
+              <button type="button" onClick={closeConnection} disabled={connecting}>Cancel</button>
+              {connectionResult?.canConnect ? (
+                <button className={styles.confirmButton} type="button" onClick={() => void runConnection(connectionJob, "connect")} disabled={connecting}>
+                  {connecting ? "Connecting..." : "Connect Job"}
+                </button>
+              ) : null}
+              {(connectionResult?.connected || connectionResult?.alreadyConnected) && connectionResult.targetHref ? (
+                <a className={styles.confirmButton} href={connectionResult.targetHref}>Open Board</a>
+              ) : null}
+            </div>
+          </section>
+        </div>
       )}
     </main>
   );

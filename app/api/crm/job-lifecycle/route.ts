@@ -33,6 +33,11 @@ type LifecycleRow = {
   updated_at: string;
 };
 
+type ConnectionBody = {
+  jobId?: unknown;
+  mode?: unknown;
+};
+
 const terminalStatuses = new Set(["complete", "completed", "invoiced", "cancelled", "canceled", "void", "voided"]);
 
 function configuredSupabase() {
@@ -162,6 +167,45 @@ export async function GET(request: Request) {
       serviceLineCounts,
       jobs,
     });
+  } catch (error) {
+    return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const adminSupabase = configuredSupabase();
+    const authorization = await authorizeWade(request, adminSupabase);
+    if ("error" in authorization) return authorization.error;
+
+    const body = (await request.json().catch(() => ({}))) as ConnectionBody;
+    const jobId = String(body.jobId ?? "").trim();
+    const mode = String(body.mode ?? "preview").trim().toLowerCase();
+
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+      return Response.json({ error: "A valid TITAN job is required." }, { status: 400 });
+    }
+
+    if (mode !== "preview" && mode !== "connect") {
+      return Response.json({ error: "The connection mode must be preview or connect." }, { status: 400 });
+    }
+
+    const { data, error } = await adminSupabase.rpc("connect_titan_job_to_service_board", {
+      p_job_id: jobId,
+      p_preview_only: mode === "preview",
+      p_actor_id: authorization.userId,
+    });
+
+    if (error) {
+      const missingFunction = error.code === "PGRST202" || normalized(error.message).includes("schema cache");
+      return Response.json({
+        error: missingFunction
+          ? "Run supabase/titan_job_board_connections.sql in Supabase before connecting jobs."
+          : error.message,
+      }, { status: 400 });
+    }
+
+    return Response.json(data ?? { ok: false, canConnect: false, reason: "No connection result was returned." });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
