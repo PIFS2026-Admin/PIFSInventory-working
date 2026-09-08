@@ -105,6 +105,11 @@ function boardHref(serviceLine: string) {
   return "";
 }
 
+function operationalHref(job: LifecycleJob) {
+  if (normalized(job.service_line) === "dti") return "/dti";
+  return boardHref(job.service_line);
+}
+
 export default function ConnectedJobsPage() {
   const [response, setResponse] = useState<LifecycleResponse | null>(null);
   const [message, setMessage] = useState("Loading connected jobs...");
@@ -312,12 +317,12 @@ export default function ConnectedJobsPage() {
                       </span>
                     </td>
                     <td data-label="Action">
-                      {Number(job.linked_record_count ?? 0) > 0 && boardHref(job.service_line) ? (
-                        <a className={styles.openButton} href={boardHref(job.service_line)}>Open Board</a>
+                      {Number(job.linked_record_count ?? 0) > 0 && operationalHref(job) ? (
+                        <a className={styles.openButton} href={operationalHref(job)}>{normalized(job.service_line) === "dti" ? "Open DTI" : "Open Board"}</a>
                       ) : boardHref(job.service_line) && !isTerminal(job.lifecycle_status) ? (
                         <button className={styles.connectButton} type="button" onClick={() => void runConnection(job, "preview")}>Preview</button>
                       ) : normalized(job.service_line) === "dti" && !isTerminal(job.lifecycle_status) ? (
-                        <span className={styles.pendingAction}>DTI Jobs next</span>
+                        <a className={styles.connectButton} href={`/dti/create?sourceJob=${encodeURIComponent(job.id)}`}>Set Up DTI</a>
                       ) : (
                         <span className={styles.pendingAction}>-</span>
                       )}

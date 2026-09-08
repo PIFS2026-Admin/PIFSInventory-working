@@ -63,6 +63,23 @@ type TemplateRow = {
 
 type DbRecord = Record<string, unknown>;
 
+type SourceTitanJob = {
+  id: string;
+  jobNumber: string;
+  title: string;
+  lifecycleStatus: string;
+  customerName: string;
+  operatorName: string;
+  rigName: string;
+  jobType: string;
+  jobDescription: string;
+  scheduledStart: string;
+  locationName: string;
+  state: string;
+  county: string;
+  leadName: string;
+};
+
 const DTI_MANAGEMENT_ROLES: UserRole[] = ["admin", "employee", "dti_superintendent", "dti_lead"];
 
 const emptyJobForm: JobForm = {
@@ -174,6 +191,21 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function cleanRepeatedList(value: unknown) {
+  const seen = new Set<string>();
+  return String(value ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => {
+      if (!part) return false;
+      const key = part.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(", ");
+}
+
 export default function CreateDtiJobPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -183,6 +215,7 @@ export default function CreateDtiJobPage() {
   const [jobNumberPreview, setJobNumberPreview] = useState("");
   const [message, setMessage] = useState("Loading DTI job form...");
   const [saving, setSaving] = useState(false);
+  const [sourceJob, setSourceJob] = useState<SourceTitanJob | null>(null);
 
   const canEdit = profile ? DTI_MANAGEMENT_ROLES.includes(profile.role) : false;
   const showPageMessage = shouldShowPageMessage(message);
@@ -258,7 +291,81 @@ export default function CreateDtiJobPage() {
 
     setProfile(loadedProfile);
     await Promise.all([loadCompanies(), loadInspectors(), loadTemplateRows()]);
+    const sourceLoaded = await loadSourceJob();
+    if (!sourceLoaded) setMessage("");
+  }
+
+  async function loadSourceJob() {
+    const sourceJobId = new URLSearchParams(window.location.search).get("sourceJob")?.trim();
+    if (!sourceJobId) return false;
+
+    const { data: existingDtiJob, error: existingError } = await supabase
+      .from("dti_jobs")
+      .select("id")
+      .eq("titan_job_id", sourceJobId)
+      .maybeSingle();
+
+    if (existingError) {
+      const missingConnectionColumn = existingError.code === "42703"
+        || existingError.code === "PGRST204"
+        || existingError.message.toLowerCase().includes("titan_job_id");
+      setMessage(missingConnectionColumn
+        ? "Run supabase/titan_dti_job_connections.sql before connecting DTI jobs."
+        : `DTI connection check failed: ${existingError.message}`);
+      return true;
+    }
+
+    if (existingDtiJob?.id) {
+      window.location.assign(`/dti?job=${existingDtiJob.id}`);
+      return true;
+    }
+
+    const { data, error } = await supabase
+      .from("titan_jobs")
+      .select("id, job_number, title, service_line, lifecycle_status, customer_name, operator_name, rig_name, job_type, job_description, scheduled_start, location_name, state, county, lead_name")
+      .eq("id", sourceJobId)
+      .maybeSingle();
+
+    if (error || !data) {
+      setMessage(error?.message ?? "The connected TITAN job was not found.");
+      return true;
+    }
+
+    if (String(data.service_line ?? "").trim().toLowerCase() !== "dti") {
+      setMessage("Only DTI service-line jobs can prefill this form.");
+      return true;
+    }
+
+    const loadedSource: SourceTitanJob = {
+      id: String(data.id),
+      jobNumber: String(data.job_number ?? ""),
+      title: String(data.title ?? ""),
+      lifecycleStatus: String(data.lifecycle_status ?? "Requested"),
+      customerName: cleanRepeatedList(data.customer_name),
+      operatorName: cleanRepeatedList(data.operator_name),
+      rigName: cleanRepeatedList(data.rig_name),
+      jobType: String(data.job_type ?? ""),
+      jobDescription: String(data.job_description ?? ""),
+      scheduledStart: String(data.scheduled_start ?? ""),
+      locationName: String(data.location_name ?? ""),
+      state: String(data.state ?? ""),
+      county: String(data.county ?? ""),
+      leadName: cleanRepeatedList(data.lead_name),
+    };
+
+    setSourceJob(loadedSource);
+    setJobForm((current) => ({
+      ...current,
+      customer: loadedSource.customerName || loadedSource.operatorName,
+      jobDate: loadedSource.scheduledStart.slice(0, 10) || current.jobDate,
+      inspectionType: loadedSource.jobType || current.inspectionType,
+      rig: loadedSource.rigName,
+      operator: loadedSource.operatorName,
+      padLocation: [loadedSource.locationName, loadedSource.county, loadedSource.state].filter(Boolean).join(", "),
+      notes: loadedSource.jobDescription,
+    }));
     setMessage("");
+    return true;
   }
 
   async function loadCompanies() {
@@ -437,6 +544,7 @@ export default function CreateDtiJobPage() {
             status: "Open",
             notes: jobForm.notes || null,
             created_by: profile.id,
+            titan_job_id: sourceJob?.id ?? null,
           })
           .select("id")
           .single();
@@ -477,6 +585,33 @@ export default function CreateDtiJobPage() {
       });
       if (historyError) throw historyError;
 
+      if (sourceJob) {
+        stage = "connecting the CRM job";
+        const { error: linkError } = await supabase.from("titan_job_links").upsert({
+          job_id: sourceJob.id,
+          module_key: "dti",
+          record_type: "dti_job",
+          record_id: job.id,
+          relationship_type: "operational_work",
+          is_primary: true,
+          metadata: { dtiJobNumber: jobNumber },
+          created_by: profile.id,
+        }, { onConflict: "job_id,module_key,record_type,record_id" });
+        if (linkError) throw linkError;
+
+        const { error: eventError } = await supabase.from("titan_job_events").insert({
+          job_id: sourceJob.id,
+          event_type: "operational_record_connected",
+          source_module: "dti",
+          from_status: sourceJob.lifecycleStatus,
+          to_status: sourceJob.lifecycleStatus,
+          summary: `Connected to DTI job ${jobNumber}.`,
+          after_value: { dtiJobId: job.id, dtiJobNumber: jobNumber },
+          actor_id: profile.id,
+        });
+        if (eventError) throw eventError;
+      }
+
       window.location.href = `/dti?job=${job.id}`;
     } catch (error: unknown) {
       if (createdJobId) await supabase.from("dti_jobs").delete().eq("id", createdJobId);
@@ -512,6 +647,11 @@ export default function CreateDtiJobPage() {
       </section>
 
       <section className="dashboard-card wide dti-create-page-card">
+        {sourceJob && (
+          <div className="modal-message">
+            CRM job {sourceJob.jobNumber}: <strong>{sourceJob.title}</strong>
+          </div>
+        )}
         <div className="section-heading">
           <div>
             <h2>Job Setup</h2>
@@ -548,6 +688,9 @@ export default function CreateDtiJobPage() {
           <label>
             Inspection Type
             <select value={jobForm.inspectionType} onChange={(event) => setJobForm({ ...jobForm, inspectionType: event.target.value })} disabled={!canEdit}>
+              {jobForm.inspectionType && !["DTI Field Inspection", "Cat 3 Inspection", "Cat 4 Inspection", "Cat 5 Inspection", "BHA Inspection", "Customer Audit"].includes(jobForm.inspectionType) && (
+                <option value={jobForm.inspectionType}>{jobForm.inspectionType}</option>
+              )}
               <option>DTI Field Inspection</option>
               <option>Cat 3 Inspection</option>
               <option>Cat 4 Inspection</option>
