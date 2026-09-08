@@ -59,6 +59,10 @@
 .panelHeader { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #303744; background: #171c24; padding: 11px 13px; }
 .panelHeader h2 { margin: 0; font-size: 16px; }
 .panelHeader > span { display: inline-grid; min-width: 25px; min-height: 25px; place-items: center; border: 1px solid #475569; border-radius: 999px; font-size: 11px; font-weight: 900; }
+.panelHeader button,
+.formActions button,
+.recordActions button { min-height: 34px; border: 1px solid #475569; border-radius: 6px; background: #10151c; color: #f7f7fb; font-weight: 850; padding: 6px 10px; }
+.panelHeader button { color: #fdba74; }
 .detailGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .detailGrid > div { min-width: 0; min-height: 64px; border-right: 1px solid #29303b; border-bottom: 1px solid #29303b; padding: 11px 13px; }
 .detailGrid strong { display: block; margin-top: 5px; overflow-wrap: anywhere; font-size: 13px; }
@@ -73,6 +77,50 @@
 .documentList strong { margin-top: 4px; overflow-wrap: anywhere; font-size: 13px; }
 .documentList small { margin-top: 4px; color: #929baa; }
 .empty { color: #9fa8b8; padding: 18px 13px; }
+
+.formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-bottom: 1px solid #303744; background: #0d1218; padding: 13px; }
+.formGrid label { display: grid; gap: 5px; min-width: 0; }
+.formGrid label > span { color: #9fa8b8; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.formGrid input:not([type="checkbox"]),
+.formGrid select,
+.formGrid textarea { width: 100%; min-height: 38px; border: 1px solid #3a4352; border-radius: 6px; background: #10151c; color: #f7f7fb; padding: 8px 9px; }
+.formGrid textarea { min-height: 72px; resize: vertical; }
+.fullField { grid-column: 1 / -1; }
+.formGrid .checkField { display: flex; align-items: center; gap: 8px; min-height: 38px; }
+.checkField input { width: 18px; height: 18px; accent-color: #f97316; }
+.checkField span { color: #dce1ea !important; font-size: 11px !important; text-transform: none !important; }
+.formActions,
+.recordActions { display: flex; justify-content: flex-end; gap: 7px; }
+.formActions .primaryButton,
+.recordActions .primaryButton { border-color: #f97316; background: #f97316; color: #111; }
+.formActions button:disabled,
+.recordActions button:disabled { opacity: .55; }
+
+.recordList { display: grid; }
+.recordList article { padding: 12px 13px; border-bottom: 1px solid #29303b; }
+.recordList article:last-child { border-bottom: 0; }
+.recordHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.recordHeading div { min-width: 0; }
+.recordHeading span,
+.debriefSummary span { display: block; color: #fb923c; font-size: 9px; font-weight: 900; }
+.recordHeading strong,
+.debriefSummary > div strong { display: block; margin-top: 3px; overflow-wrap: anywhere; }
+.recordHeading b { flex: 0 0 auto; border: 1px solid #475569; border-radius: 999px; padding: 4px 8px; font-size: 10px; }
+.recordHeading b[data-status="Approved"] { border-color: #16a34a; color: #86efac; }
+.recordHeading b[data-status="Submitted"] { border-color: #f59e0b; color: #fde68a; }
+.recordHeading b[data-status="Voided"] { color: #9fa8b8; }
+.recordList dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0 0; }
+.recordList dl > div { min-width: 0; border-left: 2px solid #394454; padding-left: 7px; }
+.recordList dt { color: #929baa; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.recordList dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 11px; }
+.recordList p,
+.debriefSummary p { margin: 9px 0 0; color: #c7ced9; font-size: 12px; white-space: pre-wrap; }
+.recordActions { margin-top: 10px; }
+.voidedRecord { opacity: .66; }
+
+.debriefSummary { padding: 13px; }
+.debriefSummary small { display: block; margin-top: 12px; color: #929baa; }
+.actionMessage { grid-column: 1 / -1; border: 1px solid #f97316; border-radius: 7px; background: #24170f; color: #fdba74; padding: 11px 13px; }
 
 .timelinePanel { grid-column: 1 / -1; }
 .timeline { display: grid; padding: 4px 13px 10px; }
@@ -102,5 +150,8 @@
   .statusBar > div { padding: 9px; }
   .detailGrid { grid-template-columns: 1fr; }
   .detailGrid > div { border-right: 0; }
+  .formGrid { grid-template-columns: 1fr; }
+  .fullField { grid-column: auto; }
+  .recordList dl { grid-template-columns: 1fr 1fr; }
   .eventHeading { display: grid; gap: 4px; }
 }

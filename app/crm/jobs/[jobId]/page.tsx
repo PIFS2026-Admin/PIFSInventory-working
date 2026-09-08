@@ -61,6 +61,84 @@ type JobDocument = {
   created_at: string;
 };
 
+type JobDeviation = {
+  id: string;
+  deviation_number: string;
+  component: string | null;
+  joint_ids: string | null;
+  quantity: number | null;
+  defect_type: string;
+  location_on_component: string | null;
+  measurements: string | null;
+  controlling_criteria: string | null;
+  justification: string | null;
+  operational_risk: string | null;
+  inspector_recommendation: string | null;
+  communication_method: string | null;
+  written_confirmation: boolean;
+  confirmation_document_id: string | null;
+  spec_candidate: boolean;
+  status: "Draft" | "Submitted" | "Approved" | "Voided";
+  approved_at: string | null;
+  void_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type JobDebrief = {
+  id: string;
+  debrief_number: string;
+  on_plan: boolean | null;
+  station_behind: string | null;
+  variance_driver: string | null;
+  went_well: string | null;
+  slowed_by: string | null;
+  safety_observations: string | null;
+  gray_area_summary: string | null;
+  borderline_count: number;
+  customer_feedback: string | null;
+  repeat_issue: boolean;
+  repeat_note: string | null;
+  lessons_learned: string | null;
+  action_owner_name: string | null;
+  status: "Active" | "Voided";
+  updated_at: string;
+};
+
+type DeviationForm = {
+  id: string;
+  component: string;
+  jointIds: string;
+  quantity: string;
+  defectType: string;
+  locationOnComponent: string;
+  measurements: string;
+  controllingCriteria: string;
+  justification: string;
+  operationalRisk: string;
+  inspectorRecommendation: string;
+  communicationMethod: string;
+  writtenConfirmation: boolean;
+  confirmationDocumentId: string;
+  specCandidate: boolean;
+};
+
+type DebriefForm = {
+  onPlan: "" | "true" | "false";
+  stationBehind: string;
+  varianceDriver: string;
+  wentWell: string;
+  slowedBy: string;
+  safetyObservations: string;
+  grayAreaSummary: string;
+  borderlineCount: string;
+  customerFeedback: string;
+  repeatIssue: boolean;
+  repeatNote: string;
+  lessonsLearned: string;
+  actionOwnerName: string;
+};
+
 type DetailResponse = {
   ok?: boolean;
   job?: JobDetail;
@@ -68,7 +146,44 @@ type DetailResponse = {
   events?: JobEvent[];
   documents?: JobDocument[];
   documentRegistryReady?: boolean;
+  deviations?: JobDeviation[];
+  debrief?: JobDebrief | null;
+  intelligenceReady?: boolean;
   error?: string;
+};
+
+const emptyDeviationForm: DeviationForm = {
+  id: "",
+  component: "",
+  jointIds: "",
+  quantity: "",
+  defectType: "",
+  locationOnComponent: "",
+  measurements: "",
+  controllingCriteria: "",
+  justification: "",
+  operationalRisk: "",
+  inspectorRecommendation: "",
+  communicationMethod: "",
+  writtenConfirmation: false,
+  confirmationDocumentId: "",
+  specCandidate: false,
+};
+
+const emptyDebriefForm: DebriefForm = {
+  onPlan: "",
+  stationBehind: "",
+  varianceDriver: "",
+  wentWell: "",
+  slowedBy: "",
+  safetyObservations: "",
+  grayAreaSummary: "",
+  borderlineCount: "0",
+  customerFeedback: "",
+  repeatIssue: false,
+  repeatNote: "",
+  lessonsLearned: "",
+  actionOwnerName: "",
 };
 
 function normalized(value: unknown) {
@@ -99,12 +214,57 @@ function operationalHref(job: JobDetail, links: JobLink[]) {
   return "";
 }
 
+function deviationToForm(deviation: JobDeviation): DeviationForm {
+  return {
+    id: deviation.id,
+    component: deviation.component || "",
+    jointIds: deviation.joint_ids || "",
+    quantity: deviation.quantity === null ? "" : String(deviation.quantity),
+    defectType: deviation.defect_type,
+    locationOnComponent: deviation.location_on_component || "",
+    measurements: deviation.measurements || "",
+    controllingCriteria: deviation.controlling_criteria || "",
+    justification: deviation.justification || "",
+    operationalRisk: deviation.operational_risk || "",
+    inspectorRecommendation: deviation.inspector_recommendation || "",
+    communicationMethod: deviation.communication_method || "",
+    writtenConfirmation: deviation.written_confirmation,
+    confirmationDocumentId: deviation.confirmation_document_id || "",
+    specCandidate: deviation.spec_candidate,
+  };
+}
+
+function debriefToForm(debrief: JobDebrief | null | undefined): DebriefForm {
+  if (!debrief) return emptyDebriefForm;
+  return {
+    onPlan: debrief.on_plan === null ? "" : debrief.on_plan ? "true" : "false",
+    stationBehind: debrief.station_behind || "",
+    varianceDriver: debrief.variance_driver || "",
+    wentWell: debrief.went_well || "",
+    slowedBy: debrief.slowed_by || "",
+    safetyObservations: debrief.safety_observations || "",
+    grayAreaSummary: debrief.gray_area_summary || "",
+    borderlineCount: String(debrief.borderline_count ?? 0),
+    customerFeedback: debrief.customer_feedback || "",
+    repeatIssue: debrief.repeat_issue,
+    repeatNote: debrief.repeat_note || "",
+    lessonsLearned: debrief.lessons_learned || "",
+    actionOwnerName: debrief.action_owner_name || "",
+  };
+}
+
 export default function ConnectedJobDetailPage() {
   const params = useParams<{ jobId: string }>();
   const jobId = Array.isArray(params.jobId) ? params.jobId[0] : params.jobId;
   const [response, setResponse] = useState<DetailResponse | null>(null);
   const [message, setMessage] = useState("Loading job record...");
   const [openingDocument, setOpeningDocument] = useState("");
+  const [showDeviationForm, setShowDeviationForm] = useState(false);
+  const [showDebriefForm, setShowDebriefForm] = useState(false);
+  const [deviationForm, setDeviationForm] = useState<DeviationForm>(emptyDeviationForm);
+  const [debriefForm, setDebriefForm] = useState<DebriefForm>(emptyDebriefForm);
+  const [savingIntelligence, setSavingIntelligence] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
 
   const loadJob = useCallback(async () => {
     if (!jobId) return;
@@ -124,6 +284,7 @@ export default function ConnectedJobDetailPage() {
       const body = (await request.json().catch(() => ({}))) as DetailResponse;
       if (!request.ok) throw new Error(body.error || "TITAN could not load this job.");
       setResponse(body);
+      setDebriefForm(debriefToForm(body.debrief));
       setMessage("");
     } catch (error) {
       setResponse(null);
@@ -140,6 +301,7 @@ export default function ConnectedJobDetailPage() {
   const links = useMemo(() => response?.links ?? [], [response?.links]);
   const documents = useMemo(() => response?.documents ?? [], [response?.documents]);
   const events = useMemo(() => response?.events ?? [], [response?.events]);
+  const deviations = useMemo(() => response?.deviations ?? [], [response?.deviations]);
   const operationsHref = job ? operationalHref(job, links) : "";
 
   async function openDocument(document: JobDocument) {
@@ -165,6 +327,70 @@ export default function ConnectedJobDetailPage() {
     } finally {
       setOpeningDocument("");
     }
+  }
+
+  async function runIntelligenceAction(payload: Record<string, unknown>, successMessage: string) {
+    if (!jobId || savingIntelligence) return false;
+    setSavingIntelligence(true);
+    setActionMessage("");
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) {
+        window.location.assign("/login");
+        return false;
+      }
+
+      const request = await fetch("/api/crm/job-lifecycle", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, jobId }),
+      });
+      const body = (await request.json().catch(() => ({}))) as { error?: string };
+      if (!request.ok) throw new Error(body.error || "TITAN could not save this job record.");
+
+      setActionMessage(successMessage);
+      await loadJob();
+      return true;
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "TITAN could not save this job record.");
+      return false;
+    } finally {
+      setSavingIntelligence(false);
+    }
+  }
+
+  async function saveDeviation() {
+    const saved = await runIntelligenceAction({
+      action: "save_deviation",
+      deviationId: deviationForm.id || undefined,
+      ...deviationForm,
+    }, deviationForm.id ? "Deviation updated." : "Deviation created as Draft.");
+    if (saved) {
+      setDeviationForm(emptyDeviationForm);
+      setShowDeviationForm(false);
+    }
+  }
+
+  function editDeviation(deviation: JobDeviation) {
+    setDeviationForm(deviationToForm(deviation));
+    setShowDeviationForm(true);
+    setActionMessage("");
+  }
+
+  async function transitionDeviation(deviation: JobDeviation, action: "submit_deviation" | "approve_deviation" | "void_deviation") {
+    let voidReason = "";
+    if (action === "void_deviation") {
+      voidReason = window.prompt(`Why is ${deviation.deviation_number} being voided?`)?.trim() || "";
+      if (!voidReason) return;
+    }
+    await runIntelligenceAction({ action, deviationId: deviation.id, voidReason }, `${deviation.deviation_number} updated.`);
+  }
+
+  async function saveDebrief() {
+    const saved = await runIntelligenceAction({ action: "save_debrief", ...debriefForm }, "Job debrief saved.");
+    if (saved) setShowDebriefForm(false);
   }
 
   return (
@@ -235,6 +461,110 @@ export default function ConnectedJobDetailPage() {
                 </div>
               ) : <div className={styles.empty}>No downloadable documents are attached to this job yet.</div>}
             </section>
+
+            <section className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2>Deviation Register</h2>
+                <button type="button" onClick={() => {
+                  setDeviationForm(emptyDeviationForm);
+                  setShowDeviationForm((current) => !current);
+                  setActionMessage("");
+                }}>{showDeviationForm ? "Close" : "Add Deviation"}</button>
+              </div>
+              {!response?.intelligenceReady ? (
+                <div className={styles.empty}>Run the Job Intelligence SQL to activate deviations and debriefs.</div>
+              ) : (
+                <>
+                  {showDeviationForm ? (
+                    <div className={styles.formGrid}>
+                      <label className={styles.fullField}><span>Defect / Deviation Type</span><input value={deviationForm.defectType} onChange={(event) => setDeviationForm({ ...deviationForm, defectType: event.target.value })} /></label>
+                      <label><span>Component</span><input value={deviationForm.component} onChange={(event) => setDeviationForm({ ...deviationForm, component: event.target.value })} /></label>
+                      <label><span>Joint IDs</span><input value={deviationForm.jointIds} onChange={(event) => setDeviationForm({ ...deviationForm, jointIds: event.target.value })} /></label>
+                      <label><span>Quantity</span><input type="number" min="0" value={deviationForm.quantity} onChange={(event) => setDeviationForm({ ...deviationForm, quantity: event.target.value })} /></label>
+                      <label><span>Location on Component</span><input value={deviationForm.locationOnComponent} onChange={(event) => setDeviationForm({ ...deviationForm, locationOnComponent: event.target.value })} /></label>
+                      <label className={styles.fullField}><span>Measurements</span><textarea value={deviationForm.measurements} onChange={(event) => setDeviationForm({ ...deviationForm, measurements: event.target.value })} /></label>
+                      <label className={styles.fullField}><span>Controlling Criteria</span><textarea value={deviationForm.controllingCriteria} onChange={(event) => setDeviationForm({ ...deviationForm, controllingCriteria: event.target.value })} /></label>
+                      <label className={styles.fullField}><span>Justification</span><textarea value={deviationForm.justification} onChange={(event) => setDeviationForm({ ...deviationForm, justification: event.target.value })} /></label>
+                      <label className={styles.fullField}><span>Operational Risk</span><textarea value={deviationForm.operationalRisk} onChange={(event) => setDeviationForm({ ...deviationForm, operationalRisk: event.target.value })} /></label>
+                      <label className={styles.fullField}><span>Inspector Recommendation</span><textarea value={deviationForm.inspectorRecommendation} onChange={(event) => setDeviationForm({ ...deviationForm, inspectorRecommendation: event.target.value })} /></label>
+                      <label><span>Communication Method</span><select value={deviationForm.communicationMethod} onChange={(event) => setDeviationForm({ ...deviationForm, communicationMethod: event.target.value })}><option value="">Select</option><option>Email</option><option>Text Message</option><option>Customer Portal</option><option>Signed Document</option><option>Other Written</option></select></label>
+                      <label><span>Confirmation Evidence</span><select value={deviationForm.confirmationDocumentId} onChange={(event) => setDeviationForm({ ...deviationForm, confirmationDocumentId: event.target.value, writtenConfirmation: Boolean(event.target.value) })}><option value="">Select document</option>{documents.map((document) => <option key={document.id} value={document.id}>{document.document_type}: {document.display_name}</option>)}</select></label>
+                      <label className={styles.checkField}><input type="checkbox" checked={deviationForm.writtenConfirmation} disabled={!deviationForm.confirmationDocumentId} onChange={(event) => setDeviationForm({ ...deviationForm, writtenConfirmation: event.target.checked })} /><span>Written confirmation received</span></label>
+                      <label className={styles.checkField}><input type="checkbox" checked={deviationForm.specCandidate} onChange={(event) => setDeviationForm({ ...deviationForm, specCandidate: event.target.checked })} /><span>Review as specification candidate</span></label>
+                      <div className={`${styles.formActions} ${styles.fullField}`}>
+                        <button type="button" onClick={() => { setShowDeviationForm(false); setDeviationForm(emptyDeviationForm); }} disabled={savingIntelligence}>Cancel</button>
+                        <button className={styles.primaryButton} type="button" onClick={() => void saveDeviation()} disabled={savingIntelligence}>{savingIntelligence ? "Saving..." : deviationForm.id ? "Save Changes" : "Save Draft"}</button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className={styles.recordList}>
+                    {deviations.map((deviation) => (
+                      <article key={deviation.id} className={deviation.status === "Voided" ? styles.voidedRecord : ""}>
+                        <div className={styles.recordHeading}>
+                          <div><span>{deviation.deviation_number}</span><strong>{deviation.defect_type}</strong></div>
+                          <b data-status={deviation.status}>{deviation.status}</b>
+                        </div>
+                        <dl>
+                          <div><dt>Component</dt><dd>{deviation.component || "-"}</dd></div>
+                          <div><dt>Quantity</dt><dd>{deviation.quantity ?? "-"}</dd></div>
+                          <div><dt>Written Evidence</dt><dd>{deviation.written_confirmation ? "Received" : "Missing"}</dd></div>
+                          <div><dt>Updated</dt><dd>{formatDate(deviation.updated_at, true)}</dd></div>
+                        </dl>
+                        {deviation.operational_risk ? <p><strong>Risk:</strong> {deviation.operational_risk}</p> : null}
+                        {deviation.void_reason ? <p><strong>Void reason:</strong> {deviation.void_reason}</p> : null}
+                        {deviation.status !== "Voided" ? (
+                          <div className={styles.recordActions}>
+                            {deviation.status === "Draft" ? <button type="button" onClick={() => editDeviation(deviation)}>Edit</button> : null}
+                            {deviation.status === "Draft" ? <button type="button" onClick={() => void transitionDeviation(deviation, "submit_deviation")} disabled={savingIntelligence}>Submit</button> : null}
+                            {deviation.status === "Submitted" ? <button className={styles.primaryButton} type="button" onClick={() => void transitionDeviation(deviation, "approve_deviation")} disabled={savingIntelligence}>Approve</button> : null}
+                            <button type="button" onClick={() => void transitionDeviation(deviation, "void_deviation")} disabled={savingIntelligence}>Void</button>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                    {!deviations.length && !showDeviationForm ? <div className={styles.empty}>No deviations recorded for this job.</div> : null}
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2>Closeout Debrief</h2>
+                {response?.intelligenceReady ? <button type="button" onClick={() => setShowDebriefForm((current) => !current)}>{showDebriefForm ? "Close" : response.debrief ? "Edit Debrief" : "Add Debrief"}</button> : null}
+              </div>
+              {!response?.intelligenceReady ? (
+                <div className={styles.empty}>Run the Job Intelligence SQL to activate deviations and debriefs.</div>
+              ) : showDebriefForm ? (
+                <div className={styles.formGrid}>
+                  <label><span>Was Work on Plan?</span><select value={debriefForm.onPlan} onChange={(event) => setDebriefForm({ ...debriefForm, onPlan: event.target.value as DebriefForm["onPlan"] })}><option value="">Select</option><option value="true">Yes</option><option value="false">No</option></select></label>
+                  <label><span>Station Behind</span><input value={debriefForm.stationBehind} onChange={(event) => setDebriefForm({ ...debriefForm, stationBehind: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>Variance Driver</span><textarea value={debriefForm.varianceDriver} onChange={(event) => setDebriefForm({ ...debriefForm, varianceDriver: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>What Went Well</span><textarea value={debriefForm.wentWell} onChange={(event) => setDebriefForm({ ...debriefForm, wentWell: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>What Slowed the Job</span><textarea value={debriefForm.slowedBy} onChange={(event) => setDebriefForm({ ...debriefForm, slowedBy: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>Safety Observations</span><textarea value={debriefForm.safetyObservations} onChange={(event) => setDebriefForm({ ...debriefForm, safetyObservations: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>Gray Areas / Borderline Calls</span><textarea value={debriefForm.grayAreaSummary} onChange={(event) => setDebriefForm({ ...debriefForm, grayAreaSummary: event.target.value })} /></label>
+                  <label><span>Borderline Count</span><input type="number" min="0" value={debriefForm.borderlineCount} onChange={(event) => setDebriefForm({ ...debriefForm, borderlineCount: event.target.value })} /></label>
+                  <label><span>Action Owner</span><input value={debriefForm.actionOwnerName} onChange={(event) => setDebriefForm({ ...debriefForm, actionOwnerName: event.target.value })} /></label>
+                  <label className={styles.fullField}><span>Customer Feedback</span><textarea value={debriefForm.customerFeedback} onChange={(event) => setDebriefForm({ ...debriefForm, customerFeedback: event.target.value })} /></label>
+                  <label className={styles.checkField}><input type="checkbox" checked={debriefForm.repeatIssue} onChange={(event) => setDebriefForm({ ...debriefForm, repeatIssue: event.target.checked })} /><span>Repeated issue</span></label>
+                  {debriefForm.repeatIssue ? <label className={styles.fullField}><span>Repeated Issue Details</span><textarea value={debriefForm.repeatNote} onChange={(event) => setDebriefForm({ ...debriefForm, repeatNote: event.target.value })} /></label> : null}
+                  <label className={styles.fullField}><span>Lessons Learned / Next Action</span><textarea value={debriefForm.lessonsLearned} onChange={(event) => setDebriefForm({ ...debriefForm, lessonsLearned: event.target.value })} /></label>
+                  <div className={`${styles.formActions} ${styles.fullField}`}><button type="button" onClick={() => { setDebriefForm(debriefToForm(response.debrief)); setShowDebriefForm(false); }} disabled={savingIntelligence}>Cancel</button><button className={styles.primaryButton} type="button" onClick={() => void saveDebrief()} disabled={savingIntelligence}>{savingIntelligence ? "Saving..." : "Save Debrief"}</button></div>
+                </div>
+              ) : response.debrief ? (
+                <div className={styles.debriefSummary}>
+                  <div><span>{response.debrief.debrief_number}</span><strong>{response.debrief.on_plan === null ? "Plan status not recorded" : response.debrief.on_plan ? "Work stayed on plan" : "Work varied from plan"}</strong></div>
+                  {response.debrief.went_well ? <p><strong>Went well:</strong> {response.debrief.went_well}</p> : null}
+                  {response.debrief.slowed_by ? <p><strong>Slowed by:</strong> {response.debrief.slowed_by}</p> : null}
+                  {response.debrief.lessons_learned ? <p><strong>Next action:</strong> {response.debrief.lessons_learned}</p> : null}
+                  <small>Updated {formatDate(response.debrief.updated_at, true)}</small>
+                </div>
+              ) : <div className={styles.empty}>No closeout debrief has been recorded.</div>}
+            </section>
+
+            {actionMessage ? <div className={styles.actionMessage}>{actionMessage}</div> : null}
 
             <section className={`${styles.panel} ${styles.timelinePanel}`}>
               <div className={styles.panelHeader}>

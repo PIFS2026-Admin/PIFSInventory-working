@@ -38,6 +38,40 @@ type ConnectionBody = {
   mode?: unknown;
 };
 
+type IntelligenceBody = {
+  action?: unknown;
+  jobId?: unknown;
+  deviationId?: unknown;
+  component?: unknown;
+  jointIds?: unknown;
+  quantity?: unknown;
+  defectType?: unknown;
+  locationOnComponent?: unknown;
+  measurements?: unknown;
+  controllingCriteria?: unknown;
+  justification?: unknown;
+  operationalRisk?: unknown;
+  inspectorRecommendation?: unknown;
+  communicationMethod?: unknown;
+  writtenConfirmation?: unknown;
+  confirmationDocumentId?: unknown;
+  specCandidate?: unknown;
+  voidReason?: unknown;
+  onPlan?: unknown;
+  stationBehind?: unknown;
+  varianceDriver?: unknown;
+  wentWell?: unknown;
+  slowedBy?: unknown;
+  safetyObservations?: unknown;
+  grayAreaSummary?: unknown;
+  borderlineCount?: unknown;
+  customerFeedback?: unknown;
+  repeatIssue?: unknown;
+  repeatNote?: unknown;
+  lessonsLearned?: unknown;
+  actionOwnerName?: unknown;
+};
+
 type JobDocumentRow = {
   id: string;
   job_id: string;
@@ -65,6 +99,25 @@ function configuredSupabase() {
 
 function normalized(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function booleanValue(value: unknown) {
+  return value === true || normalized(value) === "true";
+}
+
+function nullableText(value: unknown) {
+  return cleanText(value) || null;
+}
+
+function nonnegativeInteger(value: unknown, label: string) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a whole number of zero or more.`);
+  return parsed;
 }
 
 function errorMessage(error: unknown) {
@@ -136,7 +189,7 @@ async function loadJobDetail(
   adminSupabase: ReturnType<typeof configuredSupabase>,
   jobId: string,
 ) {
-  const [jobResult, linksResult, eventsResult, documentsResult] = await Promise.all([
+  const [jobResult, linksResult, eventsResult, documentsResult, deviationsResult, debriefResult] = await Promise.all([
     adminSupabase.from("titan_jobs").select("*").eq("id", jobId).is("archived_at", null).maybeSingle(),
     adminSupabase
       .from("titan_job_links")
@@ -156,6 +209,16 @@ async function loadJobDetail(
       .eq("job_id", jobId)
       .is("archived_at", null)
       .order("created_at", { ascending: false }),
+    adminSupabase
+      .from("titan_job_deviations")
+      .select("id, deviation_number, component, joint_ids, quantity, defect_type, location_on_component, measurements, controlling_criteria, justification, operational_risk, inspector_recommendation, communication_method, written_confirmation, confirmation_document_id, spec_candidate, status, approved_at, void_reason, row_version, created_at, updated_at")
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: false }),
+    adminSupabase
+      .from("titan_job_debriefs")
+      .select("id, debrief_number, on_plan, station_behind, variance_driver, went_well, slowed_by, safety_observations, gray_area_summary, borderline_count, customer_feedback, repeat_issue, repeat_note, lessons_learned, action_owner_name, status, void_reason, created_at, updated_at")
+      .eq("job_id", jobId)
+      .maybeSingle(),
   ]);
 
   if (jobResult.error) throw jobResult.error;
@@ -165,6 +228,9 @@ async function loadJobDetail(
 
   const registryReady = !documentsResult.error;
   if (documentsResult.error && !missingRelation(documentsResult.error)) throw documentsResult.error;
+  const intelligenceReady = !deviationsResult.error && !debriefResult.error;
+  if (deviationsResult.error && !missingRelation(deviationsResult.error)) throw deviationsResult.error;
+  if (debriefResult.error && !missingRelation(debriefResult.error)) throw debriefResult.error;
 
   return Response.json({
     ok: true,
@@ -173,6 +239,9 @@ async function loadJobDetail(
     events: eventsResult.data ?? [],
     documents: registryReady ? documentsResult.data ?? [] : [],
     documentRegistryReady: registryReady,
+    deviations: intelligenceReady ? deviationsResult.data ?? [] : [],
+    debrief: intelligenceReady ? debriefResult.data ?? null : null,
+    intelligenceReady,
   });
 }
 
@@ -320,5 +389,247 @@ export async function POST(request: Request) {
     return Response.json(data ?? { ok: false, canConnect: false, reason: "No connection result was returned." });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const adminSupabase = configuredSupabase();
+    const authorization = await authorizeWade(request, adminSupabase);
+    if ("error" in authorization) return authorization.error;
+
+    const body = (await request.json().catch(() => ({}))) as IntelligenceBody;
+    const action = normalized(body.action);
+    const jobId = cleanText(body.jobId);
+    if (!validUuid(jobId)) return Response.json({ error: "A valid TITAN job is required." }, { status: 400 });
+
+    const { data: job, error: jobError } = await adminSupabase
+      .from("titan_jobs")
+      .select("id, job_number, title, archived_at")
+      .eq("id", jobId)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (jobError) throw jobError;
+    if (!job) return Response.json({ error: "Connected job was not found." }, { status: 404 });
+
+    if (action === "save_deviation") {
+      const deviationId = cleanText(body.deviationId);
+      const defectType = cleanText(body.defectType);
+      if (!defectType) return Response.json({ error: "Defect or deviation type is required." }, { status: 400 });
+
+      const confirmationDocumentId = cleanText(body.confirmationDocumentId) || null;
+      if (confirmationDocumentId && !validUuid(confirmationDocumentId)) {
+        return Response.json({ error: "Select a valid written-confirmation document." }, { status: 400 });
+      }
+      if (confirmationDocumentId) {
+        const { data: evidence, error: evidenceError } = await adminSupabase
+          .from("titan_job_documents")
+          .select("id")
+          .eq("id", confirmationDocumentId)
+          .eq("job_id", jobId)
+          .is("archived_at", null)
+          .maybeSingle();
+        if (evidenceError) throw evidenceError;
+        if (!evidence) return Response.json({ error: "The confirmation document must belong to this job." }, { status: 400 });
+      }
+
+      const writtenConfirmation = booleanValue(body.writtenConfirmation);
+      if (writtenConfirmation && !confirmationDocumentId) {
+        return Response.json({ error: "Select the written confirmation document before marking confirmation received." }, { status: 400 });
+      }
+
+      const payload = {
+        job_id: jobId,
+        component: nullableText(body.component),
+        joint_ids: nullableText(body.jointIds),
+        quantity: nonnegativeInteger(body.quantity, "Quantity"),
+        defect_type: defectType,
+        location_on_component: nullableText(body.locationOnComponent),
+        measurements: nullableText(body.measurements),
+        controlling_criteria: nullableText(body.controllingCriteria),
+        justification: nullableText(body.justification),
+        operational_risk: nullableText(body.operationalRisk),
+        inspector_recommendation: nullableText(body.inspectorRecommendation),
+        communication_method: nullableText(body.communicationMethod),
+        written_confirmation: writtenConfirmation,
+        confirmation_document_id: confirmationDocumentId,
+        spec_candidate: booleanValue(body.specCandidate),
+        updated_by: authorization.userId,
+      };
+
+      let saved;
+      if (deviationId) {
+        if (!validUuid(deviationId)) return Response.json({ error: "A valid deviation is required." }, { status: 400 });
+        const { data: current, error: currentError } = await adminSupabase
+          .from("titan_job_deviations")
+          .select("id, status")
+          .eq("id", deviationId)
+          .eq("job_id", jobId)
+          .maybeSingle();
+        if (currentError) throw currentError;
+        if (!current) return Response.json({ error: "Deviation was not found." }, { status: 404 });
+        if (current.status !== "Draft") return Response.json({ error: "Only Draft deviations can be edited." }, { status: 409 });
+
+        const { data, error } = await adminSupabase
+          .from("titan_job_deviations")
+          .update(payload)
+          .eq("id", deviationId)
+          .select("*")
+          .single();
+        if (error) throw error;
+        saved = data;
+      } else {
+        const { data, error } = await adminSupabase
+          .from("titan_job_deviations")
+          .insert({ ...payload, created_by: authorization.userId })
+          .select("*")
+          .single();
+        if (error) throw error;
+        saved = data;
+      }
+
+      await adminSupabase.from("titan_job_events").insert({
+        job_id: jobId,
+        event_type: deviationId ? "deviation_updated" : "deviation_created",
+        source_module: "job_intelligence",
+        from_status: null,
+        to_status: saved.status,
+        summary: `${saved.deviation_number} ${deviationId ? "updated" : "created"}.`,
+        after_value: saved,
+        actor_id: authorization.userId,
+      });
+
+      return Response.json({ ok: true, deviation: saved });
+    }
+
+    if (["submit_deviation", "approve_deviation", "void_deviation"].includes(action)) {
+      const deviationId = cleanText(body.deviationId);
+      if (!validUuid(deviationId)) return Response.json({ error: "A valid deviation is required." }, { status: 400 });
+
+      const { data: deviation, error: deviationError } = await adminSupabase
+        .from("titan_job_deviations")
+        .select("*")
+        .eq("id", deviationId)
+        .eq("job_id", jobId)
+        .maybeSingle();
+      if (deviationError) throw deviationError;
+      if (!deviation) return Response.json({ error: "Deviation was not found." }, { status: 404 });
+
+      let nextStatus = "";
+      const updates: Record<string, unknown> = { updated_by: authorization.userId };
+      if (action === "submit_deviation") {
+        if (deviation.status !== "Draft") return Response.json({ error: "Only a Draft deviation can be submitted." }, { status: 409 });
+        nextStatus = "Submitted";
+      } else if (action === "approve_deviation") {
+        if (deviation.status !== "Submitted") return Response.json({ error: "Only a Submitted deviation can be approved." }, { status: 409 });
+        if (!deviation.written_confirmation || !deviation.confirmation_document_id) {
+          return Response.json({ error: "Approval requires written confirmation and its attached evidence. Verbal approval alone is not sufficient." }, { status: 422 });
+        }
+        nextStatus = "Approved";
+        updates.approved_by = authorization.userId;
+        updates.approved_at = new Date().toISOString();
+      } else {
+        const voidReason = cleanText(body.voidReason);
+        if (!voidReason) return Response.json({ error: "A reason is required to void a deviation." }, { status: 400 });
+        if (deviation.status === "Voided") return Response.json({ error: "This deviation is already voided." }, { status: 409 });
+        nextStatus = "Voided";
+        updates.void_reason = voidReason;
+      }
+      updates.status = nextStatus;
+
+      const { data: saved, error: saveError } = await adminSupabase
+        .from("titan_job_deviations")
+        .update(updates)
+        .eq("id", deviationId)
+        .select("*")
+        .single();
+      if (saveError) throw saveError;
+
+      await adminSupabase.from("titan_job_events").insert({
+        job_id: jobId,
+        event_type: `deviation_${nextStatus.toLowerCase()}`,
+        source_module: "job_intelligence",
+        from_status: deviation.status,
+        to_status: nextStatus,
+        summary: `${deviation.deviation_number} changed from ${deviation.status} to ${nextStatus}.`,
+        before_value: deviation,
+        after_value: saved,
+        actor_id: authorization.userId,
+      });
+
+      return Response.json({ ok: true, deviation: saved });
+    }
+
+    if (action === "save_debrief") {
+      const repeatIssue = booleanValue(body.repeatIssue);
+      const repeatNote = cleanText(body.repeatNote);
+      if (repeatIssue && !repeatNote) {
+        return Response.json({ error: "Describe the repeated issue before saving the debrief." }, { status: 400 });
+      }
+
+      const payload = {
+        job_id: jobId,
+        on_plan: body.onPlan === null || body.onPlan === undefined || body.onPlan === "" ? null : booleanValue(body.onPlan),
+        station_behind: nullableText(body.stationBehind),
+        variance_driver: nullableText(body.varianceDriver),
+        went_well: nullableText(body.wentWell),
+        slowed_by: nullableText(body.slowedBy),
+        safety_observations: nullableText(body.safetyObservations),
+        gray_area_summary: nullableText(body.grayAreaSummary),
+        borderline_count: nonnegativeInteger(body.borderlineCount, "Borderline count") ?? 0,
+        customer_feedback: nullableText(body.customerFeedback),
+        repeat_issue: repeatIssue,
+        repeat_note: repeatIssue ? repeatNote : null,
+        lessons_learned: nullableText(body.lessonsLearned),
+        action_owner_name: nullableText(body.actionOwnerName),
+        updated_by: authorization.userId,
+      };
+
+      const { data: existing, error: existingError } = await adminSupabase
+        .from("titan_job_debriefs")
+        .select("id, debrief_number, status")
+        .eq("job_id", jobId)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.status === "Voided") return Response.json({ error: "A voided debrief cannot be edited." }, { status: 409 });
+
+      let saved;
+      if (existing) {
+        const { data, error } = await adminSupabase.from("titan_job_debriefs").update(payload).eq("id", existing.id).select("*").single();
+        if (error) throw error;
+        saved = data;
+      } else {
+        const { data, error } = await adminSupabase
+          .from("titan_job_debriefs")
+          .insert({ ...payload, created_by: authorization.userId })
+          .select("*")
+          .single();
+        if (error) throw error;
+        saved = data;
+      }
+
+      await adminSupabase.from("titan_job_events").insert({
+        job_id: jobId,
+        event_type: existing ? "debrief_updated" : "debrief_created",
+        source_module: "job_intelligence",
+        summary: `${saved.debrief_number} ${existing ? "updated" : "created"}.`,
+        after_value: saved,
+        actor_id: authorization.userId,
+      });
+
+      return Response.json({ ok: true, debrief: saved });
+    }
+
+    return Response.json({ error: "Unsupported Job Intelligence action." }, { status: 400 });
+  } catch (error) {
+    const message = errorMessage(error);
+    const migrationMissing = normalized(message).includes("titan_job_deviations")
+      || normalized(message).includes("titan_job_debriefs")
+      || normalized(message).includes("schema cache");
+    return Response.json({
+      error: migrationMissing
+        ? "Run supabase/titan_job_intelligence.sql before using deviations or debriefs."
+        : message,
+    }, { status: migrationMissing ? 409 : 500 });
   }
 }
