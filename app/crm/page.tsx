@@ -2144,6 +2144,10 @@ export default function CrmPage() {
             <button type="button">+</button>
           </div>
           <nav className={styles.mondayBoardNav}>
+            <button type="button" onClick={() => window.location.assign("/crm/jobs")}>
+              <span>Connected Jobs</span>
+              <small>Active lifecycle</small>
+            </button>
             {mondayCrmBoards.map((board) => {
               const importedCount = boardRecords(crmRecords, board).length;
               return (
