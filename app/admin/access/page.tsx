@@ -25,6 +25,7 @@ type Profile = {
   department: string | null;
   service_line: string | null;
   access_configured: boolean;
+  company_id: string | null;
   is_disabled: boolean;
 };
 type ModuleRow = {
@@ -46,7 +47,13 @@ type YardRow = {
   can_access: boolean;
   active: boolean;
 };
-type Location = { id: string; name: string; code: string; is_active: boolean };
+type Location = {
+  id: string;
+  name: string;
+  code: string;
+  is_active: boolean;
+  owner_company_id: string | null;
+};
 type Event = {
   id: string;
   target_user_id: string;
@@ -118,6 +125,7 @@ export default function AccessPage() {
   }, [load]);
   const selected =
     data?.profiles.find((profile) => profile.id === userId) || null;
+  const isCustomer = role === "customer";
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return (data?.profiles ?? []).filter(
@@ -138,14 +146,25 @@ export default function AccessPage() {
           (row) => row.user_id === selected.id && row.active && row.can_access,
         )
         .map((row) => row.module_key);
-      setModules(selected.access_configured ? saved : defaultModulesForRole(selected.role));
+      const selectedModules = selected.access_configured
+        ? saved
+        : defaultModulesForRole(selected.role);
+      setModules(
+        selected.role === "customer"
+          ? selectedModules.filter((moduleKey) =>
+              ["yard_view", "reports"].includes(moduleKey),
+            )
+          : selectedModules,
+      );
       setExtras(
-        (data?.extras ?? [])
-          .filter(
-            (row) =>
-              row.user_id === selected.id && row.active && row.is_allowed,
-          )
-          .map((row) => `${row.module_key}:${row.action_key}`),
+        selected.role === "customer"
+          ? []
+          : (data?.extras ?? [])
+              .filter(
+                (row) =>
+                  row.user_id === selected.id && row.active && row.is_allowed,
+              )
+              .map((row) => `${row.module_key}:${row.action_key}`),
       );
       setYardIds(
         (data?.yards ?? [])
@@ -181,6 +200,14 @@ export default function AccessPage() {
   }
   async function save() {
     if (!selected) return;
+    const crossingCustomerBoundary =
+      (selected.role === "customer") !== (role === "customer");
+    const confirmRoleConversion = crossingCustomerBoundary
+      ? window.confirm(
+          `Change ${selected.full_name} from ${roleLabel(selected.role)} to ${roleLabel(role)}? This changes whether the account is treated as a customer or an internal employee.`,
+        )
+      : false;
+    if (crossingCustomerBoundary && !confirmRoleConversion) return;
     setSaving(true);
     setMessage("");
     try {
@@ -197,6 +224,7 @@ export default function AccessPage() {
           serviceLine,
           modules,
           yardIds,
+          confirmRoleConversion,
           extras: extras.map((value) => {
             const [moduleKey, actionKey] = value.split(":");
             return { moduleKey, actionKey };
@@ -231,11 +259,7 @@ export default function AccessPage() {
           </div>
         </div>
         <div className={styles.actions}>
-          <button
-            onClick={() => goBackOrFallback("/admin")}
-          >
-            Back
-          </button>
+          <button onClick={() => goBackOrFallback("/admin")}>Back</button>
           <button
             className={styles.primary}
             disabled={!selected || saving}
@@ -307,15 +331,21 @@ export default function AccessPage() {
                       onChange={(event) => setServiceLine(event.target.value)}
                     >
                       <option value="">All / Not scoped</option>
-                    {serviceLineOptions.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
+                      {serviceLineOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
                         </option>
                       ))}
                     </select>
                   </label>
                 </div>
               </div>
+              {isCustomer && !selected.company_id ? (
+                <div className={styles.warning}>
+                  This customer has no company assigned. Assign a company in
+                  User Management before saving access.
+                </div>
+              ) : null}
               <section className={styles.section}>
                 <div>
                   <h3>Modules</h3>
@@ -325,60 +355,68 @@ export default function AccessPage() {
                   </p>
                 </div>
                 <div className={styles.moduleGrid}>
-                  {moduleAccessOptions.map((item) => (
-                    <label key={item.key}>
-                      <input
-                        type="checkbox"
-                        checked={modules.includes(item.key)}
-                        onChange={() => toggle(item.key, setModules)}
-                      />
-                      <span>
-                        <strong>{item.label}</strong>
-                        <small>{item.description}</small>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </section>
-              <section className={styles.section}>
-                <div>
-                  <h3>Anything Extra?</h3>
-                  <p>
-                    Add abilities beyond the role. Extras never remove something
-                    the role already provides.
-                  </p>
-                </div>
-                <div className={styles.extraList}>
-                  {permissionModules.map((module) => {
-                    const defaults =
-                      getDefaultPermissionsForRole(role)[module.key];
-                    const choices = permissionActions.filter(
-                      (action) => !defaults[action],
-                    );
-                    if (!choices.length) return null;
-                    return (
-                      <div key={module.key}>
-                        <strong>{module.label}</strong>
+                  {moduleAccessOptions
+                    .filter(
+                      (item) =>
+                        !isCustomer ||
+                        ["yard_view", "reports"].includes(item.key),
+                    )
+                    .map((item) => (
+                      <label key={item.key}>
+                        <input
+                          type="checkbox"
+                          checked={modules.includes(item.key)}
+                          onChange={() => toggle(item.key, setModules)}
+                        />
                         <span>
-                          {choices.map((action) => {
-                            const key = `${module.key}:${action}`;
-                            return (
-                              <label key={key}>
-                                <input
-                                  type="checkbox"
-                                  checked={extras.includes(key)}
-                                  onChange={() => toggle(key, setExtras)}
-                                />
-                                {actionLabels[action]}
-                              </label>
-                            );
-                          })}
+                          <strong>{item.label}</strong>
+                          <small>{item.description}</small>
                         </span>
-                      </div>
-                    );
-                  })}
+                      </label>
+                    ))}
                 </div>
               </section>
+              {!isCustomer ? (
+                <section className={styles.section}>
+                  <div>
+                    <h3>Anything Extra?</h3>
+                    <p>
+                      Add abilities beyond the role. Extras never remove
+                      something the role already provides.
+                    </p>
+                  </div>
+                  <div className={styles.extraList}>
+                    {permissionModules.map((module) => {
+                      const defaults =
+                        getDefaultPermissionsForRole(role)[module.key];
+                      const choices = permissionActions.filter(
+                        (action) => !defaults[action],
+                      );
+                      if (!choices.length) return null;
+                      return (
+                        <div key={module.key}>
+                          <strong>{module.label}</strong>
+                          <span>
+                            {choices.map((action) => {
+                              const key = `${module.key}:${action}`;
+                              return (
+                                <label key={key}>
+                                  <input
+                                    type="checkbox"
+                                    checked={extras.includes(key)}
+                                    onChange={() => toggle(key, setExtras)}
+                                  />
+                                  {actionLabels[action]}
+                                </label>
+                              );
+                            })}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : null}
               <section className={styles.section}>
                 <div>
                   <h3>Yards</h3>
@@ -387,7 +425,10 @@ export default function AccessPage() {
                 <div className={styles.yards}>
                   {(data?.locations ?? [])
                     .filter(
-                      (yard) => yard.is_active || yardIds.includes(yard.id),
+                      (yard) =>
+                        (!isCustomer ||
+                          yard.owner_company_id === selected.company_id) &&
+                        (yard.is_active || yardIds.includes(yard.id)),
                     )
                     .map((yard) => (
                       <label key={yard.id}>

@@ -6,6 +6,8 @@ import {
   permissionActions,
 } from "../../../lib/modulePermissions";
 
+const customerModules = new Set(["yard_view", "reports"]);
+
 type Body = Record<string, unknown>;
 type Admin = ReturnType<typeof configured>;
 function configured() {
@@ -80,7 +82,9 @@ async function snapshot(admin: Admin, userId: string) {
   const [profile, modules, extras, yards] = await Promise.all([
     admin
       .from("profiles")
-      .select("id,full_name,email,role,department,service_line,access_configured,is_disabled")
+      .select(
+        "id,full_name,email,role,department,service_line,access_configured,company_id,is_disabled",
+      )
       .eq("id", userId)
       .maybeSingle(),
     admin
@@ -133,7 +137,10 @@ export async function GET(request: Request) {
         admin
           .from("inventory_user_yards")
           .select("user_id,yard_id,can_access,active"),
-        admin.from("yards").select("id,name,code,is_active").order("name"),
+        admin
+          .from("yards")
+          .select("id,name,code,is_active,owner_company_id")
+          .order("name"),
         admin
           .from("titan_access_events")
           .select("id,target_user_id,event_type,summary,actor_id,created_at")
@@ -205,6 +212,61 @@ export async function POST(request: Request) {
       ),
     ];
     const before = await snapshot(admin, userId);
+    const currentProfile = before.profile as {
+      role?: unknown;
+      company_id?: unknown;
+    } | null;
+    const currentRole = lower(currentProfile?.role);
+    const changingCustomerBoundary =
+      (currentRole === "customer") !== (role === "customer");
+    if (changingCustomerBoundary && body.confirmRoleConversion !== true) {
+      return Response.json(
+        {
+          error:
+            "Changing between a customer and an internal role requires explicit confirmation.",
+        },
+        { status: 409 },
+      );
+    }
+    if (role === "customer") {
+      const companyId = text(currentProfile?.company_id);
+      if (!companyId)
+        return Response.json(
+          {
+            error:
+              "Assign this customer to a company from User Management before saving access.",
+          },
+          { status: 400 },
+        );
+      if (
+        modules.some((moduleKey) => !customerModules.has(moduleKey)) ||
+        extras.length > 0
+      ) {
+        return Response.json(
+          {
+            error:
+              "Customer accounts can only use their portal, yard inventory, release requests, and customer reports.",
+          },
+          { status: 400 },
+        );
+      }
+      if (yardIds.length) {
+        const { data: ownedYards, error: yardError } = await admin
+          .from("yards")
+          .select("id")
+          .in("id", yardIds)
+          .eq("owner_company_id", companyId);
+        if (yardError) throw yardError;
+        if ((ownedYards ?? []).length !== yardIds.length)
+          return Response.json(
+            {
+              error:
+                "A customer can only be assigned to yards owned by their company.",
+            },
+            { status: 400 },
+          );
+      }
+    }
     const { error: profileError } = await admin
       .from("profiles")
       .update({ role, service_line: serviceLine, access_configured: true })

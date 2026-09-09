@@ -40,6 +40,48 @@ create table if not exists public.titan_access_events (
 );
 
 create index if not exists titan_access_events_target_idx on public.titan_access_events(target_user_id, created_at desc);
+
+create or replace function public.titan_user_can_access_module(p_user_id uuid, p_module_key text)
+returns boolean language sql stable security definer set search_path=public as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id=p_user_id and coalesce(p.is_disabled,false)=false
+      and (
+        lower(p.role::text) in ('admin','owner')
+        or exists (
+          select 1 from public.user_module_permissions ump
+          where ump.user_id=p_user_id and ump.module_key=p_module_key
+            and coalesce(ump.can_access,true) and coalesce(ump.active,true)
+        )
+      )
+  );
+$$;
+
+revoke all on function public.titan_user_can_access_module(uuid,text) from public,anon,authenticated;
+grant execute on function public.titan_user_can_access_module(uuid,text) to service_role;
+
+create or replace function public.can_access_titan_yard(p_yard_id uuid)
+returns boolean language sql stable security definer set search_path=public,auth as $$
+  select exists (
+    select 1 from public.profiles profile
+    where profile.id=auth.uid() and coalesce(profile.is_disabled,false)=false
+      and (
+        lower(coalesce(auth.jwt()->>'email',''))='wade@pathfinderinspections.com'
+        or lower(profile.role::text) in ('admin','owner')
+        or exists (
+          select 1 from public.inventory_user_yards assignment
+          join public.yards yard on yard.id=assignment.yard_id
+          where assignment.user_id=profile.id and assignment.yard_id=p_yard_id
+            and coalesce(assignment.can_access,true) and coalesce(assignment.active,true)
+            and (
+              lower(profile.role::text)<>'customer'
+              or coalesce(profile.access_configured,false)=false
+              or yard.owner_company_id=profile.company_id
+            )
+        )
+      )
+  );
+$$;
 alter table public.titan_access_events enable row level security;
 grant select on public.titan_access_events to authenticated;
 drop policy if exists "permission admins read access events" on public.titan_access_events;

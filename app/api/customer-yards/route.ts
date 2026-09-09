@@ -37,12 +37,35 @@ async function customerAccess(request: Request, admin: AdminClient) {
 
   const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id, role, company_id")
+    .select("id, role, company_id, is_disabled, access_configured")
     .eq("id", userData.user.id)
     .single();
 
-  if (profileError || profile?.role !== "customer" || !profile.company_id) {
+  if (
+    profileError ||
+    profile?.role !== "customer" ||
+    !profile.company_id ||
+    profile.is_disabled
+  ) {
     return { error: "Customer yard setup requires a customer company login.", status: 403 as const };
+  }
+
+  if (profile.access_configured) {
+    const { data: moduleAccess, error: moduleError } = await admin
+      .from("user_module_permissions")
+      .select("user_id")
+      .eq("user_id", userData.user.id)
+      .eq("module_key", "yard_view")
+      .eq("can_access", true)
+      .eq("active", true)
+      .maybeSingle();
+    if (moduleError) throw moduleError;
+    if (!moduleAccess) {
+      return {
+        error: "Yard View access has not been assigned to this account.",
+        status: 403 as const,
+      };
+    }
   }
 
   return { userId: userData.user.id, companyId: String(profile.company_id), status: 200 as const };
@@ -52,7 +75,8 @@ async function assignedYardIds(admin: AdminClient, userId: string) {
   const { data, error } = await admin
     .from("inventory_user_yards")
     .select("yard_id")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("can_access", true);
 
   if (error) throw error;
   return new Set((data ?? []).map((row: any) => String(row.yard_id)));
@@ -135,20 +159,18 @@ export async function POST(request: Request) {
 
       if (error) throw error;
 
-      const { data: companyUsers, error: usersError } = await admin
-        .from("profiles")
-        .select("id")
-        .eq("company_id", access.companyId)
-        .eq("role", "customer");
-      if (usersError) throw usersError;
-
-      const assignments = (companyUsers ?? []).map((profile: any) => ({ user_id: profile.id, yard_id: yard.id, can_access: true }));
-      if (assignments.length) {
-        const { error: assignmentError } = await admin
-          .from("inventory_user_yards")
-          .upsert(assignments, { onConflict: "user_id,yard_id" });
-        if (assignmentError) throw assignmentError;
-      }
+      const { error: assignmentError } = await admin
+        .from("inventory_user_yards")
+        .upsert(
+          {
+            user_id: access.userId,
+            yard_id: yard.id,
+            can_access: true,
+            active: true,
+          },
+          { onConflict: "user_id,yard_id" },
+        );
+      if (assignmentError) throw assignmentError;
 
       return Response.json({ ok: true, yard, ...(await customerYards(admin, access.userId, access.companyId)) });
     }
