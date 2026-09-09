@@ -406,6 +406,7 @@ export default function DailySummaryPage({ config }: { config: DailySummaryConfi
   const [posting, setPosting] = useState(false);
   const [inspectionReportFile, setInspectionReportFile] = useState<File | null>(null);
   const formSectionRef = useRef<HTMLElement | null>(null);
+  const linkedSummaryAppliedRef = useRef(false);
 
   const canEdit = profile ? config.editableRoles.includes(profile.role) : false;
   const selectedId = form.id;
@@ -557,6 +558,16 @@ export default function DailySummaryPage({ config }: { config: DailySummaryConfi
 
     const mapped = (data ?? []).map(mapRow);
     setSummaries(mapped);
+    if (!linkedSummaryAppliedRef.current && typeof window !== "undefined") {
+      const summaryId = new URLSearchParams(window.location.search).get("summaryId");
+      const linkedSummary = summaryId ? mapped.find((summary) => summary.id === summaryId) : null;
+      if (linkedSummary) {
+        linkedSummaryAppliedRef.current = true;
+        setForm(linkedSummary);
+        setExpandedSummaryId(linkedSummary.id);
+        window.setTimeout(() => formSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      }
+    }
     setMessage("");
   }
 
