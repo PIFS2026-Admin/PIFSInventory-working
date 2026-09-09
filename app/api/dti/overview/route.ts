@@ -84,7 +84,7 @@ export async function GET(request: Request) {
 
     (deviationsResult.data ?? []).filter((row) => !row.written_confirmation).forEach((row) => {
       const job = jobById.get(row.job_id);
-      attention.push({ id: `deviation-${row.id}`, kind: "Written Confirmation", severity: "High", title: `${row.deviation_number} / ${row.defect_type}`, detail: job ? `${job.job_number} / ${job.customer_name || job.title}` : "DTI deviation", href: `/crm/jobs/${row.job_id}`, occurredAt: row.updated_at });
+      attention.push({ id: `deviation-${row.id}`, kind: "Written Confirmation", severity: "High", title: `${row.deviation_number} / ${row.defect_type}`, detail: job ? `${job.job_number} / ${job.customer_name || job.title}` : "DTI deviation", href: "/dti/deviations", occurredAt: row.updated_at });
     });
 
     (auditsResult.data ?? []).filter((row) => row.status_band === "Action Required").forEach((row) => {

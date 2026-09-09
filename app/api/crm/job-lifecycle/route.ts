@@ -585,6 +585,11 @@ export async function PATCH(request: Request) {
         if (!deviation.written_confirmation || !deviation.confirmation_document_id) {
           return Response.json({ error: "Approval requires written confirmation and its attached evidence. Verbal approval alone is not sufficient." }, { status: 422 });
         }
+        const oms202Fields = [deviation.component, deviation.joint_ids, deviation.location_on_component, deviation.measurements, deviation.controlling_criteria, deviation.justification, deviation.risk_level, deviation.economic_impact, deviation.trend_across_string, deviation.customer_rep_name, deviation.customer_rep_title, deviation.customer_company, deviation.customer_authorized_on, deviation.pathfinder_inspector_name, deviation.pathfinder_inspector_signed_on, deviation.lead_inspector_name, deviation.lead_inspector_signed_on, deviation.customer_signature_name, deviation.customer_signed_on];
+        if (oms202Fields.some((value) => !cleanText(value)) || ![deviation.confirmation_attached, deviation.attached_to_job_report, deviation.affected_joints_marked, deviation.manager_copy_filed].every(Boolean)) {
+          return Response.json({ error: "Complete the OMS-202 agreement in DTI Management before approval." }, { status: 422 });
+        }
+        if (deviation.risk_level === "High" || deviation.trend_across_string === "Widespread") return Response.json({ error: "High-risk or widespread conditions require rejection or further escalation." }, { status: 422 });
         nextStatus = "Approved";
         updates.approved_by = authorization.userId;
         updates.approved_at = new Date().toISOString();
