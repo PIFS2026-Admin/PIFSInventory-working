@@ -2239,7 +2239,7 @@ export default function Home() {
         document_type,
         file_url,
         created_at,
-        companies(name)
+        ticket_company:companies!documents_company_id_fkey(name)
       `)
       .in("document_type", ["transfer", "transfer_to_machine_shop", "transfer_from_machine_shop"])
       .order("created_at", { ascending: false })
@@ -2421,7 +2421,7 @@ export default function Home() {
 
     setTransferDocuments(
       (documentData ?? []).map((row: any) => {
-        const company = Array.isArray(row.companies) ? row.companies[0] : row.companies;
+        const company = Array.isArray(row.ticket_company) ? row.ticket_company[0] : row.ticket_company;
         let details: any = {};
 
         try {

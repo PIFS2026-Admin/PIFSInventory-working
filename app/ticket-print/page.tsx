@@ -541,7 +541,7 @@ export default function TicketPrintPage() {
       if (type === "transfer") {
         let query = supabase
           .from("documents")
-          .select("id, document_type, file_url, created_at, companies(name)");
+          .select("id, document_type, file_url, created_at, ticket_company:companies!documents_company_id_fkey(name)");
 
         query = isUuid(id) ? query.eq("id", id) : query.eq("id", id);
 
@@ -560,7 +560,7 @@ export default function TicketPrintPage() {
           details = {};
         }
 
-        const companyName = details.company || getCompanyName(data.companies);
+        const companyName = details.company || getCompanyName(data.ticket_company);
 
         setTicket({
           id: data.id,
