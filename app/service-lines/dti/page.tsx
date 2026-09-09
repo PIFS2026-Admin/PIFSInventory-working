@@ -23,6 +23,7 @@ const tools = [
   { title: "Crew Schedule", href: "/dti/crew-schedule" },
   { title: "Document Library", href: "/dti/documents" },
   { title: "Tubular Specifications", href: "/dti/tubular-specs" },
+  { title: "Ask TITAN", href: "/dti/reference" },
 ];
 
 function formatDate(value: string | null) {
