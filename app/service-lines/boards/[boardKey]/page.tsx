@@ -167,6 +167,25 @@ type BoardSearchMatch = {
   score: number;
 };
 
+type CrewReadiness = {
+  cardId: string;
+  columnId: string;
+  status: "ready" | "watch" | "blocked" | "unlinked" | "not_in_matrix" | "not_applicable";
+  label: string;
+  reason: string;
+  fieldScore: number | null;
+  category: string;
+};
+
+type LaneReadiness = {
+  columnId: string;
+  category: string;
+  people: number;
+  issues: number;
+  hasLeadQualified: boolean;
+  status: "ready" | "attention" | "empty";
+};
+
 type CardForm = {
   columnId: string;
   title: string;
@@ -542,6 +561,8 @@ function DroppableColumn({
   latestCommentsByCardId,
   highlightedColumnId,
   highlightedCardId,
+  cardReadiness,
+  laneReadiness,
 }: {
   column: BoardColumn;
   cards: BoardCard[];
@@ -557,6 +578,8 @@ function DroppableColumn({
   latestCommentsByCardId: Record<string, CommentRow>;
   highlightedColumnId: string;
   highlightedCardId: string;
+  cardReadiness: Record<string, CrewReadiness>;
+  laneReadiness?: LaneReadiness;
 }) {
   const {
     attributes,
@@ -601,6 +624,7 @@ function DroppableColumn({
         >
           <h2>{column.title}</h2>
           {column.dueDate && <small className={styles.columnDueDate}>Due {formatDate(column.dueDate)}</small>}
+          {laneReadiness && laneReadiness.people > 0 && <small className={styles.crewReadiness} data-status={laneReadiness.status}>{laneReadiness.issues ? `${laneReadiness.issues} crew check${laneReadiness.issues === 1 ? "" : "s"}` : "Crew ready"}{laneReadiness.category ? ` / ${laneReadiness.category}` : ""}</small>}
         </button>
         <div className={styles.columnTools}>
           <span>{cards.length}</span>
@@ -646,6 +670,7 @@ function DroppableColumn({
                 quickLaneActions={isEmployeeCard(card) ? quickLaneActions.filter((lane) => lane.columnId !== card.columnId) : []}
                 latestComment={latestCommentsByCardId[card.id]?.body ?? ""}
                 highlighted={highlightedCardId === card.id}
+                readiness={cardReadiness[card.id]}
               />
             ))}
           </SortableContext>
@@ -665,6 +690,7 @@ function SortableBoardCard({
   quickLaneActions,
   latestComment,
   highlighted,
+  readiness,
 }: {
   card: BoardCard;
   selected: boolean;
@@ -675,6 +701,7 @@ function SortableBoardCard({
   quickLaneActions: QuickLaneAction[];
   latestComment: string;
   highlighted: boolean;
+  readiness?: CrewReadiness;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
@@ -772,6 +799,7 @@ function SortableBoardCard({
       <div className={styles.cardMeta}>
         <span className={`${styles.priority} ${styles[`priority${card.priority}`]}`}>{card.priority}</span>
         {card.dueDate && <span>Due {formatDate(card.dueDate)}</span>}
+        {readiness && readiness.status !== "not_applicable" && <span className={styles.readinessBadge} data-status={readiness.status} title={readiness.reason}>{readiness.label}</span>}
       </div>
 
       {card.tags.length > 0 && (
@@ -830,6 +858,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
   const [activeDragColumn, setActiveDragColumn] = useState<BoardColumn | null>(null);
   const [currentUserId, setCurrentUserId] = useState("");
   const [currentUserName, setCurrentUserName] = useState("TITAN user");
+  const [crewReadiness, setCrewReadiness] = useState<Record<string, CrewReadiness>>({});
+  const [laneReadiness, setLaneReadiness] = useState<Record<string, LaneReadiness>>({});
   const deckRef = useRef<HTMLElement | null>(null);
   const deckScrollLeftRef = useRef(0);
   const pendingDeckScrollLeftRef = useRef<number | null>(null);
@@ -1084,6 +1114,17 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const activeColumnIds = new Set(effectiveColumns.map((column) => column.id));
     const nextCards = ((cardResult.data ?? []) as CardRow[]).map(mapCard).filter((card) => activeColumnIds.has(card.columnId));
     setCards(nextCards);
+    const accessToken = sessionData.session?.access_token;
+    if (accessToken) {
+      void fetch(`/api/service-board-crew-readiness?boardId=${encodeURIComponent(typedBoard.id)}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+        .then(async (readinessRequest) => {
+          if (!readinessRequest.ok) throw new Error("Crew readiness is not active.");
+          const readinessBody = await readinessRequest.json() as { cardReadiness?: CrewReadiness[]; laneReadiness?: LaneReadiness[] };
+          setCrewReadiness(Object.fromEntries((readinessBody.cardReadiness ?? []).map((row) => [row.cardId, row])));
+          setLaneReadiness(Object.fromEntries((readinessBody.laneReadiness ?? []).map((row) => [row.columnId, row])));
+        })
+        .catch(() => { setCrewReadiness({}); setLaneReadiness({}); });
+    }
     if (nextCards.length === 0) {
       setLatestCommentsByCardId({});
     } else {
@@ -1624,6 +1665,20 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     const nextSort = getInsertedSortOrder(card, destinationColumnId, beforeCardId);
 
     if (card.columnId === destinationColumnId && nextSort === card.sortOrder) return;
+
+    if (board && card.columnId !== destinationColumnId && isEmployeeCard(card)) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const readinessRequest = await fetch("/api/service-board-crew-readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionData.session?.access_token ?? ""}` },
+        body: JSON.stringify({ boardId: board.id, cardId: card.id, columnId: destinationColumnId }),
+      });
+      if (readinessRequest.ok) {
+        const readinessBody = await readinessRequest.json() as { requiresConfirmation?: boolean; readiness?: CrewReadiness | null };
+        if (readinessBody.requiresConfirmation && readinessBody.readiness && !window.confirm(`${readinessBody.readiness.reason}\n\nMove this employee anyway?`)) return;
+        if (readinessBody.readiness) setCrewReadiness((current) => ({ ...current, [card.id]: readinessBody.readiness as CrewReadiness }));
+      }
+    }
 
     setCards((current) =>
       current.map((item) =>
@@ -2249,6 +2304,8 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   latestCommentsByCardId={latestCommentsByCardId}
                   highlightedColumnId={highlightedSearchMatch?.type === "list" ? highlightedSearchMatch.id : ""}
                   highlightedCardId={highlightedSearchMatch?.type === "card" ? highlightedSearchMatch.id : ""}
+                  cardReadiness={crewReadiness}
+                  laneReadiness={laneReadiness[column.id]}
                 />
               ))}
             </SortableContext>

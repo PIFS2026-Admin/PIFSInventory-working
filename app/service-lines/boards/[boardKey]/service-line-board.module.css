@@ -441,6 +441,17 @@
   letter-spacing: 0;
 }
 
+.crewReadiness {
+  display: block;
+  width: fit-content;
+  margin-top: 5px;
+  color: #86efac;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.crewReadiness[data-status="attention"] { color: #fca5a5; }
+
 .columnHead span {
   min-width: 30px;
   height: 28px;
@@ -637,6 +648,12 @@
 .priority {
   color: #fff !important;
 }
+
+.cardMeta .readinessBadge[data-status="ready"] { border-color: rgba(34, 197, 94, .58); color: #86efac; }
+.cardMeta .readinessBadge[data-status="watch"] { border-color: rgba(245, 158, 11, .58); color: #fde68a; }
+.cardMeta .readinessBadge[data-status="blocked"],
+.cardMeta .readinessBadge[data-status="unlinked"],
+.cardMeta .readinessBadge[data-status="not_in_matrix"] { border-color: rgba(239, 68, 68, .62); color: #fca5a5; }
 
 .priorityLow {
   border-color: rgba(96, 165, 250, 0.42) !important;
