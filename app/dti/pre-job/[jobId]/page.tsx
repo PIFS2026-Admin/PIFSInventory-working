@@ -14,7 +14,8 @@ type ItemResponse = { state: ResponseState; note: string; ownerName: string; due
 type ChecklistItem = { code: string; section: string; text: string };
 type Job = { id: string; job_number: string; title: string; lifecycle_status: string; customer_name: string | null; operator_name: string | null; rig_name: string | null; scheduled_start: string | null };
 type Readiness = { readiness_status: "Ready" | "Needs Attention" | "Blocked"; responses: Record<string, ItemResponse>; total_items: number; complete_items: number; attention_items: number; blocked_items: number; finalized_at: string | null; updated_at: string };
-type ApiResponse = { ok?: boolean; job?: Job; checklist?: ChecklistItem[]; readiness?: Readiness | null; error?: string };
+type EquipmentReadiness = { status: "Ready" | "Needs Attention" | "Blocked"; blocked: number; attention: number; missing: string[] };
+type ApiResponse = { ok?: boolean; job?: Job; checklist?: ChecklistItem[]; readiness?: Readiness | null; equipmentReadiness?: EquipmentReadiness | null; equipmentReady?: boolean; error?: string };
 
 const emptyResponse: ItemResponse = { state: "", note: "", ownerName: "", dueDate: "" };
 const statusOptions: ResponseState[] = ["", "Complete", "Needs Attention", "Blocked", "N/A"];
@@ -32,6 +33,8 @@ export default function DtiPreJobReadinessPage() {
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [responses, setResponses] = useState<Record<string, ItemResponse>>({});
   const [saved, setSaved] = useState<Readiness | null>(null);
+  const [equipmentReadiness, setEquipmentReadiness] = useState<EquipmentReadiness | null>(null);
+  const [equipmentReady, setEquipmentReady] = useState(true);
   const [openSections, setOpenSections] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("Loading pre-job readiness...");
   const [saving, setSaving] = useState(false);
@@ -48,6 +51,7 @@ export default function DtiPreJobReadinessPage() {
       const next: Record<string, ItemResponse> = {};
       body.checklist.forEach((item) => { next[item.code] = { ...emptyResponse, ...(body.readiness?.responses?.[item.code] ?? {}) }; });
       setJob(body.job); setChecklist(body.checklist); setResponses(next); setSaved(body.readiness ?? null);
+      setEquipmentReadiness(body.equipmentReadiness ?? null); setEquipmentReady(body.equipmentReady !== false);
       setOpenSections(new Set([body.checklist[0]?.section].filter(Boolean)));
       setMessage("");
     } catch (error) { setMessage(error instanceof Error ? error.message : "TITAN could not load this readiness checklist."); }
@@ -107,6 +111,8 @@ export default function DtiPreJobReadinessPage() {
 
     {checklist.length ? <section className={styles.metrics}><article><span>Complete / N/A</span><strong>{totals.complete}<small> / {checklist.length}</small></strong></article><article><span>Unanswered</span><strong>{totals.unanswered}</strong></article><article data-tone="attention"><span>Needs Attention</span><strong>{totals.attention}</strong></article><article data-tone="blocked"><span>Blocked</span><strong>{totals.blocked}</strong></article></section> : null}
 
+    {job ? <section className={styles.equipmentBand}><div><span>OMS-103 / OMS-108</span><strong>Equipment and Calibration Readiness</strong><small>{equipmentReady ? equipmentReadiness?.missing.length ? `${equipmentReadiness.missing.length} required equipment types are not assigned.` : equipmentReadiness?.status === "Ready" ? "All required equipment is assigned, calibrated, and verified." : "Equipment needs review before this job can be marked Ready." : "Run the equipment readiness SQL to activate this control."}</small></div><b data-status={equipmentReadiness?.status || "Not Configured"}>{equipmentReadiness?.status || "Not Configured"}</b><Link href={`/dti/equipment-readiness/${encodeURIComponent(job.id)}`}>Manage Equipment</Link></section> : null}
+
     {message ? <div className={message.includes("saved") || message.includes("marked Ready") ? styles.success : styles.message}>{message}</div> : null}
 
     <div className={styles.sections}>{sections.map(({ section, items }, index) => {
@@ -126,6 +132,6 @@ export default function DtiPreJobReadinessPage() {
       </section>;
     })}</div>
 
-    {checklist.length ? <footer className={styles.actions}><div><span>OMS-101 readiness</span><strong>{totals.status}</strong>{saved?.updated_at ? <small>Last saved {new Date(saved.updated_at).toLocaleString()}</small> : null}</div><button type="button" onClick={() => void save("save")} disabled={saving}>{saving ? "Saving..." : "Save Progress"}</button><button type="button" className={styles.primary} onClick={() => void save("finalize")} disabled={saving || totals.status !== "Ready"}>Mark Ready</button></footer> : null}
+    {checklist.length ? <footer className={styles.actions}><div><span>OMS-101 readiness</span><strong>{totals.status}</strong>{saved?.updated_at ? <small>Last saved {new Date(saved.updated_at).toLocaleString()}</small> : null}</div><button type="button" onClick={() => void save("save")} disabled={saving}>{saving ? "Saving..." : "Save Progress"}</button><button type="button" className={styles.primary} onClick={() => void save("finalize")} disabled={saving || totals.status !== "Ready" || !equipmentReady || equipmentReadiness?.status !== "Ready"}>Mark Ready</button></footer> : null}
   </main>;
 }

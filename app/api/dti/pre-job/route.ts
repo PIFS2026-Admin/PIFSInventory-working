@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { buildDtiEquipmentReadiness } from "../../../../lib/dtiEquipmentReadiness";
 
 type TitanProfile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type ResponseState = "" | "Complete" | "Needs Attention" | "Blocked" | "N/A";
@@ -71,6 +72,7 @@ function normalized(value: unknown) { return clean(value).toLowerCase(); }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function migrationMissing(error: unknown) { return normalized(errorMessage(error)).includes("titan_dti_pre_job_readiness") || normalized(errorMessage(error)).includes("schema cache"); }
+function equipmentMigrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_equipment") || message.includes("titan_equipment_calibrations") || message.includes("requires_calibration") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -86,10 +88,22 @@ async function authorizeWade(request: Request, admin: ReturnType<typeof configur
 }
 
 async function loadJob(admin: ReturnType<typeof configuredSupabase>, jobId: string) {
-  const { data, error } = await admin.from("titan_jobs").select("id, job_number, title, service_line, lifecycle_status, customer_name, operator_name, rig_name, scheduled_start").eq("id", jobId).maybeSingle();
+  const { data, error } = await admin.from("titan_jobs").select("id, job_number, title, service_line, lifecycle_status, customer_name, operator_name, rig_name, scheduled_start, job_type, job_description, source_snapshot").eq("id", jobId).maybeSingle();
   if (error) throw error;
   if (!data || normalized(data.service_line) !== "dti") return null;
   return data;
+}
+
+async function loadEquipmentReadiness(admin: ReturnType<typeof configuredSupabase>, job: Record<string, unknown>) {
+  const [assignmentsResult, assetsResult, calibrationsResult] = await Promise.all([
+    admin.from("titan_dti_job_equipment").select("*").eq("job_id", clean(job.id)),
+    admin.from("equipment_assets").select("*").limit(2000),
+    admin.from("titan_equipment_calibrations").select("*").order("calibrated_on", { ascending: false }).order("created_at", { ascending: false }).limit(3000),
+  ]);
+  if (assignmentsResult.error) throw assignmentsResult.error;
+  if (assetsResult.error) throw assetsResult.error;
+  if (calibrationsResult.error) throw calibrationsResult.error;
+  return buildDtiEquipmentReadiness(job, assignmentsResult.data ?? [], assetsResult.data ?? [], calibrationsResult.data ?? []);
 }
 
 export async function GET(request: Request) {
@@ -103,7 +117,11 @@ export async function GET(request: Request) {
     if (!job) return Response.json({ error: "This DTI job could not be found." }, { status: 404 });
     const { data, error } = await admin.from("titan_dti_pre_job_readiness").select("*").eq("job_id", jobId).maybeSingle();
     if (error) throw error;
-    return Response.json({ ok: true, job, checklist, readiness: data });
+    let equipmentReadiness = null;
+    let equipmentReady = true;
+    try { equipmentReadiness = await loadEquipmentReadiness(admin, job); }
+    catch (error) { if (!equipmentMigrationMissing(error)) throw error; equipmentReady = false; }
+    return Response.json({ ok: true, job, checklist, readiness: data, equipmentReadiness, equipmentReady });
   } catch (error) {
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_pre_job_readiness.sql before using Pre-Job Readiness." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
@@ -139,6 +157,15 @@ export async function POST(request: Request) {
     const readinessStatus = blockedItems ? "Blocked" : attentionItems || unanswered ? "Needs Attention" : "Ready";
     const finalize = normalized(body.action) === "finalize";
     if (finalize && readinessStatus !== "Ready") return Response.json({ error: "Every item must be Complete or N/A before this job can be marked Ready." }, { status: 400 });
+    if (finalize) {
+      let equipmentReadiness;
+      try { equipmentReadiness = await loadEquipmentReadiness(admin, await loadJob(admin, jobId) as Record<string, unknown>); }
+      catch (error) {
+        if (equipmentMigrationMissing(error)) return Response.json({ error: "Run supabase/titan_dti_equipment_readiness.sql before marking this job Ready." }, { status: 409 });
+        throw error;
+      }
+      if (equipmentReadiness.status !== "Ready") return Response.json({ error: "Required equipment must be assigned, calibrated, and verified before this job can be marked Ready." }, { status: 400 });
+    }
     const payload = {
       job_id: jobId,
       checklist_version: "OMS-101 Rev 0",
