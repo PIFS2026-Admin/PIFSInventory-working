@@ -25,7 +25,7 @@ function integer(value: unknown) { const parsed = Number(value); return Number.i
 function decimal(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("titan_dti_dimensional_readings") || message.includes("schema cache"); }
+function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("titan_dti_dimensional_readings") || message.includes("titan_dti_connection_refacing") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -73,7 +73,7 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", clean(job.id)).order("run_date", { ascending: false }).order("started_at", { ascending: false }).limit(100);
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? (runs ?? []).find((item) => item.status !== "Complete") ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult, specsResult, dimensionsResult, scopeResult] = run ? await Promise.all([
+  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult, specsResult, dimensionsResult, scopeResult, refacingResult] = run ? await Promise.all([
     admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number"),
     admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }),
     admin.from("equipment_assets").select("id,equipment_name,equipment_number,equipment_type,serial_number,department").eq("is_active", true).order("equipment_name").limit(2000),
@@ -83,7 +83,8 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
     admin.from("titan_dti_tubular_specs").select("id,pipe_size,weight_ppf,grade,connection,new_wall_inches,premium_min_wall_inches,class_2_min_wall_inches,tj_od_min_premium_inches,tj_id_max_inches,bevel_diameter_min_inches,bevel_diameter_max_inches,tong_space_min_inches,source_document_id").is("archived_at", null).order("pipe_size"),
     admin.from("titan_dti_dimensional_readings").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
     admin.from("titan_dti_job_scopes").select("status,baseline_scope").eq("job_id", clean(job.id)).maybeSingle(),
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: null, error: null }];
+    admin.from("titan_dti_connection_refacing").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
+  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
   if (racksResult.error) throw racksResult.error;
   if (calibrationsResult.error) throw calibrationsResult.error;
   if (assetsResult.error) throw assetsResult.error;
@@ -93,9 +94,10 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   if (specsResult.error) throw specsResult.error;
   if (dimensionsResult.error) throw dimensionsResult.error;
   if (scopeResult.error) throw scopeResult.error;
+  if (refacingResult.error) throw refacingResult.error;
   const racks = (racksResult.data ?? []) as Row[];
   const calibrations = (calibrationsResult.data ?? []) as Row[];
-  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], tubularSpecs: specsResult.data ?? [], dimensionalReadings: dimensionsResult.data ?? [], jobScope: scopeResult.data ?? null, summary: executionSummary(run as Row | null, racks, calibrations) };
+  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], tubularSpecs: specsResult.data ?? [], dimensionalReadings: dimensionsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], jobScope: scopeResult.data ?? null, summary: executionSummary(run as Row | null, racks, calibrations) };
 }
 
 export async function GET(request: Request) {
@@ -175,6 +177,57 @@ export async function POST(request: Request) {
         const rackId = clean(body.rackId); const assetId = clean(body.assetId);
         const { error } = await admin.from("titan_dti_field_calibrations").insert({ job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, equipment_asset_id: validUuid(assetId) ? assetId : null, calibration_kind: kind, checkpoint, joint_number: jointNumber, result, reading_summary: clean(body.readingSummary) || null, performed_by_name: clean(body.performedByName), notes: clean(body.notes) || null, created_by: authorization.userId });
         if (error) throw error;
+      } else if (action === "save-refacing") {
+        const rackId = clean(body.rackId);
+        const specId = clean(body.specId);
+        const jointIds = clean(body.jointIds);
+        const quantity = integer(body.quantity);
+        const componentEnd = clean(body.componentEnd);
+        const connectionType = clean(body.connectionType);
+        const identificationBasis = clean(body.identificationBasis);
+        const drawingId = clean(body.manufacturerDrawingDocumentId);
+        const condition = clean(body.condition);
+        const requestedMethod = clean(body.method);
+        const operatorName = clean(body.operatorName);
+        const removal = clean(body.removalInches) ? decimal(body.removalInches) : null;
+        const pinBenchmark = clean(body.pinBenchmarkToSealInches) ? decimal(body.pinBenchmarkToSealInches) : null;
+        const boxBenchmark = clean(body.boxBenchmarkInches) ? decimal(body.boxBenchmarkInches) : null;
+        const bevel = clean(body.postRefaceBevelInches) ? decimal(body.postRefaceBevelInches) : null;
+        const fieldConditions = ["Light Seal / Shoulder Damage"];
+        const shopConditions = ["Over Faced", "Short Box", "Long Pin", "Swelled Box", "Post-Lathe Benchmark Out of Spec", "Severe Seal / Shoulder Damage"];
+        const rejectConditions = ["Confirmed Crack", "Thread Damage Beyond Field Repair"];
+        const methods = ["Sandpaper - API", "Sandpaper - DS / Proprietary", "Samss Lathe", "No Field Reface"];
+        if (!validUuid(specId) || !jointIds || quantity < 1 || !["Pin", "Box", "Both"].includes(componentEnd) || !["API", "Double-Shoulder", "Proprietary"].includes(connectionType) || !identificationBasis || ![...fieldConditions, ...shopConditions, ...rejectConditions].includes(condition) || !methods.includes(requestedMethod) || !operatorName) return Response.json({ error: "Complete the controlled specification, joints, connection identification, condition, method, quantity, and operator." }, { status: 400 });
+        const { data: spec, error: specError } = await admin.from("titan_dti_tubular_specs").select("*").eq("id", specId).is("archived_at", null).maybeSingle();
+        if (specError) throw specError;
+        if (!spec) return Response.json({ error: "Select an active controlled tubular specification." }, { status: 400 });
+        if (validUuid(rackId)) { const { data: rack, error } = await admin.from("titan_dti_rack_runs").select("id").eq("id", rackId).eq("job_run_id", runId).maybeSingle(); if (error) throw error; if (!rack) return Response.json({ error: "The selected rack does not belong to this run." }, { status: 400 }); }
+        if (connectionType !== "API") {
+          if (!validUuid(drawingId)) return Response.json({ error: "Double-shoulder and proprietary connections require the manufacturer field dimension drawing." }, { status: 400 });
+          const { data: drawing, error } = await admin.from("titan_job_documents").select("id").eq("id", drawingId).eq("job_id", jobId).maybeSingle();
+          if (error) throw error;
+          if (!drawing) return Response.json({ error: "The manufacturer drawing must be attached to this connected job." }, { status: 400 });
+        }
+        let route = rejectConditions.includes(condition) ? "Reject" : shopConditions.includes(condition) ? "Machine Shop" : "Field Reface";
+        if (route === "Field Reface") {
+          if (requestedMethod === "No Field Reface") return Response.json({ error: "Select the field-refacing method used." }, { status: 400 });
+          if (!Boolean(body.squarenessVerified) || !Boolean(body.copperSulfateVerified)) return Response.json({ error: "Verify squareness and complete the copper sulfate test after field refacing." }, { status: 400 });
+          if (requestedMethod === "Samss Lathe" && !Boolean(body.samssTrainedOperator)) return Response.json({ error: "Samss lathe work requires a trained operator." }, { status: 400 });
+          if (connectionType !== "API" && removal === null) return Response.json({ error: "Record material removal for double-shoulder and proprietary connections." }, { status: 400 });
+          if (connectionType !== "API" && removal !== null && removal > 0.0625) route = "Machine Shop";
+          if (["Pin", "Both"].includes(componentEnd) && pinBenchmark !== null && pinBenchmark > 0.1875) route = "Machine Shop";
+          if (["Box", "Both"].includes(componentEnd) && boxBenchmark !== null && boxBenchmark < 0.0625) route = "Machine Shop";
+          const bevelMin = spec.bevel_diameter_min_inches === null ? null : Number(spec.bevel_diameter_min_inches);
+          const bevelMax = spec.bevel_diameter_max_inches === null ? null : Number(spec.bevel_diameter_max_inches);
+          if (bevel !== null && ((bevelMin !== null && bevel < bevelMin) || (bevelMax !== null && bevel > bevelMax))) route = "Machine Shop";
+        }
+        const method = route === "Field Reface" ? requestedMethod : "No Field Reface";
+        const { data: saved, error } = await admin.from("titan_dti_connection_refacing").insert({ job_id: jobId, job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, tubular_spec_id: specId, joint_ids: jointIds, quantity, component_end: componentEnd, connection_type: connectionType, identification_basis: identificationBasis, manufacturer_drawing_document_id: connectionType === "API" ? null : drawingId, condition, route, method, removal_inches: removal, pin_benchmark_to_seal_inches: pinBenchmark, box_benchmark_inches: boxBenchmark, post_reface_bevel_inches: bevel, squareness_verified: Boolean(body.squarenessVerified), copper_sulfate_verified: Boolean(body.copperSulfateVerified), samss_trained_operator: Boolean(body.samssTrainedOperator), operator_name: operatorName, notes: clean(body.notes) || null, created_by: authorization.userId }).select("record_number").single();
+        if (error) throw error;
+        if (validUuid(rackId) && route !== "Field Reface") {
+          const { error: holdError } = await admin.from("titan_dti_rack_runs").update({ status: "Hold", hold_reason: `${saved.record_number}: connection routed to ${route}.`, updated_by: authorization.userId }).eq("id", rackId).eq("job_run_id", runId);
+          if (holdError) throw holdError;
+        }
       } else if (action === "save-dimensional") {
         const rackId = clean(body.rackId);
         const specId = clean(body.specId);
