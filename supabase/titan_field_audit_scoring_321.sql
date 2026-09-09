@@ -18,9 +18,10 @@ update public.titan_field_audit_items set score = 2 where rating = 'NI' and scor
 update public.titan_field_audit_items set score = 1 where rating = 'NC' and score is distinct from 1;
 update public.titan_field_audit_items set score = 0 where rating = 'NA' and score is distinct from 0;
 
-alter table public.titan_field_audit_items
-  add constraint titan_field_audit_items_score_check
-  check (score is null or score in (0, 1, 2, 3));
+do $$
+begin
+  execute 'alter table public.titan_field_audit_items add constraint titan_field_audit_items_score_check check (score is null or score between 0 and 3)';
+end $$;
 
 with totals as (
   select audit.id,
