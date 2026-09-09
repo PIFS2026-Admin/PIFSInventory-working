@@ -85,12 +85,44 @@ create table if not exists public.titan_field_audit_items (
   item_text text not null,
   reference_text text,
   rating text not null check (rating in ('C', 'NI', 'NC', 'NA')),
-  score integer check (score is null or score in (0, 1, 2)),
+  score integer check (score is null or score in (1, 2, 3)),
   is_critical boolean not null default false,
   note text,
   created_at timestamptz not null default now(),
   unique (field_audit_id, item_code)
 );
+
+alter table public.titan_field_audit_items drop constraint if exists titan_field_audit_items_score_check;
+update public.titan_field_audit_items
+set score = case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end
+where score is distinct from case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end;
+alter table public.titan_field_audit_items
+  add constraint titan_field_audit_items_score_check check (score is null or score in (1, 2, 3));
+
+with totals as (
+  select audit.id,
+    count(item.score) as scored_count,
+    coalesce(sum(item.score), 0) as total_points,
+    count(*) filter (where item.rating = 'NC' and item.is_critical) as critical_count
+  from public.titan_field_audits audit
+  left join public.titan_field_audit_items item on item.field_audit_id = audit.id
+  group by audit.id
+), recalculated as (
+  select id, critical_count,
+    case when scored_count = 0 then 0 else round((total_points::numeric / (scored_count * 3)) * 100, 2) end as overall_value
+  from totals
+)
+update public.titan_field_audits audit
+set overall_percent = recalculated.overall_value,
+  critical_nc_count = recalculated.critical_count,
+  status_band = case
+    when recalculated.critical_count > 0 then 'Action Required'
+    when recalculated.overall_value >= 90 then 'On Standard'
+    when recalculated.overall_value >= 75 then 'Watch'
+    else 'Below Standard'
+  end
+from recalculated
+where audit.id = recalculated.id;
 
 create table if not exists public.titan_audit_findings (
   id uuid primary key default gen_random_uuid(),
@@ -273,7 +305,7 @@ begin
   )
   select saved_audit.id, checklist.item_code, checklist.section_code, checklist.section_title,
     checklist.item_text, checklist.reference_text, submitted.rating,
-    case submitted.rating when 'C' then 2 when 'NI' then 1 when 'NC' then 0 else null end,
+    case submitted.rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end,
     checklist.is_critical, nullif(trim(coalesce(submitted.note, '')), '')
   from public.titan_field_audit_checklist checklist
   join jsonb_to_recordset(p_items) as submitted(item_code text, rating text, note text)
@@ -283,7 +315,7 @@ begin
   select count(score), coalesce(sum(score), 0), count(*) filter (where rating = 'NC' and is_critical)
   into scored_count, total_points, critical_count
   from public.titan_field_audit_items where field_audit_id = saved_audit.id;
-  overall_value := case when scored_count = 0 then 0 else round((total_points::numeric / (scored_count * 2)) * 100, 2) end;
+  overall_value := case when scored_count = 0 then 0 else round((total_points::numeric / (scored_count * 3)) * 100, 2) end;
   band_value := case when critical_count > 0 then 'Action Required' when overall_value >= 90 then 'On Standard' when overall_value >= 75 then 'Watch' else 'Below Standard' end;
 
   update public.titan_field_audits set overall_percent = overall_value, critical_nc_count = critical_count,
