@@ -22,9 +22,10 @@ function configuredSupabase() {
 function clean(value: unknown) { return String(value ?? "").trim(); }
 function normalized(value: unknown) { return clean(value).toLowerCase(); }
 function integer(value: unknown) { const parsed = Number(value); return Number.isInteger(parsed) ? parsed : NaN; }
+function decimal(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("schema cache"); }
+function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("titan_dti_dimensional_readings") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -72,23 +73,29 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", clean(job.id)).order("run_date", { ascending: false }).order("started_at", { ascending: false }).limit(100);
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? (runs ?? []).find((item) => item.status !== "Complete") ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult] = run ? await Promise.all([
+  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult, specsResult, dimensionsResult, scopeResult] = run ? await Promise.all([
     admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number"),
     admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }),
     admin.from("equipment_assets").select("id,equipment_name,equipment_number,equipment_type,serial_number,department").eq("is_active", true).order("equipment_name").limit(2000),
     admin.from("titan_dti_borderline_escalations").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
     admin.from("titan_job_documents").select("id,display_name,document_type").eq("job_id", clean(job.id)).is("archived_at", null).order("created_at", { ascending: false }),
     admin.from("titan_dti_defect_decisions").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+    admin.from("titan_dti_tubular_specs").select("id,pipe_size,weight_ppf,grade,connection,new_wall_inches,premium_min_wall_inches,class_2_min_wall_inches,tj_od_min_premium_inches,tj_id_max_inches,bevel_diameter_min_inches,bevel_diameter_max_inches,tong_space_min_inches,source_document_id").is("archived_at", null).order("pipe_size"),
+    admin.from("titan_dti_dimensional_readings").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
+    admin.from("titan_dti_job_scopes").select("status,baseline_scope").eq("job_id", clean(job.id)).maybeSingle(),
+  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: null, error: null }];
   if (racksResult.error) throw racksResult.error;
   if (calibrationsResult.error) throw calibrationsResult.error;
   if (assetsResult.error) throw assetsResult.error;
   if (escalationsResult.error) throw escalationsResult.error;
   if (documentsResult.error) throw documentsResult.error;
   if (defectsResult.error) throw defectsResult.error;
+  if (specsResult.error) throw specsResult.error;
+  if (dimensionsResult.error) throw dimensionsResult.error;
+  if (scopeResult.error) throw scopeResult.error;
   const racks = (racksResult.data ?? []) as Row[];
   const calibrations = (calibrationsResult.data ?? []) as Row[];
-  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], summary: executionSummary(run as Row | null, racks, calibrations) };
+  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], tubularSpecs: specsResult.data ?? [], dimensionalReadings: dimensionsResult.data ?? [], jobScope: scopeResult.data ?? null, summary: executionSummary(run as Row | null, racks, calibrations) };
 }
 
 export async function GET(request: Request) {
@@ -168,6 +175,44 @@ export async function POST(request: Request) {
         const rackId = clean(body.rackId); const assetId = clean(body.assetId);
         const { error } = await admin.from("titan_dti_field_calibrations").insert({ job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, equipment_asset_id: validUuid(assetId) ? assetId : null, calibration_kind: kind, checkpoint, joint_number: jointNumber, result, reading_summary: clean(body.readingSummary) || null, performed_by_name: clean(body.performedByName), notes: clean(body.notes) || null, created_by: authorization.userId });
         if (error) throw error;
+      } else if (action === "save-dimensional") {
+        const rackId = clean(body.rackId);
+        const specId = clean(body.specId);
+        const jointId = clean(body.jointId);
+        const measurementType = clean(body.measurementType);
+        const componentEnd = clean(body.componentEnd);
+        const readingA = decimal(body.readingA);
+        const readingB = clean(body.readingB) ? decimal(body.readingB) : null;
+        const instrument = clean(body.instrument);
+        const inspectorName = clean(body.inspectorName);
+        const measurementTypes = ["Tool Joint OD", "Tool Joint ID", "Counterbore Diameter", "Counterbore Depth", "Thread Stretch", "Bevel Diameter", "Tong Space"];
+        if (!validUuid(specId) || !jointId || !measurementTypes.includes(measurementType) || !["Pin", "Box", "Tube", "N/A"].includes(componentEnd) || !Number.isFinite(readingA) || !instrument || !inspectorName) return Response.json({ error: "Complete the controlled specification, joint, measurement, reading, instrument, and inspector." }, { status: 400 });
+        if (["Tool Joint OD", "Tool Joint ID"].includes(measurementType) && (readingB === null || !Number.isFinite(readingB))) return Response.json({ error: "Tool-joint OD and ID require two readings taken 90 degrees apart." }, { status: 400 });
+        if (readingB !== null && !Number.isFinite(readingB)) return Response.json({ error: "Reading B must be a non-negative number." }, { status: 400 });
+        const { data: spec, error: specError } = await admin.from("titan_dti_tubular_specs").select("*").eq("id", specId).is("archived_at", null).maybeSingle();
+        if (specError) throw specError;
+        if (!spec) return Response.json({ error: "Select an active controlled tubular specification." }, { status: 400 });
+        if (validUuid(rackId)) { const { data: rack, error } = await admin.from("titan_dti_rack_runs").select("id").eq("id", rackId).eq("job_run_id", runId).maybeSingle(); if (error) throw error; if (!rack) return Response.json({ error: "The selected rack does not belong to this run." }, { status: 400 }); }
+        const second = readingB ?? readingA;
+        const recordedValue = measurementType === "Tool Joint OD" ? Math.min(readingA, second) : measurementType === "Tool Joint ID" ? Math.max(readingA, second) : readingA;
+        let minimum: number | null = null; let maximum: number | null = null;
+        if (measurementType === "Tool Joint OD") minimum = spec.tj_od_min_premium_inches === null ? null : Number(spec.tj_od_min_premium_inches);
+        if (measurementType === "Tool Joint ID") maximum = spec.tj_id_max_inches === null ? null : Number(spec.tj_id_max_inches);
+        if (measurementType === "Bevel Diameter") { minimum = spec.bevel_diameter_min_inches === null ? null : Number(spec.bevel_diameter_min_inches); maximum = spec.bevel_diameter_max_inches === null ? null : Number(spec.bevel_diameter_max_inches); }
+        if (measurementType === "Tong Space") minimum = spec.tong_space_min_inches === null ? null : Number(spec.tong_space_min_inches);
+        if (measurementType === "Counterbore Depth") minimum = 0.5625;
+        if (measurementType === "Thread Stretch") maximum = 0.006;
+        if (measurementType !== "Counterbore Diameter" && minimum === null && maximum === null) return Response.json({ error: `The selected controlled specification has no ${measurementType} acceptance limit.` }, { status: 400 });
+        const rounded = Number(recordedValue.toFixed(4)); const minRounded = minimum === null ? null : Number(minimum.toFixed(4)); const maxRounded = maximum === null ? null : Number(maximum.toFixed(4));
+        const rejected = (minRounded !== null && rounded < minRounded) || (maxRounded !== null && rounded > maxRounded);
+        const borderline = !rejected && ((minRounded !== null && rounded === minRounded) || (maxRounded !== null && rounded === maxRounded));
+        const result = minimum === null && maximum === null ? "Recorded" : rejected ? "Reject" : borderline ? "Borderline" : "Pass";
+        const { data: savedReading, error } = await admin.from("titan_dti_dimensional_readings").insert({ job_id: jobId, job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, tubular_spec_id: specId, joint_id: jointId, measurement_type: measurementType, component_end: componentEnd, reading_a_inches: readingA, reading_b_inches: readingB, recorded_value_inches: rounded, minimum_inches: minimum, maximum_inches: maximum, result, spec_snapshot: spec, instrument, inspector_name: inspectorName, notes: clean(body.notes) || null, created_by: authorization.userId }).select("reading_number").single();
+        if (error) throw error;
+        if (validUuid(rackId) && ["Borderline", "Reject"].includes(result)) {
+          const { error: holdError } = await admin.from("titan_dti_rack_runs").update({ status: "Hold", hold_reason: `${savedReading.reading_number}: ${measurementType} ${result.toLowerCase()}; record OMS-105 disposition.`, updated_by: authorization.userId }).eq("id", rackId).eq("job_run_id", runId);
+          if (holdError) throw holdError;
+        }
       } else if (action === "save-defect") {
         const rackId = clean(body.rackId);
         const jointIds = clean(body.jointIds);
@@ -240,6 +285,8 @@ export async function POST(request: Request) {
           const current = await loadData(admin, job, runId);
           if (!current.racks.length || current.racks.some((rack) => rack.status !== "Complete")) return Response.json({ error: "Every rack must be complete before closing this run." }, { status: 400 });
           if (current.escalations.some((entry) => entry.status !== "Resolved")) return Response.json({ error: "Resolve every OMS-109 borderline escalation before closing this run." }, { status: 400 });
+          const requiredScope = Array.isArray(current.jobScope?.baseline_scope) ? current.jobScope.baseline_scope as unknown[] : [];
+          if (current.jobScope?.status === "Confirmed" && requiredScope.some((item) => clean(item).startsWith("Dimensional")) && !current.dimensionalReadings.length) return Response.json({ error: "The confirmed OMS-102 scope requires dimensional inspection. Record OMS-106 measurements before closing this run." }, { status: 400 });
           const finalOd = current.calibrations.some((entry) => entry.calibration_kind === "OD Gauge" && entry.checkpoint === "Job End" && entry.result === "Pass");
           const finalEmi = current.calibrations.some((entry) => entry.calibration_kind === "EMI Standard" && entry.checkpoint === "Final Standard" && entry.result === "Pass");
           if (!finalOd || !finalEmi) return Response.json({ error: "Record passing Job End OD Gauge and Final Standard EMI checks before closing this run." }, { status: 400 });
