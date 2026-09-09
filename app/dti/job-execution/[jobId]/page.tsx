@@ -19,7 +19,7 @@ type Asset = { id: string; equipment_name: string; equipment_number: string; equ
 type Warning = { kind: string; severity: "Attention" | "Blocked"; message: string };
 type Summary = { planned: number; completed: number; percent: number; holds: number; completeRacks: number; warnings: Warning[]; status: "On Track" | "Needs Attention" | "Blocked" };
 type Escalation = { id: string; escalation_number: string; rack_run_id: string | null; component_ids: string; condition_type: string; component_location: string; operational_risk: string; inspector_recommendation: string; customer_decision: string | null; status: string; deviation_id: string | null; created_at: string };
-type JobDocument = { id: string; document_number: string | null; title: string | null; file_name: string | null; document_type: string | null };
+type JobDocument = { id: string; display_name: string; document_type: string };
 type ApiResponse = { ok?: boolean; job?: Job; phases?: Phase[]; runs?: Run[]; run?: Run | null; racks?: Rack[]; calibrations?: Calibration[]; assets?: Asset[]; escalations?: Escalation[]; documents?: JobDocument[]; summary?: Summary; error?: string };
 
 const today = new Date().toISOString().slice(0, 10);

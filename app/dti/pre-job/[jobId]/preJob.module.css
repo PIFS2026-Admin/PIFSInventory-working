@@ -53,6 +53,29 @@
 .actions small { margin-top: 2px; color: #929baa; }
 .actions .primary { border-color: #f97316; background: #f97316; color: #111; }
 .actions button:disabled { cursor: not-allowed; opacity: .45; }
+.scopePanel { margin-top: 10px; border: 1px solid #303744; border-left: 5px solid #f59e0b; border-radius: 7px; background: #12171f; overflow: hidden; }
+.scopePanel[data-status="Confirmed"] { border-left-color: #22c55e; }
+.scopeHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; background: #171c24; }
+.scopeHead span, .scopeForm label > span, .scopeBaseline span { display: block; color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.scopeHead h2 { margin: 3px 0; font-size: 18px; }
+.scopeHead small, .scopeBaseline small { color: #9fa8b8; }
+.scopeHead > div:last-child { display: flex; align-items: center; gap: 8px; }
+.scopeHead b { border: 1px solid #f59e0b; border-radius: 999px; color: #fcd34d; padding: 5px 9px; font-size: 10px; }
+.scopePanel[data-status="Confirmed"] .scopeHead b { border-color: #22c55e; color: #86efac; }
+.scopeHead button, .scopeActions button { min-height: 38px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #fff; padding: 7px 11px; font-weight: 850; }
+.scopeForm { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; padding: 12px; border-top: 1px solid #303744; }
+.scopeForm label { display: grid; gap: 5px; min-width: 0; }
+.scopeForm input, .scopeForm select, .scopeForm textarea { width: 100%; min-height: 40px; border: 1px solid #3a4352; border-radius: 6px; background: #0d1218; color: #fff; padding: 8px 10px; }
+.scopeForm textarea { min-height: 72px; resize: vertical; }
+.scopeWide { grid-column: 1 / -1; }
+.scopeCheck { display: flex !important; align-items: center; grid-column: span 2; grid-template-columns: auto 1fr; }
+.scopeCheck input { width: auto; min-height: 0; }
+.scopeActions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 12px 12px; }
+.scopeBaseline { display: grid; grid-template-columns: minmax(190px, .4fr) minmax(0, 1fr); gap: 14px; padding: 12px; border-top: 1px solid #303744; }
+.scopeBaseline strong, .scopeBaseline small { display: block; margin-top: 4px; }
+.scopeBaseline ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.scopeBaseline li { border: 1px solid #3a4352; border-radius: 4px; background: #0d1218; padding: 6px 8px; font-size: 11px; font-weight: 800; }
+.scopeBaseline p { grid-column: 1 / -1; margin: 0; border-left: 3px solid #f97316; padding: 8px 10px; background: #21170e; color: #fed7aa; }
 
 @media (max-width: 760px) {
   .page { padding: 10px; padding-bottom: 150px; }
@@ -66,6 +89,10 @@
   .exceptionFields { grid-column: auto; grid-template-columns: 1fr; }
   .actions { right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); left: 10px; display: grid; grid-template-columns: 1fr 1fr; }
   .actions > div { grid-column: 1 / -1; }
+  .scopeForm { grid-template-columns: 1fr; }
+  .scopeWide, .scopeCheck { grid-column: auto; }
+  .scopeBaseline { grid-template-columns: 1fr; }
+  .scopeBaseline p { grid-column: auto; }
 }
 
 @media (max-width: 480px) {
@@ -74,4 +101,5 @@
   .jobBand { display: grid; }
   .equipmentBand { grid-template-columns: 1fr; }
   .equipmentBand > b { justify-self: start; }
+  .scopeHead { align-items: flex-start; flex-direction: column; }
 }

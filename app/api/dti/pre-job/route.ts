@@ -73,6 +73,7 @@ function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function migrationMissing(error: unknown) { return normalized(errorMessage(error)).includes("titan_dti_pre_job_readiness") || normalized(errorMessage(error)).includes("schema cache"); }
 function equipmentMigrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_equipment") || message.includes("titan_equipment_calibrations") || message.includes("requires_calibration") || message.includes("schema cache"); }
+function scopeMigrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_scopes") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -121,7 +122,14 @@ export async function GET(request: Request) {
     let equipmentReady = true;
     try { equipmentReadiness = await loadEquipmentReadiness(admin, job); }
     catch (error) { if (!equipmentMigrationMissing(error)) throw error; equipmentReady = false; }
-    return Response.json({ ok: true, job, checklist, readiness: data, equipmentReadiness, equipmentReady });
+    let scopeReady = false;
+    let scopeConfigured = true;
+    try {
+      const { data: scope, error: scopeError } = await admin.from("titan_dti_job_scopes").select("status").eq("job_id", jobId).maybeSingle();
+      if (scopeError) throw scopeError;
+      scopeReady = scope?.status === "Confirmed";
+    } catch (error) { if (!scopeMigrationMissing(error)) throw error; scopeConfigured = false; }
+    return Response.json({ ok: true, job, checklist, readiness: data, equipmentReadiness, equipmentReady, scopeReady, scopeConfigured });
   } catch (error) {
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_pre_job_readiness.sql before using Pre-Job Readiness." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
@@ -158,6 +166,12 @@ export async function POST(request: Request) {
     const finalize = normalized(body.action) === "finalize";
     if (finalize && readinessStatus !== "Ready") return Response.json({ error: "Every item must be Complete or N/A before this job can be marked Ready." }, { status: 400 });
     if (finalize) {
+      const { data: scope, error: scopeError } = await admin.from("titan_dti_job_scopes").select("status").eq("job_id", jobId).maybeSingle();
+      if (scopeError) {
+        if (scopeMigrationMissing(scopeError)) return Response.json({ error: "Run supabase/titan_dti_job_scope.sql before marking this job Ready." }, { status: 409 });
+        throw scopeError;
+      }
+      if (scope?.status !== "Confirmed") return Response.json({ error: "Confirm the OMS-102 service category and inspection scope before marking this job Ready." }, { status: 400 });
       let equipmentReadiness;
       try { equipmentReadiness = await loadEquipmentReadiness(admin, await loadJob(admin, jobId) as Record<string, unknown>); }
       catch (error) {
