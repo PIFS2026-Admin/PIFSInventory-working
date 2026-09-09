@@ -1,4 +1,4 @@
--- Change OMS-201 field-audit scoring to C=3, NI=2, NC=1, with N/A excluded.
+-- Change OMS-201 field-audit scoring to C=3, NI=2, NC=1, N/A=0, with every rating included.
 -- Additive, rerunnable, and recalculates existing field audits.
 
 begin;
@@ -14,12 +14,12 @@ alter table public.titan_field_audit_items
   drop constraint if exists titan_field_audit_items_score_check;
 
 update public.titan_field_audit_items
-set score = case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end
-where score is distinct from case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end;
+set score = case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end
+where score is distinct from case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end;
 
 alter table public.titan_field_audit_items
   add constraint titan_field_audit_items_score_check
-  check (score is null or score in (1, 2, 3));
+  check (score is null or score in (0, 1, 2, 3));
 
 with totals as (
   select audit.id,
@@ -107,7 +107,7 @@ begin
   )
   select saved_audit.id, checklist.item_code, checklist.section_code, checklist.section_title,
     checklist.item_text, checklist.reference_text, submitted.rating,
-    case submitted.rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 else null end,
+    case submitted.rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end,
     checklist.is_critical, nullif(trim(coalesce(submitted.note, '')), '')
   from public.titan_field_audit_checklist checklist
   join jsonb_to_recordset(p_items) as submitted(item_code text, rating text, note text)
