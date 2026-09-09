@@ -13,9 +13,10 @@ end $$;
 alter table public.titan_field_audit_items
   drop constraint if exists titan_field_audit_items_score_check;
 
-update public.titan_field_audit_items
-set score = case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end
-where score is distinct from case rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end;
+update public.titan_field_audit_items set score = 3 where rating = 'C' and score is distinct from 3;
+update public.titan_field_audit_items set score = 2 where rating = 'NI' and score is distinct from 2;
+update public.titan_field_audit_items set score = 1 where rating = 'NC' and score is distinct from 1;
+update public.titan_field_audit_items set score = 0 where rating = 'NA' and score is distinct from 0;
 
 alter table public.titan_field_audit_items
   add constraint titan_field_audit_items_score_check
@@ -107,7 +108,7 @@ begin
   )
   select saved_audit.id, checklist.item_code, checklist.section_code, checklist.section_title,
     checklist.item_text, checklist.reference_text, submitted.rating,
-    case submitted.rating when 'C' then 3 when 'NI' then 2 when 'NC' then 1 when 'NA' then 0 else null end,
+    array_position(array['NA', 'NC', 'NI', 'C']::text[], submitted.rating) - 1,
     checklist.is_critical, nullif(trim(coalesce(submitted.note, '')), '')
   from public.titan_field_audit_checklist checklist
   join jsonb_to_recordset(p_items) as submitted(item_code text, rating text, note text)
