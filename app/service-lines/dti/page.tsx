@@ -21,6 +21,7 @@ const tools = [
   { title: "Job Intelligence", href: "/dti/intelligence" },
   { title: "Field Audits", href: "/dti/field-audits" },
   { title: "Inspector Competency", href: "/dti/competency" },
+  { title: "Document Library", href: "/dti/documents" },
 ];
 
 function formatDate(value: string | null) {
