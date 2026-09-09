@@ -1674,6 +1674,8 @@ export default function DtiPage() {
 
         <div className="dashboard-actions">
           <button className="button primary" onClick={() => (window.location.href = "/dti/create")}>Create DTI Job</button>
+          <button className="button" onClick={() => (window.location.href = "/dti/field-audits")}>Field Audits</button>
+          <button className="button" onClick={() => (window.location.href = "/dti/competency")}>Inspector Competency</button>
           <button className="button" onClick={() => (window.location.href = "/dti/grading-setup")}>Grading Setup</button>
           <button className="button" onClick={loadPage}>Refresh</button>
           <button className="button" onClick={() => (window.location.href = "/")}>Yard View</button>

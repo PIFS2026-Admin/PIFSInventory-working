@@ -2152,14 +2152,6 @@ export default function CrmPage() {
               <span>Job Intelligence</span>
               <small>Review field lessons</small>
             </button>
-            <button type="button" onClick={() => window.location.assign("/crm/audits")}>
-              <span>Field Audits</span>
-              <small>OMS-201 corrective actions</small>
-            </button>
-            <button type="button" onClick={() => window.location.assign("/crm/competency")}>
-              <span>Inspector Competency</span>
-              <small>HR-CM-001 qualifications</small>
-            </button>
             {mondayCrmBoards.map((board) => {
               const importedCount = boardRecords(crmRecords, board).length;
               return (

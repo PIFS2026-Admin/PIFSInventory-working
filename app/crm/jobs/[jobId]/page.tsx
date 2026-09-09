@@ -367,6 +367,7 @@ export default function ConnectedJobDetailPage() {
   const deviations = useMemo(() => response?.deviations ?? [], [response?.deviations]);
   const preJobBrief = response?.preJobBrief;
   const operationsHref = job ? operationalHref(job, links) : "";
+  const isDtiJob = Boolean(job && (normalized(job.service_line) === "dti" || links.some((link) => link.module_key === "dti")));
 
   async function openDocument(document: JobDocument) {
     const openedWindow = window.open("about:blank", "_blank");
@@ -533,10 +534,10 @@ export default function ConnectedJobDetailPage() {
             )}
           </section>
 
-          <section className={`${styles.panel} ${styles.auditPanel}`}>
+          {isDtiJob ? <section className={`${styles.panel} ${styles.auditPanel}`}>
             <div className={styles.panelHeader}>
               <div><span>OMS-201 oversight for this connected job</span><h2>Field Audits</h2></div>
-              <Link href="/crm/audits">Open Field Audits</Link>
+              <Link href="/dti/field-audits">Open DTI Field Audits</Link>
             </div>
             {!response?.fieldAuditsReady ? (
               <div className={styles.empty}>Run the Field Audits SQL to activate this section.</div>
@@ -568,7 +569,7 @@ export default function ConnectedJobDetailPage() {
                 ) : <div className={styles.auditEmpty}>No open corrective actions.</div>}
               </div>
             )}
-          </section>
+          </section> : null}
 
           <div className={styles.contentGrid}>
             <section className={styles.panel}>

@@ -5,12 +5,35 @@ begin;
 
 do $$
 begin
-  if to_regclass('public.titan_jobs') is null
+  if to_regclass('public.profiles') is null
+    or to_regclass('public.titan_jobs') is null
     or to_regclass('public.titan_job_events') is null
     or to_regclass('public.titan_job_documents') is null then
     raise exception 'Run the Connected Jobs and Job Document Registry migrations first.';
   end if;
 end $$;
+
+create or replace function public.titan_dti_controls_can_access()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and coalesce(p.is_disabled, false) = false
+      and (
+        lower(trim(coalesce(p.full_name, ''))) = 'wade wisenor'
+        or lower(trim(coalesce(p.email, ''))) = 'wade@pathfinderinspections.com'
+      )
+  );
+$$;
+
+revoke all on function public.titan_dti_controls_can_access() from public, anon;
+grant execute on function public.titan_dti_controls_can_access() to authenticated, service_role;
 
 create sequence if not exists public.titan_field_audit_number_seq;
 create sequence if not exists public.titan_audit_finding_number_seq;
@@ -346,13 +369,17 @@ alter table public.titan_audit_findings enable row level security;
 grant select on public.titan_field_audit_checklist, public.titan_field_audits, public.titan_field_audit_items, public.titan_audit_findings to authenticated;
 
 drop policy if exists "titan field audit checklist crm access read" on public.titan_field_audit_checklist;
-create policy "titan field audit checklist crm access read" on public.titan_field_audit_checklist for select to authenticated using (public.crm_can_access());
+drop policy if exists "titan field audit checklist dti access read" on public.titan_field_audit_checklist;
+create policy "titan field audit checklist dti access read" on public.titan_field_audit_checklist for select to authenticated using (public.titan_dti_controls_can_access());
 drop policy if exists "titan field audits crm access read" on public.titan_field_audits;
-create policy "titan field audits crm access read" on public.titan_field_audits for select to authenticated using (public.crm_can_access());
+drop policy if exists "titan field audits dti access read" on public.titan_field_audits;
+create policy "titan field audits dti access read" on public.titan_field_audits for select to authenticated using (public.titan_dti_controls_can_access());
 drop policy if exists "titan field audit items crm access read" on public.titan_field_audit_items;
-create policy "titan field audit items crm access read" on public.titan_field_audit_items for select to authenticated using (public.crm_can_access());
+drop policy if exists "titan field audit items dti access read" on public.titan_field_audit_items;
+create policy "titan field audit items dti access read" on public.titan_field_audit_items for select to authenticated using (public.titan_dti_controls_can_access());
 drop policy if exists "titan audit findings crm access read" on public.titan_audit_findings;
-create policy "titan audit findings crm access read" on public.titan_audit_findings for select to authenticated using (public.crm_can_access());
+drop policy if exists "titan audit findings dti access read" on public.titan_audit_findings;
+create policy "titan audit findings dti access read" on public.titan_audit_findings for select to authenticated using (public.titan_dti_controls_can_access());
 
 comment on table public.titan_field_audits is 'OMS-201 permanent field-audit headers scored from the controlled A-H checklist.';
 comment on table public.titan_audit_findings is 'NI/NC findings tracked from field audit through corrective action and evidence-backed closure.';
