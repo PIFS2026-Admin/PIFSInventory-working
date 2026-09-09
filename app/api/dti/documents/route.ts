@@ -84,9 +84,13 @@ export async function GET(request: Request) {
     const authorization = await authorizeWade(request, admin);
     if ("error" in authorization) return authorization.error;
 
-    const documentId = text(new URL(request.url).searchParams.get("documentId"));
-    if (documentId) {
-      const { data, error } = await admin.from("documents").select("*").eq("id", documentId).maybeSingle();
+    const searchParams = new URL(request.url).searchParams;
+    const documentId = text(searchParams.get("documentId"));
+    const documentNumber = text(searchParams.get("documentNumber"));
+    if (documentId || documentNumber) {
+      let documentQuery = admin.from("documents").select("*");
+      documentQuery = documentId ? documentQuery.eq("id", documentId) : documentQuery.eq("document_number", documentNumber);
+      const { data, error } = await documentQuery.maybeSingle();
       if (error) throw error;
       const document = data as DocumentRow | null;
       if (!document || !isDtiDocument(document)) return Response.json({ error: "This approved DTI document is not available." }, { status: 404 });

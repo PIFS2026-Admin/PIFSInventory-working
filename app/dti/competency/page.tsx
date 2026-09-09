@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import DtiProcedureMenu from "../../components/DtiProcedureMenu";
 import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 import styles from "./competency.module.css";
@@ -74,7 +75,7 @@ export default function CompetencyPage(){
   async function completeGap(){if(!completionGap)return;if(await send("PATCH",{action:"complete_gap",gapId:completionGap.id,evidenceDocumentId:completionEvidenceId},"Training gap completed with evidence.")){setCompletionGap(null);setCompletionEvidenceId("");}}
 
   return <main className={styles.page}>
-    <header className={styles.header}><div className={styles.titleBlock}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority/><div><span>DTI / HR-CM-001</span><h1>Inspector Competency</h1></div></div><div className={styles.headerActions}><button type="button" onClick={()=>goBackOrFallback("/service-lines/dti")}>Back</button><Link href="/dti">DTI Management</Link><button type="button" onClick={()=>void load()}>Refresh</button></div></header>
+    <header className={styles.header}><div className={styles.titleBlock}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority/><div><span>DTI / HR-CM-001</span><h1>Inspector Competency</h1></div></div><div className={styles.headerActions}><button type="button" onClick={()=>goBackOrFallback("/service-lines/dti")}>Back</button><Link href="/dti">DTI Management</Link><DtiProcedureMenu procedures={[{documentNumber:"HR-CM-001",label:"Competency Matrix"},{documentNumber:"PFIS-IOM-001",label:"Inspection Operations Manual"}]}/><button type="button" onClick={()=>void load()}>Refresh</button></div></header>
     {data?.metrics?<section className={styles.metrics}><article><span>Active Inspectors</span><strong>{data.metrics.activeInspectors}</strong></article><article><span>Average Field Score</span><strong>{data.metrics.averageFieldScore}%</strong></article><article><span>Field Ready</span><strong>{data.metrics.fieldReady}</strong></article><article><span>High Gaps</span><strong>{data.metrics.highGaps}</strong></article><article><span>Certs Due in 60 Days</span><strong>{data.metrics.expiringCerts}</strong></article></section>:null}
     <section className={styles.toolbar}><div className={styles.tabs}><button className={tab==="matrix"?styles.active:""} onClick={()=>setTab("matrix")}>Matrix</button><button className={tab==="gaps"?styles.active:""} onClick={()=>setTab("gaps")}>Training Gaps</button><button className={tab==="certifications"?styles.active:""} onClick={()=>setTab("certifications")}>Certifications</button></div><label><span>Search</span><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Inspector, title, gap, owner..."/></label><button className={styles.primary} onClick={()=>setShowAdd(true)}>Add Inspector</button></section>
     {message?<section className={styles.message}>{message}</section>:null}{notice?<section className={styles.notice}>{notice}</section>:null}

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import DtiProcedureMenu from "../../components/DtiProcedureMenu";
 import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 import styles from "./intelligence.module.css";
@@ -214,6 +215,7 @@ export default function JobIntelligencePage() {
           <button type="button" onClick={() => goBackOrFallback("/service-lines/dti")}>Back</button>
           <Link href="/dti">DTI Management</Link>
           <Link href="/dti?view=audits">Audit History</Link>
+          <DtiProcedureMenu procedures={[{ documentNumber: "DTI-JI-001", label: "Source Workbook" }, { documentNumber: "OMS-202", label: "Deviation Agreement" }, { documentNumber: "OMS-203", label: "Post-Job Debrief" }]} />
           <button type="button" onClick={() => void loadIntelligence()}>Refresh</button>
         </div>
       </header>
