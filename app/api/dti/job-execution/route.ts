@@ -24,7 +24,7 @@ function normalized(value: unknown) { return clean(value).toLowerCase(); }
 function integer(value: unknown) { const parsed = Number(value); return Number.isInteger(parsed) ? parsed : NaN; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("schema cache"); }
+function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -72,17 +72,21 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", clean(job.id)).order("run_date", { ascending: false }).order("started_at", { ascending: false }).limit(100);
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? (runs ?? []).find((item) => item.status !== "Complete") ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, assetsResult] = run ? await Promise.all([
+  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult] = run ? await Promise.all([
     admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number"),
     admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }),
     admin.from("equipment_assets").select("id,equipment_name,equipment_number,equipment_type,serial_number,department").eq("is_active", true).order("equipment_name").limit(2000),
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+    admin.from("titan_dti_borderline_escalations").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
+    admin.from("titan_job_documents").select("id,document_number,title,file_name,document_type").eq("job_id", clean(job.id)).is("archived_at", null).order("created_at", { ascending: false }),
+  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
   if (racksResult.error) throw racksResult.error;
   if (calibrationsResult.error) throw calibrationsResult.error;
   if (assetsResult.error) throw assetsResult.error;
+  if (escalationsResult.error) throw escalationsResult.error;
+  if (documentsResult.error) throw documentsResult.error;
   const racks = (racksResult.data ?? []) as Row[];
   const calibrations = (calibrationsResult.data ?? []) as Row[];
-  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], summary: executionSummary(run as Row | null, racks, calibrations) };
+  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], summary: executionSummary(run as Row | null, racks, calibrations) };
 }
 
 export async function GET(request: Request) {
@@ -162,12 +166,55 @@ export async function POST(request: Request) {
         const rackId = clean(body.rackId); const assetId = clean(body.assetId);
         const { error } = await admin.from("titan_dti_field_calibrations").insert({ job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, equipment_asset_id: validUuid(assetId) ? assetId : null, calibration_kind: kind, checkpoint, joint_number: jointNumber, result, reading_summary: clean(body.readingSummary) || null, performed_by_name: clean(body.performedByName), notes: clean(body.notes) || null, created_by: authorization.userId });
         if (error) throw error;
+      } else if (action === "save-escalation") {
+        const rackId = clean(body.rackId);
+        const componentIds = clean(body.componentIds);
+        const quantity = integer(body.quantity);
+        const conditionType = clean(body.conditionType);
+        const conditionDescription = clean(body.conditionDescription);
+        const componentLocation = clean(body.componentLocation);
+        const measurements = clean(body.measurements);
+        const serviceCategory = clean(body.serviceCategory);
+        const operationalRisk = clean(body.operationalRisk);
+        const recommendation = clean(body.inspectorRecommendation);
+        const customerDecision = clean(body.customerDecision);
+        const confirmationDocumentId = clean(body.confirmationDocumentId);
+        if (!componentIds || quantity < 1 || !conditionType || !conditionDescription || !componentLocation || !measurements || !serviceCategory) return Response.json({ error: "Complete the component, condition, location, measurements, service category, and quantity." }, { status: 400 });
+        if (!["Low", "Moderate", "High"].includes(operationalRisk) || !["Reject", "Accept with Deviation", "Further Evaluation"].includes(recommendation)) return Response.json({ error: "Select the operational risk and inspector recommendation." }, { status: 400 });
+        if (customerDecision && !["Accept with Deviation", "Reject", "Modify Criteria", "Further Evaluation"].includes(customerDecision)) return Response.json({ error: "Select a valid customer decision." }, { status: 400 });
+        if (operationalRisk === "High" && customerDecision === "Accept with Deviation") return Response.json({ error: "High-risk conditions cannot be accepted. Reject the component or record further evaluation." }, { status: 400 });
+        if (customerDecision === "Accept with Deviation" && normalized(conditionType).includes("crack")) return Response.json({ error: "Confirmed cracks are not eligible for deviation and must be rejected." }, { status: 400 });
+        if (customerDecision === "Accept with Deviation" && (!clean(body.customerRepName) || !clean(body.customerCompany) || !clean(body.customerContactedOn) || !clean(body.communicationMethod) || !validUuid(confirmationDocumentId))) return Response.json({ error: "Accepted deviations require the customer representative, company, date, communication method, and written confirmation attachment." }, { status: 400 });
+        if (validUuid(rackId)) {
+          const { data: rack, error } = await admin.from("titan_dti_rack_runs").select("id").eq("id", rackId).eq("job_run_id", runId).maybeSingle();
+          if (error) throw error;
+          if (!rack) return Response.json({ error: "The selected rack does not belong to this run." }, { status: 400 });
+        }
+        if (validUuid(confirmationDocumentId)) {
+          const { data: document, error } = await admin.from("titan_job_documents").select("id").eq("id", confirmationDocumentId).eq("job_id", jobId).maybeSingle();
+          if (error) throw error;
+          if (!document) return Response.json({ error: "The written confirmation must be attached to this connected job." }, { status: 400 });
+        }
+        let deviationId: string | null = null;
+        if (customerDecision === "Accept with Deviation") {
+          const { data: deviation, error } = await admin.from("titan_job_deviations").insert({ job_id: jobId, component: componentIds, joint_ids: componentIds, quantity, defect_type: conditionType, location_on_component: componentLocation, measurements, controlling_criteria: clean(body.controllingCriteria) || null, justification: conditionDescription, operational_risk: operationalRisk, inspector_recommendation: recommendation, communication_method: clean(body.communicationMethod), written_confirmation: true, confirmation_document_id: confirmationDocumentId, status: "Draft", created_by: authorization.userId, updated_by: authorization.userId }).select("id").single();
+          if (error) throw error;
+          deviationId = deviation.id;
+        }
+        const status = customerDecision ? "Resolved" : clean(body.leadInspectorName) ? "Customer Decision" : "Lead Review";
+        const { data: escalation, error: escalationError } = await admin.from("titan_dti_borderline_escalations").insert({ job_id: jobId, job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, component_ids: componentIds, quantity, condition_type: conditionType, condition_description: conditionDescription, component_location: componentLocation, measurements, service_category: serviceCategory, critical_area: Boolean(body.criticalArea), repeated_condition: Boolean(body.repeatedCondition), controlling_criteria: clean(body.controllingCriteria) || null, operational_risk: operationalRisk, inspector_recommendation: recommendation, lead_inspector_name: clean(body.leadInspectorName) || null, customer_rep_name: clean(body.customerRepName) || null, customer_company: clean(body.customerCompany) || null, customer_contacted_on: clean(body.customerContactedOn) || null, communication_method: clean(body.communicationMethod) || null, customer_decision: customerDecision || null, confirmation_document_id: validUuid(confirmationDocumentId) ? confirmationDocumentId : null, decision_notes: clean(body.decisionNotes) || null, status, deviation_id: deviationId, created_by: authorization.userId, updated_by: authorization.userId }).select("escalation_number").single();
+        if (escalationError) throw escalationError;
+        if (validUuid(rackId) && status !== "Resolved") {
+          const { error } = await admin.from("titan_dti_rack_runs").update({ status: "Hold", hold_reason: `${escalation.escalation_number}: borderline condition awaiting decision.`, updated_by: authorization.userId }).eq("id", rackId).eq("job_run_id", runId);
+          if (error) throw error;
+        }
       } else if (action === "update-run") {
         const status = clean(body.status);
         if (!["Active", "Paused", "Complete"].includes(status)) return Response.json({ error: "Select a valid run status." }, { status: 400 });
         if (status === "Complete") {
           const current = await loadData(admin, job, runId);
           if (!current.racks.length || current.racks.some((rack) => rack.status !== "Complete")) return Response.json({ error: "Every rack must be complete before closing this run." }, { status: 400 });
+          if (current.escalations.some((entry) => entry.status !== "Resolved")) return Response.json({ error: "Resolve every OMS-109 borderline escalation before closing this run." }, { status: 400 });
           const finalOd = current.calibrations.some((entry) => entry.calibration_kind === "OD Gauge" && entry.checkpoint === "Job End" && entry.result === "Pass");
           const finalEmi = current.calibrations.some((entry) => entry.calibration_kind === "EMI Standard" && entry.checkpoint === "Final Standard" && entry.result === "Pass");
           if (!finalOd || !finalEmi) return Response.json({ error: "Record passing Job End OD Gauge and Final Standard EMI checks before closing this run." }, { status: 400 });

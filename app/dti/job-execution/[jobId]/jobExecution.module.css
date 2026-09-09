@@ -16,7 +16,7 @@
 .message, .success, .empty, .onTrack { margin-top: 10px; border: 1px solid #9a4e18; border-radius: 6px; background: #2a180f; color: #fed7aa; padding: 11px 13px; }
 .success, .onTrack { border-color: #166534; background: #102418; color: #bbf7d0; }
 .empty { border-color: #303744; background: #0d1218; color: #aab2c0; }
-.startPanel, .racks, .editor, .calibrations, .warnings { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
+.startPanel, .racks, .editor, .calibrations, .warnings, .escalations { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
 .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #303744; background: #171c24; padding: 10px 12px; }
 .panelHead h2 { margin: 3px 0 0; font-size: 18px; }
 .panelHead > strong { color: #aab2c0; }
@@ -64,6 +64,19 @@
 .log article[data-result="Fail"] { border-left-color: #ef4444; background: rgba(239,68,68,.05); }
 .log strong { display: block; margin-top: 3px; font-size: 11px; }
 .log p { grid-column: 1 / -1; margin: 2px 0 0; color: #aab2c0; font-size: 11px; }
+.escalationForm { border-bottom: 1px solid #303744; padding-bottom: 12px; }
+.escalationNotice { display: grid; gap: 3px; margin: 12px 12px 0; border-left: 4px solid #f59e0b; background: #281b0c; padding: 10px 12px; color: #fed7aa; }
+.escalationForm textarea { min-height: 74px; resize: vertical; }
+.escalationForm small { color: #aab2c0; }
+.checkLabel { display: flex !important; align-items: center; min-height: 40px; grid-template-columns: auto 1fr; }
+.checkLabel input { width: auto; min-height: 0; }
+.escalationList { display: grid; }
+.escalationList article { display: grid; grid-template-columns: 1.1fr 1fr auto; align-items: center; gap: 12px; border-top: 1px solid #29303b; border-left: 4px solid #f59e0b; padding: 10px 12px; }
+.escalationList article[data-status="Resolved"] { border-left-color: #22c55e; }
+.escalationList span, .escalationList strong, .escalationList small { display: block; }
+.escalationList span { color: #fb923c; font-size: 10px; font-weight: 900; }
+.escalationList small { margin-top: 3px; color: #aab2c0; }
+.escalationList b { border: 1px solid #475569; border-radius: 999px; padding: 5px 8px; font-size: 9px; }
 
 @media (max-width: 900px) {
   .formGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -87,4 +100,6 @@
   .runActions button, .rowActions button { flex: 1; }
   .phaseTrack { overflow-x: auto; grid-template-columns: repeat(6, minmax(58px, 1fr)); padding-bottom: 4px; }
   .log article { grid-template-columns: 1fr 1fr; }
+  .escalationList article { grid-template-columns: 1fr; }
+  .escalationList b { justify-self: start; }
 }
