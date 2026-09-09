@@ -25,7 +25,7 @@ function integer(value: unknown) { const parsed = Number(value); return Number.i
 function decimal(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("titan_dti_dimensional_readings") || message.includes("titan_dti_connection_refacing") || message.includes("schema cache"); }
+function migrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_runs") || message.includes("titan_dti_rack_runs") || message.includes("titan_dti_field_calibrations") || message.includes("titan_dti_borderline_escalations") || message.includes("titan_dti_defect_decisions") || message.includes("titan_dti_dimensional_readings") || message.includes("titan_dti_connection_refacing") || message.includes("titan_dti_joint_inspections") || message.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -73,7 +73,7 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", clean(job.id)).order("run_date", { ascending: false }).order("started_at", { ascending: false }).limit(100);
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? (runs ?? []).find((item) => item.status !== "Complete") ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult, specsResult, dimensionsResult, scopeResult, refacingResult] = run ? await Promise.all([
+  const [racksResult, calibrationsResult, assetsResult, escalationsResult, documentsResult, defectsResult, specsResult, dimensionsResult, scopeResult, refacingResult, jointsResult] = run ? await Promise.all([
     admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number"),
     admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }),
     admin.from("equipment_assets").select("id,equipment_name,equipment_number,equipment_type,serial_number,department").eq("is_active", true).order("equipment_name").limit(2000),
@@ -84,7 +84,8 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
     admin.from("titan_dti_dimensional_readings").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
     admin.from("titan_dti_job_scopes").select("status,baseline_scope").eq("job_id", clean(job.id)).maybeSingle(),
     admin.from("titan_dti_connection_refacing").select("*").eq("job_run_id", run.id).order("created_at", { ascending: false }),
-  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: null, error: null }, { data: [], error: null }];
+    admin.from("titan_dti_joint_inspections").select("*").eq("job_run_id", run.id).order("joint_id"),
+  ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: null, error: null }, { data: [], error: null }, { data: [], error: null }];
   if (racksResult.error) throw racksResult.error;
   if (calibrationsResult.error) throw calibrationsResult.error;
   if (assetsResult.error) throw assetsResult.error;
@@ -95,9 +96,10 @@ async function loadData(admin: ReturnType<typeof configuredSupabase>, job: Row, 
   if (dimensionsResult.error) throw dimensionsResult.error;
   if (scopeResult.error) throw scopeResult.error;
   if (refacingResult.error) throw refacingResult.error;
+  if (jointsResult.error) throw jointsResult.error;
   const racks = (racksResult.data ?? []) as Row[];
   const calibrations = (calibrationsResult.data ?? []) as Row[];
-  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], tubularSpecs: specsResult.data ?? [], dimensionalReadings: dimensionsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], jobScope: scopeResult.data ?? null, summary: executionSummary(run as Row | null, racks, calibrations) };
+  return { runs: runs ?? [], run, racks, calibrations, assets: assetsResult.data ?? [], escalations: escalationsResult.data ?? [], documents: documentsResult.data ?? [], defectDecisions: defectsResult.data ?? [], tubularSpecs: specsResult.data ?? [], dimensionalReadings: dimensionsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], jointInspections: jointsResult.data ?? [], jobScope: scopeResult.data ?? null, summary: executionSummary(run as Row | null, racks, calibrations) };
 }
 
 export async function GET(request: Request) {
@@ -177,6 +179,48 @@ export async function POST(request: Request) {
         const rackId = clean(body.rackId); const assetId = clean(body.assetId);
         const { error } = await admin.from("titan_dti_field_calibrations").insert({ job_run_id: runId, rack_run_id: validUuid(rackId) ? rackId : null, equipment_asset_id: validUuid(assetId) ? assetId : null, calibration_kind: kind, checkpoint, joint_number: jointNumber, result, reading_summary: clean(body.readingSummary) || null, performed_by_name: clean(body.performedByName), notes: clean(body.notes) || null, created_by: authorization.userId });
         if (error) throw error;
+      } else if (action === "save-joint-inspection") {
+        const rackId = clean(body.rackId); const specId = clean(body.specId); const jointId = clean(body.jointId); const serialNumber = clean(body.serialNumber); const wallBasis = clean(body.wallBasis); const emiResult = clean(body.emiResult); const visualResult = clean(body.visualResult); const mpiResult = clean(body.mpiResult); const connectionResult = clean(body.connectionResult); const defectId = clean(body.sourceDefectDecisionId); const inspectorName = clean(body.inspectorName); const justificationInput = clean(body.decisionJustification); const wallReading = clean(body.utLowestWallInches) ? decimal(body.utLowestWallInches) : null;
+        if (!validUuid(rackId) || !validUuid(specId) || !jointId || !["Premium", "Class 2", "Not Required"].includes(wallBasis) || !["Pass", "Indication", "Not Required"].includes(emiResult) || !["Pass", "Indication"].includes(visualResult) || !["Pass", "Indication", "Not Required"].includes(mpiResult) || !["Pass", "Indication", "Not Required"].includes(connectionResult) || !inspectorName) return Response.json({ error: "Complete the rack, specification, joint ID, inspection results, and inspector." }, { status: 400 });
+        if (emiResult === "Indication" && !clean(body.emiIndicationDescription)) return Response.json({ error: "Describe the EMI indication and its location." }, { status: 400 });
+        const [{ data: rack, error: rackError }, { data: spec, error: specError }, { data: scope, error: scopeError }] = await Promise.all([
+          admin.from("titan_dti_rack_runs").select("id").eq("id", rackId).eq("job_run_id", runId).maybeSingle(),
+          admin.from("titan_dti_tubular_specs").select("*").eq("id", specId).is("archived_at", null).maybeSingle(),
+          admin.from("titan_dti_job_scopes").select("status,baseline_scope").eq("job_id", jobId).maybeSingle(),
+        ]);
+        if (rackError) throw rackError; if (specError) throw specError; if (scopeError) throw scopeError;
+        if (!rack) return Response.json({ error: "The selected rack does not belong to this run." }, { status: 400 });
+        if (!spec) return Response.json({ error: "Select an active controlled tubular specification." }, { status: 400 });
+        const required = Array.isArray(scope?.baseline_scope) ? scope.baseline_scope.map(clean) : [];
+        const requiresUt = required.includes("UT Wall Thickness"); const requiresEmi = required.includes("EMI"); const requiresMpi = required.includes("MPI Slip / Upset"); const requiresDimensions = required.some((item) => item.startsWith("Dimensional"));
+        let minimum: number | null = null; let utResult = "Not Required";
+        if (wallBasis !== "Not Required") {
+          minimum = wallBasis === "Premium" ? Number(spec.premium_min_wall_inches) : Number(spec.class_2_min_wall_inches);
+          if (!Number.isFinite(minimum) || wallReading === null || !Number.isFinite(wallReading)) return Response.json({ error: `The selected specification needs a controlled ${wallBasis} wall limit and a valid UT reading.` }, { status: 400 });
+          const reading = Number(wallReading.toFixed(4)); const limit = Number(minimum.toFixed(4)); utResult = reading < limit ? "Reject" : reading === limit ? "Borderline" : "Pass";
+        }
+        const [{ count: dimensionCount, error: dimensionError }, defectResult] = await Promise.all([
+          admin.from("titan_dti_dimensional_readings").select("id", { count: "exact", head: true }).eq("job_run_id", runId).eq("joint_id", jointId),
+          validUuid(defectId) ? admin.from("titan_dti_defect_decisions").select("*").eq("id", defectId).eq("job_run_id", runId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        ]);
+        if (dimensionError) throw dimensionError; if (defectResult.error) throw defectResult.error;
+        const defect = defectResult.data;
+        if (validUuid(defectId) && !defect) return Response.json({ error: "The selected OMS-105 decision does not belong to this run." }, { status: 400 });
+        const hasIndication = [visualResult, emiResult, mpiResult, connectionResult].includes("Indication") || ["Reject", "Borderline"].includes(utResult);
+        const missingRequired = scope?.status !== "Confirmed" || (requiresUt && wallBasis === "Not Required") || (requiresEmi && emiResult === "Not Required") || (requiresMpi && mpiResult === "Not Required") || (requiresDimensions && !dimensionCount);
+        const recordStatus = missingRequired || (hasIndication && !defect) ? "Hold" : "Complete";
+        const finalDisposition = defect?.disposition || (recordStatus === "Complete" ? "Accept" : "Hold");
+        const justification = clean(defect?.action_notes) || clean(defect?.controlling_criteria) || justificationInput;
+        if (!justification) return Response.json({ error: "State why the final Accept, Repair, Reject, or Hold decision was made." }, { status: 400 });
+        const payload = { job_id: jobId, job_run_id: runId, rack_run_id: rackId, tubular_spec_id: specId, joint_id: jointId, serial_number: serialNumber || null, wall_basis: wallBasis, ut_lowest_wall_inches: wallBasis === "Not Required" ? null : wallReading, ut_minimum_inches: minimum, ut_result: utResult, emi_result: emiResult, emi_indication_description: emiResult === "Indication" ? clean(body.emiIndicationDescription) : null, visual_result: visualResult, mpi_result: mpiResult, connection_result: connectionResult, dimensional_evidence_count: dimensionCount ?? 0, source_defect_decision_id: defect?.id || null, final_disposition: finalDisposition, decision_justification: justification, record_status: recordStatus, spec_snapshot: spec, inspector_name: inspectorName, inspected_at: clean(body.inspectedAt) || new Date().toISOString(), notes: clean(body.notes) || null, updated_by: authorization.userId };
+        const { data: existing, error: existingError } = await admin.from("titan_dti_joint_inspections").select("id").eq("job_run_id", runId).eq("joint_id", jointId).maybeSingle();
+        if (existingError) throw existingError;
+        const saveResult = existing
+          ? await admin.from("titan_dti_joint_inspections").update(payload).eq("id", existing.id).select("inspection_number,record_status").single()
+          : await admin.from("titan_dti_joint_inspections").insert({ ...payload, created_by: authorization.userId }).select("inspection_number,record_status").single();
+        const { data: saved, error } = saveResult;
+        if (error) throw error;
+        if (saved.record_status === "Hold") { const { error: holdError } = await admin.from("titan_dti_rack_runs").update({ status: "Hold", hold_reason: `${saved.inspection_number}: ${jointId} has incomplete evidence or an unresolved indication.`, updated_by: authorization.userId }).eq("id", rackId); if (holdError) throw holdError; }
       } else if (action === "save-refacing") {
         const rackId = clean(body.rackId);
         const specId = clean(body.specId);
@@ -338,6 +382,8 @@ export async function POST(request: Request) {
           const current = await loadData(admin, job, runId);
           if (!current.racks.length || current.racks.some((rack) => rack.status !== "Complete")) return Response.json({ error: "Every rack must be complete before closing this run." }, { status: 400 });
           if (current.escalations.some((entry) => entry.status !== "Resolved")) return Response.json({ error: "Resolve every OMS-109 borderline escalation before closing this run." }, { status: 400 });
+          if (current.summary.completed > 0 && current.jointInspections.length < current.summary.completed) return Response.json({ error: `Record every inspected joint before closing this run. ${current.jointInspections.length} of ${current.summary.completed} joint records are complete.` }, { status: 400 });
+          if (current.jointInspections.some((entry) => entry.record_status !== "Complete")) return Response.json({ error: "Resolve every joint inspection hold before closing this run." }, { status: 400 });
           const requiredScope = Array.isArray(current.jobScope?.baseline_scope) ? current.jobScope.baseline_scope as unknown[] : [];
           if (current.jobScope?.status === "Confirmed" && requiredScope.some((item) => clean(item).startsWith("Dimensional")) && !current.dimensionalReadings.length) return Response.json({ error: "The confirmed OMS-102 scope requires dimensional inspection. Record OMS-106 measurements before closing this run." }, { status: 400 });
           const finalOd = current.calibrations.some((entry) => entry.calibration_kind === "OD Gauge" && entry.checkpoint === "Job End" && entry.result === "Pass");

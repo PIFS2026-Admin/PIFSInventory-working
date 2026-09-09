@@ -18,7 +18,7 @@ function nullable(value: unknown) { return clean(value) || null; }
 function nonnegative(value: unknown, label: string) { const parsed = Number(value ?? 0); if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative whole number.`); return parsed; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("titan_dti_connection_refacing") || value.includes("station_performance") || value.includes("completion_status") || value.includes("schema cache"); }
+function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("titan_dti_connection_refacing") || value.includes("titan_dti_joint_inspections") || value.includes("station_performance") || value.includes("completion_status") || value.includes("schema cache"); }
 function optionalBoolean(value: unknown) { if (value === true || value === "true") return true; if (value === false || value === "false") return false; return null; }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof adminClient>) {
@@ -75,7 +75,7 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", job.id).order("run_date", { ascending: false }).order("started_at", { ascending: false });
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult, refacingResult] = await Promise.all([
+  const [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult, refacingResult, jointsResult] = await Promise.all([
     run ? admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number") : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     admin.from("dti_daily_summaries").select("id,summary_number,job_id,job_run_id,status,summary_date,total_joints_inspected").eq("job_id", job.id).order("summary_date", { ascending: false }),
@@ -84,8 +84,9 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
     run ? admin.from("titan_dti_borderline_escalations").select("id,escalation_number,status,condition_type").eq("job_run_id", run.id) : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_defect_decisions").select("*").eq("job_run_id", run.id).order("created_at") : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_connection_refacing").select("*").eq("job_run_id", run.id).order("created_at") : Promise.resolve({ data: [], error: null }),
+    run ? admin.from("titan_dti_joint_inspections").select("*").eq("job_run_id", run.id).order("joint_id") : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult, refacingResult]) if (result.error) throw result.error;
+  for (const result of [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult, refacingResult, jointsResult]) if (result.error) throw result.error;
   const racks = racksResult.data ?? [];
   const calibrations = calibrationsResult.data ?? [];
   const summary = (summariesResult.data ?? []).find((item) => item.job_run_id === run?.id) ?? null;
@@ -98,9 +99,13 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
   const openDeviations = deviations.filter((item) => ["Draft", "Submitted"].includes(item.status));
   const escalations = escalationsResult.data ?? [];
   const openEscalations = escalations.filter((item) => item.status !== "Resolved");
+  const jointInspections = jointsResult.data ?? [];
+  const completeJointInspections = jointInspections.filter((item) => item.record_status === "Complete").length;
+  const jointInspectionHolds = jointInspections.length - completeJointInspections;
   const gates = [
     { key: "run", label: "Execution run complete", passed: run?.status === "Complete", detail: run ? `${run.run_date} / ${run.shift_name}` : "No execution run" },
     { key: "racks", label: "Every rack complete", passed: racks.length > 0 && completeRacks === racks.length, detail: `${completeRacks} of ${racks.length} racks` },
+    { key: "joints", label: "Every joint traceable", passed: completedJoints > 0 && completeJointInspections >= completedJoints && jointInspectionHolds === 0, detail: `${completeJointInspections} of ${completedJoints} complete; ${jointInspectionHolds} on hold` },
     { key: "od", label: "Final OD verification passed", passed: finalOd, detail: finalOd ? "Job End recorded" : "Job End check required" },
     { key: "emi", label: "Final EMI standard passed", passed: finalEmi, detail: finalEmi ? "Final Standard recorded" : "Final Standard check required" },
     { key: "escalations", label: "Borderline calls resolved", passed: !openEscalations.length, detail: `${openEscalations.length} open` },
@@ -108,7 +113,7 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
     { key: "debrief", label: "OMS-203 debrief complete", passed: debrief?.completion_status === "Complete", detail: debrief?.completion_status === "Complete" ? debrief.debrief_number : debrief ? `${debrief.debrief_number} draft` : "Closeout review required" },
     { key: "deviations", label: "No unresolved deviations", passed: !openDeviations.length, detail: `${openDeviations.length} open` },
   ];
-  return { runs: runs ?? [], run, racks, calibrations, defectDecisions: defectsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], summaries: summariesResult.data ?? [], summary, debrief, deviations: openDeviations, debriefCounts: { borderline: escalations.length, deviationAgreements: deviations.filter((item) => item.status === "Approved").length }, totals: { completedJoints, completeRacks, rackCount: racks.length }, gates, ready: gates.every((gate) => gate.passed) };
+  return { runs: runs ?? [], run, racks, calibrations, defectDecisions: defectsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], jointInspections, summaries: summariesResult.data ?? [], summary, debrief, deviations: openDeviations, debriefCounts: { borderline: escalations.length, deviationAgreements: deviations.filter((item) => item.status === "Approved").length }, totals: { completedJoints, completeRacks, rackCount: racks.length, completeJointInspections, jointInspectionHolds }, gates, ready: gates.every((gate) => gate.passed) };
 }
 
 export async function GET(request: Request) {
@@ -132,6 +137,7 @@ export async function POST(request: Request) {
       if (!validUuid(runId)) return Response.json({ error: "Select a valid completed execution run." }, { status: 400 });
       const closeout = await loadCloseout(admin, job, runId);
       if (!closeout.run || closeout.run.status !== "Complete") return Response.json({ error: "Complete this execution run before creating its Daily Summary." }, { status: 400 });
+      if (!closeout.gates.find((gate) => gate.key === "joints")?.passed) return Response.json({ error: "Every completed joint needs a complete, traceable inspection record before creating the Daily Summary." }, { status: 400 });
       if (closeout.summary) return Response.json({ ok: true, ...closeout });
       const descriptions = [...new Set(closeout.racks.map((rack: Row) => clean(rack.pipe_description)).filter(Boolean))];
       const defectTotals = defectRollup(closeout.defectDecisions);
@@ -139,7 +145,7 @@ export async function POST(request: Request) {
       const refacePin = completedRefaces.filter((item: Row) => ["Pin", "Both"].includes(item.component_end)).reduce((total: number, item: Row) => total + Number(item.quantity || 0), 0);
       const refaceBox = completedRefaces.filter((item: Row) => ["Box", "Both"].includes(item.component_end)).reduce((total: number, item: Row) => total + Number(item.quantity || 0), 0);
       if (completedRefaces.length) { defectTotals.reface_pin = refacePin; defectTotals.reface_box = refaceBox; defectTotals.total_refaces = refacePin + refaceBox; }
-      const rollup = { generatedAt: new Date().toISOString(), jobId, runId, rackCount: closeout.totals.rackCount, completedJoints: closeout.totals.completedJoints, defectDecisionCount: closeout.defectDecisions.length, refacingRecordCount: closeout.connectionRefacing.length, racks: closeout.racks.map((rack: Row) => ({ id: rack.id, rackNumber: rack.rack_number, pipeDescription: rack.pipe_description, completedJoints: rack.completed_joints })) };
+      const rollup = { generatedAt: new Date().toISOString(), jobId, runId, rackCount: closeout.totals.rackCount, completedJoints: closeout.totals.completedJoints, jointInspectionCount: closeout.jointInspections.length, defectDecisionCount: closeout.defectDecisions.length, refacingRecordCount: closeout.connectionRefacing.length, racks: closeout.racks.map((rack: Row) => ({ id: rack.id, rackNumber: rack.rack_number, pipeDescription: rack.pipe_description, completedJoints: rack.completed_joints })) };
       const base = `DTI-SUM-${dateStamp(closeout.run.run_date)}`;
       let saved: Row | null = null;
       for (let index = 0; index < 702 && !saved; index += 1) {

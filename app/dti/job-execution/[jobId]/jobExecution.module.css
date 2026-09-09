@@ -16,7 +16,7 @@
 .message, .success, .empty, .onTrack { margin-top: 10px; border: 1px solid #9a4e18; border-radius: 6px; background: #2a180f; color: #fed7aa; padding: 11px 13px; }
 .success, .onTrack { border-color: #166534; background: #102418; color: #bbf7d0; }
 .empty { border-color: #303744; background: #0d1218; color: #aab2c0; }
-.startPanel, .racks, .editor, .calibrations, .warnings, .escalations, .defects, .dimensions, .refacing { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
+.startPanel, .racks, .editor, .calibrations, .warnings, .escalations, .defects, .dimensions, .refacing, .jointInspections { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
 .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #303744; background: #171c24; padding: 10px 12px; }
 .panelHead h2 { margin: 3px 0 0; font-size: 18px; }
 .panelHead > strong { color: #aab2c0; }
@@ -119,6 +119,15 @@
 .refacingList span { color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .refacingList small { margin-top: 3px; color: #aab2c0; }
 .refacingList b { border: 1px solid #475569; border-radius: 999px; padding: 5px 8px; font-size: 9px; }
+.jointForm { border-bottom: 1px solid #303744; padding-bottom: 12px; }
+.jointList { display: grid; }
+.jointList article { display: grid; grid-template-columns: 1fr .8fr 1.25fr 1.25fr auto auto; align-items: center; gap: 10px; border-top: 1px solid #29303b; border-left: 4px solid #22c55e; padding: 10px 12px; }
+.jointList article[data-status="Hold"] { border-left-color: #ef4444; background: rgba(239,68,68,.06); }
+.jointList span, .jointList strong, .jointList small { display: block; }
+.jointList span { color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.jointList small { margin-top: 3px; color: #aab2c0; }
+.jointList b { border: 1px solid #475569; border-radius: 999px; padding: 5px 8px; font-size: 9px; }
+.jointList button { min-height: 32px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #f7f7fb; padding: 5px 9px; font-size: 10px; font-weight: 850; }
 
 @media (max-width: 900px) {
   .formGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -152,4 +161,6 @@
   .dimensionActions { align-items: stretch; flex-direction: column; }
   .refacingList article { grid-template-columns: 1fr; }
   .refacingList b { justify-self: start; }
+  .jointList article { grid-template-columns: 1fr; }
+  .jointList b { justify-self: start; }
 }
