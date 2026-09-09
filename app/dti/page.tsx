@@ -1676,6 +1676,7 @@ export default function DtiPage() {
           <button className="button primary" onClick={() => (window.location.href = "/dti/create")}>Create DTI Job</button>
           <button className="button" onClick={() => (window.location.href = "/dti/field-audits")}>Field Audits</button>
           <button className="button" onClick={() => (window.location.href = "/dti/competency")}>Inspector Competency</button>
+          <button className="button" onClick={() => (window.location.href = "/dti/crew-schedule")}>Crew Schedule</button>
           <button className="button" onClick={() => (window.location.href = "/dti/intelligence")}>Job Intelligence</button>
           <button className="button" onClick={() => (window.location.href = "/dti/documents")}>Document Library</button>
           <button className="button" onClick={() => (window.location.href = "/dti/tubular-specs")}>Tubular Specifications</button>
