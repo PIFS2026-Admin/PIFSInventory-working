@@ -62,6 +62,34 @@
 .wide { grid-column: 1 / -1; }
 .check { display: flex !important; align-items: center; grid-column: 1 / -1; }
 .check input { width: auto; }
+.debrief { padding: 0; overflow: hidden; }
+.debrief > .sectionHead { background: #151c25; padding: 14px 16px; }
+.debriefIdentity { display: flex; align-items: center; gap: 8px; }
+.debriefIdentity b { border: 1px solid #f59e0b; color: #fcd34d; padding: 5px 8px; font-size: 10px; }
+.debriefIdentity b[data-complete="true"] { border-color: #38c978; color: #69e69b; }
+.debrief fieldset { margin: 0; border: 0; border-top: 1px solid #34404f; padding: 14px 16px; }
+.debrief fieldset:disabled { opacity: .8; }
+.debrief legend { padding: 0 8px 0 0; color: #ff9f43; font-size: 12px; font-weight: 900; }
+.stationTable { display: grid; margin-top: 10px; border: 1px solid #34404f; }
+.stationHeader, .stationRow { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(130px, .5fr) minmax(220px, 1.4fr); align-items: center; gap: 8px; padding: 8px; }
+.stationHeader { background: #1a222d; color: #aeb7c4; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.stationRow { border-top: 1px solid #34404f; }
+.stationRow select, .stationRow input, .actionTable input { width: 100%; min-height: 38px; border: 1px solid #3f4b5a; background: #0b1016; color: #fff; padding: 8px 9px; }
+.choiceGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+.choiceGrid label, .confirmCheck { display: flex; align-items: center; gap: 8px; border: 1px solid #34404f; background: #0b1016; padding: 9px; font-size: 11px; font-weight: 800; }
+.choiceGrid input, .confirmCheck input { width: auto; }
+.autoCounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.autoCounts > div { border-left: 3px solid #38bdf8; background: #0b1016; padding: 10px; }
+.autoCounts span { display: block; color: #aeb7c4; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.autoCounts strong { display: block; margin-top: 4px; font-size: 20px; }
+.confirmCheck { margin-top: 9px; border-color: #166534; }
+.actionTable { display: grid; gap: 7px; margin-top: 10px; }
+.actionTable > div { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(150px, .5fr) 160px 40px; gap: 7px; }
+.actionTable button, .addAction, .debriefActions button { min-height: 38px; border: 1px solid #465466; background: #151c25; color: #fff; padding: 7px 11px; font-weight: 800; }
+.actionTable button { color: #fca5a5; }
+.addAction { margin-top: 8px; }
+.debriefActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid #34404f; background: #151c25; padding: 14px 16px; }
+.debriefActions span { color: #69e69b; font-weight: 800; }
 .deviations > div { display: grid; grid-template-columns: 150px 1fr 100px; gap: 10px; padding: 10px; border-top: 1px solid #34404f; }
 @media (max-width: 760px) {
   .page { padding: 8px; }
@@ -72,6 +100,13 @@
   .runBar label { min-width: 0; }
   .gateGrid, .formGrid { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
+  .stationHeader { display: none; }
+  .stationRow { grid-template-columns: 1fr; }
+  .choiceGrid, .autoCounts { grid-template-columns: 1fr; }
+  .actionTable > div { grid-template-columns: 1fr; border-bottom: 1px solid #34404f; padding-bottom: 8px; }
+  .actionTable button { width: 40px; }
+  .debriefActions { align-items: stretch; flex-direction: column; }
+  .debriefActions button { width: 100%; }
   .deviations > div { grid-template-columns: 1fr; }
   .summaryPanel .primary { width: 100%; text-align: center; }
 }

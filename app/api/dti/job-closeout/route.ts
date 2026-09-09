@@ -18,7 +18,8 @@ function nullable(value: unknown) { return clean(value) || null; }
 function nonnegative(value: unknown, label: string) { const parsed = Number(value ?? 0); if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative whole number.`); return parsed; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("titan_dti_connection_refacing") || value.includes("schema cache"); }
+function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("titan_dti_connection_refacing") || value.includes("station_performance") || value.includes("completion_status") || value.includes("schema cache"); }
+function optionalBoolean(value: unknown) { if (value === true || value === "true") return true; if (value === false || value === "false") return false; return null; }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof adminClient>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -78,9 +79,9 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
     run ? admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number") : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     admin.from("dti_daily_summaries").select("id,summary_number,job_id,job_run_id,status,summary_date,total_joints_inspected").eq("job_id", job.id).order("summary_date", { ascending: false }),
-    admin.from("titan_job_debriefs").select("*").eq("job_id", job.id).maybeSingle(),
-    admin.from("titan_job_deviations").select("id,deviation_number,status,defect_type").eq("job_id", job.id).in("status", ["Draft", "Submitted"]),
-    run ? admin.from("titan_dti_borderline_escalations").select("id,escalation_number,status,condition_type").eq("job_run_id", run.id).neq("status", "Resolved") : Promise.resolve({ data: [], error: null }),
+    admin.from("titan_job_debriefs").select("*,completion_status,station_performance,action_items").eq("job_id", job.id).maybeSingle(),
+    admin.from("titan_job_deviations").select("id,deviation_number,status,defect_type,written_confirmation,confirmation_document_id").eq("job_id", job.id).neq("status", "Voided"),
+    run ? admin.from("titan_dti_borderline_escalations").select("id,escalation_number,status,condition_type").eq("job_run_id", run.id) : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_defect_decisions").select("*").eq("job_run_id", run.id).order("created_at") : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_connection_refacing").select("*").eq("job_run_id", run.id).order("created_at") : Promise.resolve({ data: [], error: null }),
   ]);
@@ -93,17 +94,21 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
   const finalOd = calibrations.some((entry) => entry.calibration_kind === "OD Gauge" && entry.checkpoint === "Job End" && entry.result === "Pass");
   const finalEmi = calibrations.some((entry) => entry.calibration_kind === "EMI Standard" && entry.checkpoint === "Final Standard" && entry.result === "Pass");
   const debrief = debriefResult.data ?? null;
+  const deviations = deviationsResult.data ?? [];
+  const openDeviations = deviations.filter((item) => ["Draft", "Submitted"].includes(item.status));
+  const escalations = escalationsResult.data ?? [];
+  const openEscalations = escalations.filter((item) => item.status !== "Resolved");
   const gates = [
     { key: "run", label: "Execution run complete", passed: run?.status === "Complete", detail: run ? `${run.run_date} / ${run.shift_name}` : "No execution run" },
     { key: "racks", label: "Every rack complete", passed: racks.length > 0 && completeRacks === racks.length, detail: `${completeRacks} of ${racks.length} racks` },
     { key: "od", label: "Final OD verification passed", passed: finalOd, detail: finalOd ? "Job End recorded" : "Job End check required" },
     { key: "emi", label: "Final EMI standard passed", passed: finalEmi, detail: finalEmi ? "Final Standard recorded" : "Final Standard check required" },
-    { key: "escalations", label: "Borderline calls resolved", passed: !(escalationsResult.data ?? []).length, detail: `${(escalationsResult.data ?? []).length} open` },
+    { key: "escalations", label: "Borderline calls resolved", passed: !openEscalations.length, detail: `${openEscalations.length} open` },
     { key: "summary", label: "Daily Summary created", passed: Boolean(summary), detail: summary?.summary_number ?? "Create draft from execution" },
-    { key: "debrief", label: "OMS-203 debrief recorded", passed: Boolean(debrief), detail: debrief?.debrief_number ?? "Closeout review required" },
-    { key: "deviations", label: "No unresolved deviations", passed: !(deviationsResult.data ?? []).length, detail: `${(deviationsResult.data ?? []).length} open` },
+    { key: "debrief", label: "OMS-203 debrief complete", passed: debrief?.completion_status === "Complete", detail: debrief?.completion_status === "Complete" ? debrief.debrief_number : debrief ? `${debrief.debrief_number} draft` : "Closeout review required" },
+    { key: "deviations", label: "No unresolved deviations", passed: !openDeviations.length, detail: `${openDeviations.length} open` },
   ];
-  return { runs: runs ?? [], run, racks, calibrations, defectDecisions: defectsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], summaries: summariesResult.data ?? [], summary, debrief, deviations: deviationsResult.data ?? [], totals: { completedJoints, completeRacks, rackCount: racks.length }, gates, ready: gates.every((gate) => gate.passed) };
+  return { runs: runs ?? [], run, racks, calibrations, defectDecisions: defectsResult.data ?? [], connectionRefacing: refacingResult.data ?? [], summaries: summariesResult.data ?? [], summary, debrief, deviations: openDeviations, debriefCounts: { borderline: escalations.length, deviationAgreements: deviations.filter((item) => item.status === "Approved").length }, totals: { completedJoints, completeRacks, rackCount: racks.length }, gates, ready: gates.every((gate) => gate.passed) };
 }
 
 export async function GET(request: Request) {
@@ -149,16 +154,36 @@ export async function POST(request: Request) {
     }
 
     if (action === "save-debrief") {
-      const repeatIssue = Boolean(body.repeatIssue); const repeatNote = clean(body.repeatNote);
+      const repeatIssue = Boolean(body.repeatIssue); const repeatNote = clean(body.repeatNote); const finalize = Boolean(body.finalize);
       if (repeatIssue && !repeatNote) return Response.json({ error: "Describe the repeated issue before saving the debrief." }, { status: 400 });
       const substantive = [body.stationBehind, body.varianceDriver, body.wentWell, body.slowedBy, body.safetyObservations, body.grayAreaSummary, body.customerFeedback, body.repeatNote, body.lessonsLearned].some((value) => clean(value));
       if (!substantive) return Response.json({ error: "Record at least one meaningful closeout observation." }, { status: 400 });
-      const payload = { job_id: jobId, on_plan: body.onPlan === "" || body.onPlan === null || body.onPlan === undefined ? null : Boolean(body.onPlan), station_behind: nullable(body.stationBehind), variance_driver: nullable(body.varianceDriver), went_well: nullable(body.wentWell), slowed_by: nullable(body.slowedBy), safety_observations: nullable(body.safetyObservations), gray_area_summary: nullable(body.grayAreaSummary), borderline_count: nonnegative(body.borderlineCount, "Borderline count"), customer_feedback: nullable(body.customerFeedback), repeat_issue: repeatIssue, repeat_note: repeatIssue ? repeatNote : null, lessons_learned: nullable(body.lessonsLearned), action_owner_name: nullable(body.actionOwnerName), updated_by: authorization.userId };
-      const { data: existing, error: existingError } = await admin.from("titan_job_debriefs").select("id,status").eq("job_id", jobId).maybeSingle(); if (existingError) throw existingError;
+      const stationPerformance = Array.isArray(body.stationPerformance) ? body.stationPerformance.filter((item): item is Row => Boolean(item && typeof item === "object")).map((item) => ({ station: clean(item.station), status: clean(item.status), driver: clean(item.driver) })) : [];
+      const expectedStations = ["Tube Prep", "Connection Clean", "Inspect & Reface", "Dimensional", "EMI", "Setup / Teardown"];
+      const actionItems = Array.isArray(body.actionItems) ? body.actionItems.filter((item): item is Row => Boolean(item && typeof item === "object")).map((item) => ({ lesson: clean(item.lesson), owner: clean(item.owner), dueDate: clean(item.dueDate) })).filter((item) => item.lesson || item.owner || item.dueDate) : [];
+      const slowdownCategories = Array.isArray(body.slowdownCategories) ? [...new Set(body.slowdownCategories.map(clean).filter(Boolean))] : [];
+      const crewSize = clean(body.crewSize) ? nonnegative(body.crewSize, "Crew size") : null;
+      const kpaCompleted = optionalBoolean(body.kpaCompleted); const restockGenerated = optionalBoolean(body.restockListGenerated); const stopWorkUsed = optionalBoolean(body.stopWorkUsed); const jsaEffective = optionalBoolean(body.jsaEffective);
+      const closeout = validUuid(runId) ? await loadCloseout(admin, job, runId) : null;
+      const borderlineCount = closeout?.debriefCounts.borderline ?? nonnegative(body.borderlineCount, "Borderline count");
+      const deviationCount = closeout?.debriefCounts.deviationAgreements ?? 0;
+      if (finalize) {
+        if (optionalBoolean(body.onPlan) === null || !crewSize || !clean(body.weatherConditions) || !clean(body.loaderCyclesStandbyTime)) return Response.json({ error: "Complete the crew, conditions, loader/standby time, and on-plan review." }, { status: 422 });
+        if (stationPerformance.length !== expectedStations.length || stationPerformance.some((item, index) => item.station !== expectedStations[index] || !["Ahead", "On", "Behind"].includes(item.status) || (item.status === "Behind" && !item.driver))) return Response.json({ error: "Rate every OMS-203 station and explain each station that ran behind." }, { status: 422 });
+        if (!clean(body.wentWell) || !clean(body.slowedBy) || !clean(body.equipmentFailures) || !clean(body.equipmentTaggedOut) || !clean(body.restockConsumables) || kpaCompleted === null || restockGenerated === null) return Response.json({ error: "Complete the performance, equipment, KPA, and restock review." }, { status: 422 });
+        if (!clean(body.nearMissGoodCatch) || stopWorkUsed === null || (stopWorkUsed && !clean(body.stopWorkDescription)) || jsaEffective === null || (!jsaEffective && !clean(body.jsaUpdateNeeded))) return Response.json({ error: "Complete the near-miss, stop-work, and JSA safety review." }, { status: 422 });
+        if (actionItems.length < 1 || actionItems.some((item) => !item.lesson || !item.owner || !/^\d{4}-\d{2}-\d{2}$/.test(item.dueDate))) return Response.json({ error: "Add at least one complete lesson/action item with an owner and due date." }, { status: 422 });
+        if (!clean(body.crewLeadSignoffName) || !clean(body.crewLeadSignedOn) || !clean(body.managerReviewName) || !clean(body.managerReviewedOn)) return Response.json({ error: "Crew Lead and Service Line Manager sign-off are required." }, { status: 422 });
+        if (deviationCount > 0 && !Boolean(body.deviationAgreementsAttached)) return Response.json({ error: "Confirm every approved OMS-202 agreement is attached before completing closeout." }, { status: 422 });
+        if (closeout?.deviations.length) return Response.json({ error: "Resolve every Draft or Submitted OMS-202 deviation before completing the debrief." }, { status: 422 });
+      }
+      const payload = { job_id: jobId, on_plan: optionalBoolean(body.onPlan), station_behind: nullable(body.stationBehind), variance_driver: nullable(body.varianceDriver), went_well: nullable(body.wentWell), slowed_by: nullable(body.slowedBy), safety_observations: nullable(body.safetyObservations), gray_area_summary: nullable(body.grayAreaSummary), borderline_count: borderlineCount, customer_feedback: nullable(body.customerFeedback), repeat_issue: repeatIssue, repeat_note: repeatIssue ? repeatNote : null, lessons_learned: nullable(body.lessonsLearned), action_owner_name: nullable(body.actionOwnerName), crew_size: crewSize, weather_conditions: nullable(body.weatherConditions), loader_cycles_standby_time: nullable(body.loaderCyclesStandbyTime), station_performance: stationPerformance, slowdown_categories: slowdownCategories, equipment_failures: nullable(body.equipmentFailures), equipment_tagged_out: nullable(body.equipmentTaggedOut), restock_consumables: nullable(body.restockConsumables), kpa_completed: kpaCompleted, restock_list_generated: restockGenerated, near_miss_good_catch: nullable(body.nearMissGoodCatch), stop_work_used: stopWorkUsed, stop_work_description: stopWorkUsed ? nullable(body.stopWorkDescription) : null, jsa_effective: jsaEffective, jsa_update_needed: jsaEffective === false ? nullable(body.jsaUpdateNeeded) : null, deviation_agreements_applicable: deviationCount > 0, deviation_agreements_attached: deviationCount > 0 ? Boolean(body.deviationAgreementsAttached) : null, deviation_agreement_count: deviationCount, action_items: actionItems, crew_lead_signoff_name: nullable(body.crewLeadSignoffName), crew_lead_signed_on: nullable(body.crewLeadSignedOn), manager_review_name: nullable(body.managerReviewName), manager_reviewed_on: nullable(body.managerReviewedOn), completion_status: finalize ? "Complete" : "Draft", finalized_at: finalize ? new Date().toISOString() : null, finalized_by: finalize ? authorization.userId : null, updated_by: authorization.userId };
+      const { data: existing, error: existingError } = await admin.from("titan_job_debriefs").select("id,status,completion_status").eq("job_id", jobId).maybeSingle(); if (existingError) throw existingError;
       if (existing?.status === "Voided") return Response.json({ error: "A voided debrief cannot be edited." }, { status: 409 });
+      if (existing?.completion_status === "Complete" && !finalize) return Response.json({ error: "A completed OMS-203 closeout cannot be returned to Draft." }, { status: 409 });
       const query = existing ? admin.from("titan_job_debriefs").update(payload).eq("id", existing.id) : admin.from("titan_job_debriefs").insert({ ...payload, created_by: authorization.userId });
       const { data: saved, error } = await query.select("*").single(); if (error) throw error;
-      await admin.from("titan_job_events").insert({ job_id: jobId, event_type: existing ? "debrief_updated" : "debrief_created", source_module: "dti", summary: `${saved.debrief_number} ${existing ? "updated" : "created"} from DTI Closeout.`, after_value: saved, actor_id: authorization.userId });
+      await admin.from("titan_job_events").insert({ job_id: jobId, event_type: finalize ? "debrief_completed" : existing ? "debrief_updated" : "debrief_created", source_module: "dti", summary: `${saved.debrief_number} ${finalize ? "completed" : existing ? "updated" : "created"} from DTI Closeout.`, after_value: saved, actor_id: authorization.userId });
       return Response.json({ ok: true, ...await loadCloseout(admin, job, runId) });
     }
     return Response.json({ error: "Select a valid DTI closeout action." }, { status: 400 });
