@@ -2,6 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 
 type Profile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type Row = Record<string, unknown>;
+type ProcedureSection = { heading: string; text: string };
+type IndexedProcedure = { documentNumber: string; title: string; sections: ProcedureSection[] };
 type ResultType = "Document" | "Tubular Specification" | "Customer Requirement" | "Field Lesson";
 type SearchResult = {
   id: string;
@@ -15,6 +17,8 @@ type SearchResult = {
   updatedAt: string;
   score: number;
 };
+
+let procedureIndexCache: { loadedAt: number; documents: IndexedProcedure[] } | null = null;
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -44,6 +48,30 @@ async function authorize(request: Request, admin: ReturnType<typeof adminClient>
 }
 
 function searchable(values: unknown[]) { return values.map(text).filter(Boolean).join(" | "); }
+
+async function loadProcedureIndex(admin: ReturnType<typeof adminClient>) {
+  if (procedureIndexCache && Date.now() - procedureIndexCache.loadedAt < 5 * 60 * 1000) return procedureIndexCache.documents;
+  const { data, error } = await admin.storage.from("document-control").download("dti/search/procedure-index-v1.json");
+  if (error || !data) return [];
+  try {
+    const parsed = JSON.parse(await data.text()) as { documents?: IndexedProcedure[] };
+    const documents = Array.isArray(parsed.documents) ? parsed.documents : [];
+    procedureIndexCache = { loadedAt: Date.now(), documents };
+    return documents;
+  } catch { return []; }
+}
+
+function excerpt(body: string, query: string) {
+  const compact = body.replace(/\s+/g, " ").trim();
+  if (compact.length <= 420) return compact;
+  const phrase = lower(query);
+  const tokens = phrase.split(/\s+/).filter((token) => token.length > 1);
+  let position = lower(compact).indexOf(phrase);
+  if (position < 0) position = tokens.map((token) => lower(compact).indexOf(token)).find((value) => value >= 0) ?? 0;
+  const start = Math.max(0, position - 110);
+  const end = Math.min(compact.length, start + 420);
+  return `${start > 0 ? "..." : ""}${compact.slice(start, end).trim()}${end < compact.length ? "..." : ""}`;
+}
 
 function rank(query: string, title: string, reference: string, body: string) {
   const phrase = lower(query);
@@ -98,10 +126,36 @@ export async function GET(request: Request) {
     const jobs = new Map(((jobsResult.data ?? []) as Row[]).filter((job) => normalized(job.service_line) === "dti").map((job) => [text(job.id), job]));
 
     const results: SearchResult[] = [];
-    for (const document of (documentsResult.data ?? []) as Row[]) {
+    const activeDocuments = ((documentsResult.data ?? []) as Row[]).filter((document) => {
       const approval = normalized(document.approval_status);
       const status = normalized(document.document_status || document.status);
-      if (approval !== "approved" || !["", "active"].includes(status) || !isDti(document.department)) continue;
+      return approval === "approved" && ["", "active"].includes(status) && isDti(document.department);
+    });
+    const documentsByNumber = new Map(activeDocuments.map((document) => [text(document.document_number), document]));
+    const procedureIndex = await loadProcedureIndex(admin);
+    for (const indexedDocument of procedureIndex) {
+      const document = documentsByNumber.get(indexedDocument.documentNumber);
+      if (!document) continue;
+      const sectionMatches = indexedDocument.sections.map((section, index) => ({
+        section, index, score: rank(query, section.heading, "", section.text),
+      })).filter((match) => match.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+      for (const match of sectionMatches) {
+        results.push({
+          id: `procedure:${text(document.id)}:${match.index}`,
+          type: "Document",
+          title: `${indexedDocument.title} / ${match.section.heading}`,
+          reference: indexedDocument.documentNumber,
+          summary: excerpt(match.section.text, query),
+          context: "Approved controlled procedure",
+          href: "/dti/documents",
+          documentId: text(document.id),
+          updatedAt: text(document.updated_at || document.created_at),
+          score: match.score + 20,
+        });
+      }
+    }
+
+    for (const document of activeDocuments) {
       const title = text(document.title) || "Untitled controlled document";
       const reference = text(document.document_number) || text(document.category) || "Controlled document";
       const body = searchable([document.category, document.department, document.notes, document.file_name]);
