@@ -95,10 +95,13 @@ export async function GET(request: Request) {
       : { data: [], error: null };
     if (documentsResult.error) throw documentsResult.error;
 
-    const jobIds = (jobsResult.data ?? []).map((job) => job.id);
-    const readinessResult = jobIds.length
-      ? await admin.from("titan_dti_pre_job_readiness").select("job_id, readiness_status, complete_items, total_items, finalized_at, updated_at").in("job_id", jobIds)
-      : { data: [], error: null };
+    // Query the compact readiness table directly. Sending every DTI job UUID in an
+    // `in` filter can exceed the request-line limit on long job histories.
+    const readinessResult = await admin
+      .from("titan_dti_pre_job_readiness")
+      .select("job_id, readiness_status, complete_items, total_items, finalized_at, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(2000);
     const readinessReady = !readinessResult.error;
     if (readinessResult.error && !migrationMissing(readinessResult.error)) throw readinessResult.error;
 
