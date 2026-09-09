@@ -95,6 +95,13 @@ export async function GET(request: Request) {
       : { data: [], error: null };
     if (documentsResult.error) throw documentsResult.error;
 
+    const jobIds = (jobsResult.data ?? []).map((job) => job.id);
+    const readinessResult = jobIds.length
+      ? await admin.from("titan_dti_pre_job_readiness").select("job_id, readiness_status, complete_items, total_items, finalized_at, updated_at").in("job_id", jobIds)
+      : { data: [], error: null };
+    const readinessReady = !readinessResult.error;
+    if (readinessResult.error && !migrationMissing(readinessResult.error)) throw readinessResult.error;
+
     const today = new Date().toISOString().slice(0, 10);
     return Response.json({
       ok: true,
@@ -108,6 +115,8 @@ export async function GET(request: Request) {
       audits: audits.map((audit) => ({ ...audit, items: (itemsResult.data ?? []).filter((item) => item.field_audit_id === audit.id) })),
       findings,
       jobs: jobsResult.data ?? [],
+      readiness: readinessResult.data ?? [],
+      readinessReady,
       people: (profilesResult.data ?? []).filter((profile) => !profile.is_disabled && !["customer", "operator"].includes(normalized(profile.role))),
       documents: documentsResult.data ?? [],
     });

@@ -32,6 +32,10 @@
 .overviewList > button[data-severity="NC"] { border-left-color: #ef4444; }
 .overviewList span, .auditSnapshot span, .jobList span { color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .overviewList small, .auditSnapshot small, .jobList small { color: #9fa8b8; overflow-wrap: anywhere; }
+.overviewList b[data-readiness] { width: max-content; max-width: 100%; border: 1px solid #64748b; border-radius: 999px; color: #cbd5e1; padding: 3px 7px; font-size: 9px; }
+.overviewList b[data-readiness="Ready"], .readinessValue[data-readiness="Ready"] { border-color: #22c55e; color: #86efac; }
+.overviewList b[data-readiness="Needs Attention"], .readinessValue[data-readiness="Needs Attention"] { border-color: #f59e0b; color: #fcd34d; }
+.overviewList b[data-readiness="Blocked"], .readinessValue[data-readiness="Blocked"] { border-color: #ef4444; color: #fca5a5; }
 .auditSnapshot { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
 .auditSnapshot > button { display: grid; min-width: 0; gap: 5px; border: 1px solid #303744; border-top: 3px solid #f97316; border-radius: 5px; background: #0d1218; color: #f7f7fb; padding: 10px; text-align: left; }
 .auditSnapshot b { width: max-content; max-width: 100%; border: 1px solid #475569; border-radius: 999px; padding: 3px 7px; font-size: 9px; overflow-wrap: anywhere; }
@@ -68,6 +72,7 @@
 .jobList dl { display: flex; gap: 18px; margin: 0; }
 .jobList dt { color: #929baa; font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .jobList dd { margin: 3px 0 0; font-size: 17px; font-weight: 900; }
+.jobList .readinessValue { max-width: 110px; font-size: 12px; }
 .jobList .itemActions { margin: 0; }
 .auditList > article { border-left-color: #f97316; padding: 0; }
 .auditSummary { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; border: 0; background: transparent; color: #f7f7fb; padding: 12px; text-align: left; }
