@@ -141,7 +141,7 @@ export default function FieldAuditsPage() {
   }
 
   return <main className={styles.page}>
-    <header className={styles.header}><div className={styles.titleBlock}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority /><div><span>CRM</span><h1>Field Audits</h1></div></div><div className={styles.headerActions}><button type="button" onClick={() => goBackOrFallback("/crm")}>Back</button><Link href="/crm/jobs">Connected Jobs</Link><button type="button" onClick={() => void loadAudits()}>Refresh</button></div></header>
+    <header className={styles.header}><div className={styles.titleBlock}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority /><div><span>CRM</span><h1>Field Audits</h1></div></div><div className={styles.headerActions}><button type="button" onClick={() => goBackOrFallback("/crm")}>Back</button><Link href="/crm/jobs">Connected Jobs</Link><Link href="/crm/competency">Competency</Link><button type="button" onClick={() => void loadAudits()}>Refresh</button></div></header>
 
     {response?.metrics ? <section className={styles.metrics}><article><span>Filed Audits</span><strong>{response.metrics.audits}</strong></article><article className={response.metrics.actionRequired ? styles.alertMetric : ""}><span>Action Required</span><strong>{response.metrics.actionRequired}</strong></article><article><span>Open Findings</span><strong>{response.metrics.openFindings}</strong></article><article className={response.metrics.overdue ? styles.alertMetric : ""}><span>Overdue</span><strong>{response.metrics.overdue}</strong></article></section> : null}
 
