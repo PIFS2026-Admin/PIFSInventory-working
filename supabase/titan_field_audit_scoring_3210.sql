@@ -10,24 +10,10 @@ do $$ begin
   end if;
 end $$;
 
-do $$
-declare
-  existing_definition text;
-begin
-  select pg_get_constraintdef(constraint_row.oid)
-    into existing_definition
-  from pg_constraint constraint_row
-  where constraint_row.conrelid = 'public.titan_field_audit_items'::regclass
-    and constraint_row.conname = 'titan_field_audit_items_score_check'
-  limit 1;
-
-  if existing_definition is null then
-    execute 'alter table public.titan_field_audit_items add constraint titan_field_audit_items_score_check check (score is null or score between 0 and 3)';
-  elsif position('0' in existing_definition) = 0 or position('3' in existing_definition) = 0 then
-    execute 'alter table public.titan_field_audit_items drop constraint titan_field_audit_items_score_check';
-    execute 'alter table public.titan_field_audit_items add constraint titan_field_audit_items_score_check check (score is null or score between 0 and 3)';
-  end if;
-end $$;
+-- Remove the previous score constraint. The controlled filing function below
+-- remains the source of valid 3/2/1/0 scores for this upgrade.
+alter table public.titan_field_audit_items
+  drop constraint if exists titan_field_audit_items_score_check;
 
 update public.titan_field_audit_items set score = 3 where rating = 'C' and score is distinct from 3;
 update public.titan_field_audit_items set score = 2 where rating = 'NI' and score is distinct from 2;
