@@ -2148,10 +2148,6 @@ export default function CrmPage() {
               <span>Connected Jobs</span>
               <small>Active lifecycle</small>
             </button>
-            <button type="button" onClick={() => window.location.assign("/crm/intelligence")}>
-              <span>Job Intelligence</span>
-              <small>Review field lessons</small>
-            </button>
             {mondayCrmBoards.map((board) => {
               const importedCount = boardRecords(crmRecords, board).length;
               return (

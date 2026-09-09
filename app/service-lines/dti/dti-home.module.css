@@ -1,0 +1,42 @@
+.shell { min-height: 100vh; padding: 20px clamp(14px, 2.5vw, 34px) 40px; background: #090b0f; color: #f8fafc; }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.brand { width: auto !important; text-align: left; }
+.headerActions, .toolNav { display: flex; align-items: center; gap: 8px; }
+.toolNav { overflow-x: auto; padding: 10px 0 16px; scrollbar-width: thin; }
+.toolNav button { flex: 0 0 auto; min-height: 42px; padding: 0 14px; border: 1px solid #394252; border-radius: 6px; background: #151922; color: #f8fafc; font-weight: 850; cursor: pointer; }
+.toolNav button:hover { border-color: #f97316; color: #ffb067; }
+.metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.metrics article { min-height: 92px; padding: 14px; border: 1px solid #384152; border-radius: 7px; background: #12161d; }
+.metrics article[data-alert="true"] { border-top: 3px solid #ef4444; }
+.metrics span, .sectionHead span { display: block; color: #aeb7c7; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+.metrics strong { display: block; margin-top: 8px; font-size: 30px; line-height: 1; }
+.content { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 0.8fr); gap: 12px; }
+.attentionPanel, .activityPanel, .message { border: 1px solid #384152; border-radius: 7px; background: #10141a; }
+.sectionHead { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 16px; border-bottom: 1px solid #303746; }
+.sectionHead h1, .sectionHead h2 { margin: 3px 0 0; font-size: 22px; }
+.sectionHead select { min-width: 210px; min-height: 40px; border: 1px solid #414b5d; border-radius: 6px; background: #11161e; color: #f8fafc; padding: 0 34px 0 10px; font-weight: 750; }
+.attentionList { display: grid; }
+.attentionList button { display: grid; grid-template-columns: minmax(130px, 0.45fr) minmax(220px, 1fr) minmax(180px, 0.8fr) 64px; align-items: center; gap: 12px; min-height: 58px; padding: 10px 14px; border: 0; border-bottom: 1px solid #29303d; border-left: 4px solid #e8a33d; background: transparent; color: #f8fafc; text-align: left; cursor: pointer; }
+.attentionList button[data-severity="High"] { border-left-color: #ef4444; }
+.attentionList button:hover { background: #191e27; }
+.attentionList button b { color: #ffb067; font-size: 12px; }
+.attentionList button strong { overflow-wrap: anywhere; }
+.attentionList button span, .attentionList time, .activityList span, .activityList time { color: #aeb7c7; font-size: 12px; }
+.attentionList time { text-align: right; }
+.activityList { display: grid; }
+.activityList > div { display: grid; gap: 4px; padding: 12px 14px; border-bottom: 1px solid #29303d; }
+.activityList time { color: #ffb067; }
+.empty, .message { padding: 24px; color: #aeb7c7; }
+@media (max-width: 900px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .content { grid-template-columns: 1fr; } }
+@media (max-width: 680px) {
+  .shell { padding: calc(10px + env(safe-area-inset-top)) 10px calc(var(--titan-mobile-bottom-space, 96px) + 10px); }
+  .header { align-items: stretch; flex-direction: column; }
+  .headerActions { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metrics article { min-height: 78px; }
+  .sectionHead { align-items: stretch; flex-direction: column; }
+  .sectionHead select { width: 100%; }
+  .attentionList button { grid-template-columns: 1fr auto; gap: 5px 10px; padding: 12px 10px; }
+  .attentionList button strong, .attentionList button span { grid-column: 1 / -1; }
+  .attentionList time { grid-column: 2; grid-row: 1; }
+}

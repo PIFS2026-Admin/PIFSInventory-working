@@ -493,7 +493,7 @@ export default function ConnectedJobDetailPage() {
           <section className={`${styles.panel} ${styles.briefPanel}`}>
             <div className={styles.panelHeader}>
               <div><span>Prepared from approved specifications and prior field intelligence</span><h2>Pre-Job Intelligence Brief</h2></div>
-              <Link href="/crm/intelligence">Open Job Intelligence</Link>
+              <Link href="/dti/intelligence">Open DTI Job Intelligence</Link>
             </div>
             {!response?.specIntelligenceReady ? (
               <div className={styles.empty}>Run the Specification Intelligence SQL to activate the pre-job brief.</div>

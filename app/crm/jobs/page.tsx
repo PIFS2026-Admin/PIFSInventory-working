@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { goBackOrFallback } from "../../../lib/navigation";
 import { supabase } from "../../../lib/supabase";
 import styles from "./jobs.module.css";
@@ -239,7 +238,6 @@ export default function ConnectedJobsPage() {
         </div>
         <div className={styles.headerActions}>
           <button type="button" onClick={() => goBackOrFallback("/crm")}>Back</button>
-          <Link href="/crm/intelligence">Job Intelligence</Link>
           <button type="button" onClick={() => void loadJobs()}>Refresh</button>
         </div>
       </header>
