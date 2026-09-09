@@ -18,7 +18,7 @@ function nullable(value: unknown) { return clean(value) || null; }
 function nonnegative(value: unknown, label: string) { const parsed = Number(value ?? 0); if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${label} must be a non-negative whole number.`); return parsed; }
 function validUuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
-function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("schema cache"); }
+function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("schema cache"); }
 
 async function authorizeWade(request: Request, admin: ReturnType<typeof adminClient>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -45,19 +45,45 @@ function dateStamp(value: string) {
 }
 function letterForIndex(index: number) { let n = index; let value = ""; do { value = String.fromCharCode(65 + (n % 26)) + value; n = Math.floor(n / 26) - 1; } while (n >= 0); return value; }
 
+function defectRollup(decisions: Row[]) {
+  const quantity = (predicate: (item: Row) => boolean) => decisions.filter(predicate).reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const has = (item: Row, value: string) => normalized(item.defect_type).includes(value);
+  const pin = (item: Row) => normalized(item.component_location).includes("pin");
+  const box = (item: Row) => normalized(item.component_location).includes("box");
+  const result = {
+    damage_threads_pin: quantity((item) => has(item, "thread damage") && pin(item)),
+    damage_threads_box: quantity((item) => has(item, "thread damage") && box(item)),
+    bent_tube: quantity((item) => has(item, "bent pipe")),
+    min_tong_pin: quantity((item) => has(item, "minimum tong") && pin(item)),
+    min_tong_box: quantity((item) => has(item, "minimum tong") && box(item)),
+    tstr_pin: quantity((item) => has(item, "tstr") && pin(item)),
+    tstr_box: quantity((item) => has(item, "tstr") && box(item)),
+    emi: quantity((item) => has(item, "emi indication")),
+    min_wall: quantity((item) => has(item, "minimum wall") || has(item, "general wall loss")),
+    reface_pin: quantity((item) => item.disposition === "Reface" && pin(item)),
+    reface_box: quantity((item) => item.disposition === "Reface" && box(item)),
+    hardband_pin: quantity((item) => item.disposition === "Hardband" && pin(item)),
+    hardband_box: quantity((item) => item.disposition === "Hardband" && box(item)),
+    repair_joints: quantity((item) => item.disposition === "Field Repair"),
+    dbr_joints: quantity((item) => item.disposition === "DBR"),
+  };
+  return { ...result, total_damages: result.damage_threads_pin + result.damage_threads_box + result.bent_tube, total_dbr: result.min_tong_pin + result.min_tong_box + result.tstr_pin + result.tstr_box + result.emi + result.min_wall, total_refaces: result.reface_pin + result.reface_box, total_hardbands: result.hardband_pin + result.hardband_box };
+}
+
 async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, requestedRunId = "") {
   const { data: runs, error: runsError } = await admin.from("titan_dti_job_runs").select("*").eq("job_id", job.id).order("run_date", { ascending: false }).order("started_at", { ascending: false });
   if (runsError) throw runsError;
   const run = (runs ?? []).find((item) => item.id === requestedRunId) ?? runs?.[0] ?? null;
-  const [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult] = await Promise.all([
+  const [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult] = await Promise.all([
     run ? admin.from("titan_dti_rack_runs").select("*").eq("job_run_id", run.id).order("rack_number") : Promise.resolve({ data: [], error: null }),
     run ? admin.from("titan_dti_field_calibrations").select("*").eq("job_run_id", run.id).order("occurred_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
     admin.from("dti_daily_summaries").select("id,summary_number,job_id,job_run_id,status,summary_date,total_joints_inspected").eq("job_id", job.id).order("summary_date", { ascending: false }),
     admin.from("titan_job_debriefs").select("*").eq("job_id", job.id).maybeSingle(),
     admin.from("titan_job_deviations").select("id,deviation_number,status,defect_type").eq("job_id", job.id).in("status", ["Draft", "Submitted"]),
     run ? admin.from("titan_dti_borderline_escalations").select("id,escalation_number,status,condition_type").eq("job_run_id", run.id).neq("status", "Resolved") : Promise.resolve({ data: [], error: null }),
+    run ? admin.from("titan_dti_defect_decisions").select("*").eq("job_run_id", run.id).order("created_at") : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult]) if (result.error) throw result.error;
+  for (const result of [racksResult, calibrationsResult, summariesResult, debriefResult, deviationsResult, escalationsResult, defectsResult]) if (result.error) throw result.error;
   const racks = racksResult.data ?? [];
   const calibrations = calibrationsResult.data ?? [];
   const summary = (summariesResult.data ?? []).find((item) => item.job_run_id === run?.id) ?? null;
@@ -76,7 +102,7 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
     { key: "debrief", label: "OMS-203 debrief recorded", passed: Boolean(debrief), detail: debrief?.debrief_number ?? "Closeout review required" },
     { key: "deviations", label: "No unresolved deviations", passed: !(deviationsResult.data ?? []).length, detail: `${(deviationsResult.data ?? []).length} open` },
   ];
-  return { runs: runs ?? [], run, racks, calibrations, summaries: summariesResult.data ?? [], summary, debrief, deviations: deviationsResult.data ?? [], totals: { completedJoints, completeRacks, rackCount: racks.length }, gates, ready: gates.every((gate) => gate.passed) };
+  return { runs: runs ?? [], run, racks, calibrations, defectDecisions: defectsResult.data ?? [], summaries: summariesResult.data ?? [], summary, debrief, deviations: deviationsResult.data ?? [], totals: { completedJoints, completeRacks, rackCount: racks.length }, gates, ready: gates.every((gate) => gate.passed) };
 }
 
 export async function GET(request: Request) {
@@ -102,12 +128,13 @@ export async function POST(request: Request) {
       if (!closeout.run || closeout.run.status !== "Complete") return Response.json({ error: "Complete this execution run before creating its Daily Summary." }, { status: 400 });
       if (closeout.summary) return Response.json({ ok: true, ...closeout });
       const descriptions = [...new Set(closeout.racks.map((rack: Row) => clean(rack.pipe_description)).filter(Boolean))];
-      const rollup = { generatedAt: new Date().toISOString(), jobId, runId, rackCount: closeout.totals.rackCount, completedJoints: closeout.totals.completedJoints, racks: closeout.racks.map((rack: Row) => ({ id: rack.id, rackNumber: rack.rack_number, pipeDescription: rack.pipe_description, completedJoints: rack.completed_joints })) };
+      const defectTotals = defectRollup(closeout.defectDecisions);
+      const rollup = { generatedAt: new Date().toISOString(), jobId, runId, rackCount: closeout.totals.rackCount, completedJoints: closeout.totals.completedJoints, defectDecisionCount: closeout.defectDecisions.length, racks: closeout.racks.map((rack: Row) => ({ id: rack.id, rackNumber: rack.rack_number, pipeDescription: rack.pipe_description, completedJoints: rack.completed_joints })) };
       const base = `DTI-SUM-${dateStamp(closeout.run.run_date)}`;
       let saved: Row | null = null;
       for (let index = 0; index < 702 && !saved; index += 1) {
         const summaryNumber = `${base}${letterForIndex(index)}`;
-        const { data, error } = await admin.from("dti_daily_summaries").insert({ summary_number: summaryNumber, job_id: jobId, job_run_id: runId, source_rollup: rollup, operator: job.operator_name || job.customer_name, contractor: job.customer_name, location: job.location_name || job.rig_name, summary_date: closeout.run.run_date, page_number: "1", page_total: "1", inspection_type: job.job_type, connection_size_type: descriptions.join("; ") || null, total_joints_inspected: closeout.totals.completedJoints, remarks: `Generated from ${job.job_number}, ${closeout.run.shift_name} shift. ${closeout.totals.rackCount} rack${closeout.totals.rackCount === 1 ? "" : "s"} completed.`, inspected_by: closeout.run.crew_lead_name || authorization.fullName, status: "Draft", created_by: authorization.userId }).select("*").single();
+        const { data, error } = await admin.from("dti_daily_summaries").insert({ summary_number: summaryNumber, job_id: jobId, job_run_id: runId, source_rollup: rollup, operator: job.operator_name || job.customer_name, contractor: job.customer_name, location: job.location_name || job.rig_name, summary_date: closeout.run.run_date, page_number: "1", page_total: "1", inspection_type: job.job_type, connection_size_type: descriptions.join("; ") || null, total_joints_inspected: closeout.totals.completedJoints, ...defectTotals, remarks: `Generated from ${job.job_number}, ${closeout.run.shift_name} shift. ${closeout.totals.rackCount} rack${closeout.totals.rackCount === 1 ? "" : "s"} completed; ${closeout.defectDecisions.length} OMS-105 decision${closeout.defectDecisions.length === 1 ? "" : "s"} recorded.`, inspected_by: closeout.run.crew_lead_name || authorization.fullName, status: "Draft", created_by: authorization.userId }).select("*").single();
         if (!error) saved = data;
         else if (error.code !== "23505") throw error;
       }

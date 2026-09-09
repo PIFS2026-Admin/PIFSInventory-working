@@ -16,7 +16,7 @@
 .message, .success, .empty, .onTrack { margin-top: 10px; border: 1px solid #9a4e18; border-radius: 6px; background: #2a180f; color: #fed7aa; padding: 11px 13px; }
 .success, .onTrack { border-color: #166534; background: #102418; color: #bbf7d0; }
 .empty { border-color: #303744; background: #0d1218; color: #aab2c0; }
-.startPanel, .racks, .editor, .calibrations, .warnings, .escalations { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
+.startPanel, .racks, .editor, .calibrations, .warnings, .escalations, .defects { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
 .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #303744; background: #171c24; padding: 10px 12px; }
 .panelHead h2 { margin: 3px 0 0; font-size: 18px; }
 .panelHead > strong { color: #aab2c0; }
@@ -77,6 +77,21 @@
 .escalationList span { color: #fb923c; font-size: 10px; font-weight: 900; }
 .escalationList small { margin-top: 3px; color: #aab2c0; }
 .escalationList b { border: 1px solid #475569; border-radius: 999px; padding: 5px 8px; font-size: 9px; }
+.defectForm { border-bottom: 1px solid #303744; padding-bottom: 12px; }
+.defectForm textarea { min-height: 72px; resize: vertical; }
+.decisionFlow { display: flex; align-items: center; gap: 8px; overflow-x: auto; margin: 12px 12px 0; padding-bottom: 3px; }
+.decisionFlow b { flex: 0 0 auto; border: 1px solid #f97316; border-radius: 4px; background: #21170e; padding: 7px 9px; color: #fed7aa; font-size: 10px; }
+.decisionFlow span { color: #7d8796; font-size: 9px; text-transform: uppercase; }
+.defectActions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 0 12px; }
+.defectActions span { margin-right: auto; color: #fcd34d; font-size: 11px; }
+.defectList { display: grid; }
+.defectList article { display: grid; grid-template-columns: 1fr 1fr 1fr auto; align-items: center; gap: 10px; border-top: 1px solid #29303b; border-left: 4px solid #22c55e; padding: 10px 12px; }
+.defectList article[data-disposition="Reject"], .defectList article[data-disposition="DBR"] { border-left-color: #ef4444; }
+.defectList article[data-disposition="Field Repair"], .defectList article[data-disposition="Reface"], .defectList article[data-disposition="Hardband"] { border-left-color: #f59e0b; }
+.defectList span, .defectList strong, .defectList small { display: block; }
+.defectList span { color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.defectList small { margin-top: 3px; color: #aab2c0; }
+.defectList b { border: 1px solid #475569; border-radius: 999px; padding: 5px 8px; font-size: 9px; }
 
 @media (max-width: 900px) {
   .formGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -102,4 +117,7 @@
   .log article { grid-template-columns: 1fr 1fr; }
   .escalationList article { grid-template-columns: 1fr; }
   .escalationList b { justify-self: start; }
+  .defectList article { grid-template-columns: 1fr; }
+  .defectList b { justify-self: start; }
+  .defectActions { align-items: stretch; flex-direction: column; }
 }
