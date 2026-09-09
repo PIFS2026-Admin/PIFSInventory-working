@@ -129,6 +129,67 @@ create table if not exists public.documents (
   updated_at timestamptz not null default now()
 );
 
+-- Upgrade the original receiving/shipping attachment table in place when it
+-- already exists. Existing files and ticket relationships are preserved.
+alter table public.documents add column if not exists document_number text;
+alter table public.documents add column if not exists title text;
+alter table public.documents add column if not exists category_id uuid references public.document_categories(id) on delete set null;
+alter table public.documents add column if not exists category text;
+alter table public.documents add column if not exists department text;
+alter table public.documents add column if not exists related_employee_id uuid;
+alter table public.documents add column if not exists related_employee text;
+alter table public.documents add column if not exists related_equipment_id uuid;
+alter table public.documents add column if not exists related_equipment text;
+alter table public.documents add column if not exists related_customer_id uuid references public.companies(id) on delete set null;
+alter table public.documents add column if not exists related_customer text;
+alter table public.documents add column if not exists related_vendor_id uuid;
+alter table public.documents add column if not exists related_vendor text;
+alter table public.documents add column if not exists issue_date date;
+alter table public.documents add column if not exists expiration_date date;
+alter table public.documents add column if not exists renewal_required boolean not null default false;
+alter table public.documents add column if not exists approval_status text not null default 'Draft';
+alter table public.documents add column if not exists document_status text not null default 'Active';
+alter table public.documents add column if not exists updated_by uuid;
+alter table public.documents add column if not exists current_version_id uuid;
+alter table public.documents add column if not exists notes text;
+alter table public.documents add column if not exists is_customer_visible boolean not null default false;
+alter table public.documents add column if not exists is_restricted boolean not null default false;
+alter table public.documents add column if not exists updated_at timestamptz not null default now();
+alter table public.documents add column if not exists status text not null default 'Active';
+alter table public.documents add column if not exists uploaded_date timestamptz not null default now();
+
+update public.documents
+set title = coalesce(
+  nullif(trim(title), ''),
+  nullif(trim(file_name), ''),
+  'Document'
+)
+where title is null or trim(title) = '';
+
+alter table public.documents alter column title set not null;
+
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'documents' and column_name = 'company_id'
+  ) then
+    alter table public.documents alter column company_id drop not null;
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'documents' and column_name = 'document_type'
+  ) then
+    alter table public.documents alter column document_type drop not null;
+  end if;
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'documents' and column_name = 'file_url'
+  ) then
+    alter table public.documents alter column file_url drop not null;
+  end if;
+end $$;
+
 create table if not exists public.document_versions (
   id uuid primary key default gen_random_uuid(),
   document_id uuid not null references public.documents(id) on delete cascade,
