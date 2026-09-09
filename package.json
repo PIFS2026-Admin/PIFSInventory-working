@@ -11,7 +11,8 @@
     "restore:inventory-wtx": "node scripts/import-inventory-po-data.mjs --live",
     "setup:yard-gillette": "node scripts/setup-gillette-yard.mjs",
     "import:inventory-gillette:dry": "node scripts/import-gillette-inventory.mjs --dry-run",
-    "import:inventory-gillette": "node scripts/import-gillette-inventory.mjs --live --replace"
+    "import:inventory-gillette": "node scripts/import-gillette-inventory.mjs --live --replace",
+    "import:dti-procedures": "node scripts/import-dti-procedure-documents.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
