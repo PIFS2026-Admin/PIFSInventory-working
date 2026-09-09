@@ -22,6 +22,7 @@ const tools = [
   { title: "Field Audits", href: "/dti/field-audits" },
   { title: "Inspector Competency", href: "/dti/competency" },
   { title: "Document Library", href: "/dti/documents" },
+  { title: "Tubular Specifications", href: "/dti/tubular-specs" },
 ];
 
 function formatDate(value: string | null) {
