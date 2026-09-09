@@ -89,12 +89,12 @@ export async function GET(request: Request) {
 
     (auditsResult.data ?? []).filter((row) => row.status_band === "Action Required").forEach((row) => {
       const job = jobById.get(row.job_id);
-      attention.push({ id: `audit-${row.id}`, kind: "Audit Action Required", severity: "High", title: `${row.audit_number} / ${row.crew_lead_name}`, detail: job ? `${job.job_number} / ${job.title}` : "DTI field audit", href: "/dti/field-audits", occurredAt: row.audit_date });
+      attention.push({ id: `audit-${row.id}`, kind: "Audit Action Required", severity: "High", title: `${row.audit_number} / ${row.crew_lead_name}`, detail: job ? `${job.job_number} / ${job.title}` : "DTI field audit", href: "/dti?view=audits", occurredAt: row.audit_date });
     });
 
     (findingsResult.data ?? []).forEach((row) => {
       const job = jobById.get(row.job_id);
-      attention.push({ id: `finding-${row.id}`, kind: row.due_date && row.due_date < new Date().toISOString().slice(0, 10) ? "Overdue Finding" : "Open Finding", severity: row.severity === "NC" ? "High" : "Medium", title: `${row.finding_number} / ${row.finding_text}`, detail: job ? `${job.job_number} / ${job.title}` : "DTI field audit", href: "/dti/field-audits", occurredAt: row.created_at });
+      attention.push({ id: `finding-${row.id}`, kind: row.due_date && row.due_date < new Date().toISOString().slice(0, 10) ? "Overdue Finding" : "Open Finding", severity: row.severity === "NC" ? "High" : "Medium", title: `${row.finding_number} / ${row.finding_text}`, detail: job ? `${job.job_number} / ${job.title}` : "DTI field audit", href: "/dti?view=findings", occurredAt: row.created_at });
     });
 
     (candidatesResult.data ?? []).forEach((row) => {

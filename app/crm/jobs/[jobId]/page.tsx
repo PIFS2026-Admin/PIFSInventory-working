@@ -536,8 +536,8 @@ export default function ConnectedJobDetailPage() {
 
           {isDtiJob ? <section className={`${styles.panel} ${styles.auditPanel}`}>
             <div className={styles.panelHeader}>
-              <div><span>OMS-201 oversight for this connected job</span><h2>Field Audits</h2></div>
-              <Link href="/dti/field-audits">Open DTI Field Audits</Link>
+              <div><span>OMS-201 oversight for this connected job</span><h2>DTI Management</h2></div>
+              <Link href="/dti?view=audits">Open DTI Management</Link>
             </div>
             {!response?.fieldAuditsReady ? (
               <div className={styles.empty}>Run the Field Audits SQL to activate this section.</div>

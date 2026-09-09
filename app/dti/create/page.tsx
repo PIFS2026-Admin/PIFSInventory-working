@@ -633,7 +633,7 @@ export default function CreateDtiJobPage() {
         </button>
 
         <div className="dashboard-actions">
-          <button className="button" type="button" onClick={() => goBackOrFallback("/dti")}>Back to DTI Management</button>
+          <button className="button" type="button" onClick={() => goBackOrFallback("/dti/job-reviews")}>Back to Job Reviews</button>
           <button className="button" type="button" onClick={() => (window.location.href = "/home")}>TITAN Home</button>
         </div>
       </header>

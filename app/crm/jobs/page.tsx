@@ -106,7 +106,7 @@ function boardHref(serviceLine: string) {
 }
 
 function operationalHref(job: LifecycleJob) {
-  if (normalized(job.service_line) === "dti") return "/dti";
+  if (normalized(job.service_line) === "dti") return "/dti?view=jobs";
   return boardHref(job.service_line);
 }
 
@@ -325,7 +325,7 @@ export default function ConnectedJobsPage() {
                       ) : boardHref(job.service_line) && !isTerminal(job.lifecycle_status) ? (
                         <button className={styles.connectButton} type="button" onClick={() => void runConnection(job, "preview")}>Preview</button>
                       ) : normalized(job.service_line) === "dti" && !isTerminal(job.lifecycle_status) ? (
-                        <a className={styles.connectButton} href={`/dti/create?sourceJob=${encodeURIComponent(job.id)}`}>Set Up DTI</a>
+                        <a className={styles.connectButton} href="/dti?view=jobs">Open DTI</a>
                       ) : (
                         <span className={styles.pendingAction}>-</span>
                       )}

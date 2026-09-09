@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       admin.from("titan_field_audit_checklist").select("item_code, section_code, section_title, item_text, reference_text, is_critical, sort_order").eq("is_active", true).order("sort_order"),
       admin.from("titan_field_audits").select("*").eq("status", "Filed").order("audit_date", { ascending: false }).limit(300),
       admin.from("titan_audit_findings").select("*").order("created_at", { ascending: false }).limit(1000),
-      admin.from("titan_jobs").select("id, job_number, title, service_line, lifecycle_status, customer_name, operator_name, rig_name, scheduled_start").is("archived_at", null).order("scheduled_start", { ascending: false, nullsFirst: false }).limit(2000),
+      admin.from("titan_jobs").select("id, job_number, title, service_line, lifecycle_status, customer_name, operator_name, rig_name, scheduled_start").eq("service_line", "DTI").is("archived_at", null).order("scheduled_start", { ascending: false, nullsFirst: false }).limit(2000),
       admin.from("profiles").select("id, full_name, email, role, department, is_disabled").order("full_name"),
     ]);
     if (checklistResult.error) throw checklistResult.error;

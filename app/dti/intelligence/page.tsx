@@ -213,7 +213,7 @@ export default function JobIntelligencePage() {
         <div className={styles.headerActions}>
           <button type="button" onClick={() => goBackOrFallback("/service-lines/dti")}>Back</button>
           <Link href="/dti">DTI Management</Link>
-          <Link href="/dti/field-audits">Field Audits</Link>
+          <Link href="/dti?view=audits">Audit History</Link>
           <button type="button" onClick={() => void loadIntelligence()}>Refresh</button>
         </div>
       </header>

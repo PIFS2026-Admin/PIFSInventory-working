@@ -19,7 +19,6 @@ const tools = [
   { title: "DTI Management", href: "/dti" },
   { title: "Daily Summaries", href: "/dti-summary" },
   { title: "Job Intelligence", href: "/dti/intelligence" },
-  { title: "Field Audits", href: "/dti/field-audits" },
   { title: "Inspector Competency", href: "/dti/competency" },
   { title: "Crew Schedule", href: "/dti/crew-schedule" },
   { title: "Document Library", href: "/dti/documents" },

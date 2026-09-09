@@ -6,13 +6,13 @@
 .titleBlock span, .modalHeader span { color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .titleBlock h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.05; }
 .headerActions { display: flex; gap: 8px; }
-.headerActions button, .headerActions a, .tabs button, .toolbar > button, .itemActions button, .modalActions button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #f7f7fb; font-weight: 850; padding: 8px 14px; text-decoration: none; }
+.headerActions button, .headerActions a, .tabs button, .toolbar > button, .itemActions button, .itemActions a, .modalActions button { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #f7f7fb; font-weight: 850; padding: 8px 14px; text-decoration: none; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .metrics article { border: 1px solid #303744; border-top: 3px solid #f97316; border-radius: 7px; background: #12171f; padding: 12px; }
 .metrics .alertMetric { border-color: #ef4444; }
 .metrics span, .toolbar label > span, .auditSetup label > span, .findingForm label > span, .scoreBar span, .closureSummary span { display: block; color: #9fa8b8; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .metrics strong { display: block; margin-top: 5px; font-size: 25px; }
-.toolbar { display: grid; grid-template-columns: auto minmax(260px, 1fr) minmax(170px, 220px) auto; gap: 9px; align-items: end; border: 1px solid #303744; border-radius: 7px; background: #12171f; padding: 10px; }
+.toolbar { display: grid; grid-template-columns: minmax(480px, auto) minmax(240px, 1fr) minmax(160px, 200px) auto; gap: 9px; align-items: end; border: 1px solid #303744; border-radius: 7px; background: #12171f; padding: 10px; }
 .toolbar label, .auditSetup label, .findingForm label { display: grid; gap: 5px; min-width: 0; }
 .toolbar input, .toolbar select, .auditSetup input, .auditSetup select, .auditSetup textarea, .findingForm input, .findingForm select, .findingForm textarea { width: 100%; min-height: 40px; border: 1px solid #3a4352; border-radius: 6px; background: #0d1218; color: #f7f7fb; padding: 8px 10px; }
 .auditSetup textarea, .findingForm textarea { min-height: 80px; resize: vertical; }
@@ -20,6 +20,24 @@
 .tabs .activeTab, .primaryButton { border-color: #f97316 !important; background: #f97316 !important; color: #111 !important; }
 .message, .empty, .actionMessage { margin-top: 12px; border: 1px solid #303744; border-radius: 7px; background: #12171f; padding: 14px; }
 .actionMessage { border-color: #9a4e18; color: #fed7aa; }
+.overviewGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.overviewPanel { min-width: 0; border: 1px solid #303744; border-radius: 7px; background: #12171f; padding: 12px; }
+.fullPanel { grid-column: 1 / -1; }
+.panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #303744; padding-bottom: 10px; }
+.panelHead span { display: block; color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.panelHead h2 { margin: 3px 0 0; font-size: 18px; }
+.panelHead button { min-height: 34px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #f7f7fb; padding: 6px 10px; font-weight: 850; }
+.overviewList { display: grid; gap: 6px; margin-top: 9px; }
+.overviewList > button { display: grid; width: 100%; gap: 3px; border: 1px solid #303744; border-left: 4px solid #f97316; border-radius: 5px; background: #0d1218; color: #f7f7fb; padding: 9px 10px; text-align: left; }
+.overviewList > button[data-severity="NC"] { border-left-color: #ef4444; }
+.overviewList span, .auditSnapshot span, .jobList span { color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.overviewList small, .auditSnapshot small, .jobList small { color: #9fa8b8; overflow-wrap: anywhere; }
+.auditSnapshot { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+.auditSnapshot > button { display: grid; min-width: 0; gap: 5px; border: 1px solid #303744; border-top: 3px solid #f97316; border-radius: 5px; background: #0d1218; color: #f7f7fb; padding: 10px; text-align: left; }
+.auditSnapshot b { width: max-content; max-width: 100%; border: 1px solid #475569; border-radius: 999px; padding: 3px 7px; font-size: 9px; overflow-wrap: anywhere; }
+.auditSnapshot b[data-band="On Standard"] { border-color: #22c55e; color: #86efac; }
+.auditSnapshot b[data-band="Action Required"], .auditSnapshot b[data-band="Below Standard"] { border-color: #ef4444; color: #fca5a5; }
+.auditSnapshot b[data-band="Watch"] { border-color: #f59e0b; color: #fcd34d; }
 .listSection { margin-top: 12px; }
 .resultCount { margin-bottom: 6px; color: #aab2c0; font-size: 12px; font-weight: 800; }
 .findingList, .auditList { display: grid; gap: 8px; }
@@ -42,6 +60,15 @@
 .overdue { color: #fca5a5; font-weight: 900; }
 .itemActions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 10px; }
 .itemActions button { min-height: 34px; padding: 6px 10px; }
+.itemActions a { min-height: 34px; padding: 6px 10px; }
+.jobList { display: grid; gap: 7px; }
+.jobList > article { display: grid; grid-template-columns: minmax(260px, 1fr) auto auto; align-items: center; gap: 14px; border: 1px solid #303744; border-left: 5px solid #f97316; border-radius: 7px; background: #12171f; padding: 11px 12px; }
+.jobList strong, .jobList small { display: block; }
+.jobList strong { margin: 4px 0; overflow-wrap: anywhere; }
+.jobList dl { display: flex; gap: 18px; margin: 0; }
+.jobList dt { color: #929baa; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.jobList dd { margin: 3px 0 0; font-size: 17px; font-weight: 900; }
+.jobList .itemActions { margin: 0; }
 .auditList > article { border-left-color: #f97316; padding: 0; }
 .auditSummary { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; border: 0; background: transparent; color: #f7f7fb; padding: 12px; text-align: left; }
 .auditSummary > div:first-child { min-width: 0; }
@@ -104,6 +131,11 @@
 @media (max-width: 900px) {
   .toolbar { grid-template-columns: 1fr 1fr; }
   .tabs, .toolbar label { grid-column: 1 / -1; }
+  .overviewGrid { grid-template-columns: 1fr; }
+  .fullPanel { grid-column: auto; }
+  .auditSnapshot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .jobList > article { grid-template-columns: minmax(0, 1fr) auto; }
+  .jobList .itemActions { grid-column: 1 / -1; }
   .checkItems article { grid-template-columns: 1fr; }
   .ratingButtons button { flex: 1; }
 }
@@ -116,7 +148,13 @@
   .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .toolbar { grid-template-columns: 1fr; }
   .tabs, .toolbar label { grid-column: auto; }
-  .tabs button { flex: 1; min-width: 0; padding-inline: 7px; }
+  .tabs { width: 100%; overflow-x: auto; padding-bottom: 2px; }
+  .tabs button { flex: 0 0 auto; min-width: max-content; padding-inline: 9px; }
+  .auditSnapshot { grid-template-columns: 1fr; }
+  .jobList > article { grid-template-columns: 1fr; }
+  .jobList dl, .jobList .itemActions { grid-column: auto; }
+  .jobList .itemActions { justify-content: stretch; }
+  .jobList .itemActions > * { flex: 1; }
   .findingList dl { grid-template-columns: 1fr; }
   .findingHeader { display: grid; }
   .findingHeader b { justify-self: start; }

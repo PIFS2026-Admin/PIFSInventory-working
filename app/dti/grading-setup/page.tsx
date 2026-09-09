@@ -283,7 +283,7 @@ export default function DtiGradingSetupPage() {
         </button>
 
         <div className="dashboard-actions">
-          <button className="button" type="button" onClick={() => goBackOrFallback("/dti")}>Back to DTI Management</button>
+          <button className="button" type="button" onClick={() => goBackOrFallback("/dti/job-reviews")}>Back to Job Reviews</button>
           <button className="button" type="button" onClick={loadItems}>Refresh</button>
         </div>
       </header>
