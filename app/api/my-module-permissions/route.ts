@@ -45,7 +45,7 @@ function missingTable(error: any, tableName: string) {
 async function readProfile(adminSupabase: ReturnType<typeof configuredSupabase>, userId: string) {
   const richProfile = await adminSupabase
     .from("profiles")
-    .select("role, email, full_name, department, company_id, customer_id, is_disabled")
+    .select("role, email, full_name, department, company_id, customer_id, is_disabled, access_configured")
     .eq("id", userId)
     .maybeSingle();
 
@@ -107,7 +107,14 @@ export async function GET(request: Request) {
 
     const savedModuleKeys = moduleRows.error ? [] : (moduleRows.data ?? []).map((row) => row.module_key).filter(Boolean);
     const defaultModuleKeys = moduleKeysFromPermissionMap(permissions);
-    const moduleKeys = savedModuleKeys.length > 0 ? savedModuleKeys : defaultModuleKeys.length > 0 ? defaultModuleKeys : defaultModulesForRole(role);
+    const accessConfigured = Boolean((profile as any)?.access_configured);
+    const moduleKeys = accessConfigured
+      ? savedModuleKeys
+      : savedModuleKeys.length > 0
+        ? savedModuleKeys
+        : defaultModuleKeys.length > 0
+          ? defaultModuleKeys
+          : defaultModulesForRole(role);
 
     return Response.json({
       role,
@@ -121,7 +128,7 @@ export async function GET(request: Request) {
         customerId: (profile as any)?.customer_id ?? (profile as any)?.company_id ?? "",
       },
       setupRequired,
-      usedDefaults: savedModuleKeys.length === 0,
+      usedDefaults: !accessConfigured && savedModuleKeys.length === 0,
     });
   } catch (error: any) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });

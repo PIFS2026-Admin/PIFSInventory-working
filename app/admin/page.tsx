@@ -666,6 +666,10 @@ export default function AdminPage() {
   }
 
   function openAdminControl(control: AdminControlKey) {
+    if (control === "permissions") {
+      window.location.assign("/admin/access");
+      return;
+    }
     setActiveControl(control);
     const url = new URL(window.location.href);
     url.searchParams.set("control", control);
@@ -1824,6 +1828,10 @@ export default function AdminPage() {
   }
 
   function openModuleAccess(profileId: string, navigateToControl = false) {
+    if (navigateToControl) {
+      window.location.assign(`/admin/access?user=${encodeURIComponent(profileId)}`);
+      return;
+    }
     const profile = profiles.find((item) => item.id === profileId);
     setModuleAccessUserId(profileId);
     setModuleAccessSelection(profile ? permissionsForProfile(profile) : []);
@@ -3110,6 +3118,12 @@ export default function AdminPage() {
           <span>Open / close</span>
         </summary>
         <div className="admin-collapsible-body">
+          <section className="ticket-card admin-card">
+            <div className="admin-section-title">
+              <div><h4>People &amp; Access</h4><p className="muted-text">Set a person's role, service line, modules, yards, and extra abilities in one place. Every save is audited.</p></div>
+              <button className="button primary" type="button" onClick={() => window.location.assign("/admin/access")}>Open People &amp; Access</button>
+            </div>
+          </section>
           <section className="ticket-card admin-card">
             <div className="admin-section-title">
               <div>
