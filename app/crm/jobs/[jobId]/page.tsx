@@ -131,6 +131,31 @@ type BriefSignal = {
   updated_at: string;
 };
 
+type FieldAudit = {
+  id: string;
+  audit_number: string;
+  audit_date: string;
+  crew_lead_name: string;
+  auditor_name: string;
+  overall_percent: number;
+  critical_nc_count: number;
+  status_band: string;
+};
+
+type AuditFinding = {
+  id: string;
+  finding_number: string;
+  field_audit_id: string;
+  severity: "NI" | "NC";
+  finding_text: string;
+  corrective_action: string | null;
+  owner_name: string | null;
+  due_date: string | null;
+  finding_status: "Open" | "Action Assigned" | "Closed";
+  closure_evidence_document_id: string | null;
+  created_at: string;
+};
+
 type DeviationForm = {
   id: string;
   component: string;
@@ -181,6 +206,9 @@ type DetailResponse = {
     jobSpecificLessons: BriefSignal[];
   };
   specIntelligenceReady?: boolean;
+  fieldAudits?: FieldAudit[];
+  auditFindings?: AuditFinding[];
+  fieldAuditsReady?: boolean;
   error?: string;
 };
 
@@ -333,6 +361,9 @@ export default function ConnectedJobDetailPage() {
   const links = useMemo(() => response?.links ?? [], [response?.links]);
   const documents = useMemo(() => response?.documents ?? [], [response?.documents]);
   const events = useMemo(() => response?.events ?? [], [response?.events]);
+  const fieldAudits = useMemo(() => response?.fieldAudits ?? [], [response?.fieldAudits]);
+  const auditFindings = useMemo(() => response?.auditFindings ?? [], [response?.auditFindings]);
+  const openAuditFindings = useMemo(() => auditFindings.filter((finding) => finding.finding_status !== "Closed"), [auditFindings]);
   const deviations = useMemo(() => response?.deviations ?? [], [response?.deviations]);
   const preJobBrief = response?.preJobBrief;
   const operationsHref = job ? operationalHref(job, links) : "";
@@ -454,6 +485,7 @@ export default function ConnectedJobDetailPage() {
             <div><span>Service Line</span><strong>{job.service_line}</strong></div>
             <div><span>Scheduled</span><strong>{formatDate(job.scheduled_start, true)}</strong></div>
             <div><span>Documents</span><strong>{documents.length}</strong></div>
+            <div><span>Open Audit Actions</span><strong>{openAuditFindings.length}</strong></div>
             {operationsHref ? <a href={operationsHref}>Open Operations</a> : null}
           </section>
 
@@ -497,6 +529,43 @@ export default function ConnectedJobDetailPage() {
                     </article>
                   ))}</div> : <div className={styles.briefEmpty}>No prior job-specific lessons match this customer and service line.</div>}
                 </section>
+              </div>
+            )}
+          </section>
+
+          <section className={`${styles.panel} ${styles.auditPanel}`}>
+            <div className={styles.panelHeader}>
+              <div><span>OMS-201 oversight for this connected job</span><h2>Field Audits</h2></div>
+              <Link href="/crm/audits">Open Field Audits</Link>
+            </div>
+            {!response?.fieldAuditsReady ? (
+              <div className={styles.empty}>Run the Field Audits SQL to activate this section.</div>
+            ) : (
+              <div className={styles.auditSummaryGrid}>
+                <div className={styles.auditMetric}><span>Filed Audits</span><strong>{fieldAudits.length}</strong></div>
+                <div className={styles.auditMetric}><span>Open Actions</span><strong>{openAuditFindings.length}</strong></div>
+                <div className={styles.auditMetric}><span>Overdue</span><strong>{openAuditFindings.filter((finding) => finding.due_date && finding.due_date < new Date().toISOString().slice(0, 10)).length}</strong></div>
+                <div className={styles.auditMetric}><span>Latest Standing</span><strong>{fieldAudits[0]?.status_band || "Not audited"}</strong></div>
+                {fieldAudits.length ? (
+                  <div className={styles.auditRows}>
+                    {fieldAudits.slice(0, 3).map((audit) => (
+                      <article key={audit.id}>
+                        <div><strong>{audit.audit_number}</strong><span>{audit.crew_lead_name} / {formatDate(audit.audit_date)}</span></div>
+                        <b data-band={audit.status_band}>{Number(audit.overall_percent).toFixed(0)}% / {audit.status_band}</b>
+                      </article>
+                    ))}
+                  </div>
+                ) : <div className={styles.auditEmpty}>No field audit has been filed for this job.</div>}
+                {openAuditFindings.length ? (
+                  <div className={styles.auditRows}>
+                    {openAuditFindings.slice(0, 3).map((finding) => (
+                      <article key={finding.id}>
+                        <div><strong>{finding.finding_number} / {finding.severity}</strong><span>{finding.finding_text}</span></div>
+                        <b>{finding.due_date ? `Due ${formatDate(finding.due_date)}` : finding.finding_status}</b>
+                      </article>
+                    ))}
+                  </div>
+                ) : <div className={styles.auditEmpty}>No open corrective actions.</div>}
               </div>
             )}
           </section>

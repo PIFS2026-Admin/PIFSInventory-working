@@ -189,7 +189,7 @@ async function loadJobDetail(
   adminSupabase: ReturnType<typeof configuredSupabase>,
   jobId: string,
 ) {
-  const [jobResult, linksResult, eventsResult, documentsResult, deviationsResult, debriefResult] = await Promise.all([
+  const [jobResult, linksResult, eventsResult, documentsResult, deviationsResult, debriefResult, auditsResult, findingsResult] = await Promise.all([
     adminSupabase.from("titan_jobs").select("*").eq("id", jobId).is("archived_at", null).maybeSingle(),
     adminSupabase
       .from("titan_job_links")
@@ -219,6 +219,17 @@ async function loadJobDetail(
       .select("id, debrief_number, on_plan, station_behind, variance_driver, went_well, slowed_by, safety_observations, gray_area_summary, borderline_count, customer_feedback, repeat_issue, repeat_note, lessons_learned, action_owner_name, status, void_reason, created_at, updated_at")
       .eq("job_id", jobId)
       .maybeSingle(),
+    adminSupabase
+      .from("titan_field_audits")
+      .select("id, audit_number, audit_date, crew_lead_name, auditor_name, overall_percent, critical_nc_count, status_band")
+      .eq("job_id", jobId)
+      .eq("status", "Filed")
+      .order("audit_date", { ascending: false }),
+    adminSupabase
+      .from("titan_audit_findings")
+      .select("id, finding_number, field_audit_id, severity, finding_text, corrective_action, owner_name, due_date, finding_status, closure_evidence_document_id, created_at")
+      .eq("job_id", jobId)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (jobResult.error) throw jobResult.error;
@@ -231,6 +242,9 @@ async function loadJobDetail(
   const intelligenceReady = !deviationsResult.error && !debriefResult.error;
   if (deviationsResult.error && !missingRelation(deviationsResult.error)) throw deviationsResult.error;
   if (debriefResult.error && !missingRelation(debriefResult.error)) throw debriefResult.error;
+  const fieldAuditsReady = !auditsResult.error && !findingsResult.error;
+  if (auditsResult.error && !missingRelation(auditsResult.error)) throw auditsResult.error;
+  if (findingsResult.error && !missingRelation(findingsResult.error)) throw findingsResult.error;
 
   const [specificationsResult, candidatesResult] = await Promise.all([
     adminSupabase
@@ -285,6 +299,9 @@ async function loadJobDetail(
     intelligenceReady,
     preJobBrief: { specifications, openSignals, jobSpecificLessons },
     specIntelligenceReady,
+    fieldAudits: fieldAuditsReady ? auditsResult.data ?? [] : [],
+    auditFindings: fieldAuditsReady ? findingsResult.data ?? [] : [],
+    fieldAuditsReady,
   });
 }
 

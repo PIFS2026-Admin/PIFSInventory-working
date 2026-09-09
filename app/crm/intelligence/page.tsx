@@ -213,6 +213,7 @@ export default function JobIntelligencePage() {
         <div className={styles.headerActions}>
           <button type="button" onClick={() => goBackOrFallback("/crm/jobs")}>Back</button>
           <Link href="/crm/jobs">Connected Jobs</Link>
+          <Link href="/crm/audits">Field Audits</Link>
           <button type="button" onClick={() => void loadIntelligence()}>Refresh</button>
         </div>
       </header>

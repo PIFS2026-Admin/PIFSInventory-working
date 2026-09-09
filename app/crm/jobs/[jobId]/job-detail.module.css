@@ -42,7 +42,7 @@
 
 .statusBar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr)) auto;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -127,6 +127,25 @@
 .actionMessage { grid-column: 1 / -1; border: 1px solid #f97316; border-radius: 7px; background: #24170f; color: #fdba74; padding: 11px 13px; }
 
 .briefPanel { margin-bottom: 12px; }
+.auditPanel { margin-bottom: 12px; }
+.auditSummaryGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.auditMetric { min-width: 0; border-right: 1px solid #29303b; border-bottom: 1px solid #29303b; padding: 11px 13px; }
+.auditMetric:nth-child(4) { border-right: 0; }
+.auditMetric span { display: block; color: #929baa; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.auditMetric strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: 16px; }
+.auditRows { grid-column: span 2; display: grid; align-content: start; border-right: 1px solid #29303b; }
+.auditRows:last-child { border-right: 0; }
+.auditRows article { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; border-bottom: 1px solid #29303b; padding: 10px 13px; }
+.auditRows article:last-child { border-bottom: 0; }
+.auditRows article > div { min-width: 0; }
+.auditRows strong { display: block; font-size: 12px; }
+.auditRows span { display: block; margin-top: 4px; overflow-wrap: anywhere; color: #9fa8b8; font-size: 10px; }
+.auditRows b { flex: 0 0 auto; border: 1px solid #475569; border-radius: 999px; padding: 4px 7px; color: #dce1ea; font-size: 9px; }
+.auditRows b[data-band="On Standard"] { border-color: #16a34a; color: #86efac; }
+.auditRows b[data-band="Watch"] { border-color: #f59e0b; color: #fde68a; }
+.auditRows b[data-band="Action Required"],
+.auditRows b[data-band="Below Standard"] { border-color: #ef4444; color: #fca5a5; }
+.auditEmpty { grid-column: span 2; color: #929baa; font-size: 11px; padding: 14px 13px; }
 .briefGrid { display: grid; grid-template-columns: 1.15fr 1fr 1fr; }
 .briefGrid > section { min-width: 0; border-right: 1px solid #29303b; }
 .briefGrid > section:last-child { border-right: 0; }
@@ -163,6 +182,10 @@
   .contentGrid { grid-template-columns: 1fr; }
   .timelinePanel { grid-column: auto; }
   .briefGrid { grid-template-columns: 1fr; }
+  .auditSummaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .auditMetric:nth-child(2) { border-right: 0; }
+  .auditRows,
+  .auditEmpty { grid-column: 1 / -1; border-right: 0; }
   .briefGrid > section { border-right: 0; border-bottom: 1px solid #29303b; }
   .briefGrid > section:last-child { border-bottom: 0; }
 }
