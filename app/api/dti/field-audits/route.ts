@@ -8,7 +8,9 @@ type TitanProfile = {
 
 type AuditBody = {
   action?: unknown;
+  auditId?: unknown;
   jobId?: unknown;
+  manualJobName?: unknown;
   auditDate?: unknown;
   crewLeadId?: unknown;
   notes?: unknown;
@@ -18,6 +20,7 @@ type AuditBody = {
   ownerId?: unknown;
   dueDate?: unknown;
   evidenceDocumentId?: unknown;
+  evidenceNote?: unknown;
 };
 
 function configuredSupabase() {
@@ -89,7 +92,7 @@ export async function GET(request: Request) {
     if (itemsResult.error) throw itemsResult.error;
 
     const findings = findingsResult.data ?? [];
-    const findingJobIds = [...new Set(findings.map((finding) => finding.job_id))];
+    const findingJobIds = [...new Set(findings.map((finding) => finding.job_id).filter((value): value is string => validUuid(cleanText(value))))];
     const documentsResult = findingJobIds.length
       ? await admin.from("titan_job_documents").select("id, job_id, document_type, display_name, created_at").in("job_id", findingJobIds).is("archived_at", null).order("created_at", { ascending: false })
       : { data: [], error: null };
@@ -135,24 +138,36 @@ export async function POST(request: Request) {
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as AuditBody;
     const jobId = cleanText(body.jobId);
+    const manualJobName = cleanText(body.manualJobName);
     const crewLeadId = cleanText(body.crewLeadId);
-    if (!validUuid(jobId)) return Response.json({ error: "Select a connected job." }, { status: 400 });
+    if (!validUuid(jobId) && !manualJobName) return Response.json({ error: "Select a connected job or enter the job manually." }, { status: 400 });
     const crewLead = await activeProfile(admin, crewLeadId);
     if (!crewLead) return Response.json({ error: "Select an active crew lead." }, { status: 400 });
     const auditDate = cleanText(body.auditDate);
     if (auditDate && !/^\d{4}-\d{2}-\d{2}$/.test(auditDate)) return Response.json({ error: "Enter a valid audit date." }, { status: 400 });
     if (!Array.isArray(body.items)) return Response.json({ error: "Complete the audit checklist." }, { status: 400 });
 
-    const { data, error } = await admin.rpc("create_titan_field_audit", {
-      p_job_id: jobId,
-      p_audit_date: auditDate || new Date().toISOString().slice(0, 10),
-      p_crew_lead_id: crewLead.id,
-      p_crew_lead_name: crewLead.full_name,
-      p_auditor_id: authorization.userId,
-      p_auditor_name: authorization.fullName,
-      p_notes: cleanText(body.notes) || null,
-      p_items: body.items,
-    });
+    const { data, error } = validUuid(jobId)
+      ? await admin.rpc("create_titan_field_audit", {
+        p_job_id: jobId,
+        p_audit_date: auditDate || new Date().toISOString().slice(0, 10),
+        p_crew_lead_id: crewLead.id,
+        p_crew_lead_name: crewLead.full_name,
+        p_auditor_id: authorization.userId,
+        p_auditor_name: authorization.fullName,
+        p_notes: cleanText(body.notes) || null,
+        p_items: body.items,
+      })
+      : await admin.rpc("create_titan_manual_field_audit", {
+        p_manual_job_name: manualJobName,
+        p_audit_date: auditDate || new Date().toISOString().slice(0, 10),
+        p_crew_lead_id: crewLead.id,
+        p_crew_lead_name: crewLead.full_name,
+        p_auditor_id: authorization.userId,
+        p_auditor_name: authorization.fullName,
+        p_notes: cleanText(body.notes) || null,
+        p_items: body.items,
+      });
     if (error) throw error;
     return Response.json(data ?? { ok: true });
   } catch (error) {
@@ -178,8 +193,9 @@ export async function PATCH(request: Request) {
     }
 
     const evidenceDocumentId = cleanText(body.evidenceDocumentId);
-    if (action === "close" && !validUuid(evidenceDocumentId)) return Response.json({ error: "Select closure evidence from the job documents." }, { status: 400 });
-    const { data, error } = await admin.rpc("update_titan_audit_finding", {
+    const evidenceNote = cleanText(body.evidenceNote);
+    if (action === "close" && !validUuid(evidenceDocumentId) && !evidenceNote) return Response.json({ error: "Select or describe the closure evidence." }, { status: 400 });
+    const { data, error } = await admin.rpc("update_titan_audit_finding_v2", {
       p_finding_id: findingId,
       p_action: action,
       p_corrective_action: cleanText(body.correctiveAction) || null,
@@ -187,11 +203,64 @@ export async function PATCH(request: Request) {
       p_owner_name: owner?.full_name ?? null,
       p_due_date: cleanText(body.dueDate) || null,
       p_evidence_document_id: evidenceDocumentId || null,
+      p_evidence_note: evidenceNote || null,
       p_actor_id: authorization.userId,
     });
     if (error) throw error;
     return Response.json(data ?? { ok: true });
   } catch (error) {
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_field_audits.sql before updating findings." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const admin = configuredSupabase();
+    const authorization = await authorizeWade(request, admin);
+    if ("error" in authorization) return authorization.error;
+    const body = (await request.json().catch(() => ({}))) as AuditBody;
+    const auditId = cleanText(body.auditId);
+    const jobId = cleanText(body.jobId);
+    const manualJobName = cleanText(body.manualJobName);
+    const crewLeadId = cleanText(body.crewLeadId);
+    if (!validUuid(auditId)) return Response.json({ error: "Select a valid field audit." }, { status: 400 });
+    if (!validUuid(jobId) && !manualJobName) return Response.json({ error: "Select a connected job or enter the job manually." }, { status: 400 });
+    const crewLead = await activeProfile(admin, crewLeadId);
+    if (!crewLead) return Response.json({ error: "Select an active crew lead." }, { status: 400 });
+    const auditDate = cleanText(body.auditDate);
+    if (auditDate && !/^\d{4}-\d{2}-\d{2}$/.test(auditDate)) return Response.json({ error: "Enter a valid audit date." }, { status: 400 });
+    if (!Array.isArray(body.items)) return Response.json({ error: "Complete the audit checklist." }, { status: 400 });
+
+    const { data, error } = await admin.rpc("update_titan_field_audit", {
+      p_audit_id: auditId,
+      p_job_id: validUuid(jobId) ? jobId : null,
+      p_manual_job_name: validUuid(jobId) ? null : manualJobName,
+      p_audit_date: auditDate || new Date().toISOString().slice(0, 10),
+      p_crew_lead_id: crewLead.id,
+      p_crew_lead_name: crewLead.full_name,
+      p_notes: cleanText(body.notes) || null,
+      p_items: body.items,
+      p_actor_id: authorization.userId,
+    });
+    if (error) throw error;
+    return Response.json(data ?? { ok: true });
+  } catch (error) {
+    return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_field_audit_editing.sql before editing audits." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const admin = configuredSupabase();
+    const authorization = await authorizeWade(request, admin);
+    if ("error" in authorization) return authorization.error;
+    const body = (await request.json().catch(() => ({}))) as AuditBody;
+    const auditId = cleanText(body.auditId);
+    if (!validUuid(auditId)) return Response.json({ error: "Select a valid field audit." }, { status: 400 });
+    const { data, error } = await admin.rpc("delete_titan_field_audit", { p_audit_id: auditId, p_actor_id: authorization.userId });
+    if (error) throw error;
+    return Response.json(data ?? { ok: true });
+  } catch (error) {
+    return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_field_audit_editing.sql before deleting audits." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
 }
