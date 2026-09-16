@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { calculatePercentNominalWall, dtiInspectionFields, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 
 type Body = Record<string, unknown>;
 type Row = Record<string, unknown>;
@@ -99,21 +99,23 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({})) as Body; const action = normalized(body.action); let reportId = clean(body.reportId);
 
     if (action === "create-report") {
-      const operatorName = clean(body.operatorName); const reportDate = clean(body.reportDate); const jobId = clean(body.jobId);
+      const operatorName = clean(body.operatorName); const reportDate = clean(body.reportDate); const jobId = clean(body.jobId); const componentType = clean(body.componentType);
       if (!operatorName || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) return Response.json({ error: "Operator and report date are required." }, { status: 400 });
+      if (!isDtiComponentType(componentType)) return Response.json({ error: "Select Drill Pipe, HWDP, or Subs for this report." }, { status: 400 });
       if (jobId && !validUuid(jobId)) return Response.json({ error: "Select a valid connected job or leave it blank." }, { status: 400 });
-      const { data, error } = await admin.from("titan_dti_inspection_reports").insert({ job_id: jobId || null, operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, status: "Draft", created_by: authorization.userId, updated_by: authorization.userId }).select("*").single();
+      const { data, error } = await admin.from("titan_dti_inspection_reports").insert({ job_id: jobId || null, operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { reportComponentType: componentType }, status: "Draft", created_by: authorization.userId, updated_by: authorization.userId }).select("*").single();
       if (error) throw error; reportId = data.id; await logEvent(admin, reportId, "Report", reportId, "Created", null, data, authorization.userId);
       return Response.json({ ok: true, ...(await loadReport(admin, reportId)) });
     }
 
     if (!validUuid(reportId)) return Response.json({ error: "Select a valid inspection report." }, { status: 400 });
     const loaded = await loadReport(admin, reportId); if (!loaded) return Response.json({ error: "Inspection report not found." }, { status: 404 });
+    const reportComponentType = resolveDtiReportComponentType(object(loaded.report.inspection_scope), loaded.items);
 
     if (action === "save-report") {
       const status = clean(body.status); const reportDate = clean(body.reportDate); const operatorName = clean(body.operatorName);
       if (!operatorName || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !["Draft", "In Progress", "Complete"].includes(status)) return Response.json({ error: "Complete the operator, report date, and status." }, { status: 400 });
-      const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: object(body.inspectionScope), machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId };
+      const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { ...object(body.inspectionScope), reportComponentType }, machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId };
       const { data, error } = await admin.from("titan_dti_inspection_reports").update(payload).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, loaded.report.status === status ? "Updated" : "Status Changed", loaded.report, data, authorization.userId);
     } else if (action === "delete-report") {
@@ -122,6 +124,7 @@ export async function POST(request: Request) {
     } else if (action === "save-item") {
       const componentType = clean(body.componentType) as DtiComponentType; const sequenceNumber = whole(body.sequenceNumber); const itemId = clean(body.itemId);
       if (!(componentType in dtiInspectionFields) || sequenceNumber < 1) return Response.json({ error: "Select a component type and valid sequence number." }, { status: 400 });
+      if (componentType !== reportComponentType) return Response.json({ error: `This is a ${reportComponentType} report. Create a separate ${componentType} report.` }, { status: 400 });
       const rowData = cleanRowData(componentType, body.rowData); let prior: Row | null = null;
       if (validUuid(itemId)) { const result = await admin.from("titan_dti_inspection_items").select("*").eq("id", itemId).eq("report_id", reportId).maybeSingle(); if (result.error) throw result.error; prior = result.data; }
       if (!prior) { const result = await admin.from("titan_dti_inspection_items").select("*").eq("report_id", reportId).eq("component_type", componentType).eq("sequence_number", sequenceNumber).maybeSingle(); if (result.error) throw result.error; prior = result.data; }

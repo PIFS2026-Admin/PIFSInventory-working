@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { dtiInspectionFields, normalizeDtiRefaceCode, summarizeDtiInspection, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { dtiInspectionFields, normalizeDtiRefaceCode, resolveDtiReportComponentType, summarizeDtiInspection, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 import styles from "../reports.module.css";
 
 export type DtiPrintReport = {
@@ -22,7 +22,6 @@ export type DtiPrintReport = {
 export type DtiPrintItem = { id: string; component_type: DtiComponentType; sequence_number: number; row_data: Record<string, unknown> };
 export type DtiPrintProveUp = { id: string; sequence_number: number; joint_number: string | null; serial_number: string | null; flaw: string | null; depth_inches: number | null; adjacent_wall_inches: number | null; remaining_body_wall_inches: number | null; distance_from_end: string | null; prove_up_result: string | null };
 
-const components: DtiComponentType[] = ["Drill Pipe", "HWDP", "Subs"];
 function value(source: Record<string, unknown>, key: string) {
   const raw = source[key];
   if (raw === true) return "X";
@@ -37,19 +36,21 @@ function scopePrefix(component: DtiComponentType) {
 }
 
 export default function DtiInspectionPrintView({ report, items, proveUps, preview = false }: { report: DtiPrintReport; items: DtiPrintItem[]; proveUps: DtiPrintProveUp[]; preview?: boolean }) {
+  const reportComponentType = resolveDtiReportComponentType(report.inspection_scope, items);
+  const components = [reportComponentType];
   return <article className={`${styles.printOnly} ${preview ? styles.printPreview : ""}`}>
     <header className={styles.printLetterhead}>
       <Image src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" width={220} height={70} />
       <div><strong>Pathfinder Inspections &amp; Field Services</strong><span>7501 Groening St., Odessa, TX 79765</span><span>(432) 233-3600</span></div>
     </header>
-    <section className={styles.printTitle}><div><span>{report.report_number}</span><h1>DTI Field Inspection Report</h1></div><div><span>Report Date</span><strong>{report.report_date}</strong><span>Status</span><strong>{report.status}</strong></div></section>
+    <section className={styles.printTitle}><div><span>{report.report_number}</span><h1>{reportComponentType} Inspection Report</h1></div><div><span>Report Date</span><strong>{report.report_date}</strong><span>Status</span><strong>{report.status}</strong></div></section>
     <section className={styles.printInfo}>
       {([['Operator',report.operator_name],['Contractor',report.contractor_name],['Rig Number',report.rig_number],['Field Invoice',report.field_invoice],['Inspection Crew',report.inspection_crew],['Connection Size',report.connection_size],['Connection Type',report.connection_type],['Grade',report.grade],['State',report.state]] as const).map(([label,entry]) => <div key={label}><span>{label}</span><strong>{entry || "-"}</strong></div>)}
     </section>
 
     {components.map((component) => {
       const componentItems = items.filter((item) => item.component_type === component).sort((a, b) => a.sequence_number - b.sequence_number);
-      const summary = summarizeDtiInspection(componentItems);
+      const summary = summarizeDtiInspection(componentItems, component);
       const prefix = scopePrefix(component);
       const scope = report.inspection_scope;
       const remarks = String(report.remarks[prefix] ?? "");
@@ -59,7 +60,8 @@ export default function DtiInspectionPrintView({ report, items, proveUps, previe
         <div className={styles.printSectionTitle}><div><span>{String(scope[`${prefix}Category`] ?? "") || "Inspection"}</span><h2>{component} Summary</h2></div><strong>{componentItems.length} {component === "Subs" ? "tools" : "joints"}</strong></div>
         <div className={styles.printScope}><span>{String(scope[`${prefix}Additional1`] ?? "") || "-"}</span><span>{String(scope[`${prefix}Additional2`] ?? "") || "-"}</span></div>
         <div className={styles.printSummary}>
-          {([['Inspected',summary.inspected],['Premium',summary.premium],['Rig Ready',summary.rigReady],['Machine Shop',summary.machineShop],['DBR',summary.dbr],['Box Refaces',summary.boxRefaces],['Pin Refaces',summary.pinRefaces],['Hardbands',summary.hardbands],['Damaged Hardbands',summary.damagedHardbands],['DBR Hardbands',summary.dbrHardbands],['Center Pad 1',summary.centerPad1],['Center Pad 2',summary.centerPad2]] as const).map(([label,total]) => <div key={label}><span>{label}</span><strong>{total}</strong></div>)}
+          {([['Inspected',summary.inspected],['Premium',summary.premium],['Rig Ready',summary.rigReady],['Machine Shop',summary.machineShop],['DBR',summary.dbr],['Box Refaces',summary.boxRefaces],['Pin Refaces',summary.pinRefaces],['Hardbands',summary.hardbands],['Damaged Hardbands',summary.damagedHardbands],['DBR Hardbands',summary.dbrHardbands]] as const).map(([label,total]) => <div key={label}><span>{label}</span><strong>{total}</strong></div>)}
+          {component === "HWDP" ? <><div><span>Center Pad 1</span><strong>{summary.centerPad1}</strong></div><div><span>Center Pad 2</span><strong>{summary.centerPad2}</strong></div></> : null}
         </div>
         <div className={styles.printRemarks}><strong>Remarks</strong><span>{remarks || "No remarks."}</span></div>
 

@@ -19,6 +19,19 @@ export type DtiInspectionSummary = {
 
 const field = (key: string, label: string, group: string, kind: DtiFieldKind = "number", end?: DtiReportField["end"]): DtiReportField => ({ key, label, group, kind, end });
 
+export const dtiComponentTypes: DtiComponentType[] = ["Drill Pipe", "HWDP", "Subs"];
+
+export function isDtiComponentType(value: unknown): value is DtiComponentType {
+  return dtiComponentTypes.includes(String(value) as DtiComponentType);
+}
+
+export function resolveDtiReportComponentType(inspectionScope: Record<string, unknown> | null | undefined, items: Array<{ component_type?: unknown }> = []): DtiComponentType {
+  const configured = inspectionScope?.reportComponentType;
+  if (isDtiComponentType(configured)) return configured;
+  const recorded = items.find((item) => isDtiComponentType(item.component_type))?.component_type;
+  return isDtiComponentType(recorded) ? recorded : "Drill Pipe";
+}
+
 const connectionDimensions: DtiReportField[] = [
   field("boxOd", "Box OD", "Tool Joint", "number", "Box"),
   field("pinId", "Pin ID", "Tool Joint", "number", "Pin"),
@@ -60,8 +73,7 @@ const findingFields: DtiReportField[] = [
   field("otherDamage1", "Other Damage 1", "Damage", "text"), field("otherDamage2", "Other Damage 2", "Damage", "text"),
   field("otherDamage3", "Other Damage 3", "Damage", "text"), field("otherDamage4", "Other Damage 4", "Damage", "text"),
   field("damagedHardbandBox", "Damaged Hardband", "Hardband", "flag", "Box"), field("damagedHardbandPin", "Damaged Hardband", "Hardband", "flag", "Pin"),
-  field("hardbandBox", "Hardband", "Hardband", "flag", "Box"), field("hardbandCenterPad1", "Hardband Center Pad 1", "Hardband", "flag"),
-  field("hardbandCenterPad2", "Hardband Center Pad 2", "Hardband", "flag"), field("hardbandPin", "Hardband", "Hardband", "flag", "Pin"),
+  field("hardbandBox", "Hardband", "Hardband", "flag", "Box"), field("hardbandPin", "Hardband", "Hardband", "flag", "Pin"),
   field("dbrHardbandBox", "DBR Hardband", "DBR", "flag", "Box"), field("dbrHardbandPin", "DBR Hardband", "DBR", "flag", "Pin"),
   field("minimumWallTube", "Minimum Wall Tube", "DBR", "flag", "Tube"), field("minimumTongBox", "Minimum Tong", "DBR", "flag", "Box"),
   field("minimumTongPin", "Minimum Tong", "DBR", "flag", "Pin"), field("minimumSealBox", "Minimum Seal", "DBR", "flag", "Box"),
@@ -71,6 +83,13 @@ const findingFields: DtiReportField[] = [
   field("threadReconditionBox", "Thread Recondition", "Repair", "flag", "Box"), field("threadReconditionPin", "Thread Recondition", "Repair", "flag", "Pin"),
   field("bevelRepairBox", "Bevel Repair", "Repair", "flag", "Box"), field("bevelRepairPin", "Bevel Repair", "Repair", "flag", "Pin"),
 ];
+
+const centerPadFields: DtiReportField[] = [
+  field("hardbandCenterPad1", "Hardband Center Pad 1", "Hardband", "flag"),
+  field("hardbandCenterPad2", "Hardband Center Pad 2", "Hardband", "flag"),
+];
+
+const hwdpFindingFields = findingFields.flatMap((item) => item.key === "hardbandBox" ? [item, ...centerPadFields] : [item]);
 
 const identification = [field("jointNumber", "Joint Number", "Identification", "text"), field("serialNumber", "Serial Number", "Identification", "text")];
 
@@ -85,12 +104,12 @@ export const dtiInspectionFields: Record<DtiComponentType, DtiReportField[]> = {
     field("jointNumber", "Joint Number", "Identification", "text"), field("description", "Description", "Identification", "text"), field("serialNumber", "Joint Serial Number", "Identification", "text"),
     field("mpiBox", "MPI", "MPI", "flag", "Box"), field("mpiPin", "MPI", "MPI", "flag", "Pin"),
     field("centerWearPadOd", "Center Wear Pad OD", "Tool Joint"), ...connectionDimensions, ...criticalLengths, ...refaceFields,
-    ...findingFields.filter((item) => !["pittedBox", "pittedPin", "otherDamage4"].includes(item.key)),
+    ...hwdpFindingFields.filter((item) => !["pittedBox", "pittedPin", "otherDamage4"].includes(item.key)),
   ],
   Subs: [
     field("jointNumber", "Joint Number", "Identification", "text"), field("description", "Description", "Identification", "text"), field("serialNumber", "Joint Serial Number", "Identification", "text"),
     field("mpiBox", "MPI", "MPI", "flag", "Box"), field("mpiPin", "MPI", "MPI", "flag", "Pin"),
-    field("centerWearPadOd", "Center Wear Pad OD", "Tool Joint"), ...connectionDimensions,
+    ...connectionDimensions,
     field("comments", "Comments", "Comments", "text"), ...refaceFields,
     ...findingFields.filter((item) => !["pittedBox", "pittedPin", "otherDamage4"].includes(item.key)),
   ],
@@ -159,7 +178,7 @@ function countMarked(items: DtiInspectionItemLike[], key: string) {
   return items.reduce((total, item) => total + (marked(item.row_data[key]) ? 1 : 0), 0);
 }
 
-export function summarizeDtiInspection(items: DtiInspectionItemLike[]): DtiInspectionSummary {
+export function summarizeDtiInspection(items: DtiInspectionItemLike[], componentType?: DtiComponentType): DtiInspectionSummary {
   const machineShop = items.filter((item) => repairKeys.some((key) => marked(item.row_data[key]))).length;
   const dbr = items.filter((item) => dbrKeys.some((key) => marked(item.row_data[key]))).length;
   const inspected = items.length;
@@ -175,8 +194,8 @@ export function summarizeDtiInspection(items: DtiInspectionItemLike[]): DtiInspe
     hardbands: countMarked(items, "hardbandBox") + countMarked(items, "hardbandPin"),
     damagedHardbands: countMarked(items, "damagedHardbandBox") + countMarked(items, "damagedHardbandPin"),
     dbrHardbands: countMarked(items, "dbrHardbandBox") + countMarked(items, "dbrHardbandPin"),
-    centerPad1: countMarked(items, "hardbandCenterPad1"),
-    centerPad2: countMarked(items, "hardbandCenterPad2"),
+    centerPad1: componentType === "HWDP" ? countMarked(items, "hardbandCenterPad1") : 0,
+    centerPad2: componentType === "HWDP" ? countMarked(items, "hardbandCenterPad2") : 0,
   };
 }
 

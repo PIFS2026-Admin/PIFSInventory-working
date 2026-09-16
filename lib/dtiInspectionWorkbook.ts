@@ -3,7 +3,7 @@ import "server-only";
 import JSZip from "jszip";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { normalizeDtiRefaceCode, type DtiComponentType } from "./dtiInspectionReport";
+import { normalizeDtiRefaceCode, resolveDtiReportComponentType, type DtiComponentType } from "./dtiInspectionReport";
 
 type Report = Record<string, unknown>;
 type Item = { component_type: DtiComponentType; sequence_number: number; row_data: Record<string, unknown> };
@@ -23,8 +23,7 @@ const drillPipeColumns: Record<string, string> = {
   pinCriticalLength: "X", pinLengthAfterRepair: "Y", ...commonFindingColumns,
   pittedBox: "AJ", pittedPin: "AK", overRefacedBox: "AL", overRefacedPin: "AM", bentTube: "AN",
   otherDamage1: "AO", otherDamage2: "AP", otherDamage3: "AQ", otherDamage4: "AR",
-  damagedHardbandBox: "AS", damagedHardbandPin: "AT", hardbandBox: "AU", hardbandCenterPad1: "AV",
-  hardbandCenterPad2: "AW", hardbandPin: "AX", dbrHardbandBox: "AY", dbrHardbandPin: "AZ",
+  damagedHardbandBox: "AS", damagedHardbandPin: "AT", hardbandBox: "AU", hardbandPin: "AX", dbrHardbandBox: "AY", dbrHardbandPin: "AZ",
   minimumWallTube: "BA", minimumTongBox: "BB", minimumTongPin: "BC", minimumSealBox: "BD", minimumSealPin: "BE",
   minimumOd: "BF", damagedTube: "BG", emiReject: "BH", otherReject: "BI", threadReconditionBox: "BJ",
   threadReconditionPin: "BK", bevelRepairBox: "BL", bevelRepairPin: "BM",
@@ -43,7 +42,8 @@ const toolColumns: Record<string, string> = {
   threadReconditionBox: "BG", threadReconditionPin: "BH", bevelRepairBox: "BI", bevelRepairPin: "BJ",
 };
 
-const subsColumns = { ...toolColumns, comments: "V" };
+const subsColumns = Object.fromEntries(Object.entries(toolColumns).filter(([key]) => !["centerWearPadOd", "hardbandCenterPad1", "hardbandCenterPad2"].includes(key))) as Record<string, string>;
+subsColumns.comments = "V";
 
 function text(value: unknown) { return String(value ?? "").trim(); }
 function record(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -77,6 +77,19 @@ function writeCell(xml: string, address: string, value: unknown) {
   const attributes = tagEnd > 2 ? existing.slice(2, tagEnd).replace(/\s*\/$/, "") : "";
   if (!attributes) throw new Error(`The original DTI workbook cell ${address} could not be read.`);
   return xml.replace(pattern, cellXml(address, attributes, value));
+}
+
+function clearCell(xml: string, address: string) {
+  const escapedAddress = address.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`<c\\b(?=[^>]*\\br="${escapedAddress}")[^>]*?(?:\\/>|>[\\s\\S]*?<\\/c>)`);
+  const existing = xml.match(pattern)?.[0];
+  if (!existing) throw new Error(`The original DTI workbook has no cell ${address}.`);
+  const tagEnd = existing.indexOf(">");
+  const attributes = tagEnd > 2
+    ? existing.slice(2, tagEnd).replace(/\s+t="[^"]*"/g, "").replace(/\s*\/$/, "")
+    : "";
+  if (!attributes) throw new Error(`The original DTI workbook cell ${address} could not be read.`);
+  return xml.replace(pattern, `<c${attributes}/>`);
 }
 
 function setIfPresent(sheet: string, address: string, value: unknown) {
@@ -136,6 +149,7 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
   dataSheet = setIfPresent(dataSheet, "B13", report.state);
 
   const scope = record(report.inspection_scope);
+  const reportComponentType = resolveDtiReportComponentType(scope, items);
   const scopeCells = {
     drillPipe: ["E3", "E5", "E7"],
     hwdp: ["E10", "E12", "E14"],
@@ -159,9 +173,11 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
     saveSheet(sheetName, sheet);
   }
 
-  const drillPipe = writeInspectionRows(await readSheet("Prop Drill Pipe Inp Report"), items.filter((item) => item.component_type === "Drill Pipe"), drillPipeColumns);
-  const hwdp = writeInspectionRows(await readSheet("Prop HWDP Inp Report"), items.filter((item) => item.component_type === "HWDP"), toolColumns, "BL");
-  const subs = writeInspectionRows(await readSheet("Prop Subs Inp Report"), items.filter((item) => item.component_type === "Subs"), subsColumns, "BL");
+  let drillPipe = writeInspectionRows(await readSheet("Prop Drill Pipe Inp Report"), reportComponentType === "Drill Pipe" ? items.filter((item) => item.component_type === "Drill Pipe") : [], drillPipeColumns);
+  const hwdp = writeInspectionRows(await readSheet("Prop HWDP Inp Report"), reportComponentType === "HWDP" ? items.filter((item) => item.component_type === "HWDP") : [], toolColumns, "BL");
+  let subs = writeInspectionRows(await readSheet("Prop Subs Inp Report"), reportComponentType === "Subs" ? items.filter((item) => item.component_type === "Subs") : [], subsColumns, "BL");
+  for (const address of ["AV8", "AW8"]) drillPipe = clearCell(drillPipe, address);
+  for (const address of ["I8", "AS8", "AT8"]) subs = clearCell(subs, address);
   saveSheet("Prop Drill Pipe Inp Report", drillPipe);
   saveSheet("Prop HWDP Inp Report", hwdp);
   saveSheet("Prop Subs Inp Report", subs);
