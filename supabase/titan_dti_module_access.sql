@@ -19,68 +19,63 @@ stable
 security definer
 set search_path = public
 as $$
-  with current_profile as (
-    select
-      p.id,
-      lower(p.role::text) as role_key,
-      coalesce(p.access_configured, false) as access_configured
-    from public.profiles p
-    where p.id = auth.uid()
-      and coalesce(p.is_disabled, false) = false
-  ),
-  saved_modules as (
-    select ump.module_key
-    from public.user_module_permissions ump
-    join current_profile p on p.id = ump.user_id
-    where coalesce(ump.can_access, true)
-  ),
-  role_defaults as (
-    select
-      p.*,
-      p.role_key in (
-        'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
-        'dti_lead', 'dti_inspector', 'level_2_inspector', 'lead_inspector'
-      ) as dti_view,
-      p.role_key in (
-        'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
-        'lead_inspector'
-      ) as scorecard_view
-    from current_profile p
-  ),
-  effective_defaults as (
-    select
-      p.id,
-      p.role_key,
-      p.access_configured,
-      coalesce((
-        select upo.is_allowed
-        from public.user_permission_overrides upo
-        where upo.user_id = p.id and upo.module_key = 'dti' and upo.action_key = 'view'
-        limit 1
-      ), p.dti_view) as dti_view,
-      coalesce((
-        select upo.is_allowed
-        from public.user_permission_overrides upo
-        where upo.user_id = p.id and upo.module_key = 'lead_scorecards' and upo.action_key = 'view'
-        limit 1
-      ), p.scorecard_view) as scorecard_view
-    from role_defaults p
-  )
   select exists (
     select 1
-    from effective_defaults p
-    where p.role_key in ('admin', 'owner')
-      or (
-        p.access_configured
-        and exists (select 1 from saved_modules where module_key = 'dti')
-      )
-      or (
-        not p.access_configured
-        and case
-          when exists (select 1 from saved_modules)
-            then exists (select 1 from saved_modules where module_key = 'dti')
-          else p.dti_view or p.scorecard_view
-        end
+    from public.profiles profile
+    where profile.id = auth.uid()
+      and coalesce(profile.is_disabled, false) = false
+      and (
+        lower(profile.role::text) in ('admin', 'owner')
+        or (
+          coalesce(profile.access_configured, false)
+          and exists (
+            select 1
+            from public.user_module_permissions ump
+            where ump.user_id = profile.id
+              and ump.module_key = 'dti'
+              and coalesce(ump.can_access, true)
+          )
+        )
+        or (
+          not coalesce(profile.access_configured, false)
+          and case
+            when exists (
+              select 1
+              from public.user_module_permissions ump
+              where ump.user_id = profile.id
+                and coalesce(ump.can_access, true)
+            ) then exists (
+              select 1
+              from public.user_module_permissions ump
+              where ump.user_id = profile.id
+                and ump.module_key = 'dti'
+                and coalesce(ump.can_access, true)
+            )
+            else
+              coalesce((
+                select upo.is_allowed
+                from public.user_permission_overrides upo
+                where upo.user_id = profile.id
+                  and upo.module_key = 'dti'
+                  and upo.action_key = 'view'
+                limit 1
+              ), lower(profile.role::text) in (
+                'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
+                'dti_lead', 'dti_inspector', 'level_2_inspector', 'lead_inspector'
+              ))
+              or coalesce((
+                select upo.is_allowed
+                from public.user_permission_overrides upo
+                where upo.user_id = profile.id
+                  and upo.module_key = 'lead_scorecards'
+                  and upo.action_key = 'view'
+                limit 1
+              ), lower(profile.role::text) in (
+                'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
+                'lead_inspector'
+              ))
+          end
+        )
       )
   );
 $$;
