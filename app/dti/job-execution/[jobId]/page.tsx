@@ -10,7 +10,9 @@ import DtiConnectionRefacingPanel, { type ConnectionRefacing } from "./DtiConnec
 import DtiDefectDecisionPanel, { type DefectDecision } from "./DtiDefectDecisionPanel";
 import DtiDimensionalPanel, { type DimensionalReading, type TubularSpec } from "./DtiDimensionalPanel";
 import DtiJointInspectionPanel, { type JointInspection } from "./DtiJointInspectionPanel";
+import DtiOfflineStatus from "./DtiOfflineStatus";
 import { goBackOrFallback } from "../../../../lib/navigation";
+import { getDtiExecutionSnapshot, saveDtiExecutionSnapshot } from "../../../../lib/dtiOfflineQueue";
 import { supabase } from "../../../../lib/supabase";
 import styles from "./jobExecution.module.css";
 
@@ -47,13 +49,22 @@ export default function DtiJobExecutionPage() {
     setMessage("Loading job execution...");
     try {
       const { data: auth } = await supabase.auth.getSession(); const token = auth.session?.access_token;
-      if (!token) return window.location.assign("/login");
+      if (!token) {
+        const snapshot = await getDtiExecutionSnapshot<ApiResponse>(jobId);
+        if (snapshot && !navigator.onLine) { setData(snapshot.data); setMessage(`Offline copy from ${displayDate(snapshot.savedAt)}. New joint inspections will sync when service returns.`); return; }
+        return window.location.assign("/login");
+      }
       const request = await fetch(`/api/dti/job-execution?jobId=${encodeURIComponent(jobId)}${runId ? `&runId=${encodeURIComponent(runId)}` : ""}`, { headers: { Authorization: `Bearer ${token}` } });
       const body = await request.json() as ApiResponse;
       if (!request.ok) throw new Error(body.error || "TITAN could not load job execution.");
+      await saveDtiExecutionSnapshot(jobId, body).catch(() => undefined);
       setData(body); setMessage("");
       setRackForm((current) => ({ ...current, rackNumber: String(Math.max(0, ...(body.racks ?? []).map((rack) => rack.rack_number)) + 1) }));
-    } catch (error) { setMessage(error instanceof Error ? error.message : "TITAN could not load job execution."); }
+    } catch (error) {
+      const snapshot = await getDtiExecutionSnapshot<ApiResponse>(jobId).catch(() => null);
+      if (snapshot) { setData(snapshot.data); setMessage(`Offline copy from ${displayDate(snapshot.savedAt)}. New joint inspections will sync when service returns.`); }
+      else setMessage(error instanceof Error ? error.message : "TITAN could not load job execution.");
+    }
   }, [jobId]);
 
   useEffect(() => { if (!jobId) return; const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [jobId, load]);
@@ -87,6 +98,7 @@ export default function DtiJobExecutionPage() {
     <header className={`${styles.header} titan-page-header`}><div className={styles.title}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority /><div><span>DTI / OMS-104 / OMS-108</span><h1>Job Execution</h1></div></div><div className={styles.headerActions}><button type="button" onClick={() => goBackOrFallback("/dti?view=jobs")}>Back</button>{data?.job ? <><Link href={`/dti/pre-job/${encodeURIComponent(data.job.id)}`}>Pre-Job</Link><Link href={`/dti/job-closeout/${encodeURIComponent(data.job.id)}`}>Closeout</Link></> : null}<Link href="/dti/deviations">Deviations</Link><Link href="/dti-summary">Daily Summary</Link><DtiProcedureMenu procedures={[{ documentNumber: "OMS-104", label: "Per-Rack Workflow" }, { documentNumber: "OMS-108", label: "EMI and UT Calibration" }, { documentNumber: "OMS-105", label: "Defect Decisions" }, { documentNumber: "OMS-106", label: "Dimensional Reference" }, { documentNumber: "OMS-107", label: "Connection and Refacing" }]} /><button type="button" onClick={() => void load(run?.id)}>Refresh</button></div></header>
 
     {data?.job ? <section className={styles.jobBand}><div><span>{data.job.job_number} / {data.job.lifecycle_status}</span><h2>{data.job.title}</h2><small>{data.job.customer_name || "No customer"} / {data.job.rig_name || "No rig"}</small></div>{summary ? <b data-status={summary.status}>{summary.status}</b> : null}</section> : null}
+    <DtiOfflineStatus jobId={jobId} onSynced={() => void load(data?.run?.id)} />
     {message ? <div className={message.includes("saved") || message.includes("started") || message.includes("recorded") || message.includes("advanced") || message.includes("completed") ? styles.success : styles.message}>{message}</div> : null}
 
     {!run && data ? <section className={styles.startPanel}><div className={styles.panelHead}><div><span>New Shift / Run</span><h2>Start Job Execution</h2></div></div><div className={styles.formGrid}><label><span>Run Date</span><input type="date" value={runForm.runDate} onChange={(event) => setRunForm({ ...runForm, runDate: event.target.value })} /></label><label><span>Shift</span><input value={runForm.shiftName} onChange={(event) => setRunForm({ ...runForm, shiftName: event.target.value })} /></label><label><span>Crew Lead</span><input value={runForm.crewLeadName} onChange={(event) => setRunForm({ ...runForm, crewLeadName: event.target.value })} /></label><label><span>Setup</span><select value={runForm.setupType} onChange={(event) => setRunForm({ ...runForm, setupType: event.target.value })}><option>Side-by-Side</option><option>Single Rack</option><option>Other</option></select></label><label><span>Planned Joints</span><input type="number" min="0" value={runForm.plannedJoints} onChange={(event) => setRunForm({ ...runForm, plannedJoints: event.target.value })} /></label><label className={styles.wide}><span>Notes</span><input value={runForm.notes} onChange={(event) => setRunForm({ ...runForm, notes: event.target.value })} /></label><button className={styles.primary} type="button" onClick={() => void createRun()} disabled={saving}>Start Run</button></div></section> : null}

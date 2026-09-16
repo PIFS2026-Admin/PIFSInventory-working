@@ -17,6 +17,7 @@ type Overview = {
 
 const tools = [
   { title: "DTI Management", href: "/dti" },
+  { title: "Inspection Reports", href: "/dti/inspection-reports" },
   { title: "Daily Summaries", href: "/dti-summary" },
   { title: "Job Intelligence", href: "/dti/intelligence" },
   { title: "Inspector Competency", href: "/dti/competency" },

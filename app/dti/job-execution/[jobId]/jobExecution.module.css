@@ -16,6 +16,15 @@
 .message, .success, .empty, .onTrack { margin-top: 10px; border: 1px solid #9a4e18; border-radius: 6px; background: #2a180f; color: #fed7aa; padding: 11px 13px; }
 .success, .onTrack { border-color: #166534; background: #102418; color: #bbf7d0; }
 .empty { border-color: #303744; background: #0d1218; color: #aab2c0; }
+.offlineStatus { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; border: 1px solid #166534; border-left: 5px solid #22c55e; border-radius: 7px; background: #102418; padding: 10px 12px; }
+.offlineStatus[data-online="false"] { border-color: #9a4e18; border-left-color: #f97316; background: #2a180f; }
+.offlineStatus[data-attention="true"] { border-color: #991b1b; border-left-color: #ef4444; background: #2a1114; }
+.offlineStatus span, .offlineStatus strong, .offlineStatus small { display: block; }
+.offlineStatus span { color: #86efac; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.offlineStatus[data-online="false"] span { color: #fdba74; }
+.offlineStatus strong { margin-top: 3px; }
+.offlineStatus small { margin-top: 3px; color: #c7ced9; }
+.offlineStatus button { min-height: 36px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #f7f7fb; padding: 7px 11px; font-weight: 850; }
 .startPanel, .racks, .editor, .calibrations, .warnings, .escalations, .defects, .dimensions, .refacing, .jointInspections { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
 .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #303744; background: #171c24; padding: 10px 12px; }
 .panelHead h2 { margin: 3px 0 0; font-size: 18px; }
@@ -123,6 +132,7 @@
 .jointList { display: grid; }
 .jointList article { display: grid; grid-template-columns: 1fr .8fr 1.25fr 1.25fr auto auto; align-items: center; gap: 10px; border-top: 1px solid #29303b; border-left: 4px solid #22c55e; padding: 10px 12px; }
 .jointList article[data-status="Hold"] { border-left-color: #ef4444; background: rgba(239,68,68,.06); }
+.jointList article[data-status="Pending Sync"] { border-left-color: #f59e0b; background: rgba(245,158,11,.05); }
 .jointList span, .jointList strong, .jointList small { display: block; }
 .jointList span { color: #fb923c; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .jointList small { margin-top: 3px; color: #aab2c0; }
@@ -142,6 +152,7 @@
   .title h1 { font-size: 21px; }
   .headerActions button, .headerActions a { display: none; }
   .jobBand, .runBar { display: grid; }
+  .offlineStatus { align-items: stretch; flex-direction: column; }
   .jobBand > b { justify-self: start; }
   .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .formGrid { grid-template-columns: 1fr; }

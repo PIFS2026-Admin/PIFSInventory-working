@@ -1,4 +1,6 @@
-const TITAN_CACHE = "titan-pwa-shell-v4";
+const TITAN_CACHE = "titan-pwa-shell-v6";
+const TITAN_RUNTIME_CACHE = "titan-dti-runtime-v1";
+const IS_LOCAL_DEVELOPMENT = ["localhost", "127.0.0.1"].includes(self.location.hostname);
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/icon-192.png",
@@ -26,7 +28,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== TITAN_CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => IS_LOCAL_DEVELOPMENT || ![TITAN_CACHE, TITAN_RUNTIME_CACHE].includes(key)).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -34,15 +36,43 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(event.request.url);
 
+  if (IS_LOCAL_DEVELOPMENT) return;
   if (requestUrl.origin !== self.location.origin) return;
   if (event.request.method !== "GET") return;
-  if (!STATIC_ASSETS.includes(requestUrl.pathname)) return;
+  if (STATIC_ASSETS.includes(requestUrl.pathname)) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request))
+    );
+    return;
+  }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request);
-    })
+  if (requestUrl.pathname.startsWith("/_next/static/")) {
+    event.respondWith(caches.open(TITAN_RUNTIME_CACHE).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      if (response.ok) await cache.put(event.request, response.clone());
+      return response;
+    }));
+    return;
+  }
+
+  const isDtiExecutionPage = event.request.mode === "navigate" && (
+    requestUrl.pathname.startsWith("/dti/job-execution/") ||
+    requestUrl.pathname === "/dti/inspection-reports" ||
+    requestUrl.pathname.startsWith("/dti/inspection-reports/")
   );
+  if (isDtiExecutionPage) {
+    event.respondWith(caches.open(TITAN_RUNTIME_CACHE).then(async (cache) => {
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) await cache.put(event.request, response.clone());
+        return response;
+      } catch {
+        return (await cache.match(event.request)) || Response.error();
+      }
+    }));
+  }
 });
 
 self.addEventListener("push", (event) => {

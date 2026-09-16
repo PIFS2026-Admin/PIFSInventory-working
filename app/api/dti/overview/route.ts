@@ -24,6 +24,25 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error);
 }
 
+type QueryError = { message?: string } | null;
+
+async function collectJobScopedRows<T>(
+  jobIds: string[],
+  query: (ids: string[]) => Promise<{ data: T[] | null; error: QueryError }>,
+) {
+  const data: T[] = [];
+
+  // PostgREST encodes `.in()` values in the URL. Keeping each request small
+  // prevents large DTI job sets from exceeding proxy URL limits.
+  for (let index = 0; index < jobIds.length; index += 100) {
+    const result = await query(jobIds.slice(index, index + 100));
+    if (result.error) return { data, error: result.error };
+    data.push(...(result.data ?? []));
+  }
+
+  return { data, error: null };
+}
+
 async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
@@ -54,18 +73,16 @@ export async function GET(request: Request) {
     const linkedIds = new Set((linksResult.data ?? []).map((row) => row.job_id));
     const jobs = (jobsResult.data ?? []).filter((job) => normalized(job.service_line) === "dti" || linkedIds.has(job.id));
     const jobIds = jobs.map((job) => job.id);
-    const empty = { data: [], error: null };
-
-    const [debriefsResult, deviationsResult, auditsResult, findingsResult, candidatesResult, specsResult, gapsResult, eventsResult] = await Promise.all([
-      jobIds.length ? admin.from("titan_job_debriefs").select("id,job_id,status").in("job_id", jobIds).neq("status", "Voided") : empty,
-      jobIds.length ? admin.from("titan_job_deviations").select("id,deviation_number,job_id,defect_type,written_confirmation,status,updated_at").in("job_id", jobIds).neq("status", "Voided") : empty,
-      jobIds.length ? admin.from("titan_field_audits").select("id,audit_number,job_id,status_band,audit_date,crew_lead_name").in("job_id", jobIds).eq("status", "Filed") : empty,
-      jobIds.length ? admin.from("titan_audit_findings").select("id,finding_number,job_id,severity,finding_text,due_date,finding_status,created_at").in("job_id", jobIds).neq("finding_status", "Closed") : empty,
-      admin.from("titan_spec_candidates").select("id,candidate_number,job_id,customer_name,trigger_text,review_status,updated_at").ilike("service_line", "DTI").in("review_status", ["Pending", "Under Review"]).order("updated_at", { ascending: false }).limit(300),
-      admin.from("titan_customer_specifications").select("id,customer_name,service_line,scope,status").eq("status", "Active").limit(2000),
-      admin.from("titan_training_gaps").select("id,inspector_id,priority,gap_text,due_date,owner_name,gap_status,updated_at").in("gap_status", ["Planned", "In Progress"]).order("updated_at", { ascending: false }).limit(300),
-      jobIds.length ? admin.from("titan_job_events").select("id,job_id,event_type,summary,created_at").in("job_id", jobIds).order("created_at", { ascending: false }).limit(30) : empty,
-    ]);
+    // Keep this sequence controlled. Each job-scoped lookup is internally batched
+    // because a single `.in()` filter can exceed proxy URL limits for large job sets.
+    const debriefsResult = await collectJobScopedRows(jobIds, async (ids) => await admin.from("titan_job_debriefs").select("id,job_id,status").in("job_id", ids).neq("status", "Voided"));
+    const deviationsResult = await collectJobScopedRows(jobIds, async (ids) => await admin.from("titan_job_deviations").select("id,deviation_number,job_id,defect_type,written_confirmation,status,updated_at").in("job_id", ids).neq("status", "Voided"));
+    const auditsResult = await collectJobScopedRows(jobIds, async (ids) => await admin.from("titan_field_audits").select("id,audit_number,job_id,status_band,audit_date,crew_lead_name").in("job_id", ids).eq("status", "Filed"));
+    const findingsResult = await collectJobScopedRows(jobIds, async (ids) => await admin.from("titan_audit_findings").select("id,finding_number,job_id,severity,finding_text,due_date,finding_status,created_at").in("job_id", ids).neq("finding_status", "Closed"));
+    const candidatesResult = await admin.from("titan_spec_candidates").select("id,candidate_number,job_id,customer_name,trigger_text,review_status,updated_at").ilike("service_line", "DTI").in("review_status", ["Pending", "Under Review"]).order("updated_at", { ascending: false }).limit(300);
+    const specsResult = await admin.from("titan_customer_specifications").select("id,customer_name,service_line,scope,status").eq("status", "Active").limit(2000);
+    const gapsResult = await admin.from("titan_training_gaps").select("id,inspector_id,priority,gap_text,due_date,owner_name,gap_status,updated_at").in("gap_status", ["Planned", "In Progress"]).order("updated_at", { ascending: false }).limit(300);
+    const eventsResult = await collectJobScopedRows(jobIds, async (ids) => await admin.from("titan_job_events").select("id,job_id,event_type,summary,created_at").in("job_id", ids).order("created_at", { ascending: false }).limit(30));
 
     for (const result of [debriefsResult, deviationsResult, auditsResult, findingsResult, candidatesResult, specsResult, gapsResult, eventsResult]) {
       if (result.error) throw result.error;
@@ -77,6 +94,9 @@ export async function GET(request: Request) {
     const activeJobs = jobs.filter((job) => !["complete", "invoiced", "cancelled"].includes(normalized(job.lifecycle_status)));
     const customerSpecs = specsResult.data ?? [];
     const attention: AttentionItem[] = [];
+    const recentEvents = (eventsResult.data ?? [])
+      .sort((a, b) => text(b.created_at).localeCompare(text(a.created_at)))
+      .slice(0, 30);
 
     jobs.filter((job) => terminalStatuses.has(normalized(job.lifecycle_status)) && !debriefJobIds.has(job.id)).forEach((job) => {
       attention.push({ id: `debrief-${job.id}`, kind: "Missing Debrief", severity: "High", title: `${job.job_number} / ${job.title}`, detail: `${job.customer_name || "No customer"} / ${job.rig_name || "No rig"}`, href: `/crm/jobs/${job.id}`, occurredAt: job.updated_at });
@@ -121,7 +141,7 @@ export async function GET(request: Request) {
         openHighGaps: (gapsResult.data ?? []).filter((row) => row.priority === "High").length,
       },
       attention: attention.slice(0, 60),
-      activity: (eventsResult.data ?? []).map((event) => ({ ...event, job: jobById.get(event.job_id) ?? null })),
+      activity: recentEvents.map((event) => ({ ...event, job: jobById.get(event.job_id) ?? null })),
     });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });

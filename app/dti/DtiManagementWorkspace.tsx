@@ -115,6 +115,15 @@ type FindingForm = {
   evidenceDocumentId: string;
   evidenceNote: string;
 };
+type ChecklistForm = {
+  itemCode: string;
+  sectionCode: string;
+  sectionTitle: string;
+  itemText: string;
+  referenceText: string;
+  isCritical: boolean;
+  sortOrder: string;
+};
 type ManagementTab = "overview" | "jobs" | "findings" | "audits";
 
 const emptyFindingForm: FindingForm = {
@@ -123,6 +132,15 @@ const emptyFindingForm: FindingForm = {
   dueDate: "",
   evidenceDocumentId: "",
   evidenceNote: "",
+};
+const emptyChecklistForm: ChecklistForm = {
+  itemCode: "",
+  sectionCode: "A",
+  sectionTitle: "",
+  itemText: "",
+  referenceText: "",
+  isCritical: false,
+  sortOrder: "100",
 };
 const ratingDisplay: Record<Exclude<Rating, "">, string> = {
   C: "3",
@@ -155,6 +173,10 @@ export default function DtiManagementWorkspace() {
   const [showNewAudit, setShowNewAudit] = useState(false);
   const [editingAuditId, setEditingAuditId] = useState("");
   const [auditPendingDelete, setAuditPendingDelete] = useState<Audit | null>(null);
+  const [showChecklistManager, setShowChecklistManager] = useState(false);
+  const [editingChecklistCode, setEditingChecklistCode] = useState("");
+  const [checklistForm, setChecklistForm] = useState<ChecklistForm>(emptyChecklistForm);
+  const [checklistMessage, setChecklistMessage] = useState("");
   const [jobId, setJobId] = useState("");
   const [manualJobName, setManualJobName] = useState("");
   const [useManualJob, setUseManualJob] = useState(false);
@@ -319,6 +341,75 @@ export default function DtiManagementWorkspace() {
         next[item.item_code] = rating;
       });
     setRatings(next);
+  }
+
+  function startChecklistItem(item?: ChecklistItem) {
+    setChecklistMessage("");
+    if (item) {
+      setEditingChecklistCode(item.item_code);
+      setChecklistForm({
+        itemCode: item.item_code,
+        sectionCode: item.section_code,
+        sectionTitle: item.section_title,
+        itemText: item.item_text,
+        referenceText: item.reference_text || "",
+        isCritical: item.is_critical,
+        sortOrder: String(item.sort_order),
+      });
+      return;
+    }
+    const nextOrder = checklist.length ? Math.max(...checklist.map((item) => item.sort_order)) + 1 : 100;
+    setEditingChecklistCode("");
+    setChecklistForm({ ...emptyChecklistForm, sortOrder: String(nextOrder) });
+  }
+
+  async function checklistRequest(method: "POST" | "PATCH" | "DELETE", payload: Record<string, unknown>) {
+    if (saving) return false;
+    setSaving(true);
+    setChecklistMessage("");
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) {
+        window.location.assign("/login");
+        return false;
+      }
+      const request = await fetch("/api/dti/field-audits/checklist", {
+        method,
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await request.json().catch(() => ({}))) as { error?: string };
+      if (!request.ok) throw new Error(body.error || "TITAN could not update the audit checklist.");
+      await loadAudits();
+      return true;
+    } catch (error) {
+      setChecklistMessage(error instanceof Error ? error.message : "TITAN could not update the audit checklist.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveChecklistItem() {
+    const saved = await checklistRequest(editingChecklistCode ? "PATCH" : "POST", {
+      originalItemCode: editingChecklistCode || undefined,
+      ...checklistForm,
+    });
+    if (saved) {
+      const success = editingChecklistCode ? "Checklist item updated." : "Checklist item added.";
+      startChecklistItem();
+      setChecklistMessage(success);
+    }
+  }
+
+  async function removeChecklistItem(item: ChecklistItem) {
+    if (!window.confirm(`Remove ${item.item_code} from future field audits? Historical audits will keep their original copy.`)) return;
+    const removed = await checklistRequest("DELETE", { originalItemCode: item.item_code });
+    if (removed) {
+      if (editingChecklistCode === item.item_code) startChecklistItem();
+      setChecklistMessage(`${item.item_code} removed from future audits.`);
+    }
   }
 
   async function authenticatedRequest(method: "POST" | "PATCH" | "PUT" | "DELETE", payload: Record<string, unknown>) {
@@ -515,9 +606,20 @@ export default function DtiManagementWorkspace() {
         ) : (
           <div />
         )}
-        <button className={styles.primaryButton} type="button" onClick={() => startAudit()}>
-          New Field Audit
-        </button>
+        <div className={styles.toolbarActions}>
+          <button
+            type="button"
+            onClick={() => {
+              startChecklistItem();
+              setShowChecklistManager(true);
+            }}
+          >
+            Manage Checklist
+          </button>
+          <button className={styles.primaryButton} type="button" onClick={() => startAudit()}>
+            New Field Audit
+          </button>
+        </div>
       </section>
       {actionMessage && !selectedFinding ? <div className={styles.actionMessage}>{actionMessage}</div> : null}
       {message ? <section className={styles.message}>{message}</section> : null}
@@ -792,6 +894,111 @@ export default function DtiManagementWorkspace() {
           </div>
           {!visibleAudits.length ? <div className={styles.empty}>No audits match this search.</div> : null}
         </section>
+      ) : null}
+
+      {showChecklistManager ? (
+        <div className={styles.modalBackdrop}>
+          <section className={`${styles.modal} ${styles.checklistModal}`} role="dialog" aria-modal="true" aria-labelledby="checklist-manager-title">
+            <div className={styles.modalHeader}>
+              <div>
+                <span>OMS-201</span>
+                <h2 id="checklist-manager-title">Manage Field Audit Checklist</h2>
+              </div>
+              <button type="button" onClick={() => setShowChecklistManager(false)} disabled={saving} aria-label="Close">
+                X
+              </button>
+            </div>
+            <div className={styles.checklistManager}>
+              <section className={styles.checklistEditor}>
+                <div className={styles.editorHeading}>
+                  <div>
+                    <span>{editingChecklistCode ? `Editing ${editingChecklistCode}` : "New Requirement"}</span>
+                    <h3>{editingChecklistCode ? "Modify Checklist Item" : "Add Checklist Item"}</h3>
+                  </div>
+                  {editingChecklistCode ? (
+                    <button type="button" onClick={() => startChecklistItem()} disabled={saving}>
+                      Add New
+                    </button>
+                  ) : null}
+                </div>
+                <div className={styles.checklistFields}>
+                  <label>
+                    <span>Item Code</span>
+                    <input value={checklistForm.itemCode} onChange={(event) => setChecklistForm({ ...checklistForm, itemCode: event.target.value.toUpperCase() })} placeholder="A1" />
+                  </label>
+                  <label>
+                    <span>Section</span>
+                    <select
+                      value={checklistForm.sectionCode}
+                      onChange={(event) => {
+                        const sectionCode = event.target.value;
+                        const existingSection = checklist.find((item) => item.section_code === sectionCode);
+                        setChecklistForm({ ...checklistForm, sectionCode, sectionTitle: existingSection?.section_title || checklistForm.sectionTitle });
+                      }}
+                    >
+                      {(["A", "B", "C", "D", "E", "F", "G", "H"] as const).map((code) => (
+                        <option key={code}>{code}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={styles.fullField}>
+                    <span>Section Title</span>
+                    <input value={checklistForm.sectionTitle} onChange={(event) => setChecklistForm({ ...checklistForm, sectionTitle: event.target.value })} />
+                  </label>
+                  <label className={styles.fullField}>
+                    <span>Checklist Requirement</span>
+                    <textarea value={checklistForm.itemText} onChange={(event) => setChecklistForm({ ...checklistForm, itemText: event.target.value })} />
+                  </label>
+                  <label>
+                    <span>Reference</span>
+                    <input value={checklistForm.referenceText} onChange={(event) => setChecklistForm({ ...checklistForm, referenceText: event.target.value })} placeholder="IOM or OMS reference" />
+                  </label>
+                  <label>
+                    <span>Sort Order</span>
+                    <input type="number" min="1" max="9999" value={checklistForm.sortOrder} onChange={(event) => setChecklistForm({ ...checklistForm, sortOrder: event.target.value })} />
+                  </label>
+                  <label className={`${styles.criticalToggle} ${styles.fullField}`}>
+                    <input type="checkbox" checked={checklistForm.isCritical} onChange={(event) => setChecklistForm({ ...checklistForm, isCritical: event.target.checked })} />
+                    <span>Critical requirement</span>
+                  </label>
+                </div>
+                <div className={styles.editorActions}>
+                  <button className={styles.primaryButton} type="button" onClick={() => void saveChecklistItem()} disabled={saving}>
+                    {saving ? "Saving..." : editingChecklistCode ? "Save Changes" : "Add Requirement"}
+                  </button>
+                </div>
+                {checklistMessage ? <div className={styles.actionMessage}>{checklistMessage}</div> : null}
+              </section>
+              <section className={styles.checklistLibrary}>
+                <div className={styles.editorHeading}>
+                  <div>
+                    <span>Active Checklist</span>
+                    <h3>{checklist.length} Requirements</h3>
+                  </div>
+                </div>
+                <div>
+                  {checklist.map((item) => (
+                    <article key={item.item_code} data-selected={editingChecklistCode === item.item_code}>
+                      <button className={styles.checklistItemSelect} type="button" onClick={() => startChecklistItem(item)}>
+                        <span>
+                          {item.item_code}
+                          {item.is_critical ? " / Critical" : ""}
+                        </span>
+                        <strong>{item.item_text}</strong>
+                        <small>
+                          {item.section_title} / {item.reference_text || "No reference"} / Order {item.sort_order}
+                        </small>
+                      </button>
+                      <button className={styles.removeChecklistItem} type="button" onClick={() => void removeChecklistItem(item)} disabled={saving} aria-label={`Remove ${item.item_code}`}>
+                        X
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {showNewAudit ? (
