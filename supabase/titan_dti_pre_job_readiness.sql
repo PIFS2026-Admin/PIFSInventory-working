@@ -1,5 +1,5 @@
 -- OMS-101 pre-job readiness records for connected DTI jobs.
--- Additive, rerunnable, and Wade-only during controlled rollout.
+-- Additive, rerunnable, and available to users with DTI module access.
 
 begin;
 

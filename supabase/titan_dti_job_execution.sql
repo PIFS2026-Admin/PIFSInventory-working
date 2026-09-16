@@ -1,5 +1,5 @@
 -- OMS-104 live rack workflow and OMS-108 field calibration checkpoints.
--- Additive, rerunnable, and Wade-only during controlled rollout.
+-- Additive, rerunnable, and available to users with DTI module access.
 
 begin;
 

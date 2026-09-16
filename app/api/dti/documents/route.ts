@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
-type TitanProfile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type DocumentRow = Record<string, unknown> & { id: string };
 
 function configuredSupabase() {
@@ -25,18 +25,8 @@ function isDtiDocument(document: DocumentRow) {
     && ["", "dti", "operations", "all", "company", "companywide"].includes(serviceLine);
 }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data: profile, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !profile) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const row = profile as TitanProfile;
-  const isWade = normalized(row.full_name) === "wadewisenor"
-    || normalized(row.email || userData.user.email) === "wadepathfinderinspectionscom";
-  if (row.is_disabled || !isWade) return { error: Response.json({ error: "The DTI Document Library is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 function viewModel(document: DocumentRow) {
@@ -81,7 +71,7 @@ async function signedDocumentUrl(admin: ReturnType<typeof configuredSupabase>, d
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
 
     const searchParams = new URL(request.url).searchParams;

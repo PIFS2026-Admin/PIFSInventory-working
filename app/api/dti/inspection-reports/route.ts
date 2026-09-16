@@ -1,9 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 
 type Body = Record<string, unknown>;
 type Row = Record<string, unknown>;
-type Profile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 
 function configuredSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL; const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,15 +21,7 @@ function migrationMissing(error: unknown) { const value = normalized(errorMessag
 function legacyRowTrigger(error: unknown) { return (error as { code?: unknown })?.code === "42703" && normalized(errorMessage(error)).includes("report_number"); }
 
 async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !data) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const profile = data as Profile; const identity = normalized(profile.email || userData.user.email).replace(/[^a-z0-9]/g, "");
-  if (profile.is_disabled || (normalized(profile.full_name) !== "wade wisenor" && identity !== "wadepathfinderinspectionscom")) return { error: Response.json({ error: "DTI Inspection Reports are currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+  return authorizeDtiAccess(request, admin);
 }
 
 async function loadReport(admin: ReturnType<typeof configuredSupabase>, reportId: string) {

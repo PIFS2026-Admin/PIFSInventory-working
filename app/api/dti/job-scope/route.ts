@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
-type Profile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type Body = Record<string, unknown>;
 
 function adminClient() { const url = process.env.NEXT_PUBLIC_SUPABASE_URL; const key = process.env.SUPABASE_SERVICE_ROLE_KEY; if (!url || !key) throw new Error("Supabase server configuration is missing."); return createClient(url, key, { auth: { persistSession: false } }); }
@@ -11,12 +11,7 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("titan_dti_job_scopes") || value.includes("schema cache"); }
 
 async function authorize(request: Request, admin: ReturnType<typeof adminClient>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim(); if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token); if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle(); if (error || !data) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const profile = data as Profile; const isWade = normalized(profile.full_name) === "wade wisenor" || normalized(profile.email) === "wade@pathfinderinspections.com" || normalized(userData.user.email) === "wade@pathfinderinspections.com";
-  if (profile.is_disabled || !isWade) return { error: Response.json({ error: "DTI Job Scope is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+  return authorizeDtiAccess(request, admin);
 }
 async function job(admin: ReturnType<typeof adminClient>, jobId: string) { const { data, error } = await admin.from("titan_jobs").select("id,job_number,title,service_line,customer_name,rig_name,job_type").eq("id", jobId).maybeSingle(); if (error) throw error; return data && normalized(data.service_line) === "dti" ? data : null; }
 

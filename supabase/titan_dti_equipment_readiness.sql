@@ -1,5 +1,5 @@
 -- DTI job equipment assignments and calibration history.
--- Additive, rerunnable, and Wade-only during controlled rollout.
+-- Additive, rerunnable, and available to users with DTI module access.
 
 begin;
 

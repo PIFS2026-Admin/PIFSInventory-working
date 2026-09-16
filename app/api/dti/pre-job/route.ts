@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 import { buildDtiEquipmentReadiness } from "../../../../lib/dtiEquipmentReadiness";
 
-type TitanProfile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type ResponseState = "" | "Complete" | "Needs Attention" | "Blocked" | "N/A";
 type ItemResponse = { state: ResponseState; note: string; ownerName: string; dueDate: string };
 type SaveBody = { jobId?: unknown; responses?: unknown; action?: unknown };
@@ -75,17 +75,8 @@ function migrationMissing(error: unknown) { return normalized(errorMessage(error
 function equipmentMigrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_equipment") || message.includes("titan_equipment_calibrations") || message.includes("requires_calibration") || message.includes("schema cache"); }
 function scopeMigrationMissing(error: unknown) { const message = normalized(errorMessage(error)); return message.includes("titan_dti_job_scopes") || message.includes("schema cache"); }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name, email, is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !data) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const profile = data as TitanProfile;
-  const isWade = normalized(profile.full_name) === "wade wisenor" || normalized(profile.email) === "wade@pathfinderinspections.com" || normalized(userData.user.email) === "wade@pathfinderinspections.com";
-  if (profile.is_disabled || !isWade) return { error: Response.json({ error: "DTI pre-job readiness is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 async function loadJob(admin: ReturnType<typeof configuredSupabase>, jobId: string) {
@@ -110,7 +101,7 @@ async function loadEquipmentReadiness(admin: ReturnType<typeof configuredSupabas
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const jobId = clean(new URL(request.url).searchParams.get("jobId"));
     if (!validUuid(jobId)) return Response.json({ error: "Select a valid connected DTI job." }, { status: 400 });
@@ -138,7 +129,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as SaveBody;
     const jobId = clean(body.jobId);

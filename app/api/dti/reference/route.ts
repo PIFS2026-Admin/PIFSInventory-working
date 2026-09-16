@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
-type Profile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type Row = Record<string, unknown>;
 type ProcedureSection = { heading: string; text: string };
 type IndexedProcedure = { documentNumber: string; title: string; sections: ProcedureSection[] };
@@ -34,17 +34,7 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function isDti(value: unknown) { return ["", "dti", "all", "company", "companywide", "operations"].includes(normalized(value)); }
 
 async function authorize(request: Request, admin: ReturnType<typeof adminClient>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  const profile = data as Profile | null;
-  if (error || !profile) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const isWade = normalized(profile.full_name) === "wadewisenor"
-    || normalized(profile.email || userData.user.email) === "wadepathfinderinspectionscom";
-  if (profile.is_disabled || !isWade) return { error: Response.json({ error: "Ask TITAN is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+  return authorizeDtiAccess(request, admin);
 }
 
 function searchable(values: unknown[]) { return values.map(text).filter(Boolean).join(" | "); }

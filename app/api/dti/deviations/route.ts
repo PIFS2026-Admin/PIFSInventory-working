@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Row = Record<string, any>;
 type Body = Record<string, unknown>;
-type Profile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 
 function adminClient() { const url = process.env.NEXT_PUBLIC_SUPABASE_URL; const key = process.env.SUPABASE_SERVICE_ROLE_KEY; if (!url || !key) throw new Error("Supabase server configuration is missing."); return createClient(url, key, { auth: { persistSession: false } }); }
 function clean(value: unknown) { return String(value ?? "").trim(); }
@@ -15,15 +15,7 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("third_party_monitor_present") || value.includes("confirmation_attached") || value.includes("schema cache"); }
 
 async function authorize(request: Request, admin: ReturnType<typeof adminClient>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !data) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const profile = data as Profile; const identity = normalized(profile.email || userData.user.email).replace(/[^a-z0-9]/g, "");
-  if (profile.is_disabled || (normalized(profile.full_name) !== "wade wisenor" && identity !== "wadepathfinderinspectionscom")) return { error: Response.json({ error: "DTI deviation control is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id, fullName: clean(profile.full_name) || "Wade Wisenor" };
+  return authorizeDtiAccess(request, admin);
 }
 
 async function dtiJobs(admin: ReturnType<typeof adminClient>) {

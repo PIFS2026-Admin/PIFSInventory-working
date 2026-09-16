@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
-type TitanProfile = {
-  full_name?: string | null;
-  email?: string | null;
-  is_disabled?: boolean | null;
-};
 
 type AuditBody = {
   action?: unknown;
@@ -43,19 +39,8 @@ function migrationMissing(error: unknown) {
   return message.includes("titan_field_audit") || message.includes("titan_audit_finding") || message.includes("schema cache");
 }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data: profile, error } = await admin.from("profiles").select("full_name, email, is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !profile) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const row = profile as TitanProfile;
-  const isWade = normalized(row.full_name) === "wade wisenor"
-    || normalized(row.email) === "wade@pathfinderinspections.com"
-    || normalized(userData.user.email) === "wade@pathfinderinspections.com";
-  if (row.is_disabled || !isWade) return { error: Response.json({ error: "Field Audits are currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id, fullName: cleanText(row.full_name) || "Wade Wisenor" };
+async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 async function activeProfile(admin: ReturnType<typeof configuredSupabase>, profileId: string) {
@@ -68,7 +53,7 @@ async function activeProfile(admin: ReturnType<typeof configuredSupabase>, profi
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
 
     const [checklistResult, auditsResult, findingsResult, jobsResult, profilesResult] = await Promise.all([
@@ -134,7 +119,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as AuditBody;
     const jobId = cleanText(body.jobId);
@@ -178,7 +163,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as AuditBody;
     const action = normalized(body.action);
@@ -216,7 +201,7 @@ export async function PATCH(request: Request) {
 export async function PUT(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as AuditBody;
     const auditId = cleanText(body.auditId);
@@ -252,7 +237,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as AuditBody;
     const auditId = cleanText(body.auditId);

@@ -80,8 +80,6 @@ type SourceTitanJob = {
   leadName: string;
 };
 
-const DTI_MANAGEMENT_ROLES: UserRole[] = ["admin", "employee", "dti_superintendent", "dti_lead"];
-
 const emptyJobForm: JobForm = {
   customer: "",
   jobDate: new Date().toISOString().slice(0, 10),
@@ -217,7 +215,7 @@ export default function CreateDtiJobPage() {
   const [saving, setSaving] = useState(false);
   const [sourceJob, setSourceJob] = useState<SourceTitanJob | null>(null);
 
-  const canEdit = profile ? DTI_MANAGEMENT_ROLES.includes(profile.role) : false;
+  const canEdit = Boolean(profile);
   const showPageMessage = shouldShowPageMessage(message);
 
   const leadInspectorOptions = useMemo(
@@ -257,6 +255,16 @@ export default function CreateDtiJobPage() {
       return;
     }
 
+    const accessResponse = await fetch("/api/my-module-permissions", {
+      headers: { Authorization: `Bearer ${sessionData.session?.access_token ?? ""}` },
+      cache: "no-store",
+    });
+    const accessResult = await accessResponse.json().catch(() => ({})) as { moduleKeys?: string[] };
+    if (!accessResponse.ok || !accessResult.moduleKeys?.includes("dti")) {
+      window.location.href = "/home";
+      return;
+    }
+
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
       .select("id, full_name, role")
@@ -273,21 +281,6 @@ export default function CreateDtiJobPage() {
       fullName: profileData.full_name ?? user.email ?? "User",
       role: normalizeRole(profileData.role),
     };
-
-    if (loadedProfile.role === "customer") {
-      window.location.href = "/customer";
-      return;
-    }
-
-    if (loadedProfile.role === "dti_inspector") {
-      window.location.href = "/dti-summary";
-      return;
-    }
-
-    if (!DTI_MANAGEMENT_ROLES.includes(loadedProfile.role)) {
-      window.location.href = "/home";
-      return;
-    }
 
     setProfile(loadedProfile);
     await Promise.all([loadCompanies(), loadInspectors(), loadTemplateRows()]);

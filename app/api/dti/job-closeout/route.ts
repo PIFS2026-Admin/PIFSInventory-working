@@ -1,10 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 type Row = Record<string, any>;
 type Body = Record<string, unknown>;
-type TitanProfile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -21,17 +21,8 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("job_run_id") || value.includes("source_rollup") || value.includes("titan_dti_borderline_escalations") || value.includes("titan_dti_defect_decisions") || value.includes("titan_dti_connection_refacing") || value.includes("titan_dti_joint_inspections") || value.includes("station_performance") || value.includes("completion_status") || value.includes("schema cache"); }
 function optionalBoolean(value: unknown) { if (value === true || value === "true") return true; if (value === false || value === "false") return false; return null; }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof adminClient>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !data) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const profile = data as TitanProfile;
-  const identity = normalized(profile.email || userData.user.email).replace(/[^a-z0-9]/g, "");
-  if (profile.is_disabled || (normalized(profile.full_name) !== "wade wisenor" && identity !== "wadepathfinderinspectionscom")) return { error: Response.json({ error: "DTI Closeout is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id, fullName: clean(profile.full_name) || "Wade Wisenor" };
+async function authorize(request: Request, admin: ReturnType<typeof adminClient>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 async function loadJob(admin: ReturnType<typeof adminClient>, jobId: string) {
@@ -118,7 +109,7 @@ async function loadCloseout(admin: ReturnType<typeof adminClient>, job: Row, req
 
 export async function GET(request: Request) {
   try {
-    const admin = adminClient(); const authorization = await authorizeWade(request, admin); if ("error" in authorization) return authorization.error;
+    const admin = adminClient(); const authorization = await authorize(request, admin); if ("error" in authorization) return authorization.error;
     const params = new URL(request.url).searchParams; const jobId = clean(params.get("jobId"));
     if (!validUuid(jobId)) return Response.json({ error: "Select a valid connected DTI job." }, { status: 400 });
     const job = await loadJob(admin, jobId); if (!job) return Response.json({ error: "This DTI job could not be found." }, { status: 404 });
@@ -128,7 +119,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const admin = adminClient(); const authorization = await authorizeWade(request, admin); if ("error" in authorization) return authorization.error;
+    const admin = adminClient(); const authorization = await authorize(request, admin); if ("error" in authorization) return authorization.error;
     const body = await request.json().catch(() => ({})) as Body; const jobId = clean(body.jobId); const runId = clean(body.runId); const action = normalized(body.action);
     if (!validUuid(jobId)) return Response.json({ error: "Select a valid connected DTI job." }, { status: 400 });
     const job = await loadJob(admin, jobId); if (!job) return Response.json({ error: "This DTI job could not be found." }, { status: 404 });

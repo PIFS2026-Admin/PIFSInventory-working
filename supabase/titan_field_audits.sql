@@ -1,5 +1,5 @@
 -- OMS-201 field audits for Connected Jobs.
--- Additive, rerunnable, and Wade-only during controlled rollout.
+-- Additive, rerunnable, and available to users with DTI module access.
 
 begin;
 
@@ -20,16 +20,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = auth.uid()
-      and coalesce(p.is_disabled, false) = false
-      and (
-        lower(trim(coalesce(p.full_name, ''))) = 'wade wisenor'
-        or lower(trim(coalesce(p.email, ''))) = 'wade@pathfinderinspections.com'
-      )
-  );
+  select public.titan_user_can_access_module(auth.uid(), 'dti');
 $$;
 
 revoke all on function public.titan_dti_controls_can_access() from public, anon;

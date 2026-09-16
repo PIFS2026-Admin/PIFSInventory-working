@@ -43,8 +43,6 @@ type ItemForm = Omit<GradingItem, "id"> & { id?: string };
 
 type DbRecord = Record<string, unknown>;
 
-const allowedRoles: UserRole[] = ["admin", "dti_superintendent"];
-
 const emptyItemForm: ItemForm = {
   section: "Pre-Job",
   category: "",
@@ -94,7 +92,7 @@ export default function DtiGradingSetupPage() {
   const [message, setMessage] = useState("Loading DTI grading setup...");
   const [saving, setSaving] = useState(false);
 
-  const canManage = profile ? allowedRoles.includes(profile.role) : false;
+  const canManage = Boolean(profile);
   const showPageMessage = shouldShowPageMessage(message);
 
   const sections = useMemo(
@@ -124,6 +122,16 @@ export default function DtiGradingSetupPage() {
       return;
     }
 
+    const accessResponse = await fetch("/api/my-module-permissions", {
+      headers: { Authorization: `Bearer ${sessionData.session?.access_token ?? ""}` },
+      cache: "no-store",
+    });
+    const accessResult = await accessResponse.json().catch(() => ({})) as { moduleKeys?: string[] };
+    if (!accessResponse.ok || !accessResult.moduleKeys?.includes("dti")) {
+      window.location.href = "/home";
+      return;
+    }
+
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
       .select("id, full_name, role")
@@ -140,11 +148,6 @@ export default function DtiGradingSetupPage() {
       fullName: profileData.full_name ?? user.email ?? "User",
       role: normalizeRole(profileData.role),
     };
-
-    if (!allowedRoles.includes(loadedProfile.role)) {
-      window.location.href = "/dti";
-      return;
-    }
 
     setProfile(loadedProfile);
     await loadItems();

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../../lib/serverDtiAccess";
 
-type TitanProfile = { full_name?: string | null; email?: string | null; is_disabled?: boolean | null };
 type ChecklistBody = {
   originalItemCode?: unknown;
   itemCode?: unknown;
@@ -20,20 +20,10 @@ function configuredSupabase() {
 }
 
 function clean(value: unknown) { return String(value ?? "").trim(); }
-function normalized(value: unknown) { return clean(value).toLowerCase(); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data: profile, error } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  if (error || !profile) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  const row = profile as TitanProfile;
-  const isWade = normalized(row.full_name) === "wade wisenor" || normalized(row.email || userData.user.email) === "wade@pathfinderinspections.com";
-  if (row.is_disabled || !isWade) return { error: Response.json({ error: "Field Audit checklist management is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 function validatedItem(body: ChecklistBody) {
@@ -54,7 +44,7 @@ function validatedItem(body: ChecklistBody) {
 export async function POST(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const item = validatedItem((await request.json().catch(() => ({}))) as ChecklistBody);
     const { data: existing, error: existingError } = await admin.from("titan_field_audit_checklist").select("item_code,is_active").eq("item_code", item.item_code).maybeSingle();
@@ -74,7 +64,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as ChecklistBody;
     const originalItemCode = clean(body.originalItemCode).toUpperCase();
@@ -92,7 +82,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const admin = configuredSupabase();
-    const authorization = await authorizeWade(request, admin);
+    const authorization = await authorize(request, admin);
     if ("error" in authorization) return authorization.error;
     const body = (await request.json().catch(() => ({}))) as ChecklistBody;
     const itemCode = clean(body.originalItemCode || body.itemCode).toUpperCase();

@@ -1,10 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
-type TitanProfile = {
-  full_name?: string | null;
-  email?: string | null;
-  is_disabled?: boolean | null;
-};
 
 type ReviewBody = {
   action?: unknown;
@@ -51,32 +47,14 @@ function migrationMissing(error: unknown) {
     || message.includes("schema cache");
 }
 
-async function authorizeWade(request: Request, adminSupabase: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-
-  const { data: userData, error: userError } = await adminSupabase.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-
-  const { data: profile, error: profileError } = await adminSupabase
-    .from("profiles")
-    .select("full_name, email, is_disabled")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-  if (profileError || !profile) return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-
-  const row = profile as TitanProfile;
-  const isWade = normalized(row.full_name) === "wade wisenor"
-    || normalized(row.email) === "wade@pathfinderinspections.com"
-    || normalized(userData.user.email) === "wade@pathfinderinspections.com";
-  if (row.is_disabled || !isWade) return { error: Response.json({ error: "Job Intelligence is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+async function authorize(request: Request, adminSupabase: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, adminSupabase);
 }
 
 export async function GET(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
-    const authorization = await authorizeWade(request, adminSupabase);
+    const authorization = await authorize(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
 
     const [candidateResult, specificationResult] = await Promise.all([
@@ -134,7 +112,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
-    const authorization = await authorizeWade(request, adminSupabase);
+    const authorization = await authorize(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
 
     const body = (await request.json().catch(() => ({}))) as ReviewBody;

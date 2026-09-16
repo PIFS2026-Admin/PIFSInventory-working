@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 
 type Body = Record<string, unknown>;
 
@@ -14,15 +15,8 @@ function uuid(value: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function missing(error: unknown) { const value = lower(errorMessage(error)); return value.includes("titan_inspector") || value.includes("titan_competency") || value.includes("schema cache"); }
 
-async function authorizeWade(request: Request, admin: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-  const { data: userData, error: userError } = await admin.auth.getUser(token);
-  if (userError || !userData.user) return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  const { data: profile } = await admin.from("profiles").select("full_name,email,is_disabled").eq("id", userData.user.id).maybeSingle();
-  const isWade = lower(profile?.full_name) === "wade wisenor" || lower(profile?.email || userData.user.email) === "wade@pathfinderinspections.com";
-  if (!profile || profile.is_disabled || !isWade) return { error: Response.json({ error: "The Competency Matrix is currently restricted to Wade." }, { status: 403 }) };
-  return { userId: userData.user.id };
+async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
+  return authorizeDtiAccess(request, admin);
 }
 
 async function activeProfile(admin: ReturnType<typeof configuredSupabase>, id: string) {
@@ -35,7 +29,7 @@ async function activeProfile(admin: ReturnType<typeof configuredSupabase>, id: s
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase();
-    const auth = await authorizeWade(request, admin);
+    const auth = await authorize(request, admin);
     if ("error" in auth) return auth.error;
     const [inspectors, skills, ratings, qualifications, certifications, gaps, profiles, documents] = await Promise.all([
       admin.from("titan_inspectors").select("*").order("created_at"),
@@ -74,7 +68,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const admin = configuredSupabase();
-    const auth = await authorizeWade(request, admin);
+    const auth = await authorize(request, admin);
     if ("error" in auth) return auth.error;
     const body = await request.json().catch(() => ({})) as Body;
     const action = lower(body.action);
@@ -127,7 +121,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const admin = configuredSupabase();
-    const auth = await authorizeWade(request, admin);
+    const auth = await authorize(request, admin);
     if ("error" in auth) return auth.error;
     const body = await request.json().catch(() => ({})) as Body;
     const gapId = text(body.gapId);

@@ -16,8 +16,6 @@ type UserRole =
   | "dti_inspector";
 type JobStatus = "Open" | "In Progress" | "Review" | "Closed";
 
-const DTI_MANAGEMENT_ROLES: UserRole[] = ["admin", "employee", "dti_superintendent", "dti_lead"];
-
 type Company = {
   id: string;
   name: string;
@@ -786,8 +784,8 @@ export default function DtiPage() {
   const [emailingReport, setEmailingReport] = useState(false);
   const [showRedFlagList, setShowRedFlagList] = useState(false);
 
-  const canEdit = false;
-  const canClose = false;
+  const canEdit = Boolean(profile);
+  const canClose = Boolean(profile);
 
   const selectedJob = useMemo(() => {
     return jobs.find((job) => job.id === selectedJobId) ?? null;
@@ -1007,6 +1005,16 @@ export default function DtiPage() {
       return;
     }
 
+    const accessResponse = await fetch("/api/my-module-permissions", {
+      headers: { Authorization: `Bearer ${sessionData.session?.access_token ?? ""}` },
+      cache: "no-store",
+    });
+    const accessResult = await accessResponse.json().catch(() => ({})) as { moduleKeys?: string[] };
+    if (!accessResponse.ok || !accessResult.moduleKeys?.includes("dti")) {
+      window.location.assign("/home");
+      return;
+    }
+
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
       .select("id, full_name, role, company_id")
@@ -1024,21 +1032,6 @@ export default function DtiPage() {
       role: normalizeRole(profileData.role),
       companyId: profileData.company_id ?? null,
     };
-
-    if (loadedProfile.role === "customer") {
-      window.location.assign("/customer");
-      return;
-    }
-
-    if (loadedProfile.role === "dti_inspector") {
-      window.location.assign("/dti-summary");
-      return;
-    }
-
-    if (!DTI_MANAGEMENT_ROLES.includes(loadedProfile.role)) {
-      window.location.assign("/home");
-      return;
-    }
 
     setProfile(loadedProfile);
     setCloseForm((current) => ({
