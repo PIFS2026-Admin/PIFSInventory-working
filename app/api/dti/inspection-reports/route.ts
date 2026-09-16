@@ -69,6 +69,8 @@ function cleanRowData(componentType: DtiComponentType, value: unknown) {
     else cleaned[key] = clean(raw);
     if (field.kind === "number" && cleaned[key] !== null && !Number.isFinite(cleaned[key])) throw new Error(`${field.label} must be a valid number.`);
   }
+  cleaned.boxPassComplete = source.boxPassComplete === true;
+  cleaned.pinPassComplete = source.pinPassComplete === true;
   if (componentType === "Drill Pipe") cleaned.percentNominalWall = calculatePercentNominalWall(cleaned);
   return cleaned;
 }

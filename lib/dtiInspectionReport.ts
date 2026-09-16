@@ -1,5 +1,6 @@
 export type DtiComponentType = "Drill Pipe" | "HWDP" | "Subs";
 export type DtiFieldKind = "text" | "number" | "flag" | "reface";
+export type DtiInspectionPass = "Box" | "Pin" | "Full";
 export type DtiReportField = { key: string; label: string; group: string; kind: DtiFieldKind; end?: "Box" | "Pin" | "Tube" };
 export type DtiInspectionItemLike = { row_data: Record<string, unknown> };
 export type DtiInspectionSummary = {
@@ -47,21 +48,21 @@ const connectionDimensions: DtiReportField[] = [
   field("pinTongSpace", "Pin Tong Space", "Tool Joint", "number", "Pin"),
   field("boxBevelDiameter", "Box Bevel Diameter", "Tool Joint", "number", "Box"),
   field("pinBevelDiameter", "Pin Bevel Diameter", "Tool Joint", "number", "Pin"),
-  field("borebackDiameter", "Boreback Diameter", "Critical Dimensions"),
-  field("borebackLength", "Boreback Length", "Critical Dimensions"),
-  field("stressReliefDiameter", "Stress Relief Groove Diameter", "Critical Dimensions"),
-  field("stressReliefLength", "Stress Relief Groove Length", "Critical Dimensions"),
-  field("counterboreDepth", "Counterbore Depth", "Critical Dimensions"),
-  field("counterboreDiameter", "Counterbore Diameter", "Critical Dimensions"),
-  field("sealWidth", "Seal Width", "Critical Dimensions"),
-  field("pinNoseDiameter", "Pin Nose Diameter", "Critical Dimensions"),
+  field("borebackDiameter", "Boreback Diameter", "Critical Dimensions", "number", "Box"),
+  field("borebackLength", "Boreback Length", "Critical Dimensions", "number", "Box"),
+  field("stressReliefDiameter", "Stress Relief Groove Diameter", "Critical Dimensions", "number", "Pin"),
+  field("stressReliefLength", "Stress Relief Groove Length", "Critical Dimensions", "number", "Pin"),
+  field("counterboreDepth", "Counterbore Depth", "Critical Dimensions", "number", "Box"),
+  field("counterboreDiameter", "Counterbore Diameter", "Critical Dimensions", "number", "Box"),
+  field("sealWidth", "Seal Width", "Critical Dimensions", "number", "Box"),
+  field("pinNoseDiameter", "Pin Nose Diameter", "Critical Dimensions", "number", "Pin"),
 ];
 
 const criticalLengths: DtiReportField[] = [
-  field("boxCriticalLength", "Box Critical Length", "Critical Dimensions"),
-  field("boxLengthAfterRepair", "Box Length After Repair", "Critical Dimensions"),
-  field("pinCriticalLength", "Pin Critical Length", "Critical Dimensions"),
-  field("pinLengthAfterRepair", "Pin Length After Repair", "Critical Dimensions"),
+  field("boxCriticalLength", "Box Critical Length", "Critical Dimensions", "number", "Box"),
+  field("boxLengthAfterRepair", "Box Length After Repair", "Critical Dimensions", "number", "Box"),
+  field("pinCriticalLength", "Pin Critical Length", "Critical Dimensions", "number", "Pin"),
+  field("pinLengthAfterRepair", "Pin Length After Repair", "Critical Dimensions", "number", "Pin"),
 ];
 
 const refaceFields: DtiReportField[] = [
@@ -122,6 +123,12 @@ export const dtiInspectionFields: Record<DtiComponentType, DtiReportField[]> = {
     ...findingFields.filter((item) => !["pittedBox", "pittedPin", "otherDamage4"].includes(item.key)),
   ],
 };
+
+export function dtiInspectionFieldsForPass(componentType: DtiComponentType, pass: DtiInspectionPass) {
+  const fields = dtiInspectionFields[componentType];
+  if (pass === "Full") return fields;
+  return fields.filter((item) => item.group === "Identification" || item.end === pass);
+}
 
 export const dtiRefaceOptions = [
   { value: "DS", label: "DS" },
