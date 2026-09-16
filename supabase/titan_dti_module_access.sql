@@ -7,7 +7,8 @@ do $$
 begin
   if to_regclass('public.profiles') is null
     or to_regclass('public.user_module_permissions') is null
-    or to_regclass('public.user_permission_overrides') is null then
+    or to_regclass('public.user_permission_overrides') is null
+    or to_regprocedure('public.titan_user_can_access_module(uuid,text)') is null then
     raise exception 'Run the TITAN role and person-centered access migrations first.';
   end if;
 end $$;
@@ -19,65 +20,7 @@ stable
 security definer
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.profiles profile
-    where profile.id = auth.uid()
-      and coalesce(profile.is_disabled, false) = false
-      and (
-        lower(profile.role::text) in ('admin', 'owner')
-        or (
-          coalesce(profile.access_configured, false)
-          and exists (
-            select 1
-            from public.user_module_permissions ump
-            where ump.user_id = profile.id
-              and ump.module_key = 'dti'
-              and coalesce(ump.can_access, true)
-          )
-        )
-        or (
-          not coalesce(profile.access_configured, false)
-          and case
-            when exists (
-              select 1
-              from public.user_module_permissions ump
-              where ump.user_id = profile.id
-                and coalesce(ump.can_access, true)
-            ) then exists (
-              select 1
-              from public.user_module_permissions ump
-              where ump.user_id = profile.id
-                and ump.module_key = 'dti'
-                and coalesce(ump.can_access, true)
-            )
-            else
-              coalesce((
-                select upo.is_allowed
-                from public.user_permission_overrides upo
-                where upo.user_id = profile.id
-                  and upo.module_key = 'dti'
-                  and upo.action_key = 'view'
-                limit 1
-              ), lower(profile.role::text) in (
-                'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
-                'dti_lead', 'dti_inspector', 'level_2_inspector', 'lead_inspector'
-              ))
-              or coalesce((
-                select upo.is_allowed
-                from public.user_permission_overrides upo
-                where upo.user_id = profile.id
-                  and upo.module_key = 'lead_scorecards'
-                  and upo.action_key = 'view'
-                limit 1
-              ), lower(profile.role::text) in (
-                'admin', 'owner', 'employee', 'service_line_manager', 'dti_superintendent',
-                'lead_inspector'
-              ))
-          end
-        )
-      )
-  );
+  select coalesce(public.titan_user_can_access_module(auth.uid(), 'dti'), false);
 $$;
 
 revoke all on function public.titan_dti_controls_can_access() from public, anon;
