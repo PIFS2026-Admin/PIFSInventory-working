@@ -1,5 +1,5 @@
 export type DtiComponentType = "Drill Pipe" | "HWDP" | "Subs";
-export type DtiFieldKind = "text" | "number" | "flag" | "reface";
+export type DtiFieldKind = "text" | "number" | "flag" | "reface" | "yesno" | "calculated";
 export type DtiInspectionPass = "Box" | "Pin" | "Full";
 export type DtiReportField = { key: string; label: string; group: string; kind: DtiFieldKind; end?: "Box" | "Pin" | "Tube" };
 export type DtiInspectionItemLike = { row_data: Record<string, unknown> };
@@ -105,8 +105,8 @@ const identification = [field("jointNumber", "Joint Number", "Identification", "
 export const dtiInspectionFields: Record<DtiComponentType, DtiReportField[]> = {
   "Drill Pipe": [
     ...identification,
-    field("odGage", "OD Gage", "Tube"), field("nominalWallThickness", "Nominal Wall Thickness", "Tube"),
-    field("utThickness", "UT Thickness", "Tube"), field("percentNominalWall", "% of Nominal Wall", "Tube"),
+    field("odGage", "OD Gauge", "Tube", "yesno"), field("nominalWallThickness", "Nominal Wall Thickness", "Tube"),
+    field("utThickness", "UT Thickness", "Tube"), field("percentNominalWall", "% of Nominal Wall", "Tube", "calculated"),
     ...connectionDimensions, ...criticalLengths, ...refaceFields, ...findingFields,
   ],
   HWDP: [
@@ -153,11 +153,20 @@ export function normalizeDtiRefaceCode(value: unknown) {
   return code || "RF";
 }
 
-export function normalizeDtiRefaceRowData(rowData: Record<string, unknown>) {
+export function normalizeDtiYesNo(value: unknown) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (["yes", "y", "true", "1"].includes(normalized)) return "Yes";
+  if (["no", "n", "false", "0"].includes(normalized)) return "No";
+  return "";
+}
+
+export function normalizeDtiInspectionRowData(rowData: Record<string, unknown>) {
   return {
     ...rowData,
+    odGage: normalizeDtiYesNo(rowData.odGage),
     boxRefaceType: normalizeDtiRefaceCode(rowData.boxRefaceType),
     pinRefaceType: normalizeDtiRefaceCode(rowData.pinRefaceType),
+    percentNominalWall: calculatePercentNominalWall(rowData),
   };
 }
 
@@ -215,7 +224,9 @@ export function summarizeDtiInspection(items: DtiInspectionItemLike[], component
 }
 
 export function calculatePercentNominalWall(data: Record<string, unknown>) {
+  if (data.nominalWallThickness === "" || data.nominalWallThickness === null || data.nominalWallThickness === undefined) return null;
+  if (data.utThickness === "" || data.utThickness === null || data.utThickness === undefined) return null;
   const nominal = Number(data.nominalWallThickness);
   const measured = Number(data.utThickness);
-  return nominal > 0 && Number.isFinite(measured) ? Number((measured / nominal).toFixed(4)) : null;
+  return nominal > 0 && measured >= 0 && Number.isFinite(measured) ? Number((measured / nominal).toFixed(4)) : null;
 }

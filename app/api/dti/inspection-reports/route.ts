@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 
 type Body = Record<string, unknown>;
 type Row = Record<string, unknown>;
@@ -65,6 +65,8 @@ function cleanRowData(componentType: DtiComponentType, value: unknown) {
   for (const [key, field] of allowed) {
     const raw = source[key];
     if (field.kind === "flag") cleaned[key] = raw === true;
+    else if (field.kind === "yesno") cleaned[key] = normalizeDtiYesNo(raw);
+    else if (field.kind === "calculated") cleaned[key] = null;
     else if (field.kind === "number") cleaned[key] = raw === "" || raw === null || raw === undefined ? null : Number(raw);
     else cleaned[key] = clean(raw);
     if (field.kind === "number" && cleaned[key] !== null && !Number.isFinite(cleaned[key])) throw new Error(`${field.label} must be a valid number.`);

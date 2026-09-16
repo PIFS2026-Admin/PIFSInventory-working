@@ -69,6 +69,7 @@
 .fieldGrid label, .proveUpForm label { display: grid; min-width: 0; gap: 5px; }
 .fieldGrid label > span, .proveUpForm label > span { color: #c7ced9; font-size: 10px; font-weight: 800; }
 .fieldGrid input, .fieldGrid select, .proveUpForm input { width: 100%; min-height: 40px; border: 1px solid #3a4352; border-radius: 6px; background: #0d1218; color: #fff; padding: 8px 10px; }
+.fieldGrid label[data-kind="calculated"] input { background: #171c24; color: #86efac; font-weight: 900; cursor: default; }
 .fieldGrid label[data-kind="flag"] { grid-template-columns: minmax(0,1fr) 40px; align-items: center; min-height: 40px; border: 1px solid #303744; border-radius: 6px; padding: 6px 8px; }
 .fieldGrid label[data-kind="flag"] input { width: 20px; min-height: 20px; justify-self: end; accent-color: #f97316; }
 .editorActions { display: flex; justify-content: flex-end; margin-top: 12px; }
