@@ -32,6 +32,14 @@ export function resolveDtiReportComponentType(inspectionScope: Record<string, un
   return isDtiComponentType(recorded) ? recorded : "Drill Pipe";
 }
 
+export function planDtiInspectionRowCount(existingSequences: number[], requestedCount: number) {
+  const existing = new Set(existingSequences.filter((sequence) => Number.isInteger(sequence) && sequence > 0));
+  return {
+    missingSequences: Array.from({ length: requestedCount }, (_, index) => index + 1).filter((sequence) => !existing.has(sequence)),
+    surplusSequences: [...existing].filter((sequence) => sequence > requestedCount).sort((a, b) => a - b),
+  };
+}
+
 const connectionDimensions: DtiReportField[] = [
   field("boxOd", "Box OD", "Tool Joint", "number", "Box"),
   field("pinId", "Pin ID", "Tool Joint", "number", "Pin"),

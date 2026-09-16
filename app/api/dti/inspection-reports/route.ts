@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 
 type Body = Record<string, unknown>;
 type Row = Record<string, unknown>;
@@ -73,6 +73,34 @@ function cleanRowData(componentType: DtiComponentType, value: unknown) {
   return cleaned;
 }
 
+async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabase>, reportId: string, componentType: DtiComponentType, requestedCount: number, loadedItems: Row[], actorId: string) {
+  const componentItems = loadedItems.filter((item) => clean(item.component_type) === componentType);
+  const plan = planDtiInspectionRowCount(componentItems.map((item) => Number(item.sequence_number)), requestedCount);
+  const surplusSet = new Set(plan.surplusSequences);
+  const surplus = componentItems.filter((item) => surplusSet.has(Number(item.sequence_number)));
+  if (surplus.length) {
+    const { error } = await admin.from("titan_dti_inspection_items").delete().eq("report_id", reportId).in("id", surplus.map((item) => clean(item.id)));
+    if (error) throw error;
+  }
+
+  const missingRows = plan.missingSequences.map((sequenceNumber) => ({
+      report_id: reportId,
+      component_type: componentType,
+      sequence_number: sequenceNumber,
+      row_data: cleanRowData(componentType, { jointNumber: String(sequenceNumber) }),
+      created_by: actorId,
+      updated_by: actorId,
+    }));
+  if (missingRows.length) {
+    const { error } = await admin.from("titan_dti_inspection_items").insert(missingRows);
+    if (error) throw error;
+  }
+
+  if (surplus.length || missingRows.length) {
+    await logEvent(admin, reportId, componentType, null, "Row Count Changed", { count: componentItems.length }, { count: requestedCount }, actorId);
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase(); const authorization = await authorize(request, admin); if ("error" in authorization) return authorization.error;
@@ -113,11 +141,13 @@ export async function POST(request: Request) {
     const reportComponentType = resolveDtiReportComponentType(object(loaded.report.inspection_scope), loaded.items);
 
     if (action === "save-report") {
-      const status = clean(body.status); const reportDate = clean(body.reportDate); const operatorName = clean(body.operatorName);
+      const status = clean(body.status); const reportDate = clean(body.reportDate); const operatorName = clean(body.operatorName); const jointCount = whole(body.jointCount);
       if (!operatorName || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !["Draft", "In Progress", "Complete"].includes(status)) return Response.json({ error: "Complete the operator, report date, and status." }, { status: 400 });
+      if (!Number.isInteger(jointCount) || jointCount < 0 || jointCount > 2000) return Response.json({ error: "Joint count must be a whole number from 0 to 2,000." }, { status: 400 });
       const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { ...object(body.inspectionScope), reportComponentType }, machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId };
       const { data, error } = await admin.from("titan_dti_inspection_reports").update(payload).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, loaded.report.status === status ? "Updated" : "Status Changed", loaded.report, data, authorization.userId);
+      await syncInspectionRowCount(admin, reportId, reportComponentType, jointCount, loaded.items, authorization.userId);
     } else if (action === "delete-report") {
       const { data, error } = await admin.from("titan_dti_inspection_reports").update({ status: "Archived", updated_by: authorization.userId }).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, "Deleted", loaded.report, data, authorization.userId); return Response.json({ ok: true, archived: true });
