@@ -49,7 +49,9 @@ as $$
   ),
   effective_defaults as (
     select
-      p.*,
+      p.id,
+      p.role_key,
+      p.access_configured,
       coalesce((
         select upo.is_allowed
         from public.user_permission_overrides upo
