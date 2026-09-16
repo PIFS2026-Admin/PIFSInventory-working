@@ -73,8 +73,56 @@ function cleanRowData(componentType: DtiComponentType, value: unknown) {
   }
   cleaned.boxPassComplete = source.boxPassComplete === true;
   cleaned.pinPassComplete = source.pinPassComplete === true;
+  cleaned.emiProveUp = source.emiProveUp === true;
+  cleaned.emiProveUpId = validUuid(clean(source.emiProveUpId)) ? clean(source.emiProveUpId) : "";
   if (componentType === "Drill Pipe") cleaned.percentNominalWall = calculatePercentNominalWall(cleaned);
   return cleaned;
+}
+
+async function syncLinkedEmiProveUp(admin: ReturnType<typeof configuredSupabase>, reportId: string, savedItem: Row, loadedProveUps: Row[], actorId: string) {
+  let rowData = object(savedItem.row_data);
+  const linkedId = clean(rowData.emiProveUpId);
+  let linked = validUuid(linkedId) ? loadedProveUps.find((item) => clean(item.id) === linkedId) ?? null : null;
+
+  if (rowData.emiProveUp === true) {
+    const jointNumber = clean(rowData.jointNumber) || String(savedItem.sequence_number);
+    const serialNumber = clean(rowData.serialNumber) || null;
+    if (linked) {
+      if (clean(linked.joint_number) !== jointNumber || clean(linked.serial_number) !== clean(serialNumber)) {
+        const updatePayload = { joint_number: jointNumber, serial_number: serialNumber, updated_by: actorId };
+        let updated = await admin.from("titan_dti_emi_prove_ups").update(updatePayload).eq("id", linked.id).eq("report_id", reportId).select("*").single();
+        if (updated.error && legacyRowTrigger(updated.error)) updated = await replaceLegacyTriggeredRow(admin, "titan_dti_emi_prove_ups", linked, updatePayload);
+        if (updated.error) throw updated.error;
+        await logEvent(admin, reportId, "EMI Prove-Up", clean(linked.id), "Updated", linked, updated.data, actorId);
+        linked = updated.data;
+      }
+    } else {
+      const latest = await admin.from("titan_dti_emi_prove_ups").select("sequence_number").eq("report_id", reportId).order("sequence_number", { ascending: false }).limit(1).maybeSingle();
+      if (latest.error) throw latest.error;
+      const payload = { report_id: reportId, sequence_number: Number(latest.data?.sequence_number ?? 0) + 1, joint_number: jointNumber, serial_number: serialNumber, updated_by: actorId, created_by: actorId };
+      const created = await admin.from("titan_dti_emi_prove_ups").insert(payload).select("*").single();
+      if (created.error) throw created.error;
+      const createdData = created.data as Row;
+      linked = createdData;
+      await logEvent(admin, reportId, "EMI Prove-Up", clean(createdData.id), "Created", null, createdData, actorId);
+    }
+    if (!linked) throw new Error("TITAN could not link the EMI prove-up to this joint.");
+    rowData = { ...rowData, emiProveUp: true, emiProveUpId: clean(linked.id) };
+  } else {
+    if (linked) {
+      const deleted = await admin.from("titan_dti_emi_prove_ups").delete().eq("id", linked.id).eq("report_id", reportId);
+      if (deleted.error) throw deleted.error;
+      await logEvent(admin, reportId, "EMI Prove-Up", clean(linked.id), "Deleted", linked, null, actorId);
+    }
+    rowData = { ...rowData, emiProveUp: false, emiProveUpId: "" };
+  }
+
+  if (clean(object(savedItem.row_data).emiProveUpId) !== clean(rowData.emiProveUpId)) {
+    const payload = { row_data: rowData, updated_by: actorId };
+    let updated = await admin.from("titan_dti_inspection_items").update(payload).eq("id", savedItem.id).eq("report_id", reportId).select("*").single();
+    if (updated.error && legacyRowTrigger(updated.error)) updated = await replaceLegacyTriggeredRow(admin, "titan_dti_inspection_items", savedItem, payload);
+    if (updated.error) throw updated.error;
+  }
 }
 
 async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabase>, reportId: string, componentType: DtiComponentType, requestedCount: number, loadedItems: Row[], actorId: string) {
@@ -83,6 +131,14 @@ async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabas
   const surplusSet = new Set(plan.surplusSequences);
   const surplus = componentItems.filter((item) => surplusSet.has(Number(item.sequence_number)));
   if (surplus.length) {
+    const linkedIds = surplus.map((item) => clean(object(item.row_data).emiProveUpId)).filter(validUuid);
+    if (linkedIds.length) {
+      const linked = await admin.from("titan_dti_emi_prove_ups").select("*").eq("report_id", reportId).in("id", linkedIds);
+      if (linked.error) throw linked.error;
+      const deletedLinks = await admin.from("titan_dti_emi_prove_ups").delete().eq("report_id", reportId).in("id", linkedIds);
+      if (deletedLinks.error) throw deletedLinks.error;
+      for (const proveUp of linked.data ?? []) await logEvent(admin, reportId, "EMI Prove-Up", clean(proveUp.id), "Deleted", proveUp, null, actorId);
+    }
     const { error } = await admin.from("titan_dti_inspection_items").delete().eq("report_id", reportId).in("id", surplus.map((item) => clean(item.id)));
     if (error) throw error;
   }
@@ -166,9 +222,16 @@ export async function POST(request: Request) {
       let result = prior ? await admin.from("titan_dti_inspection_items").update(payload).eq("id", prior.id).select("*").single() : await admin.from("titan_dti_inspection_items").insert({ ...payload, created_by: authorization.userId }).select("*").single();
       if (prior && result.error && legacyRowTrigger(result.error)) result = await replaceLegacyTriggeredRow(admin, "titan_dti_inspection_items", prior, payload);
       if (result.error) throw result.error; await logEvent(admin, reportId, componentType, result.data.id, prior ? "Updated" : "Created", prior, result.data, authorization.userId);
+      await syncLinkedEmiProveUp(admin, reportId, result.data, loaded.proveUps, authorization.userId);
     } else if (action === "delete-item") {
       const itemId = clean(body.itemId); if (!validUuid(itemId)) return Response.json({ error: "Select a valid inspection row." }, { status: 400 });
       const prior = loaded.items.find((item) => item.id === itemId); if (!prior) return Response.json({ error: "Inspection row not found." }, { status: 404 });
+      const linkedProveUpId = clean(object(prior.row_data).emiProveUpId);
+      const linkedProveUp = validUuid(linkedProveUpId) ? loaded.proveUps.find((item) => clean(item.id) === linkedProveUpId) : null;
+      if (linkedProveUp) {
+        const linkedDelete = await admin.from("titan_dti_emi_prove_ups").delete().eq("id", linkedProveUpId).eq("report_id", reportId); if (linkedDelete.error) throw linkedDelete.error;
+        await logEvent(admin, reportId, "EMI Prove-Up", linkedProveUpId, "Deleted", linkedProveUp, null, authorization.userId);
+      }
       const { error } = await admin.from("titan_dti_inspection_items").delete().eq("id", itemId).eq("report_id", reportId); if (error) throw error;
       await logEvent(admin, reportId, clean(prior.component_type), itemId, "Deleted", prior, null, authorization.userId);
     } else if (action === "save-prove-up") {
@@ -184,6 +247,13 @@ export async function POST(request: Request) {
       const prior = loaded.proveUps.find((item) => item.id === proveUpId); if (!prior) return Response.json({ error: "Prove-up row not found." }, { status: 404 });
       const { error } = await admin.from("titan_dti_emi_prove_ups").delete().eq("id", proveUpId).eq("report_id", reportId); if (error) throw error;
       await logEvent(admin, reportId, "EMI Prove-Up", proveUpId, "Deleted", prior, null, authorization.userId);
+      const linkedItem = loaded.items.find((item) => clean(object(item.row_data).emiProveUpId) === proveUpId);
+      if (linkedItem) {
+        const payload = { row_data: { ...object(linkedItem.row_data), emiProveUp: false, emiProveUpId: "" }, updated_by: authorization.userId };
+        let updated = await admin.from("titan_dti_inspection_items").update(payload).eq("id", linkedItem.id).eq("report_id", reportId).select("*").single();
+        if (updated.error && legacyRowTrigger(updated.error)) updated = await replaceLegacyTriggeredRow(admin, "titan_dti_inspection_items", linkedItem, payload);
+        if (updated.error) throw updated.error;
+      }
     } else return Response.json({ error: "Unsupported inspection report action." }, { status: 400 });
 
     return Response.json({ ok: true, ...(await loadReport(admin, reportId)) });
