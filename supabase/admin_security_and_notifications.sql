@@ -334,6 +334,7 @@ values
   ('issue_ticket_created', 'Issue Ticket Created', 'Inventory issue ticket is created.', 60),
   ('daily_summary', 'Daily Summary', 'DTI daily summary is posted.', 70),
   ('dti_summary', 'DTI Summary', 'DTI scorecard or summary is posted.', 80),
+  ('dti_inspection_threshold_alert', 'DTI DBR and Repair Threshold', 'A DTI inspection report reaches 10% DBR joints or 10% qualifying box and pin repairs. Refaces and hardbanding are excluded.', 85),
   ('inventory_adjustment', 'Inventory Adjustment', 'Inventory quantity or pricing is adjusted.', 90),
   ('low_stock_alert', 'Low Stock Alert', 'Inventory item drops below minimum quantity.', 100),
   ('inventory_weekly_report', 'Weekly Inventory Report', 'Weekly consumables issue spend and usage summary is emailed.', 110),

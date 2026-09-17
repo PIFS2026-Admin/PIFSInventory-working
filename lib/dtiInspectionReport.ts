@@ -17,6 +17,19 @@ export type DtiInspectionSummary = {
   centerPad1: number;
   centerPad2: number;
 };
+export type DtiThresholdMetrics = {
+  totalJoints: number;
+  dbrJoints: number;
+  boxRepairs: number;
+  pinRepairs: number;
+  totalRepairs: number;
+  dbrPercent: number;
+  repairPercent: number;
+  dbrAlert: boolean;
+  repairAlert: boolean;
+};
+
+export const DTI_ALERT_THRESHOLD_PERCENT = 10;
 
 const field = (key: string, label: string, group: string, kind: DtiFieldKind = "number", end?: DtiReportField["end"]): DtiReportField => ({ key, label, group, kind, end });
 
@@ -193,6 +206,14 @@ const dbrKeys = [
   "minimumTongPin", "minimumSealBox", "minimumSealPin", "minimumOd", "damagedTube",
   "emiReject", "otherReject",
 ];
+const boxRepairAlertKeys = [
+  "damagedSealBox", "damagedThreadsBox", "damagedTorqueShoulderBox", "pittedBox",
+  "overRefacedBox", "threadReconditionBox", "bevelRepairBox",
+];
+const pinRepairAlertKeys = [
+  "damagedSealPin", "damagedThreadsPin", "damagedTorqueShoulderPin", "pittedPin",
+  "overRefacedPin", "threadReconditionPin", "bevelRepairPin",
+];
 
 function marked(value: unknown) {
   return value === true || (typeof value === "string" && value.trim() !== "");
@@ -220,6 +241,32 @@ export function summarizeDtiInspection(items: DtiInspectionItemLike[], component
     dbrHardbands: countMarked(items, "dbrHardbandBox") + countMarked(items, "dbrHardbandPin"),
     centerPad1: componentType === "HWDP" ? countMarked(items, "hardbandCenterPad1") : 0,
     centerPad2: componentType === "HWDP" ? countMarked(items, "hardbandCenterPad2") : 0,
+  };
+}
+
+export function calculateDtiThresholdMetrics(
+  items: DtiInspectionItemLike[],
+  totalJointCount = items.length,
+): DtiThresholdMetrics {
+  const totalJoints = Math.max(0, Math.trunc(totalJointCount));
+  const dbrJoints = items.filter((item) => dbrKeys.some((key) => marked(item.row_data[key]))).length;
+  const boxRepairs = items.filter((item) => boxRepairAlertKeys.some((key) => marked(item.row_data[key]))).length;
+  const pinRepairs = items.filter((item) => pinRepairAlertKeys.some((key) => marked(item.row_data[key]))).length;
+  const totalRepairs = boxRepairs + pinRepairs;
+  const dbrPercent = totalJoints > 0 ? (dbrJoints / totalJoints) * 100 : 0;
+  const repairPercent = totalJoints > 0 ? (totalRepairs / totalJoints) * 100 : 0;
+
+  return {
+    totalJoints,
+    dbrJoints,
+    boxRepairs,
+    pinRepairs,
+    totalRepairs,
+    dbrPercent,
+    repairPercent,
+    // Use integer math so an exact 10% (for example, 50 of 500) always alerts.
+    dbrAlert: totalJoints > 0 && dbrJoints * 10 >= totalJoints,
+    repairAlert: totalJoints > 0 && totalRepairs * 10 >= totalJoints,
   };
 }
 

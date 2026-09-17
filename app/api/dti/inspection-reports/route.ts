@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { evaluateDtiThresholdAlerts } from "../../../../lib/dtiThresholdAlerts";
+
+export const runtime = "nodejs";
 
 type Body = Record<string, unknown>;
 type Row = Record<string, unknown>;
@@ -33,6 +36,45 @@ async function loadReport(admin: ReturnType<typeof configuredSupabase>, reportId
   if (reportResult.error) throw reportResult.error; if (itemsResult.error) throw itemsResult.error; if (proveUpsResult.error) throw proveUpsResult.error;
   if (!reportResult.data) return null;
   return { report: reportResult.data, items: itemsResult.data ?? [], proveUps: proveUpsResult.data ?? [] };
+}
+
+async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredSupabase>) {
+  const [setsResult, versionsResult] = await Promise.all([
+    admin.from("titan_dti_criteria_sets").select("id,name,standard_type,component_type,customer_name").is("archived_at", null),
+    admin.from("titan_dti_criteria_versions").select("id,criteria_set_id,version_number,effective_date,source_document_id,published_at").eq("status", "Published").order("version_number", { ascending: false }),
+  ]);
+  if (setsResult.error || versionsResult.error) {
+    const message = normalized(setsResult.error?.message || versionsResult.error?.message);
+    if (message.includes("titan_dti_criteria") || message.includes("schema cache")) return [];
+    throw setsResult.error || versionsResult.error;
+  }
+  const sets = new Map((setsResult.data ?? []).map((criteriaSet) => [criteriaSet.id, criteriaSet]));
+  return (versionsResult.data ?? []).flatMap((version) => {
+    const criteriaSet = sets.get(version.criteria_set_id);
+    return criteriaSet ? [{ ...version, criteria_set: criteriaSet }] : [];
+  });
+}
+
+async function loadCriteriaSnapshot(admin: ReturnType<typeof configuredSupabase>, versionId: string, componentType: DtiComponentType) {
+  if (!validUuid(versionId)) throw new Error("Select a valid published acceptance criteria version.");
+  const versionResult = await admin.from("titan_dti_criteria_versions").select("*").eq("id", versionId).eq("status", "Published").maybeSingle();
+  if (versionResult.error) throw versionResult.error;
+  if (!versionResult.data) throw new Error("Published acceptance criteria version not found.");
+  const [setResult, rulesResult, documentResult] = await Promise.all([
+    admin.from("titan_dti_criteria_sets").select("*").eq("id", versionResult.data.criteria_set_id).is("archived_at", null).maybeSingle(),
+    admin.from("titan_dti_criteria_rules").select("*").eq("criteria_version_id", versionId).eq("is_active", true).order("display_order"),
+    admin.from("documents").select("id,title,document_number,approval_status,document_status,status").eq("id", versionResult.data.source_document_id).maybeSingle(),
+  ]);
+  if (setResult.error) throw setResult.error; if (rulesResult.error) throw rulesResult.error; if (documentResult.error) throw documentResult.error;
+  if (!setResult.data || setResult.data.component_type !== componentType) throw new Error(`Select published criteria for ${componentType}.`);
+  if (!rulesResult.data?.length) throw new Error("Published criteria must contain active rules.");
+  return {
+    capturedAt: new Date().toISOString(),
+    criteriaSet: setResult.data,
+    version: versionResult.data,
+    sourceDocument: documentResult.data,
+    rules: rulesResult.data,
+  };
 }
 
 async function logEvent(admin: ReturnType<typeof configuredSupabase>, reportId: string, entityType: string, entityId: string | null, eventType: string, beforeValue: unknown, afterValue: unknown, actorId: string) {
@@ -159,14 +201,15 @@ export async function GET(request: Request) {
     const reportId = clean(new URL(request.url).searchParams.get("reportId"));
     if (reportId) {
       if (!validUuid(reportId)) return Response.json({ error: "Select a valid inspection report." }, { status: 400 });
-      const data = await loadReport(admin, reportId); return data ? Response.json({ ok: true, ...data }) : Response.json({ error: "Inspection report not found." }, { status: 404 });
+      const [data, criteriaVersions] = await Promise.all([loadReport(admin, reportId), loadPublishedCriteriaOptions(admin)]); return data ? Response.json({ ok: true, ...data, criteriaVersions }) : Response.json({ error: "Inspection report not found." }, { status: 404 });
     }
-    const [reports, jobs] = await Promise.all([
+    const [reports, jobs, criteriaVersions] = await Promise.all([
       admin.from("titan_dti_inspection_reports").select("*").neq("status", "Archived").order("report_date", { ascending: false }).order("created_at", { ascending: false }).limit(500),
       admin.from("titan_jobs").select("id,job_number,title,customer_name,rig_name,lifecycle_status").ilike("service_line", "DTI").order("created_at", { ascending: false }).limit(500),
+      loadPublishedCriteriaOptions(admin),
     ]);
     if (reports.error) throw reports.error; if (jobs.error) throw jobs.error;
-    return Response.json({ ok: true, reports: reports.data ?? [], jobs: jobs.data ?? [] });
+    return Response.json({ ok: true, reports: reports.data ?? [], jobs: jobs.data ?? [], criteriaVersions });
   } catch (error) {
     console.error("DTI inspection report load failed", error);
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_inspection_reports.sql before using Inspection Reports." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
@@ -196,7 +239,13 @@ export async function POST(request: Request) {
       const status = clean(body.status); const reportDate = clean(body.reportDate); const operatorName = clean(body.operatorName); const jointCount = whole(body.jointCount);
       if (!operatorName || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !["Draft", "In Progress", "Complete"].includes(status)) return Response.json({ error: "Complete the operator, report date, and status." }, { status: 400 });
       if (!Number.isInteger(jointCount) || jointCount < 0 || jointCount > 2000) return Response.json({ error: "Joint count must be a whole number from 0 to 2,000." }, { status: 400 });
-      const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { ...object(body.inspectionScope), reportComponentType }, machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId };
+      const criteriaVersionId = clean(body.criteriaVersionId);
+      const supportsCriteria = Object.prototype.hasOwnProperty.call(loaded.report, "criteria_version_id") || Boolean(criteriaVersionId);
+      const sameCriteriaVersion = criteriaVersionId && criteriaVersionId === clean(loaded.report.criteria_version_id);
+      const criteriaSnapshot = sameCriteriaVersion && loaded.report.criteria_snapshot
+        ? loaded.report.criteria_snapshot
+        : criteriaVersionId ? await loadCriteriaSnapshot(admin, criteriaVersionId, reportComponentType) : null;
+      const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { ...object(body.inspectionScope), reportComponentType }, machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId, ...(supportsCriteria ? { criteria_version_id: criteriaVersionId || null, criteria_snapshot: criteriaSnapshot } : {}) };
       const { data, error } = await admin.from("titan_dti_inspection_reports").update(payload).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, loaded.report.status === status ? "Updated" : "Status Changed", loaded.report, data, authorization.userId);
       await syncInspectionRowCount(admin, reportId, reportComponentType, jointCount, loaded.items, authorization.userId);
@@ -248,7 +297,23 @@ export async function POST(request: Request) {
       }
     } else return Response.json({ error: "Unsupported inspection report action." }, { status: 400 });
 
-    return Response.json({ ok: true, ...(await loadReport(admin, reportId)) });
+    const refreshed = await loadReport(admin, reportId);
+    let alertWarning = "";
+    if (refreshed && ["save-report", "save-item", "delete-item"].includes(action)) {
+      try {
+        await evaluateDtiThresholdAlerts({
+          admin,
+          report: refreshed.report,
+          items: refreshed.items,
+          actorId: authorization.userId,
+        });
+      } catch (alertError) {
+        console.error("DTI inspection threshold alert evaluation failed", alertError);
+        alertWarning = "The inspection was saved, but TITAN could not evaluate the DBR/repair alert. Check the threshold-alert setup.";
+      }
+    }
+
+    return Response.json({ ok: true, ...refreshed, criteriaVersions: await loadPublishedCriteriaOptions(admin), ...(alertWarning ? { alertWarning } : {}) });
   } catch (error) {
     console.error("DTI inspection report mutation failed", error);
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_inspection_reports.sql before using Inspection Reports." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
