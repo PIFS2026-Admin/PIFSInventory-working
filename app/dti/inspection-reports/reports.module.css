@@ -34,7 +34,7 @@
 .syncBar strong { margin-top: 3px; }
 .syncBar button { min-height: 36px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #fff; padding: 7px 11px; font-weight: 850; }
 .saved { margin-top: 10px; border: 1px solid #166534; border-radius: 6px; background: #102418; color: #bbf7d0; padding: 11px 13px; }
-.reportBand { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 1px; margin-top: 10px; border: 1px solid #303744; border-radius: 7px; overflow: hidden; background: #303744; }
+.reportBand { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 1px; margin-top: 10px; border: 1px solid #303744; border-radius: 7px; overflow: hidden; background: #303744; }
 .reportBand > div { min-width: 0; background: #12171f; padding: 10px 12px; }
 .reportBand span, .reportBand strong { display: block; }
 .reportBand span { color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
@@ -145,12 +145,19 @@
 .printPreview .printMatrix tbody td { white-space: nowrap; overflow: hidden; text-overflow: clip; }
 .printPreview .printFooter { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-top: 2px solid #111; margin-top: 20px; padding-top: 8px; }
 .printPreview .printFooter div { display: grid; gap: 2px; }
-.itemList article { display: grid; grid-template-columns: 1fr .8fr .45fr auto; align-items: center; gap: 10px; border-top: 1px solid #29303b; border-left: 4px solid #22c55e; padding: 10px 12px; }
+.itemList article { display: grid; grid-template-columns: 1fr .8fr .4fr .75fr auto; align-items: center; gap: 10px; border-top: 1px solid #29303b; border-left: 4px solid #22c55e; padding: 10px 12px; }
 .itemList article[data-pending="true"] { border-left-color: #f59e0b; background: rgba(245,158,11,.05); }
 .itemList span, .itemList strong, .itemList small { display: block; }
 .itemList span { color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .itemList strong { margin-top: 3px; }
 .itemList small { margin-top: 3px; color: #aab2c0; }
+.classification { min-width: 0; border-left: 3px solid #64748b; padding-left: 9px; }
+.classification[data-classification="Premium"] { border-left-color: #22c55e; }
+.classification[data-classification="Class 1"], .classification[data-classification="Class 2"] { border-left-color: #84cc16; }
+.classification[data-classification="Class 3"], .classification[data-classification="Class 4"] { border-left-color: #f59e0b; }
+.classification[data-classification="NI"], .classification[data-classification="NC"], .classification[data-classification="DBR"] { border-left-color: #ef4444; }
+.classification[data-classification="Pending"] { border-left-color: #f97316; }
+.classification small { overflow-wrap: anywhere; }
 .proveUpForm { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: flex-end; gap: 8px; border-bottom: 1px solid #303744; padding: 12px; }
 @media (max-width: 800px) { .formGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .list article { grid-template-columns: 1fr auto; } }
 @media (max-width: 900px) { .fieldGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .proveUpForm { grid-template-columns: repeat(2,minmax(0,1fr)); } .itemList article { grid-template-columns: 1fr 1fr; } .summaryGrid { grid-template-columns: repeat(3,minmax(0,1fr)); } .setupSections { grid-template-columns: 1fr; } }

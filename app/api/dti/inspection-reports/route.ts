@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
 import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 import { evaluateDtiThresholdAlerts } from "../../../../lib/dtiThresholdAlerts";
+import { evaluateDtiCriteria, type DtiCriteriaSnapshot } from "../../../../lib/dtiCriteriaEngine";
 
 export const runtime = "nodejs";
 
@@ -22,6 +23,7 @@ function object(value: unknown) { return value && typeof value === "object" && !
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("titan_dti_inspection_report") || value.includes("titan_dti_emi_prove_up") || value.includes("schema cache"); }
 function legacyRowTrigger(error: unknown) { return (error as { code?: unknown })?.code === "42703" && normalized(errorMessage(error)).includes("report_number"); }
+function gradingMigrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("grading_result") || value.includes("grading_criteria_version_id") || value.includes("value_unit") || value.includes("schema cache"); }
 
 async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   return authorizeDtiAccess(request, admin);
@@ -195,6 +197,27 @@ async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabas
   }
 }
 
+async function saveItemGrade(admin: ReturnType<typeof configuredSupabase>, report: Row, item: Row, actorId: string) {
+  const snapshot = object(report.criteria_snapshot) as DtiCriteriaSnapshot;
+  const result = report.criteria_version_id ? evaluateDtiCriteria(object(item.row_data), snapshot) : null;
+  const payload = {
+    grading_result: result,
+    graded_at: result?.gradedAt ?? null,
+    grading_criteria_version_id: result?.criteriaVersionId || null,
+    updated_by: actorId,
+  };
+  let saved = await admin.from("titan_dti_inspection_items").update(payload).eq("id", item.id).eq("report_id", report.id).select("*").single();
+  if (saved.error && legacyRowTrigger(saved.error)) saved = await replaceLegacyTriggeredRow(admin, "titan_dti_inspection_items", item, payload);
+  if (saved.error) throw saved.error;
+}
+
+async function gradeReportItems(admin: ReturnType<typeof configuredSupabase>, report: Row, items: Row[], actorId: string, itemId?: string | null) {
+  const targets = itemId ? items.filter((item) => clean(item.id) === itemId) : items;
+  for (let start = 0; start < targets.length; start += 50) {
+    await Promise.all(targets.slice(start, start + 50).map((item) => saveItemGrade(admin, report, item, actorId)));
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const admin = configuredSupabase(); const authorization = await authorize(request, admin); if ("error" in authorization) return authorization.error;
@@ -234,6 +257,7 @@ export async function POST(request: Request) {
     if (!validUuid(reportId)) return Response.json({ error: "Select a valid inspection report." }, { status: 400 });
     const loaded = await loadReport(admin, reportId); if (!loaded) return Response.json({ error: "Inspection report not found." }, { status: 404 });
     const reportComponentType = resolveDtiReportComponentType(object(loaded.report.inspection_scope), loaded.items);
+    let gradingTargetId = "";
 
     if (action === "save-report") {
       const status = clean(body.status); const reportDate = clean(body.reportDate); const operatorName = clean(body.operatorName); const jointCount = whole(body.jointCount);
@@ -262,7 +286,7 @@ export async function POST(request: Request) {
       const payload = { report_id: reportId, component_type: componentType, sequence_number: sequenceNumber, row_data: rowData, updated_by: authorization.userId };
       let result = prior ? await admin.from("titan_dti_inspection_items").update(payload).eq("id", prior.id).select("*").single() : await admin.from("titan_dti_inspection_items").insert({ ...payload, created_by: authorization.userId }).select("*").single();
       if (prior && result.error && legacyRowTrigger(result.error)) result = await replaceLegacyTriggeredRow(admin, "titan_dti_inspection_items", prior, payload);
-      if (result.error) throw result.error; await logEvent(admin, reportId, componentType, result.data.id, prior ? "Updated" : "Created", prior, result.data, authorization.userId);
+      if (result.error) throw result.error; gradingTargetId = clean(result.data.id); await logEvent(admin, reportId, componentType, result.data.id, prior ? "Updated" : "Created", prior, result.data, authorization.userId);
       await syncLinkedEmiProveUp(admin, reportId, result.data, loaded.proveUps, authorization.userId);
     } else if (action === "delete-item") {
       const itemId = clean(body.itemId); if (!validUuid(itemId)) return Response.json({ error: "Select a valid inspection row." }, { status: 400 });
@@ -297,7 +321,19 @@ export async function POST(request: Request) {
       }
     } else return Response.json({ error: "Unsupported inspection report action." }, { status: 400 });
 
-    const refreshed = await loadReport(admin, reportId);
+    let refreshed = await loadReport(admin, reportId);
+    let gradingWarning = "";
+    if (refreshed && ["save-report", "save-item"].includes(action)) {
+      try {
+        await gradeReportItems(admin, refreshed.report, refreshed.items, authorization.userId, action === "save-item" ? gradingTargetId : null);
+        refreshed = await loadReport(admin, reportId);
+      } catch (gradingError) {
+        console.error("DTI automatic classification failed", gradingError);
+        gradingWarning = gradingMigrationMissing(gradingError)
+          ? "The inspection was saved, but automatic classification needs the Phase 2 database update."
+          : "The inspection was saved, but TITAN could not update the automatic classification.";
+      }
+    }
     let alertWarning = "";
     if (refreshed && ["save-report", "save-item", "delete-item"].includes(action)) {
       try {
@@ -313,7 +349,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({ ok: true, ...refreshed, criteriaVersions: await loadPublishedCriteriaOptions(admin), ...(alertWarning ? { alertWarning } : {}) });
+    return Response.json({ ok: true, ...refreshed, criteriaVersions: await loadPublishedCriteriaOptions(admin), ...(gradingWarning ? { gradingWarning } : {}), ...(alertWarning ? { alertWarning } : {}) });
   } catch (error) {
     console.error("DTI inspection report mutation failed", error);
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_inspection_reports.sql before using Inspection Reports." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });

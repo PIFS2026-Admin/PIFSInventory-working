@@ -8,7 +8,8 @@ type Row = Record<string, unknown>;
 const standards = ["API", "DS-1", "Class 2 Alternate", "Customer"];
 const comparisons = ["Minimum", "Maximum", "Range", "Equals", "Required"];
 const classifications = ["Premium", "Class 1", "Class 2", "Class 3", "Class 4", "DBR", "NI", "NC"];
-const inspectionAreas = ["Tube", "Box", "Pin", "Joint"];
+const inspectionAreas = ["Tube", "Box", "Pin", "Tool Joint", "Joint"];
+const valueUnits = ["Inches", "Percent", "Yes/No", "Count", "Text"];
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -23,6 +24,7 @@ function numberOrNull(value: unknown) { if (value === "" || value === null || va
 function whole(value: unknown) { const parsed = Number(value); return Number.isInteger(parsed) ? parsed : NaN; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function migrationMissing(error: unknown) { const value = lower(errorMessage(error)); return value.includes("titan_dti_criteria") || value.includes("criteria_version_id") || value.includes("schema cache"); }
+function phaseTwoMissing(error: unknown) { return lower(errorMessage(error)).includes("value_unit"); }
 
 async function logEvent(admin: ReturnType<typeof adminClient>, values: {
   criteriaSetId: string; criteriaVersionId?: string | null; entityType: string; entityId?: string | null;
@@ -79,6 +81,7 @@ function validateRule(body: Body, componentType: DtiComponentType) {
   const minimumValue = numberOrNull(body.minimumValue);
   const maximumValue = numberOrNull(body.maximumValue);
   const expectedValue = text(body.expectedValue);
+  const valueUnit = text(body.valueUnit);
   if (!text(body.ruleName) || !field) throw new Error("Rule name and a valid inspection field are required.");
   if (!comparisons.includes(comparison) || !classifications.includes(classification) || !inspectionAreas.includes(inspectionArea)) throw new Error("Select valid rule options.");
   if (Number.isNaN(minimumValue) || Number.isNaN(maximumValue)) throw new Error("Rule limits must be valid numbers.");
@@ -87,7 +90,8 @@ function validateRule(body: Body, componentType: DtiComponentType) {
   if (comparison === "Range" && (minimumValue === null || maximumValue === null || maximumValue < minimumValue)) throw new Error("Enter a valid minimum and maximum range.");
   if (comparison === "Equals" && !expectedValue) throw new Error("Enter the required value.");
   if (!text(body.reason)) throw new Error("A classification reason is required.");
-  return { field, fieldKey, comparison, classification, inspectionArea, minimumValue, maximumValue, expectedValue };
+  if (!valueUnits.includes(valueUnit)) throw new Error("Select a valid value unit.");
+  return { field, fieldKey, comparison, classification, inspectionArea, minimumValue, maximumValue, expectedValue, valueUnit };
 }
 
 export async function GET(request: Request) {
@@ -97,7 +101,7 @@ export async function GET(request: Request) {
     if ("error" in authorization) return authorization.error;
     return Response.json({ ok: true, ...(await loadData(admin)) });
   } catch (error) {
-    return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before opening Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
+    return Response.json({ error: phaseTwoMissing(error) ? "Run supabase/titan_dti_automatic_classification.sql before editing Phase 2 criteria." : migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before opening Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
 }
 
@@ -138,6 +142,7 @@ export async function POST(request: Request) {
           criteria_version_id: created.data.id, rule_name: rule.rule_name, field_key: rule.field_key,
           field_label: rule.field_label, inspection_area: rule.inspection_area, comparison: rule.comparison,
           minimum_value: rule.minimum_value, maximum_value: rule.maximum_value, expected_value: rule.expected_value,
+          value_unit: rule.value_unit,
           result_classification: rule.result_classification, reason: rule.reason, display_order: rule.display_order,
           is_active: rule.is_active, created_by: authorization.userId, updated_by: authorization.userId,
         }));
@@ -155,7 +160,7 @@ export async function POST(request: Request) {
       if (loaded.version.status !== "Draft") return Response.json({ error: "Only draft criteria rules can be edited." }, { status: 409 });
       const componentType = text(loaded.criteriaSet.component_type) as DtiComponentType;
       const checked = validateRule(body, componentType); const ruleId = text(body.ruleId); const displayOrder = whole(body.displayOrder);
-      const payload = { criteria_version_id: versionId, rule_name: text(body.ruleName), field_key: checked.fieldKey, field_label: checked.field.label, inspection_area: checked.inspectionArea, comparison: checked.comparison, minimum_value: checked.minimumValue, maximum_value: checked.maximumValue, expected_value: checked.expectedValue || null, result_classification: checked.classification, reason: text(body.reason), display_order: Number.isInteger(displayOrder) ? displayOrder : 0, is_active: body.isActive !== false, updated_by: authorization.userId, updated_at: new Date().toISOString() };
+      const payload = { criteria_version_id: versionId, rule_name: text(body.ruleName), field_key: checked.fieldKey, field_label: checked.field.label, inspection_area: checked.inspectionArea, comparison: checked.comparison, minimum_value: checked.minimumValue, maximum_value: checked.maximumValue, expected_value: checked.expectedValue || null, value_unit: checked.valueUnit, result_classification: checked.classification, reason: text(body.reason), display_order: Number.isInteger(displayOrder) ? displayOrder : 0, is_active: body.isActive !== false, updated_by: authorization.userId, updated_at: new Date().toISOString() };
       let prior: Row | null = null; let saved;
       if (validUuid(ruleId)) { const result = await admin.from("titan_dti_criteria_rules").select("*").eq("id", ruleId).eq("criteria_version_id", versionId).single(); if (result.error) throw result.error; prior = result.data; saved = await admin.from("titan_dti_criteria_rules").update(payload).eq("id", ruleId).select("*").single(); }
       else saved = await admin.from("titan_dti_criteria_rules").insert({ ...payload, created_by: authorization.userId }).select("*").single();
@@ -187,6 +192,6 @@ export async function POST(request: Request) {
 
     return Response.json({ ok: true, ...(await loadData(admin)) });
   } catch (error) {
-    return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before changing Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
+    return Response.json({ error: phaseTwoMissing(error) ? "Run supabase/titan_dti_automatic_classification.sql before editing Phase 2 criteria." : migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before changing Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
 }
