@@ -50,6 +50,8 @@ next-env.d.ts
 /.tempGitPath
 /tmp/
 /_tmp_*
+__pycache__/
+*.pyc
 
 # local logs and one-off diagnostics
 *.log

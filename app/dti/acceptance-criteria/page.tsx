@@ -45,10 +45,24 @@ function defaultUnit(fieldKey: string, kind: string) {
 
 export default function AcceptanceCriteriaPage() {
   const [data, setData] = useState<Data | null>(null); const [message, setMessage] = useState("Loading acceptance criteria...");
+  const [loadedRules, setLoadedRules] = useState<Rule[]>([]); const [rulesLoading, setRulesLoading] = useState(false);
   const [search, setSearch] = useState(""); const [selectedSetId, setSelectedSetId] = useState(""); const [selectedVersionId, setSelectedVersionId] = useState("");
   const [setForm, setSetForm] = useState<SetForm | null>(null); const [ruleForm, setRuleForm] = useState<RuleForm | null>(null); const [saving, setSaving] = useState(false);
   const [importOpen, setImportOpen] = useState(false); const [importFile, setImportFile] = useState<File | null>(null); const [importPreview, setImportPreview] = useState<ImportPreview | null>(null); const [importing, setImporting] = useState(false);
   const [versionForm, setVersionForm] = useState(versionFields(null));
+
+  const loadRules = useCallback(async (versionId: string) => {
+    if (!versionId) { setLoadedRules([]); return; }
+    setRulesLoading(true);
+    try {
+      const { data: session } = await supabase.auth.getSession(); const token = session.session?.access_token;
+      if (!token) return window.location.assign("/login");
+      const request = await fetch(`/api/dti/acceptance-criteria?versionId=${encodeURIComponent(versionId)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await request.json() as Data; if (!request.ok) throw new Error(body.error || "TITAN could not load acceptance rules.");
+      setLoadedRules(body.rules ?? []);
+    } catch (error) { setLoadedRules([]); setMessage(error instanceof Error ? error.message : "TITAN could not load acceptance rules."); }
+    finally { setRulesLoading(false); }
+  }, []);
 
   const load = useCallback(async () => {
     setMessage("Loading acceptance criteria...");
@@ -65,13 +79,14 @@ export default function AcceptanceCriteriaPage() {
     } catch (error) { setData(null); setMessage(error instanceof Error ? error.message : "TITAN could not load acceptance criteria."); }
   }, []);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => { const timer = window.setTimeout(() => void loadRules(selectedVersionId), 0); return () => window.clearTimeout(timer); }, [loadRules, selectedVersionId]);
 
   const sets = useMemo(() => data?.sets ?? [], [data?.sets]);
   const visibleSets = useMemo(() => { const query = search.trim().toLowerCase(); return sets.filter((item) => !query || [item.name, item.standard_type, item.component_type, item.customer_name].some((value) => String(value ?? "").toLowerCase().includes(query))); }, [search, sets]);
   const selectedSet = sets.find((item) => item.id === selectedSetId) ?? null;
   const versions = useMemo(() => (data?.versions ?? []).filter((item) => item.criteria_set_id === selectedSetId).sort((a, b) => b.version_number - a.version_number), [data?.versions, selectedSetId]);
   const selectedVersion = versions.find((item) => item.id === selectedVersionId) ?? versions[0] ?? null;
-  const rules = useMemo(() => (data?.rules ?? []).filter((item) => item.criteria_version_id === selectedVersion?.id).sort((a, b) => a.display_order - b.display_order || a.rule_name.localeCompare(b.rule_name)), [data?.rules, selectedVersion?.id]);
+  const rules = useMemo(() => loadedRules.filter((item) => item.criteria_version_id === selectedVersion?.id).sort((a, b) => a.display_order - b.display_order || a.rule_name.localeCompare(b.rule_name)), [loadedRules, selectedVersion?.id]);
   const fields = selectedSet ? dtiInspectionFields[selectedSet.component_type] : [];
   const source = (data?.documents ?? []).find((item) => item.id === selectedVersion?.source_document_id);
   const editable = selectedVersion?.status === "Draft";
@@ -82,10 +97,12 @@ export default function AcceptanceCriteriaPage() {
       const { data: session } = await supabase.auth.getSession();
       const request = await fetch("/api/dti/acceptance-criteria", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session?.access_token || ""}` }, body: JSON.stringify(body) });
       const result = await request.json() as Data; if (!request.ok) throw new Error(result.error || "TITAN could not save acceptance criteria.");
-      setData(result); setSetForm(null); setRuleForm(null); setMessage(success);
+      setData(result); setLoadedRules(result.rules ?? []); setSetForm(null); setRuleForm(null); setMessage(success);
       const nextVersions = (result.versions ?? []).filter((item) => item.criteria_set_id === selectedSetId).sort((a, b) => b.version_number - a.version_number);
       const nextVersion = body.action === "create-version" ? nextVersions[0] : nextVersions.find((item) => item.id === selectedVersion?.id) ?? nextVersions[0] ?? null;
-      setSelectedVersionId(nextVersion?.id || ""); setVersionForm(versionFields(nextVersion)); return result;
+      setSelectedVersionId(nextVersion?.id || ""); setVersionForm(versionFields(nextVersion));
+      if (nextVersion?.id) await loadRules(nextVersion.id);
+      return result;
     } catch (error) { setMessage(error instanceof Error ? error.message : "TITAN could not save acceptance criteria."); return null; }
     finally { setSaving(false); }
   }
@@ -121,7 +138,7 @@ export default function AcceptanceCriteriaPage() {
         <div className={styles.versionBar}><label>Version<select className={styles.versionSelect} value={selectedVersion.id} onChange={(event) => { const next = versions.find((version) => version.id === event.target.value) ?? null; setSelectedVersionId(event.target.value); setVersionForm(versionFields(next)); }}>{versions.map((version) => <option key={version.id} value={version.id}>Version {version.version_number} / {version.status}</option>)}</select></label><div className={styles.versionMeta}><div><span>Status</span><strong className={styles.status} data-status={selectedVersion.status}>{selectedVersion.status}</strong></div><div><span>Effective</span><strong>{selectedVersion.effective_date || "Not set"}</strong></div><div><span>Source</span><small>{source ? `${source.document_number || "Document"} / ${source.title}` : "Not selected"}</small></div></div><div className={styles.versionActions}>{editable ? <><button type="button" onClick={() => void send({ action: "save-version", versionId: selectedVersion.id, ...versionForm }, "Draft details saved.")} disabled={saving}>Save Draft</button><button className={styles.primary} type="button" onClick={() => { if (window.confirm(`Publish version ${selectedVersion.version_number}? Published rules cannot be edited.`)) void send({ action: "publish-version", versionId: selectedVersion.id }, "Criteria version published."); }} disabled={saving}>Publish</button></> : <button className={styles.primary} type="button" onClick={() => void send({ action: "create-version", setId: selectedSet.id }, "New editable version created.")} disabled={saving}>New Version</button>}</div></div>
         {editable ? <div className={styles.formGrid}><label><span>Effective Date</span><input type="date" value={versionForm.effectiveDate} onChange={(event) => setVersionForm({ ...versionForm, effectiveDate: event.target.value })} /></label><label className={styles.full}><span>Approved Source Document</span><select value={versionForm.sourceDocumentId} onChange={(event) => setVersionForm({ ...versionForm, sourceDocumentId: event.target.value })}><option value="">Select controlled document</option>{(data?.documents ?? []).map((document) => <option key={document.id} value={document.id}>{document.document_number ? `${document.document_number} / ` : ""}{document.title}</option>)}</select></label><label className={styles.full}><span>Version Notes</span><textarea value={versionForm.notes} onChange={(event) => setVersionForm({ ...versionForm, notes: event.target.value })} /></label></div> : null}
         <div className={styles.sectionHead}><div><span>{rules.length} Rules</span><h2>Acceptance Rules</h2></div>{editable ? <div className={styles.versionActions}><button type="button" onClick={() => { setImportFile(null); setImportPreview(null); setImportOpen(true); }}>Import RTS Workbook</button><button className={styles.primary} type="button" onClick={() => setRuleForm({ ...emptyRule, displayOrder: String(rules.length + 1) })}>Add Rule</button></div> : null}</div>
-        <div className={styles.ruleTable}><table><thead><tr><th>Order</th><th>Rule</th><th>Field / Area</th><th>Accepted When</th><th>Result When Not Met</th><th>Reason</th><th></th></tr></thead><tbody>{rules.map((rule) => <tr key={rule.id}><td>{rule.display_order}</td><td><strong>{rule.rule_name}</strong>{!rule.is_active ? <small> Inactive</small> : null}</td><td>{rule.field_label}<br /><small>{rule.inspection_area}</small></td><td>{criteriaValue(rule)}</td><td>{rule.result_classification}</td><td>{rule.reason}</td><td><div className={styles.ruleActions}>{editable ? <><button type="button" onClick={() => editRule(rule)}>Edit</button><button type="button" onClick={() => { if (window.confirm(`Delete ${rule.rule_name}?`)) void send({ action: "delete-rule", versionId: selectedVersion.id, ruleId: rule.id }, "Rule deleted."); }}>Delete</button></> : null}</div></td></tr>)}{!rules.length ? <tr><td colSpan={7}>No rules are defined for this version.</td></tr> : null}</tbody></table></div>
+        <div className={styles.ruleTable}><table><thead><tr><th>Order</th><th>Rule</th><th>Field / Area</th><th>Accepted When</th><th>Result When Not Met</th><th>Reason</th><th></th></tr></thead><tbody>{rules.map((rule) => <tr key={rule.id}><td>{rule.display_order}</td><td><strong>{rule.rule_name}</strong>{!rule.is_active ? <small> Inactive</small> : null}</td><td>{rule.field_label}<br /><small>{rule.inspection_area}</small></td><td>{criteriaValue(rule)}</td><td>{rule.result_classification}</td><td>{rule.reason}</td><td><div className={styles.ruleActions}>{editable ? <><button type="button" onClick={() => editRule(rule)}>Edit</button><button type="button" onClick={() => { if (window.confirm(`Delete ${rule.rule_name}?`)) void send({ action: "delete-rule", versionId: selectedVersion.id, ruleId: rule.id }, "Rule deleted."); }}>Delete</button></> : null}</div></td></tr>)}{!rules.length ? <tr><td colSpan={7}>{rulesLoading ? "Loading rules..." : "No rules are defined for this version."}</td></tr> : null}</tbody></table></div>
       </div></> : <div className={styles.empty}>Create or select a criteria set to begin.</div>}</section></div>
 
     {setForm ? <div className={styles.backdrop}><section className={styles.modal} role="dialog" aria-modal="true"><div className={styles.modalHead}><div><span>Separate By Report Type</span><h2>{setForm.setId ? "Edit Criteria Set" : "New Criteria Set"}</h2></div><button type="button" aria-label="Close" onClick={() => setSetForm(null)}>X</button></div><div className={styles.formGrid}><label><span>Name</span><input value={setForm.name} onChange={(event) => setSetForm({ ...setForm, name: event.target.value })} /></label><label><span>Standard</span><select value={setForm.standardType} onChange={(event) => setSetForm({ ...setForm, standardType: event.target.value })}>{standards.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Report Type</span><select value={setForm.componentType} disabled={Boolean(setForm.setId)} onChange={(event) => setSetForm({ ...setForm, componentType: event.target.value as DtiComponentType })}>{dtiComponentTypes.map((value) => <option key={value}>{value}</option>)}</select></label>{setForm.standardType === "Customer" ? <label className={styles.full}><span>Customer</span><input value={setForm.customerName} onChange={(event) => setSetForm({ ...setForm, customerName: event.target.value })} /></label> : null}<label className={styles.full}><span>Description</span><textarea value={setForm.description} onChange={(event) => setSetForm({ ...setForm, description: event.target.value })} /></label></div><div className={styles.modalActions}><button type="button" onClick={() => setSetForm(null)}>Cancel</button><button type="button" disabled={saving || !setForm.name || (setForm.standardType === "Customer" && !setForm.customerName)} onClick={() => void send({ action: setForm.setId ? "update-set" : "create-set", ...setForm }, setForm.setId ? "Criteria set updated." : "Criteria set created with draft version 1.")}>{saving ? "Saving..." : "Save Set"}</button></div></section></div> : null}

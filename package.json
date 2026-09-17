@@ -13,7 +13,7 @@
     "import:inventory-gillette:dry": "node scripts/import-gillette-inventory.mjs --dry-run",
     "import:inventory-gillette": "node scripts/import-gillette-inventory.mjs --live --replace",
     "import:dti-procedures": "node scripts/import-dti-procedure-documents.mjs",
-    "preload:dti-ds1": "node scripts/preload-dti-ds1-criteria.mjs"
+    "preload:dti-ds1": "node scripts/preload-dti-ds1-catalog.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -43,14 +43,28 @@ async function logEvent(admin: ReturnType<typeof adminClient>, values: {
   if (error) throw error;
 }
 
-async function loadData(admin: ReturnType<typeof adminClient>) {
-  const [setsResult, versionsResult, rulesResult, documentsResult] = await Promise.all([
-    admin.from("titan_dti_criteria_sets").select("*").is("archived_at", null).order("component_type").order("name"),
-    admin.from("titan_dti_criteria_versions").select("*").order("version_number", { ascending: false }),
-    admin.from("titan_dti_criteria_rules").select("*").order("display_order").order("field_label"),
+async function loadData(admin: ReturnType<typeof adminClient>, versionId = "") {
+  const sets: Row[] = [];
+  const versions: Row[] = [];
+  for (let from = 0; ; from += 1000) {
+    const result = await admin.from("titan_dti_criteria_sets").select("*").is("archived_at", null).order("component_type").order("name").range(from, from + 999);
+    if (result.error) throw result.error;
+    sets.push(...(result.data ?? []));
+    if ((result.data ?? []).length < 1000) break;
+  }
+  for (let from = 0; ; from += 1000) {
+    const result = await admin.from("titan_dti_criteria_versions").select("*").order("version_number", { ascending: false }).range(from, from + 999);
+    if (result.error) throw result.error;
+    versions.push(...(result.data ?? []));
+    if ((result.data ?? []).length < 1000) break;
+  }
+  const [rulesResult, documentsResult] = await Promise.all([
+    validUuid(versionId)
+      ? admin.from("titan_dti_criteria_rules").select("*").eq("criteria_version_id", versionId).order("display_order").order("field_label")
+      : Promise.resolve({ data: [] as Row[], error: null }),
     admin.from("documents").select("id,title,document_number,department,approval_status,document_status").limit(2000),
   ]);
-  for (const result of [setsResult, versionsResult, rulesResult, documentsResult]) if (result.error) throw result.error;
+  for (const result of [rulesResult, documentsResult]) if (result.error) throw result.error;
   const documents = (documentsResult.data ?? []).filter((document) => {
     const department = lower(document.department).replace(/[^a-z]/g, "");
     const status = lower(document.document_status);
@@ -58,7 +72,7 @@ async function loadData(admin: ReturnType<typeof adminClient>) {
       && ["", "active"].includes(status)
       && ["", "dti", "operations", "all", "company", "companywide"].includes(department);
   });
-  return { sets: setsResult.data ?? [], versions: versionsResult.data ?? [], rules: rulesResult.data ?? [], documents };
+  return { sets, versions, rules: rulesResult.data ?? [], documents };
 }
 
 async function loadVersion(admin: ReturnType<typeof adminClient>, versionId: string) {
@@ -99,7 +113,8 @@ export async function GET(request: Request) {
     const admin = adminClient();
     const authorization = await authorizeDtiAccess(request, admin);
     if ("error" in authorization) return authorization.error;
-    return Response.json({ ok: true, ...(await loadData(admin)) });
+    const versionId = new URL(request.url).searchParams.get("versionId") || "";
+    return Response.json({ ok: true, ...(await loadData(admin, versionId)) });
   } catch (error) {
     return Response.json({ error: phaseTwoMissing(error) ? "Run supabase/titan_dti_automatic_classification.sql before editing Phase 2 criteria." : migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before opening Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }
@@ -190,7 +205,7 @@ export async function POST(request: Request) {
       await logEvent(admin, { criteriaSetId: setId, entityType: "Criteria Set", entityId: setId, eventType: "Archived", beforeValue: prior.data, afterValue: saved.data, actorId: authorization.userId });
     } else return Response.json({ error: "Unsupported acceptance criteria action." }, { status: 400 });
 
-    return Response.json({ ok: true, ...(await loadData(admin)) });
+    return Response.json({ ok: true, ...(await loadData(admin, text(body.versionId))) });
   } catch (error) {
     return Response.json({ error: phaseTwoMissing(error) ? "Run supabase/titan_dti_automatic_classification.sql before editing Phase 2 criteria." : migrationMissing(error) ? "Run supabase/titan_dti_acceptance_criteria.sql before changing Acceptance Criteria." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });
   }

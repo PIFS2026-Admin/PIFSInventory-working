@@ -41,17 +41,28 @@ async function loadReport(admin: ReturnType<typeof configuredSupabase>, reportId
 }
 
 async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredSupabase>) {
-  const [setsResult, versionsResult] = await Promise.all([
-    admin.from("titan_dti_criteria_sets").select("id,name,standard_type,component_type,customer_name").is("archived_at", null),
-    admin.from("titan_dti_criteria_versions").select("id,criteria_set_id,version_number,effective_date,source_document_id,published_at").eq("status", "Published").order("version_number", { ascending: false }),
-  ]);
-  if (setsResult.error || versionsResult.error) {
-    const message = normalized(setsResult.error?.message || versionsResult.error?.message);
+  const setRows: Row[] = [];
+  const versionRows: Row[] = [];
+  try {
+    for (let from = 0; ; from += 1000) {
+      const result = await admin.from("titan_dti_criteria_sets").select("id,name,standard_type,component_type,customer_name").is("archived_at", null).range(from, from + 999);
+      if (result.error) throw result.error;
+      setRows.push(...(result.data ?? []));
+      if ((result.data ?? []).length < 1000) break;
+    }
+    for (let from = 0; ; from += 1000) {
+      const result = await admin.from("titan_dti_criteria_versions").select("id,criteria_set_id,version_number,effective_date,source_document_id,published_at").eq("status", "Published").order("version_number", { ascending: false }).range(from, from + 999);
+      if (result.error) throw result.error;
+      versionRows.push(...(result.data ?? []));
+      if ((result.data ?? []).length < 1000) break;
+    }
+  } catch (error) {
+    const message = normalized(errorMessage(error));
     if (message.includes("titan_dti_criteria") || message.includes("schema cache")) return [];
-    throw setsResult.error || versionsResult.error;
+    throw error;
   }
-  const sets = new Map((setsResult.data ?? []).map((criteriaSet) => [criteriaSet.id, criteriaSet]));
-  return (versionsResult.data ?? []).flatMap((version) => {
+  const sets = new Map(setRows.map((criteriaSet) => [criteriaSet.id, criteriaSet]));
+  return versionRows.flatMap((version) => {
     const criteriaSet = sets.get(version.criteria_set_id);
     return criteriaSet ? [{ ...version, criteria_set: criteriaSet }] : [];
   });
