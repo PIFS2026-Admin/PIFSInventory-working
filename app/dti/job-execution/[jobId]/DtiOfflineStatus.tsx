@@ -30,6 +30,7 @@ export default function DtiOfflineStatus({ jobId, onSynced }: Props) {
       const result = await flushDtiMutationQueue(jobId);
       await refresh();
       if (result.synced) { setMessage(`${result.synced} offline inspection${result.synced === 1 ? "" : "s"} synced.`); onSyncedRef.current(); }
+      else if (result.remaining && result.lastError) setMessage(result.lastError);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Offline inspections could not be synced.");
     } finally { syncingRef.current = false; setSyncing(false); }

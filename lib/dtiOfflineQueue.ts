@@ -177,17 +177,18 @@ export async function flushDtiMutationQueue(jobId?: string) {
   if (typeof navigator !== "undefined" && !navigator.onLine) return { synced: 0, remaining: (await getQueuedDtiMutations(jobId)).length };
   const queued = await getQueuedDtiMutations(jobId);
   let synced = 0;
+  let lastError = "";
   for (const mutation of queued) {
-    if (mutation.status === "needs_attention") continue;
     try {
       await postMutation(mutation.payload, mutation.endpoint);
       await deleteOne(MUTATION_STORE, mutation.id);
       synced += 1;
     } catch (error) {
+      lastError = error instanceof Error ? error.message : "Sync failed.";
       const next: DtiQueuedMutation = {
         ...mutation,
         attempts: mutation.attempts + 1,
-        lastError: error instanceof Error ? error.message : "Sync failed.",
+        lastError,
         status: (error as Error & { retryable?: boolean }).retryable ? "pending" : "needs_attention",
       };
       await writeOne(MUTATION_STORE, next);
@@ -195,7 +196,7 @@ export async function flushDtiMutationQueue(jobId?: string) {
     }
   }
   emitQueueChange();
-  return { synced, remaining: (await getQueuedDtiMutations(jobId)).length };
+  return { synced, remaining: (await getQueuedDtiMutations(jobId)).length, lastError };
 }
 
 export async function removeQueuedDtiMutation(id: string) {
