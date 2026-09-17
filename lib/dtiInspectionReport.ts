@@ -143,6 +143,15 @@ export function dtiInspectionFieldsForPass(componentType: DtiComponentType, pass
   return fields.filter((item) => item.group === "Identification" || item.end === pass);
 }
 
+export function dtiPhotoEvidenceFields(componentType: DtiComponentType) {
+  return dtiInspectionFields[componentType].filter((item) =>
+    item.group === "Damage"
+    || item.key === "boxReface"
+    || item.key === "pinReface"
+    || item.key.startsWith("damaged"),
+  );
+}
+
 export const dtiRefaceOptions = [
   { value: "DS", label: "DS" },
   { value: "SD", label: "SD" },

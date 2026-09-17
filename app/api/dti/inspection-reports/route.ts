@@ -25,6 +25,17 @@ function migrationMissing(error: unknown) { const value = normalized(errorMessag
 function legacyRowTrigger(error: unknown) { return (error as { code?: unknown })?.code === "42703" && normalized(errorMessage(error)).includes("report_number"); }
 function gradingMigrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("grading_result") || value.includes("grading_criteria_version_id") || value.includes("value_unit") || value.includes("schema cache"); }
 
+async function removeInspectionPhotos(admin: ReturnType<typeof configuredSupabase>, reportId: string, itemIds: string[]) {
+  if (!itemIds.length) return;
+  const selected = await admin.from("titan_dti_inspection_photos").select("storage_path").eq("report_id", reportId).in("item_id", itemIds);
+  if (selected.error) {
+    if (migrationMissing(selected.error)) return;
+    throw selected.error;
+  }
+  const paths = (selected.data ?? []).map((photo) => clean(photo.storage_path)).filter(Boolean);
+  if (paths.length) { const removed = await admin.storage.from("titan-dti-inspection-photos").remove(paths); if (removed.error) throw removed.error; }
+}
+
 function managedCriteriaIdentity(name: unknown) {
   const parts = clean(name).split("|").map((part) => part.trim());
   if (parts.length < 5 || parts[0] !== "DS-1 Premium") return null;
@@ -222,6 +233,7 @@ async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabas
   const surplusSet = new Set(plan.surplusSequences);
   const surplus = componentItems.filter((item) => surplusSet.has(Number(item.sequence_number)));
   if (surplus.length) {
+    await removeInspectionPhotos(admin, reportId, surplus.map((item) => clean(item.id)));
     const linkedIds = surplus.map((item) => clean(object(item.row_data).emiProveUpId)).filter(validUuid);
     if (linkedIds.length) {
       const linked = await admin.from("titan_dti_emi_prove_ups").select("*").eq("report_id", reportId).in("id", linkedIds);
@@ -360,6 +372,7 @@ export async function POST(request: Request) {
         const linkedDelete = await admin.from("titan_dti_emi_prove_ups").delete().eq("id", linkedProveUpId).eq("report_id", reportId); if (linkedDelete.error) throw linkedDelete.error;
         await logEvent(admin, reportId, "EMI Prove-Up", linkedProveUpId, "Deleted", linkedProveUp, null, authorization.userId);
       }
+      await removeInspectionPhotos(admin, reportId, [itemId]);
       const { error } = await admin.from("titan_dti_inspection_items").delete().eq("id", itemId).eq("report_id", reportId); if (error) throw error;
       await logEvent(admin, reportId, clean(prior.component_type), itemId, "Deleted", prior, null, authorization.userId);
     } else if (action === "save-prove-up") {

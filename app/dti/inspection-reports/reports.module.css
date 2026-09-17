@@ -159,9 +159,38 @@
 .classification[data-classification="Pending"] { border-left-color: #f97316; }
 .classification small { overflow-wrap: anywhere; }
 .proveUpForm { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: flex-end; gap: 8px; border-bottom: 1px solid #303744; padding: 12px; }
+.photoRegister { margin-top: 10px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
+.photoSearch { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #303744; padding: 10px 12px; }
+.photoSearch input { flex: 1; min-width: 0; min-height: 40px; border: 1px solid #3a4352; border-radius: 6px; background: #0d1218; color: #fff; padding: 8px 10px; }
+.photoSearch button, .photoRegister .sectionHead button { min-height: 38px; border: 1px solid #3a4352; border-radius: 6px; background: #171c24; color: #fff; padding: 7px 11px; font-weight: 850; }
+.photoGrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; padding: 12px; }
+.photoGrid article { min-width: 0; border: 1px solid #303744; border-radius: 6px; background: #0d1218; overflow: hidden; }
+.photoGrid article > a { display: block; aspect-ratio: 4 / 3; background: #06080a; }
+.photoGrid img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.photoGrid article > div { padding: 9px; }
+.photoGrid span, .photoGrid strong, .photoGrid small { display: block; }
+.photoGrid span { color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.photoGrid strong { margin-top: 4px; }
+.photoGrid small { margin-top: 3px; color: #aab2c0; }
+.photoGrid button { width: 100%; min-height: 34px; margin-top: 8px; border: 1px solid #7f1d1d; border-radius: 6px; background: #2a1212; color: #fecaca; font-weight: 800; }
+.pendingPhotos { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; border-bottom: 1px solid #303744; padding: 10px 12px; }
+.pendingPhotos > div { border-left: 4px solid #f59e0b; background: #211b0d; padding: 8px 10px; }
+.pendingPhotos strong, .pendingPhotos span, .pendingPhotos small { display: block; }
+.pendingPhotos span, .pendingPhotos small { margin-top: 3px; color: #d1d5db; font-size: 10px; }
+.pendingPhotos button { min-height: 30px; margin-top: 7px; border: 1px solid #6b7280; border-radius: 5px; background: #171c24; color: #fff; padding: 5px 9px; font-weight: 800; }
+.photoCaptureGrid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.photoCaptureGrid > div { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 3px 10px; border: 1px solid #303744; border-radius: 6px; background: #0d1218; padding: 9px; }
+.photoCaptureGrid > div > span { font-weight: 850; }
+.photoCaptureGrid > div > small { grid-row: 2; color: #aab2c0; }
+.photoCaptureGrid label { grid-column: 2; grid-row: 1 / span 2; display: grid; min-width: 96px; min-height: 40px; place-items: center; border: 1px solid #f97316; border-radius: 6px; background: #f97316; color: #111; font-weight: 900; cursor: pointer; }
+.photoCaptureGrid label[data-disabled="true"] { border-color: #3a4352; background: #252b35; color: #8993a3; cursor: default; }
+.photoCaptureGrid input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.rowPhotoStrip { display: grid; grid-template-columns: repeat(auto-fill,minmax(96px,120px)); gap: 8px; margin-top: 10px; }
+.rowPhotoStrip a { display: block; aspect-ratio: 4 / 3; border: 1px solid #3a4352; border-radius: 5px; overflow: hidden; }
+.rowPhotoStrip img { display: block; width: 100%; height: 100%; object-fit: cover; }
 @media (max-width: 800px) { .formGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .list article { grid-template-columns: 1fr auto; } }
-@media (max-width: 900px) { .fieldGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .proveUpForm { grid-template-columns: repeat(2,minmax(0,1fr)); } .itemList article { grid-template-columns: 1fr 1fr; } .summaryGrid { grid-template-columns: repeat(3,minmax(0,1fr)); } .setupSections { grid-template-columns: 1fr; } }
-@media (max-width: 560px) { .page { padding: 10px; padding-bottom: calc(90px + env(safe-area-inset-bottom)); } .header { align-items: flex-start; flex-wrap: wrap; } .title h1 { font-size: 21px; } .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; } .actions button { width: 100%; padding-inline: 7px; } .formGrid, .fieldGrid, .proveUpForm { grid-template-columns: 1fr; } .formGrid .wide { grid-column: auto; } .list article, .itemList article { grid-template-columns: 1fr; } .rowActions button { flex: 1; } .reportBand { grid-template-columns: repeat(2,minmax(0,1fr)); } .tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .syncBar, .passLaunch, .rowFinder { align-items: stretch; flex-direction: column; } .passLaunch button, .rowFinder label { width: 100%; max-width: none; } .rowFinder > div { justify-content: space-between; } .rowFinder > div strong { white-space: normal; text-align: center; } .summaryGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 900px) { .fieldGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .proveUpForm { grid-template-columns: repeat(2,minmax(0,1fr)); } .itemList article { grid-template-columns: 1fr 1fr; } .summaryGrid { grid-template-columns: repeat(3,minmax(0,1fr)); } .setupSections { grid-template-columns: 1fr; } .photoGrid, .photoCaptureGrid, .pendingPhotos { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 560px) { .page { padding: 10px; padding-bottom: calc(90px + env(safe-area-inset-bottom)); } .header { align-items: flex-start; flex-wrap: wrap; } .title h1 { font-size: 21px; } .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; } .actions button { width: 100%; padding-inline: 7px; } .formGrid, .fieldGrid, .proveUpForm, .photoGrid, .photoCaptureGrid, .pendingPhotos { grid-template-columns: 1fr; } .formGrid .wide { grid-column: auto; } .list article, .itemList article { grid-template-columns: 1fr; } .rowActions button { flex: 1; } .reportBand { grid-template-columns: repeat(2,minmax(0,1fr)); } .tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .syncBar, .passLaunch, .rowFinder, .photoSearch { align-items: stretch; flex-direction: column; } .passLaunch button, .rowFinder label { width: 100%; max-width: none; } .rowFinder > div { justify-content: space-between; } .rowFinder > div strong { white-space: normal; text-align: center; } .summaryGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 @page { size: landscape; margin: .35in; }
 @media print {
