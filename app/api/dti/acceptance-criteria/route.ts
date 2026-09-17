@@ -48,12 +48,12 @@ async function loadData(admin: ReturnType<typeof adminClient>) {
     admin.from("titan_dti_criteria_sets").select("*").is("archived_at", null).order("component_type").order("name"),
     admin.from("titan_dti_criteria_versions").select("*").order("version_number", { ascending: false }),
     admin.from("titan_dti_criteria_rules").select("*").order("display_order").order("field_label"),
-    admin.from("documents").select("id,title,document_number,department,approval_status,document_status,status").limit(2000),
+    admin.from("documents").select("id,title,document_number,department,approval_status,document_status").limit(2000),
   ]);
   for (const result of [setsResult, versionsResult, rulesResult, documentsResult]) if (result.error) throw result.error;
   const documents = (documentsResult.data ?? []).filter((document) => {
     const department = lower(document.department).replace(/[^a-z]/g, "");
-    const status = lower(document.document_status || document.status);
+    const status = lower(document.document_status);
     return lower(document.approval_status) === "approved"
       && ["", "active"].includes(status)
       && ["", "dti", "operations", "all", "company", "companywide"].includes(department);
@@ -176,8 +176,8 @@ export async function POST(request: Request) {
       const versionId = text(body.versionId); const loaded = await loadVersion(admin, versionId);
       if (loaded.version.status !== "Draft") return Response.json({ error: "Only a draft version can be published." }, { status: 409 });
       if (!validUuid(text(loaded.version.source_document_id))) return Response.json({ error: "Select an approved source document before publishing." }, { status: 400 });
-      const document = await admin.from("documents").select("id,approval_status,document_status,status").eq("id", loaded.version.source_document_id).single(); if (document.error) throw document.error;
-      if (lower(document.data.approval_status) !== "approved" || !["", "active"].includes(lower(document.data.document_status || document.data.status))) return Response.json({ error: "The source document must be approved and active." }, { status: 400 });
+      const document = await admin.from("documents").select("id,approval_status,document_status").eq("id", loaded.version.source_document_id).single(); if (document.error) throw document.error;
+      if (lower(document.data.approval_status) !== "approved" || !["", "active"].includes(lower(document.data.document_status))) return Response.json({ error: "The source document must be approved and active." }, { status: 400 });
       const ruleCount = await admin.from("titan_dti_criteria_rules").select("id", { count: "exact", head: true }).eq("criteria_version_id", versionId).eq("is_active", true); if (ruleCount.error) throw ruleCount.error;
       if (!ruleCount.count) return Response.json({ error: "Add at least one active rule before publishing." }, { status: 400 });
       const retired = await admin.from("titan_dti_criteria_versions").update({ status: "Retired", updated_by: authorization.userId, updated_at: new Date().toISOString() }).eq("criteria_set_id", loaded.criteriaSet.id).eq("status", "Published"); if (retired.error) throw retired.error;
