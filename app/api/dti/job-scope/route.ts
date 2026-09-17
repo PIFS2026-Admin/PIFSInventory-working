@@ -20,8 +20,8 @@ function baseline(componentFamily: string, category: string, connectionType: str
   if (componentFamily === "BHA / HWDP / Collars") {
     if (category === "1") items = ["Visual Tube", "Visual Connection", "Post-Inspection Marking"];
     else if (category === "2") items = ["Visual Tube", "Visual Connection", "Blacklight Connection", "Slip Groove (if applicable)", "Heat Checking (HWDP only)", "Pup Joint 1", "Post-Inspection Marking"];
-    else if (category === "HDLS") items = ["Subs / Stabilizer / Kelly Inspection", "Pup Joint 2", "Traceability"];
-    else items = ["Visual Tube", "Visual Connection", "Dimensional 3", "Blacklight Connection", "Slip Groove (if applicable)", "Heat Checking (HWDP only)", "MPI Slip / Upset", "Subs / Stabilizer / Kelly Inspection", "Shop Inspection of Fishing Tools", "Pup Joint 2", "Post-Inspection Marking"];
+    else if (category === "HDLS") items = ["BHA / Stabilizer / Kelly Inspection", "Pup Joint 2", "Traceability"];
+    else items = ["Visual Tube", "Visual Connection", "Dimensional 3", "Blacklight Connection", "Slip Groove (if applicable)", "Heat Checking (HWDP only)", "MPI Slip / Upset", "BHA / Stabilizer / Kelly Inspection", "Shop Inspection of Fishing Tools", "Pup Joint 2", "Post-Inspection Marking"];
   } else {
     items = ["Visual Tube", "Visual Connection", "Post-Inspection Marking"];
     if (["2", "3"].includes(category)) items.push("Dimensional 1");

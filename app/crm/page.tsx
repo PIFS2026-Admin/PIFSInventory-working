@@ -237,7 +237,8 @@ type NewCrmJobForm = {
   groupName: string;
   contact: string;
   operator: string;
-  rig: string;
+  contractor: string;
+  rigNumber: string;
   jobDateTime: string;
   state: string;
   county: string;
@@ -246,6 +247,18 @@ type NewCrmJobForm = {
   jobType: string;
   lead: string;
   description: string;
+  inspectionItems: DtiScheduleInspectionItem[];
+};
+
+type DtiScheduleInspectionItem = {
+  id: string;
+  componentType: "Drill Pipe" | "HWDP" | "Subs";
+  jointCount: string;
+  pipeSize: string;
+  weight: string;
+  grade: string;
+  connection: string;
+  inspectionCategory: string;
 };
 
 type CrmDocumentRegisterRow = {
@@ -296,7 +309,8 @@ const emptyNewJobForm: NewCrmJobForm = {
   groupName: "Requested",
   contact: "",
   operator: "",
-  rig: "",
+  contractor: "",
+  rigNumber: "",
   jobDateTime: "",
   state: "",
   county: "",
@@ -305,7 +319,42 @@ const emptyNewJobForm: NewCrmJobForm = {
   jobType: "",
   lead: "",
   description: "",
+  inspectionItems: [{
+    id: "inspection-item-1",
+    componentType: "Drill Pipe",
+    jointCount: "",
+    pipeSize: "",
+    weight: "",
+    grade: "",
+    connection: "",
+    inspectionCategory: "",
+  }],
 };
+
+function newDtiScheduleInspectionItem(index: number): DtiScheduleInspectionItem {
+  return {
+    id: `inspection-item-${Date.now()}-${index}`,
+    componentType: "Drill Pipe",
+    jointCount: "",
+    pipeSize: "",
+    weight: "",
+    grade: "",
+    connection: "",
+    inspectionCategory: "",
+  };
+}
+
+function dtiScheduleItemReady(item: DtiScheduleInspectionItem) {
+  return Boolean(
+    Number.isInteger(Number(item.jointCount))
+    && Number(item.jointCount) > 0
+    && item.pipeSize.trim()
+    && item.weight.trim()
+    && item.grade.trim()
+    && item.connection.trim()
+    && item.inspectionCategory,
+  );
+}
 
 type FullMondayImportResponse = {
   ok?: boolean;
@@ -1045,6 +1094,7 @@ export default function CrmPage() {
   const [dropGroupName, setDropGroupName] = useState("");
   const [boardActionMessage, setBoardActionMessage] = useState("");
   const [boardActionError, setBoardActionError] = useState("");
+  const [createdReportId, setCreatedReportId] = useState("");
   const [newJobForm, setNewJobForm] = useState<NewCrmJobForm | null>(null);
   const [creatingJob, setCreatingJob] = useState(false);
 
@@ -1203,11 +1253,33 @@ export default function CrmPage() {
   function openNewJobForm(groupName = "Requested") {
     setBoardActionError("");
     setBoardActionMessage("");
+    setCreatedReportId("");
     setNewJobForm({ ...emptyNewJobForm, groupName });
   }
 
   function updateNewJobField<K extends keyof NewCrmJobForm>(field: K, value: NewCrmJobForm[K]) {
     setNewJobForm((current) => (current ? { ...current, [field]: value } : current));
+  }
+
+  function updateDtiInspectionItem(itemId: string, changes: Partial<DtiScheduleInspectionItem>) {
+    setNewJobForm((current) => current ? {
+      ...current,
+      inspectionItems: current.inspectionItems.map((item) => item.id === itemId ? { ...item, ...changes } : item),
+    } : current);
+  }
+
+  function addDtiInspectionItem() {
+    setNewJobForm((current) => current ? {
+      ...current,
+      inspectionItems: [...current.inspectionItems, newDtiScheduleInspectionItem(current.inspectionItems.length + 1)],
+    } : current);
+  }
+
+  function removeDtiInspectionItem(itemId: string) {
+    setNewJobForm((current) => current ? {
+      ...current,
+      inspectionItems: current.inspectionItems.filter((item) => item.id !== itemId),
+    } : current);
   }
 
   async function createNewJob() {
@@ -1247,7 +1319,13 @@ export default function CrmPage() {
       }));
       setNewJobForm(null);
       await loadCrmReview();
-      setBoardActionMessage(`${title} was created in ${newJobForm.groupName}.`);
+      const generatedCount = Array.isArray(body.generatedReports) ? body.generatedReports.length : 0;
+      const warnings = Array.isArray(body.warnings) ? body.warnings.filter((warning: unknown) => typeof warning === "string") : [];
+      const firstGeneratedReport = generatedCount && typeof body.generatedReports[0]?.id === "string" ? body.generatedReports[0].id : "";
+      setCreatedReportId(firstGeneratedReport);
+      setBoardActionMessage(generatedCount
+        ? `${title} was created with ${generatedCount} draft DTI ${generatedCount === 1 ? "report" : "reports"}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`
+        : `${title} was created in ${newJobForm.groupName}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`);
     } catch (error) {
       setBoardActionError(error instanceof Error ? error.message : "TITAN could not create this job.");
       setBoardActionMessage("");
@@ -2233,7 +2311,7 @@ export default function CrmPage() {
           </div>
 
           {boardActionError && <div className={styles.mondayBoardError}>{boardActionError}</div>}
-          {boardActionMessage && !boardActionError && <div className={styles.mondayBoardNotice}>{boardActionMessage}</div>}
+          {boardActionMessage && !boardActionError && <div className={styles.mondayBoardNotice}><span>{boardActionMessage}</span>{createdReportId ? <button type="button" onClick={() => window.location.assign(`/dti/inspection-reports/${encodeURIComponent(createdReportId)}`)}>Open Report</button> : null}</div>}
 
           {reviewLoading && !reviewResult ? (
             <div className={styles.reviewEmpty}>Loading CRM workspace...</div>
@@ -2510,8 +2588,12 @@ export default function CrmPage() {
                     <input value={newJobForm.operator} onChange={(event) => updateNewJobField("operator", event.target.value)} />
                   </label>
                   <label className={styles.field}>
-                    <span>Rig</span>
-                    <input value={newJobForm.rig} onChange={(event) => updateNewJobField("rig", event.target.value)} />
+                    <span>Contractor</span>
+                    <input value={newJobForm.contractor} onChange={(event) => updateNewJobField("contractor", event.target.value)} />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Rig Number</span>
+                    <input value={newJobForm.rigNumber} onChange={(event) => updateNewJobField("rigNumber", event.target.value)} />
                   </label>
                   <label className={styles.field}>
                     <span>Contact</span>
@@ -2545,6 +2627,80 @@ export default function CrmPage() {
                     <span>Job Description</span>
                     <textarea value={newJobForm.description} onChange={(event) => updateNewJobField("description", event.target.value)} />
                   </label>
+                  {newJobForm.serviceLine === "DTI" ? (
+                    <section className={`${styles.crmDtiInspectionPlan} ${styles.crmNewJobWide}`}>
+                      <div className={styles.crmDtiInspectionPlanHead}>
+                        <div>
+                          <span className={styles.eyebrow}>DTI Report Setup</span>
+                          <h3>Inspection Items</h3>
+                          <p>Each item becomes its own Drill Pipe, HWDP, or BHA report. BHA includes drill collars and subs.</p>
+                        </div>
+                        <button type="button" onClick={addDtiInspectionItem}>+ Add Item</button>
+                      </div>
+                      <div className={styles.crmDtiInspectionItems}>
+                        {newJobForm.inspectionItems.map((item, index) => {
+                          const ready = dtiScheduleItemReady(item);
+                          return (
+                            <article className={styles.crmDtiInspectionItem} key={item.id}>
+                              <header>
+                                <div>
+                                  <span>Report {index + 1}</span>
+                                  <strong>{item.componentType === "Subs" ? "BHA" : item.componentType}</strong>
+                                </div>
+                                <div className={styles.crmDtiItemActions}>
+                                  <b data-ready={ready}>{ready ? "Ready" : "Setup required"}</b>
+                                  <button type="button" onClick={() => removeDtiInspectionItem(item.id)} disabled={newJobForm.inspectionItems.length === 1}>Remove</button>
+                                </div>
+                              </header>
+                              <div className={styles.crmDtiInspectionGrid}>
+                                <label className={styles.field}>
+                                  <span>Report Type</span>
+                                  <select value={item.componentType} onChange={(event) => updateDtiInspectionItem(item.id, { componentType: event.target.value as DtiScheduleInspectionItem["componentType"] })}>
+                                    <option>Drill Pipe</option>
+                                    <option>HWDP</option>
+                                    <option value="Subs">BHA</option>
+                                  </select>
+                                </label>
+                                <label className={styles.field}>
+                                  <span>{item.componentType === "Subs" ? "Tool Count" : "Joint Count"}</span>
+                                  <input type="number" min="1" max="2000" step="1" inputMode="numeric" value={item.jointCount} onChange={(event) => updateDtiInspectionItem(item.id, { jointCount: event.target.value })} placeholder="0" />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>Pipe Size</span>
+                                  <input value={item.pipeSize} onChange={(event) => updateDtiInspectionItem(item.id, { pipeSize: event.target.value })} placeholder="5" />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>Weight (lb/ft)</span>
+                                  <input inputMode="decimal" value={item.weight} onChange={(event) => updateDtiInspectionItem(item.id, { weight: event.target.value })} placeholder="19.50" />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>Grade</span>
+                                  <input value={item.grade} onChange={(event) => updateDtiInspectionItem(item.id, { grade: event.target.value })} placeholder="S-135" />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>Connection</span>
+                                  <input value={item.connection} onChange={(event) => updateDtiInspectionItem(item.id, { connection: event.target.value })} placeholder="NC50" />
+                                </label>
+                                <label className={styles.field}>
+                                  <span>Inspection Category</span>
+                                  <select value={item.inspectionCategory} onChange={(event) => updateDtiInspectionItem(item.id, { inspectionCategory: event.target.value })}>
+                                    <option value="">Select category</option>
+                                    {["1", "2", "3", "4", "5", "HDLS"].map((category) => <option key={category} value={category}>{category === "HDLS" ? category : `Category ${category}`}</option>)}
+                                  </select>
+                                </label>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                      <div className={styles.crmDtiInspectionSummary}>
+                        <span>Planned Output</span>
+                        <strong>{newJobForm.inspectionItems.length} {newJobForm.inspectionItems.length === 1 ? "report" : "reports"}</strong>
+                        <strong>{newJobForm.inspectionItems.reduce((total, item) => total + (Number(item.jointCount) || 0), 0).toLocaleString()} rows</strong>
+                        <small>Reports stay separate by component and specification.</small>
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
                 <footer className={styles.crmNewJobFooter}>
                   <button className="button" type="button" onClick={() => setNewJobForm(null)} disabled={creatingJob}>Cancel</button>

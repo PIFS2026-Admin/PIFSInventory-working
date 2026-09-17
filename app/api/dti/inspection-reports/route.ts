@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
-import { calculatePercentNominalWall, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { calculatePercentNominalWall, dtiComponentLabel, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 import { evaluateDtiThresholdAlerts } from "../../../../lib/dtiThresholdAlerts";
 import { evaluateDtiCriteria, type DtiCriteriaSnapshot } from "../../../../lib/dtiCriteriaEngine";
 
@@ -126,7 +126,7 @@ async function loadCriteriaSnapshot(admin: ReturnType<typeof configuredSupabase>
     admin.from("documents").select("id,title,document_number,approval_status,document_status").eq("id", versionResult.data.source_document_id).maybeSingle(),
   ]);
   if (setResult.error) throw setResult.error; if (rulesResult.error) throw rulesResult.error; if (documentResult.error) throw documentResult.error;
-  if (!setResult.data || setResult.data.component_type !== componentType) throw new Error(`Select published criteria for ${componentType}.`);
+  if (!setResult.data || setResult.data.component_type !== componentType) throw new Error(`Select published criteria for ${dtiComponentLabel(componentType)}.`);
   if (!rulesResult.data?.length) throw new Error("Published criteria must contain active rules.");
   const identity = managedCriteriaIdentity(setResult.data.name);
   let tubularSpec: Row | null = null;
@@ -320,7 +320,7 @@ export async function POST(request: Request) {
     if (action === "create-report") {
       const operatorName = clean(body.operatorName); const reportDate = clean(body.reportDate); const jobId = clean(body.jobId); const componentType = clean(body.componentType);
       if (!operatorName || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) return Response.json({ error: "Operator and report date are required." }, { status: 400 });
-      if (!isDtiComponentType(componentType)) return Response.json({ error: "Select Drill Pipe, HWDP, or Subs for this report." }, { status: 400 });
+      if (!isDtiComponentType(componentType)) return Response.json({ error: "Select Drill Pipe, HWDP, or BHA for this report." }, { status: 400 });
       if (jobId && !validUuid(jobId)) return Response.json({ error: "Select a valid connected job or leave it blank." }, { status: 400 });
       const { data, error } = await admin.from("titan_dti_inspection_reports").insert({ job_id: jobId || null, operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { reportComponentType: componentType }, status: "Draft", created_by: authorization.userId, updated_by: authorization.userId }).select("*").single();
       if (error) throw error; reportId = data.id; await logEvent(admin, reportId, "Report", reportId, "Created", null, data, authorization.userId);
@@ -353,7 +353,7 @@ export async function POST(request: Request) {
     } else if (action === "save-item") {
       const componentType = clean(body.componentType) as DtiComponentType; const sequenceNumber = whole(body.sequenceNumber); const itemId = clean(body.itemId);
       if (!(componentType in dtiInspectionFields) || sequenceNumber < 1) return Response.json({ error: "Select a component type and valid sequence number." }, { status: 400 });
-      if (componentType !== reportComponentType) return Response.json({ error: `This is a ${reportComponentType} report. Create a separate ${componentType} report.` }, { status: 400 });
+      if (componentType !== reportComponentType) return Response.json({ error: `This is a ${dtiComponentLabel(reportComponentType)} report. Create a separate ${dtiComponentLabel(componentType)} report.` }, { status: 400 });
       const nominalWall = componentType === "Drill Pipe" ? snapshotNominalWall(loaded.report.criteria_snapshot) : null;
       const rowData = cleanRowData(componentType, { ...object(body.rowData), ...(nominalWall ? { nominalWallThickness: nominalWall } : {}) }); let prior: Row | null = null;
       if (validUuid(itemId)) { const result = await admin.from("titan_dti_inspection_items").select("*").eq("id", itemId).eq("report_id", reportId).maybeSingle(); if (result.error) throw result.error; prior = result.data; }

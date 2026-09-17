@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { dtiInspectionFields, normalizeDtiRefaceCode, resolveDtiReportComponentType, summarizeDtiInspection, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { dtiComponentLabel, dtiInspectionFields, normalizeDtiRefaceCode, resolveDtiReportComponentType, summarizeDtiInspection, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 import styles from "../reports.module.css";
 
 export type DtiPrintReport = {
@@ -37,13 +37,14 @@ function scopePrefix(component: DtiComponentType) {
 
 export default function DtiInspectionPrintView({ report, items, proveUps, preview = false }: { report: DtiPrintReport; items: DtiPrintItem[]; proveUps: DtiPrintProveUp[]; preview?: boolean }) {
   const reportComponentType = resolveDtiReportComponentType(report.inspection_scope, items);
+  const reportComponentLabel = dtiComponentLabel(reportComponentType);
   const components = [reportComponentType];
   return <article className={`${styles.printOnly} ${preview ? styles.printPreview : ""}`}>
     <header className={styles.printLetterhead}>
       <Image src="/pathfinder-logo.png" alt="Pathfinder Inspections & Field Services" width={220} height={70} />
       <div><strong>Pathfinder Inspections &amp; Field Services</strong><span>7501 Groening St., Odessa, TX 79765</span><span>(432) 233-3600</span></div>
     </header>
-    <section className={styles.printTitle}><div><span>{report.report_number}</span><h1>{reportComponentType} Inspection Report</h1></div><div><span>Report Date</span><strong>{report.report_date}</strong><span>Status</span><strong>{report.status}</strong></div></section>
+    <section className={styles.printTitle}><div><span>{report.report_number}</span><h1>{reportComponentLabel} Inspection Report</h1></div><div><span>Report Date</span><strong>{report.report_date}</strong><span>Status</span><strong>{report.status}</strong></div></section>
     <section className={styles.printInfo}>
       {([['Operator',report.operator_name],['Contractor',report.contractor_name],['Rig Number',report.rig_number],['Field Invoice',report.field_invoice],['Inspection Crew',report.inspection_crew],['Connection Size',report.connection_size],['Connection Type',report.connection_type],['Grade',report.grade],['State',report.state]] as const).map(([label,entry]) => <div key={label}><span>{label}</span><strong>{entry || "-"}</strong></div>)}
     </section>
@@ -57,7 +58,7 @@ export default function DtiInspectionPrintView({ report, items, proveUps, previe
       const fields = dtiInspectionFields[component];
       const groups = [...new Set(fields.map((field) => field.group))].map((group) => ({ group, count: fields.filter((field) => field.group === group).length }));
       return <section className={styles.printComponent} key={component}>
-        <div className={styles.printSectionTitle}><div><span>{String(scope[`${prefix}Category`] ?? "") || "Inspection"}</span><h2>{component} Summary</h2></div><strong>{componentItems.length} {component === "Subs" ? "tools" : "joints"}</strong></div>
+        <div className={styles.printSectionTitle}><div><span>{String(scope[`${prefix}Category`] ?? "") || "Inspection"}</span><h2>{dtiComponentLabel(component)} Summary</h2></div><strong>{componentItems.length} {component === "Subs" ? "tools" : "joints"}</strong></div>
         <div className={styles.printScope}><span>{String(scope[`${prefix}Additional1`] ?? "") || "-"}</span><span>{String(scope[`${prefix}Additional2`] ?? "") || "-"}</span></div>
         <div className={styles.printSummary}>
           {([['Inspected',summary.inspected],['Premium',summary.premium],['Rig Ready',summary.rigReady],['Machine Shop',summary.machineShop],['DBR',summary.dbr],['Box Refaces',summary.boxRefaces],['Pin Refaces',summary.pinRefaces],['Hardbands',summary.hardbands],['Damaged Hardbands',summary.damagedHardbands],['DBR Hardbands',summary.dbrHardbands]] as const).map(([label,total]) => <div key={label}><span>{label}</span><strong>{total}</strong></div>)}
@@ -66,13 +67,13 @@ export default function DtiInspectionPrintView({ report, items, proveUps, previe
         <div className={styles.printRemarks}><strong>Remarks</strong><span>{remarks || "No remarks."}</span></div>
 
         <section className={`${styles.printTableSection} ${styles.printMatrix}`}>
-          <h3>{component} Inspection Detail</h3>
+          <h3>{dtiComponentLabel(component)} Inspection Detail</h3>
           <table>
             <thead>
               <tr className={styles.printGroupRow}><th rowSpan={2}><span>Row</span></th>{groups.map(({ group, count }) => <th colSpan={count} key={group}>{group}</th>)}</tr>
               <tr>{fields.map((field) => <th key={field.key}><span>{field.label}{field.end ? ` / ${field.end}` : ""}</span></th>)}</tr>
             </thead>
-            <tbody>{componentItems.map((item) => <tr key={item.id}><td>{item.sequence_number}</td>{fields.map((field) => <td key={field.key}>{value(item.row_data, field.key)}</td>)}</tr>)}{!componentItems.length ? <tr><td colSpan={fields.length + 1}>No {component} rows recorded.</td></tr> : null}</tbody>
+            <tbody>{componentItems.map((item) => <tr key={item.id}><td>{item.sequence_number}</td>{fields.map((field) => <td key={field.key}>{value(item.row_data, field.key)}</td>)}</tr>)}{!componentItems.length ? <tr><td colSpan={fields.length + 1}>No {dtiComponentLabel(component)} rows recorded.</td></tr> : null}</tbody>
           </table>
         </section>
       </section>;

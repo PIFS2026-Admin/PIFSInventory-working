@@ -1235,6 +1235,153 @@
   grid-column: 1 / -1;
 }
 
+.crmDtiInspectionPlan {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding-top: 18px;
+}
+
+.crmDtiInspectionPlanHead,
+.crmDtiInspectionItem > header,
+.crmDtiInspectionSummary,
+.crmDtiItemActions {
+  display: flex;
+  align-items: center;
+}
+
+.crmDtiInspectionPlanHead,
+.crmDtiInspectionItem > header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crmDtiInspectionPlanHead h3 {
+  margin: 3px 0 2px;
+  font-size: 19px;
+}
+
+.crmDtiInspectionPlanHead p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.crmDtiInspectionPlanHead button,
+.crmDtiInspectionItem > header button {
+  min-height: 34px;
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  border-radius: 6px;
+  background: rgba(249, 115, 22, 0.1);
+  color: #fed7aa;
+  cursor: pointer;
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.mondayBoardNotice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mondayBoardNotice button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid rgba(249, 115, 22, 0.52);
+  border-radius: 6px;
+  background: rgba(249, 115, 22, 0.12);
+  color: #fed7aa;
+  cursor: pointer;
+  padding: 0 12px;
+  font-weight: 900;
+}
+
+.crmDtiInspectionItems {
+  display: grid;
+  gap: 10px;
+}
+
+.crmDtiInspectionItem {
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: #171c25;
+}
+
+.crmDtiInspectionItem > header {
+  min-height: 54px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 10px 12px;
+}
+
+.crmDtiInspectionItem > header > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.crmDtiInspectionItem > header span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.crmDtiInspectionItem > header strong {
+  font-size: 15px;
+}
+
+.crmDtiItemActions {
+  gap: 8px;
+}
+
+.crmDtiItemActions b {
+  color: #fbbf24;
+  font-size: 11px;
+}
+
+.crmDtiItemActions b[data-ready="true"] {
+  color: #4ade80;
+}
+
+.crmDtiInspectionItem > header button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.crmDtiInspectionGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 10px;
+  padding: 4px 12px 10px;
+}
+
+.crmDtiInspectionSummary {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  border-left: 3px solid #f97316;
+  background: rgba(249, 115, 22, 0.08);
+  padding: 10px 12px;
+}
+
+.crmDtiInspectionSummary span {
+  color: #fdba74;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crmDtiInspectionSummary strong {
+  font-size: 13px;
+}
+
+.crmDtiInspectionSummary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .crmNewJobFooter {
   position: sticky;
   bottom: 0;
@@ -2597,6 +2744,31 @@
 
   .crmNewJobWide {
     grid-column: auto;
+  }
+
+  .crmDtiInspectionPlan {
+    width: 100%;
+  }
+
+  .crmDtiInspectionPlanHead {
+    align-items: flex-end;
+  }
+
+  .crmDtiInspectionPlanHead p {
+    max-width: 230px;
+  }
+
+  .crmDtiInspectionGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .crmDtiInspectionItem > header {
+    align-items: flex-start;
+  }
+
+  .crmDtiItemActions {
+    align-items: flex-end;
+    flex-direction: column;
   }
 
   .crmNewJobFooter {

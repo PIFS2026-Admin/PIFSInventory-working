@@ -207,5 +207,22 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
     zip.file("xl/workbook.xml", workbookXml, { createFolders: false });
   }
 
+  if (reportComponentType === "Subs") {
+    const replacements = [
+      ["Prop Subs Inp Report", "Prop BHA Inp Report"],
+      ["Summary Sub", "Summary BHA"],
+      ["Data Sheet Subs", "Data Sheet BHA"],
+      ["Sub Count", "BHA Count"],
+      ["DynPrint_Subs", "DynPrint_BHA"],
+      ["SUBS INSPECTION", "BHA INSPECTION"],
+    ] as const;
+    for (const [fileName, file] of Object.entries(zip.files)) {
+      if (file.dir || !fileName.endsWith(".xml")) continue;
+      const original = await file.async("string");
+      const updated = replacements.reduce((xml, [from, to]) => xml.replaceAll(from, to), original);
+      if (updated !== original) zip.file(fileName, updated, { createFolders: false });
+    }
+  }
+
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 6 } });
 }

@@ -35,6 +35,10 @@ const field = (key: string, label: string, group: string, kind: DtiFieldKind = "
 
 export const dtiComponentTypes: DtiComponentType[] = ["Drill Pipe", "HWDP", "Subs"];
 
+export function dtiComponentLabel(value: DtiComponentType | unknown) {
+  return value === "Subs" ? "BHA" : String(value ?? "");
+}
+
 export function isDtiComponentType(value: unknown): value is DtiComponentType {
   return dtiComponentTypes.includes(String(value) as DtiComponentType);
 }

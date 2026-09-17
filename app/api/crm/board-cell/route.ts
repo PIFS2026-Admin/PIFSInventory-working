@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { dtiComponentLabel, dtiInspectionFields, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 
 type EntityType = "account" | "contact" | "opportunity" | "activity";
 
@@ -34,6 +35,8 @@ type CreateJobBody = {
   contact?: unknown;
   operator?: unknown;
   rig?: unknown;
+  contractor?: unknown;
+  rigNumber?: unknown;
   jobDateTime?: unknown;
   state?: unknown;
   county?: unknown;
@@ -42,6 +45,27 @@ type CreateJobBody = {
   jobType?: unknown;
   lead?: unknown;
   description?: unknown;
+  inspectionItems?: unknown;
+};
+
+type DtiScheduleInspectionItem = {
+  id: string;
+  componentType: "Drill Pipe" | "HWDP" | "Subs";
+  jointCount: number | null;
+  pipeSize: string;
+  weight: string;
+  grade: string;
+  connection: string;
+  inspectionCategory: string;
+  setupStatus: "Ready" | "Setup Required";
+};
+
+type GeneratedDtiReport = {
+  id: string;
+  reportNumber: string;
+  componentType: DtiComponentType;
+  rowCount: number;
+  criteriaMatched: boolean;
 };
 
 const wadeCrmEmail = "wade@pathfinderinspections.com";
@@ -73,6 +97,220 @@ function cleanText(value: unknown) {
 
 function normalizeText(value: unknown) {
   return cleanText(value).toLowerCase();
+}
+
+function cleanDtiInspectionItems(value: unknown): DtiScheduleInspectionItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).flatMap((raw, index) => {
+    if (!isObject(raw)) return [];
+    const componentType = cleanText(raw.componentType);
+    if (!(["Drill Pipe", "HWDP", "Subs"] as const).includes(componentType as DtiScheduleInspectionItem["componentType"])) return [];
+    const countValue = cleanText(raw.jointCount);
+    const jointCount = countValue && Number.isInteger(Number(countValue)) && Number(countValue) > 0 && Number(countValue) <= 2000
+      ? Number(countValue)
+      : null;
+    const item = {
+      id: cleanText(raw.id) || `inspection-item-${index + 1}`,
+      componentType: componentType as DtiScheduleInspectionItem["componentType"],
+      jointCount,
+      pipeSize: cleanText(raw.pipeSize),
+      weight: cleanText(raw.weight),
+      grade: cleanText(raw.grade),
+      connection: cleanText(raw.connection),
+      inspectionCategory: cleanText(raw.inspectionCategory),
+    };
+    const ready = Boolean(item.jointCount && item.pipeSize && item.weight && item.grade && item.connection && item.inspectionCategory);
+    return [{ ...item, setupStatus: ready ? "Ready" as const : "Setup Required" as const }];
+  });
+}
+
+function specKey(value: unknown) {
+  return cleanText(value).toLowerCase().replace(/\b(inches|inch|in)\b/g, "").replace(/[^a-z0-9./]+/g, "");
+}
+
+function managedCriteriaIdentity(name: unknown) {
+  const parts = cleanText(name).split("|").map((part) => part.trim());
+  if (parts.length < 5 || parts[0] !== "DS-1 Premium") return null;
+  const weight = Number(parts[2]);
+  if (!Number.isFinite(weight)) return null;
+  return { pipeSize: parts[1], weight, grade: parts[3], connection: parts.slice(4).join(" | ") };
+}
+
+function itemMatchesCriteria(item: DtiScheduleInspectionItem, identity: ReturnType<typeof managedCriteriaIdentity>) {
+  if (!identity) return false;
+  return specKey(item.pipeSize) === specKey(identity.pipeSize)
+    && Number(item.weight) === identity.weight
+    && specKey(item.grade) === specKey(identity.grade)
+    && specKey(item.connection) === specKey(identity.connection);
+}
+
+async function publishedCriteriaSnapshot(
+  admin: ReturnType<typeof configuredSupabase>,
+  item: DtiScheduleInspectionItem,
+) {
+  const setsResult = await admin
+    .from("titan_dti_criteria_sets")
+    .select("*")
+    .eq("component_type", item.componentType)
+    .is("archived_at", null)
+    .limit(1000);
+  if (setsResult.error) throw setsResult.error;
+  const criteriaSet = (setsResult.data ?? []).find((row) => itemMatchesCriteria(item, managedCriteriaIdentity(row.name)));
+  if (!criteriaSet) return null;
+
+  const versionResult = await admin
+    .from("titan_dti_criteria_versions")
+    .select("*")
+    .eq("criteria_set_id", criteriaSet.id)
+    .eq("status", "Published")
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (versionResult.error) throw versionResult.error;
+  if (!versionResult.data) return null;
+
+  const identity = managedCriteriaIdentity(criteriaSet.name);
+  const [rulesResult, documentResult, specResult] = await Promise.all([
+    admin.from("titan_dti_criteria_rules").select("*").eq("criteria_version_id", versionResult.data.id).eq("is_active", true).order("display_order"),
+    versionResult.data.source_document_id
+      ? admin.from("documents").select("id,title,document_number,approval_status,document_status").eq("id", versionResult.data.source_document_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    identity
+      ? admin.from("titan_dti_tubular_specs").select("id,pipe_size,weight_ppf,grade,connection,new_wall_inches,premium_min_wall_inches,class_2_min_wall_inches").eq("pipe_size", identity.pipeSize).eq("weight_ppf", identity.weight).eq("grade", identity.grade).eq("connection", identity.connection).is("archived_at", null).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (rulesResult.error) throw rulesResult.error;
+  if (documentResult.error) throw documentResult.error;
+  if (specResult.error) throw specResult.error;
+  if (!rulesResult.data?.length) return null;
+
+  return {
+    versionId: versionResult.data.id as string,
+    nominalWall: Number(specResult.data?.new_wall_inches) || null,
+    snapshot: {
+      capturedAt: new Date().toISOString(),
+      criteriaSet,
+      version: versionResult.data,
+      sourceDocument: documentResult.data,
+      tubularSpec: specResult.data,
+      rules: rulesResult.data,
+    },
+  };
+}
+
+function scheduledInspectionRowData(componentType: DtiComponentType, sequenceNumber: number, nominalWall: number | null) {
+  const data: Record<string, unknown> = {};
+  for (const field of dtiInspectionFields[componentType]) {
+    if (field.kind === "flag") data[field.key] = false;
+    else if (field.kind === "number" || field.kind === "calculated") data[field.key] = null;
+    else data[field.key] = "";
+  }
+  data.jointNumber = String(sequenceNumber);
+  data.boxPassComplete = false;
+  data.pinPassComplete = false;
+  data.emiProveUp = false;
+  data.emiProveUpId = "";
+  if (componentType === "Drill Pipe" && nominalWall) data.nominalWallThickness = nominalWall;
+  return data;
+}
+
+async function createScheduledDtiReports(
+  admin: ReturnType<typeof configuredSupabase>,
+  crmOpportunityId: string,
+  externalId: string,
+  body: CreateJobBody,
+  items: DtiScheduleInspectionItem[],
+  actorId: string,
+) {
+  const generatedReports: GeneratedDtiReport[] = [];
+  const warnings: string[] = [];
+  if (normalizeText(body.serviceLine) !== "dti" || !items.length) return { generatedReports, warnings };
+
+  const jobResult = await admin.from("titan_jobs").select("id,job_number").eq("crm_opportunity_id", crmOpportunityId).maybeSingle();
+  if (jobResult.error) throw jobResult.error;
+  if (!jobResult.data) return { generatedReports, warnings: ["The job was created, but its connected TITAN job is not ready yet."] };
+
+  const existingResult = await admin.from("titan_dti_inspection_reports").select("id,report_number,inspection_scope").eq("job_id", jobResult.data.id).neq("status", "Archived");
+  if (existingResult.error) throw existingResult.error;
+  const existingReports = existingResult.data ?? [];
+  const reportDateText = cleanText(body.jobDateTime);
+  const reportDate = /^\d{4}-\d{2}-\d{2}/.test(reportDateText) ? reportDateText.slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+  for (const item of items) {
+    const prior = existingReports.find((report) => isObject(report.inspection_scope) && report.inspection_scope.scheduleItemId === item.id);
+    if (prior) {
+      generatedReports.push({ id: prior.id, reportNumber: prior.report_number, componentType: item.componentType, rowCount: item.jointCount ?? 0, criteriaMatched: Boolean((prior.inspection_scope as Record<string, unknown>).criteriaMatched) });
+      continue;
+    }
+
+    let criteria: Awaited<ReturnType<typeof publishedCriteriaSnapshot>> = null;
+    try {
+      criteria = await publishedCriteriaSnapshot(admin, item);
+    } catch (error) {
+      warnings.push(`${dtiComponentLabel(item.componentType)}: acceptance criteria could not be matched (${errorMessage(error)}).`);
+    }
+    const inspectionScope = {
+      reportComponentType: item.componentType,
+      inspectionCategory: item.inspectionCategory,
+      criteriaPipeSize: item.pipeSize,
+      criteriaWeightPpf: item.weight,
+      criteriaGrade: item.grade,
+      criteriaConnection: item.connection,
+      scheduleItemId: item.id,
+      scheduleSourceId: externalId,
+      autoCreatedFromSchedule: true,
+      criteriaMatched: Boolean(criteria),
+      setupStatus: item.setupStatus,
+    };
+    const reportInsert = await admin.from("titan_dti_inspection_reports").insert({
+      job_id: jobResult.data.id,
+      operator_name: cleanText(body.operator) || cleanText(body.title) || "Setup Required",
+      contractor_name: cleanText(body.contractor) || null,
+      rig_number: cleanText(body.rigNumber) || cleanText(body.rig) || null,
+      report_date: reportDate,
+      connection_size: item.pipeSize || null,
+      connection_type: item.connection || null,
+      grade: item.grade || null,
+      state: cleanText(body.state) || null,
+      inspection_scope: inspectionScope,
+      status: "Draft",
+      criteria_version_id: criteria?.versionId ?? null,
+      criteria_snapshot: criteria?.snapshot ?? null,
+      created_by: actorId,
+      updated_by: actorId,
+    }).select("*").single();
+    if (reportInsert.error) throw reportInsert.error;
+
+    try {
+      const rowCount = item.jointCount ?? 0;
+      const rows = Array.from({ length: rowCount }, (_, index) => ({
+        report_id: reportInsert.data.id,
+        component_type: item.componentType,
+        sequence_number: index + 1,
+        row_data: scheduledInspectionRowData(item.componentType, index + 1, criteria?.nominalWall ?? null),
+        created_by: actorId,
+        updated_by: actorId,
+      }));
+      for (let start = 0; start < rows.length; start += 250) {
+        const rowInsert = await admin.from("titan_dti_inspection_items").insert(rows.slice(start, start + 250));
+        if (rowInsert.error) throw rowInsert.error;
+      }
+    } catch (error) {
+      await admin.from("titan_dti_inspection_reports").delete().eq("id", reportInsert.data.id);
+      throw error;
+    }
+
+    const [eventResult, linkResult] = await Promise.all([
+      admin.from("titan_dti_inspection_report_events").insert({ report_id: reportInsert.data.id, entity_type: "Report", entity_id: reportInsert.data.id, event_type: "Created", before_value: null, after_value: reportInsert.data, actor_id: actorId }),
+      admin.from("titan_job_links").upsert({ job_id: jobResult.data.id, module_key: "dti", record_type: "inspection_report", record_id: reportInsert.data.id, relationship_type: "generated_from_schedule", metadata: { scheduleItemId: item.id, componentType: item.componentType }, created_by: actorId }, { onConflict: "job_id,module_key,record_type,record_id" }),
+    ]);
+    if (eventResult.error) warnings.push(`${reportInsert.data.report_number}: report audit event was not recorded.`);
+    if (linkResult.error) warnings.push(`${reportInsert.data.report_number}: connected-job link was not recorded.`);
+    if (!criteria) warnings.push(`${reportInsert.data.report_number}: no exact published criteria match was found; report setup is required.`);
+    generatedReports.push({ id: reportInsert.data.id, reportNumber: reportInsert.data.report_number, componentType: item.componentType, rowCount: item.jointCount ?? 0, criteriaMatched: Boolean(criteria) });
+  }
+
+  return { generatedReports, warnings };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -268,11 +506,13 @@ async function parseBoardCellBody(request: Request) {
 function newJobMetadata(body: CreateJobBody, externalId: string) {
   const groupName = cleanText(body.groupName) || "Requested";
   const title = cleanText(body.title);
+  const inspectionItems = cleanText(body.serviceLine).toLowerCase() === "dti" ? cleanDtiInspectionItems(body.inspectionItems) : [];
   const fields: Record<string, string> = {
     Name: title,
     Contacts: cleanText(body.contact),
     Operator: cleanText(body.operator),
-    Rig: cleanText(body.rig),
+    Contractor: cleanText(body.contractor),
+    Rig: cleanText(body.rigNumber) || cleanText(body.rig),
     "Job Date/Time": cleanText(body.jobDateTime),
     State: cleanText(body.state),
     County: cleanText(body.county),
@@ -295,6 +535,7 @@ function newJobMetadata(body: CreateJobBody, externalId: string) {
       itemId: externalId,
       groupName,
     },
+    dtiInspectionItems: inspectionItems,
     createdInTitan: true,
   };
 }
@@ -420,7 +661,30 @@ export async function POST(request: Request) {
       after_value: insertPayload,
     });
 
-    return Response.json({ ok: true, job: createdJob }, { status: 201 });
+    const inspectionItems = cleanDtiInspectionItems(body.inspectionItems);
+    const reportResult = await createScheduledDtiReports(
+      adminSupabase,
+      createdJob.id,
+      externalId,
+      body,
+      inspectionItems,
+      authorization.userId,
+    );
+
+    if (reportResult.generatedReports.length) {
+      const finalMetadata = {
+        ...metadata,
+        unmappedFieldValues: {
+          ...metadata.unmappedFieldValues,
+          Report: reportResult.generatedReports.map((report) => report.reportNumber).join(", "),
+        },
+        dtiGeneratedReports: reportResult.generatedReports,
+      };
+      const metadataUpdate = await adminSupabase.from("crm_opportunities").update({ metadata: finalMetadata }).eq("id", createdJob.id);
+      if (metadataUpdate.error) reportResult.warnings.push("The reports were created, but their numbers could not be written back to Job Schedule.");
+    }
+
+    return Response.json({ ok: true, job: createdJob, ...reportResult }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }
