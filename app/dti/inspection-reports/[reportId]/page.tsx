@@ -14,7 +14,7 @@ import styles from "../reports.module.css";
 type Report = { id: string; report_number: string; operator_name: string; contractor_name: string | null; rig_number: string | null; report_date: string; field_invoice: string | null; inspection_crew: string | null; connection_size: string | null; connection_type: string | null; grade: string | null; state: string | null; inspection_scope: Record<string, unknown>; machine_shop: Record<string, unknown>; remarks: Record<string, unknown>; status: string; criteria_version_id?: string | null; criteria_snapshot?: Record<string, unknown> | null };
 type Item = { id: string; report_id: string; component_type: DtiComponentType; sequence_number: number; row_data: Record<string, unknown>; grading_result?: DtiGradingResult | null; pendingMutationId?: string };
 type ProveUp = { id: string; sequence_number: number; joint_number: string | null; serial_number: string | null; flaw: string | null; depth_inches: number | null; adjacent_wall_inches: number | null; remaining_body_wall_inches: number | null; distance_from_end: string | null; prove_up_result: string | null; pendingMutationId?: string };
-type CriteriaVersion = { id: string; version_number: number; effective_date: string | null; nominal_wall_inches?: number | null; criteria_set: { name: string; standard_type: string; component_type: DtiComponentType; customer_name: string | null } };
+type CriteriaVersion = { id: string; version_number: number; effective_date: string | null; nominal_wall_inches?: number | null; pipe_size?: string | null; weight_ppf?: number | null; grade?: string | null; connection?: string | null; criteria_set: { name: string; standard_type: string; component_type: DtiComponentType; customer_name: string | null } };
 type ApiData = { ok?: boolean; report?: Report; items?: Item[]; proveUps?: ProveUp[]; criteriaVersions?: CriteriaVersion[]; error?: string; alertWarning?: string; gradingWarning?: string };
 type Tab = DtiComponentType | "EMI Prove-Up";
 const endpoint = "/api/dti/inspection-reports";
@@ -27,6 +27,13 @@ function reportForm(report: Report, items: Item[] = []) {
 }
 function displayValue(value: unknown) { if (value === true) return "X"; if (value === false || value === null || value === undefined || value === "") return "-"; return String(value); }
 function objectValue(source: Record<string, unknown>, key: string) { return String(source[key] ?? ""); }
+function unique(values: Array<string | null | undefined>) { return [...new Set(values.filter((value): value is string => Boolean(value)))]; }
+function pipeSizeNumber(value: string) {
+  const [whole, fraction] = value.split("-");
+  if (!fraction) return Number(whole) || 0;
+  const [numerator, denominator] = fraction.split("/").map(Number);
+  return (Number(whole) || 0) + (denominator ? numerator / denominator : 0);
+}
 function snapshottedCriteria(report: Report | undefined): CriteriaVersion | null {
   if (!report?.criteria_version_id || !report.criteria_snapshot) return null;
   const criteriaSet = report.criteria_snapshot.criteriaSet;
@@ -34,7 +41,9 @@ function snapshottedCriteria(report: Report | undefined): CriteriaVersion | null
   if (!criteriaSet || typeof criteriaSet !== "object" || !version || typeof version !== "object") return null;
   const set = criteriaSet as Record<string, unknown>; const savedVersion = version as Record<string, unknown>; const spec = report.criteria_snapshot.tubularSpec as Record<string, unknown> | null | undefined;
   const nominalWall = Number(spec?.new_wall_inches);
-  return { id: report.criteria_version_id, version_number: Number(savedVersion.version_number ?? 0), effective_date: String(savedVersion.effective_date ?? "") || null, nominal_wall_inches: Number.isFinite(nominalWall) && nominalWall > 0 ? nominalWall : null, criteria_set: { name: String(set.name ?? "Historical criteria"), standard_type: String(set.standard_type ?? ""), component_type: String(set.component_type ?? "Drill Pipe") as DtiComponentType, customer_name: String(set.customer_name ?? "") || null } };
+  const nameParts = String(set.name ?? "").split("|").map((part) => part.trim());
+  const managed = nameParts.length >= 5 && nameParts[0] === "DS-1 Premium";
+  return { id: report.criteria_version_id, version_number: Number(savedVersion.version_number ?? 0), effective_date: String(savedVersion.effective_date ?? "") || null, nominal_wall_inches: Number.isFinite(nominalWall) && nominalWall > 0 ? nominalWall : null, pipe_size: managed ? nameParts[1] : null, weight_ppf: managed ? Number(nameParts[2]) : null, grade: managed ? nameParts[3] : null, connection: managed ? nameParts.slice(4).join(" | ") : null, criteria_set: { name: String(set.name ?? "Historical criteria"), standard_type: String(set.standard_type ?? ""), component_type: String(set.component_type ?? "Drill Pipe") as DtiComponentType, customer_name: String(set.customer_name ?? "") || null } };
 }
 
 export default function DtiInspectionReportEditor() {
@@ -50,8 +59,20 @@ export default function DtiInspectionReportEditor() {
   const serverItems = data?.items ?? []; const serverProveUps = data?.proveUps ?? []; const reportComponentType = resolveDtiReportComponentType(data?.report?.inspection_scope, serverItems);
   const currentCriteria = snapshottedCriteria(data?.report);
   const criteriaVersions = [...(currentCriteria && !(data?.criteriaVersions ?? []).some((version) => version.id === currentCriteria.id) ? [currentCriteria] : []), ...(data?.criteriaVersions ?? [])].filter((version) => version.criteria_set.component_type === reportComponentType);
-  const selectedCriteria = criteriaVersions.find((version) => version.id === header?.criteriaVersionId) ?? currentCriteria;
+  const selectedCriteria = criteriaVersions.find((version) => version.id === header?.criteriaVersionId) ?? (!header ? currentCriteria : null);
   const nominalWallThickness = reportComponentType === "Drill Pipe" && Number(selectedCriteria?.nominal_wall_inches) > 0 ? Number(selectedCriteria?.nominal_wall_inches) : null;
+  const ds1Criteria = criteriaVersions.filter((version) => version.pipe_size && Number(version.weight_ppf) > 0 && version.grade && version.connection);
+  const otherCriteria = criteriaVersions.filter((version) => !version.pipe_size || !version.weight_ppf || !version.grade || !version.connection);
+  const criteriaScope = header?.inspectionScope ?? {};
+  const hasCriteriaFilters = Object.prototype.hasOwnProperty.call(criteriaScope, "criteriaPipeSize");
+  const criteriaPipeSize = hasCriteriaFilters ? objectValue(criteriaScope, "criteriaPipeSize") : selectedCriteria?.pipe_size || "";
+  const criteriaWeight = hasCriteriaFilters ? objectValue(criteriaScope, "criteriaWeightPpf") : selectedCriteria?.weight_ppf ? String(selectedCriteria.weight_ppf) : "";
+  const criteriaGrade = hasCriteriaFilters ? objectValue(criteriaScope, "criteriaGrade") : selectedCriteria?.grade || "";
+  const criteriaConnection = hasCriteriaFilters ? objectValue(criteriaScope, "criteriaConnection") : selectedCriteria?.connection || "";
+  const criteriaSizes = unique(ds1Criteria.map((version) => version.pipe_size)).sort((a, b) => pipeSizeNumber(a) - pipeSizeNumber(b));
+  const criteriaWeights = unique(ds1Criteria.filter((version) => version.pipe_size === criteriaPipeSize).map((version) => String(version.weight_ppf))).sort((a, b) => Number(a) - Number(b));
+  const criteriaGrades = unique(ds1Criteria.filter((version) => version.pipe_size === criteriaPipeSize && String(version.weight_ppf) === criteriaWeight).map((version) => version.grade)).sort();
+  const criteriaConnections = unique(ds1Criteria.filter((version) => version.pipe_size === criteriaPipeSize && String(version.weight_ppf) === criteriaWeight && version.grade === criteriaGrade).map((version) => version.connection)).sort();
   const pendingItems = useMemo<Item[]>(() => pending.filter((entry) => entry.action === "save-item").map((entry) => ({ id: String(entry.payload.itemId || `pending-${entry.id}`), report_id: reportId, component_type: String(entry.payload.componentType) as DtiComponentType, sequence_number: Number(entry.payload.sequenceNumber), row_data: (entry.payload.rowData ?? {}) as Record<string, unknown>, grading_result: null, pendingMutationId: entry.id })), [pending, reportId]);
   const pendingItemIds = useMemo(() => new Set(pendingItems.filter((item) => !item.id.startsWith("pending-")).map((item) => item.id)), [pendingItems]);
   const deletedItemIds = useMemo(() => new Set(pending.filter((entry) => entry.action === "delete-item").map((entry) => String(entry.payload.itemId))), [pending]);
@@ -82,6 +103,27 @@ export default function DtiInspectionReportEditor() {
       setData(optimistic);
       await saveDtiOfflineSnapshot(snapshotKey, optimistic).catch(() => undefined);
     }
+  }
+  function selectCriteriaSize(value: string) {
+    if (!header) return;
+    setHeader({ ...header, criteriaVersionId: "", connectionSize: value, connectionType: "", grade: "", inspectionScope: { ...header.inspectionScope, criteriaPipeSize: value, criteriaWeightPpf: "", criteriaGrade: "", criteriaConnection: "" } });
+  }
+  function selectCriteriaWeight(value: string) {
+    if (!header) return;
+    setHeader({ ...header, criteriaVersionId: "", connectionType: "", grade: "", inspectionScope: { ...header.inspectionScope, criteriaPipeSize, criteriaWeightPpf: value, criteriaGrade: "", criteriaConnection: "" } });
+  }
+  function selectCriteriaGrade(value: string) {
+    if (!header) return;
+    setHeader({ ...header, criteriaVersionId: "", connectionType: "", grade: value, inspectionScope: { ...header.inspectionScope, criteriaPipeSize, criteriaWeightPpf: criteriaWeight, criteriaGrade: value, criteriaConnection: "" } });
+  }
+  function selectCriteriaConnection(value: string) {
+    if (!header) return;
+    const match = ds1Criteria.find((version) => version.pipe_size === criteriaPipeSize && String(version.weight_ppf) === criteriaWeight && version.grade === criteriaGrade && version.connection === value);
+    setHeader({ ...header, criteriaVersionId: match?.id || "", connectionSize: criteriaPipeSize, connectionType: value, grade: criteriaGrade, inspectionScope: { ...header.inspectionScope, criteriaPipeSize, criteriaWeightPpf: criteriaWeight, criteriaGrade, criteriaConnection: value } });
+  }
+  function selectOtherCriteria(value: string) {
+    if (!header) return;
+    setHeader({ ...header, criteriaVersionId: value, inspectionScope: { ...header.inspectionScope, criteriaPipeSize: "", criteriaWeightPpf: "", criteriaGrade: "", criteriaConnection: "" } });
   }
   function addItem() { const next = Math.max(0, ...items.map((item) => item.sequence_number)) + 1; setInspectionPass("Full"); setItemId(""); setSequenceNumber(String(next)); setRowData({ jointNumber: String(next), ...(nominalWallThickness ? { nominalWallThickness } : {}) }); setItemOpen(true); }
   function editItem(item: Item, pass: DtiInspectionPass = inspectionPass) { setInspectionPass(pass); setItemId(item.id); setSequenceNumber(String(item.sequence_number)); setRowData(normalizeDtiInspectionRowData({ ...item.row_data, ...(nominalWallThickness ? { nominalWallThickness } : {}) })); setItemOpen(true); }
@@ -148,7 +190,21 @@ export default function DtiInspectionReportEditor() {
     {message ? <div className={message.includes("saved") || message.includes("synced") ? styles.saved : styles.message}>{message}</div> : null}
     {report ? <section className={styles.reportBand}><div><span>Report Type</span><strong>{reportComponentType}</strong></div><div><span>Operator</span><strong>{report.operator_name}</strong></div><div><span>Contractor / Rig</span><strong>{report.contractor_name || "-"} / {report.rig_number || "-"}</strong></div><div><span>Connection</span><strong>{report.connection_size || "-"} / {report.connection_type || "-"}</strong></div><div><span>Acceptance Criteria</span><strong>{currentCriteria ? `${currentCriteria.criteria_set.name} / v${currentCriteria.version_number}` : "Not selected"}</strong></div><div><span>Status</span><strong>{report.status}</strong></div></section> : null}
     {headerOpen && header ? <section className={styles.editor}><div className={styles.sectionHead}><div><span>Report Header</span><h2>Job and Scope</h2></div><button type="button" onClick={() => setHeaderOpen(false)}>Close</button></div><div className={styles.formGrid}>{([['operatorName','Operator'],['contractorName','Contractor'],['rigNumber','Rig Number'],['reportDate','Date'],['fieldInvoice','Field Invoice'],['inspectionCrew','Inspection Crew'],['connectionSize','Connection Size'],['connectionType','Connection Type'],['grade','Grade'],['state','State']] as const).map(([key,label]) => <label key={key}><span>{label}</span><input type={key === "reportDate" ? "date" : "text"} value={String(header[key] ?? "")} onChange={(event) => setHeader({ ...header, [key]: event.target.value })} /></label>)}<label><span>Status</span><select value={header.status} onChange={(event) => setHeader({ ...header, status: event.target.value })}><option>Draft</option><option>In Progress</option><option>Complete</option></select></label></div>
-      <div className={styles.setupSections}><fieldset><legend>{reportComponentType} Inspection</legend><div className={styles.scopeGrid}><label><span>{reportComponentType === "Subs" ? "Tool Count" : "Joint Count"}</span><input type="number" min="0" max="2000" step="1" inputMode="numeric" value={header.jointCount} onChange={(event) => setHeader({ ...header, jointCount: event.target.value })} /></label><label><span>Acceptance Criteria</span><select value={header.criteriaVersionId} onChange={(event) => setHeader({ ...header, criteriaVersionId: event.target.value })}><option value="">Not selected</option>{criteriaVersions.map((version) => <option key={version.id} value={version.id}>{version.criteria_set.name} / v{version.version_number}{version.criteria_set.customer_name ? ` / ${version.criteria_set.customer_name}` : ""}</option>)}</select></label>{reportComponentType === "Drill Pipe" ? <label><span>Nominal Wall Thickness</span><input type="number" readOnly aria-readonly="true" value={nominalWallThickness ?? ""} placeholder="Select acceptance criteria" /></label> : null}<label><span>Category</span><select value={objectValue(header.inspectionScope, `${scopePrefix}Category`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Category`]: event.target.value } })}><option value="">None</option>{dtiInspectionCategoryOptions.map((option) => <option key={option}>{option}</option>)}</select></label><label><span>Additional 1</span><input value={objectValue(header.inspectionScope, `${scopePrefix}Additional1`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Additional1`]: event.target.value } })} /></label><label><span>Additional 2</span><input value={objectValue(header.inspectionScope, `${scopePrefix}Additional2`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Additional2`]: event.target.value } })} /></label><label><span>Remarks</span><textarea value={objectValue(header.remarks, scopePrefix)} onChange={(event) => setHeader({ ...header, remarks: { ...header.remarks, [scopePrefix]: event.target.value } })} /></label></div></fieldset></div>
+      <div className={styles.setupSections}><fieldset><legend>{reportComponentType} Inspection</legend><div className={styles.scopeGrid}>
+        <label><span>{reportComponentType === "Subs" ? "Tool Count" : "Joint Count"}</span><input type="number" min="0" max="2000" step="1" inputMode="numeric" value={header.jointCount} onChange={(event) => setHeader({ ...header, jointCount: event.target.value })} /></label>
+        {reportComponentType === "Drill Pipe" && ds1Criteria.length ? <>
+          <label><span>Pipe Size</span><select value={criteriaPipeSize} onChange={(event) => selectCriteriaSize(event.target.value)}><option value="">Select size</option>{criteriaSizes.map((value) => <option key={value} value={value}>{value} in</option>)}</select></label>
+          <label><span>Weight</span><select value={criteriaWeight} disabled={!criteriaPipeSize} onChange={(event) => selectCriteriaWeight(event.target.value)}><option value="">Select weight</option>{criteriaWeights.map((value) => <option key={value} value={value}>{value} lb/ft</option>)}</select></label>
+          <label><span>Grade</span><select value={criteriaGrade} disabled={!criteriaWeight} onChange={(event) => selectCriteriaGrade(event.target.value)}><option value="">Select grade</option>{criteriaGrades.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label><span>Connection</span><select value={criteriaConnection} disabled={!criteriaGrade} onChange={(event) => selectCriteriaConnection(event.target.value)}><option value="">Select connection</option>{criteriaConnections.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          {otherCriteria.length ? <label><span>Other Acceptance Criteria</span><select value={selectedCriteria && !selectedCriteria.pipe_size ? selectedCriteria.id : ""} onChange={(event) => selectOtherCriteria(event.target.value)}><option value="">Use DS-1 selections above</option>{otherCriteria.map((version) => <option key={version.id} value={version.id}>{version.criteria_set.name} / v{version.version_number}</option>)}</select></label> : null}
+          <label><span>Nominal Wall Thickness</span><input type="number" readOnly aria-readonly="true" value={nominalWallThickness ?? ""} placeholder="Select connection" /></label>
+        </> : <label><span>Acceptance Criteria</span><select value={header.criteriaVersionId} onChange={(event) => setHeader({ ...header, criteriaVersionId: event.target.value })}><option value="">Not selected</option>{criteriaVersions.map((version) => <option key={version.id} value={version.id}>{version.criteria_set.name} / v{version.version_number}{version.criteria_set.customer_name ? ` / ${version.criteria_set.customer_name}` : ""}</option>)}</select></label>}
+        <label><span>Category</span><select value={objectValue(header.inspectionScope, `${scopePrefix}Category`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Category`]: event.target.value } })}><option value="">None</option>{dtiInspectionCategoryOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+        <label><span>Additional 1</span><input value={objectValue(header.inspectionScope, `${scopePrefix}Additional1`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Additional1`]: event.target.value } })} /></label>
+        <label><span>Additional 2</span><input value={objectValue(header.inspectionScope, `${scopePrefix}Additional2`)} onChange={(event) => setHeader({ ...header, inspectionScope: { ...header.inspectionScope, [`${scopePrefix}Additional2`]: event.target.value } })} /></label>
+        <label><span>Remarks</span><textarea value={objectValue(header.remarks, scopePrefix)} onChange={(event) => setHeader({ ...header, remarks: { ...header.remarks, [scopePrefix]: event.target.value } })} /></label>
+      </div></fieldset></div>
       <fieldset className={styles.setupFieldset}><legend>Machine Shop</legend><div className={styles.formGrid}>{([['name','Name'],['address','Address'],['contact','Contact'],['phone','Phone']] as const).map(([key,label]) => <label key={key}><span>{label}</span><input value={objectValue(header.machineShop, key)} onChange={(event) => setHeader({ ...header, machineShop: { ...header.machineShop, [key]: event.target.value } })} /></label>)}</div></fieldset>
       <div className={styles.editorActions}><button className={styles.primary} type="button" onClick={() => void saveSetup()}>Save Setup</button></div>
     </section> : null}

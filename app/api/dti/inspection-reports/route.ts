@@ -92,7 +92,15 @@ async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredS
     const criteriaSet = sets.get(version.criteria_set_id);
     const identity = managedCriteriaIdentity(criteriaSet?.name);
     const nominalWall = identity ? nominalWallBySpec.get(tubularSpecKey(identity)) ?? null : null;
-    return criteriaSet ? [{ ...version, criteria_set: criteriaSet, nominal_wall_inches: nominalWall }] : [];
+    return criteriaSet ? [{
+      ...version,
+      criteria_set: criteriaSet,
+      nominal_wall_inches: nominalWall,
+      pipe_size: identity?.pipeSize ?? null,
+      weight_ppf: identity?.weightPpf ?? null,
+      grade: identity?.grade ?? null,
+      connection: identity?.connection ?? null,
+    }] : [];
   });
 }
 
