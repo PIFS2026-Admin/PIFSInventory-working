@@ -112,7 +112,7 @@ async function loadCriteriaSnapshot(admin: ReturnType<typeof configuredSupabase>
   const [setResult, rulesResult, documentResult] = await Promise.all([
     admin.from("titan_dti_criteria_sets").select("*").eq("id", versionResult.data.criteria_set_id).is("archived_at", null).maybeSingle(),
     admin.from("titan_dti_criteria_rules").select("*").eq("criteria_version_id", versionId).eq("is_active", true).order("display_order"),
-    admin.from("documents").select("id,title,document_number,approval_status,document_status,status").eq("id", versionResult.data.source_document_id).maybeSingle(),
+    admin.from("documents").select("id,title,document_number,approval_status,document_status").eq("id", versionResult.data.source_document_id).maybeSingle(),
   ]);
   if (setResult.error) throw setResult.error; if (rulesResult.error) throw rulesResult.error; if (documentResult.error) throw documentResult.error;
   if (!setResult.data || setResult.data.component_type !== componentType) throw new Error(`Select published criteria for ${componentType}.`);
