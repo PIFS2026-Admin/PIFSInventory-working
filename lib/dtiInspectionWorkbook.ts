@@ -102,12 +102,12 @@ function excelDateSerial(date: string) {
   return (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86_400_000;
 }
 
-function writeInspectionRows(sheet: string, rows: Item[], columns: Record<string, string>, serialSplitColumn?: string) {
+function writeInspectionRows(sheet: string, rows: Item[], columns: Record<string, string>, serialSplitColumn?: string, defaults: Record<string, unknown> = {}) {
   let output = sheet;
   rows.sort((a, b) => a.sequence_number - b.sequence_number).forEach((item, index) => {
     const rowNumber = 9 + index;
     for (const [key, column] of Object.entries(columns)) {
-      const value = excelValue(key, item.row_data[key]);
+      const value = excelValue(key, item.row_data[key] ?? defaults[key]);
       if (value !== null) output = writeCell(output, `${column}${rowNumber}`, value);
     }
     if (serialSplitColumn && text(item.row_data.serialNumber)) output = writeCell(output, `${serialSplitColumn}${rowNumber}`, text(item.row_data.serialNumber));
@@ -173,7 +173,9 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
     saveSheet(sheetName, sheet);
   }
 
-  let drillPipe = writeInspectionRows(await readSheet("Prop Drill Pipe Inp Report"), reportComponentType === "Drill Pipe" ? items.filter((item) => item.component_type === "Drill Pipe") : [], drillPipeColumns);
+  const tubularSpec = record(record(report.criteria_snapshot).tubularSpec);
+  const drillPipeDefaults = Number(tubularSpec.new_wall_inches) > 0 ? { nominalWallThickness: Number(tubularSpec.new_wall_inches) } : {};
+  let drillPipe = writeInspectionRows(await readSheet("Prop Drill Pipe Inp Report"), reportComponentType === "Drill Pipe" ? items.filter((item) => item.component_type === "Drill Pipe") : [], drillPipeColumns, undefined, drillPipeDefaults);
   const hwdp = writeInspectionRows(await readSheet("Prop HWDP Inp Report"), reportComponentType === "HWDP" ? items.filter((item) => item.component_type === "HWDP") : [], toolColumns, "BL");
   let subs = writeInspectionRows(await readSheet("Prop Subs Inp Report"), reportComponentType === "Subs" ? items.filter((item) => item.component_type === "Subs") : [], subsColumns, "BL");
   for (const address of ["AV8", "AW8"]) drillPipe = clearCell(drillPipe, address);

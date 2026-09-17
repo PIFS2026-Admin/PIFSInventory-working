@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "./supabase";
+import { getValidAccessToken } from "./clientSession";
 
 const DATABASE_NAME = "titan-dti-offline";
 const DATABASE_VERSION = 1;
@@ -108,13 +108,16 @@ function mutationId() {
 }
 
 function isRetryableStatus(status: number) {
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  return status === 401 || status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 async function postMutation<T>(payload: Record<string, unknown>, endpoint = "/api/dti/job-execution") {
-  const { data: auth } = await supabase.auth.getSession();
-  const token = auth.session?.access_token;
-  if (!token) throw new Error("Your TITAN session is not available. Reconnect and sign in before syncing.");
+  const token = await getValidAccessToken();
+  if (!token) {
+    const error = new Error("Your TITAN session expired. Sign in again to sync saved work.") as Error & { retryable?: boolean };
+    error.retryable = true;
+    throw error;
+  }
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -122,7 +125,7 @@ async function postMutation<T>(payload: Record<string, unknown>, endpoint = "/ap
   });
   const data = await response.json().catch(() => ({})) as T & { error?: string };
   if (!response.ok) {
-    const error = new Error(data.error || "TITAN could not save the queued inspection.") as Error & { retryable?: boolean };
+    const error = new Error(response.status === 401 ? "Your TITAN session expired. Sign in again to sync saved work." : data.error || "TITAN could not save the queued inspection.") as Error & { retryable?: boolean };
     error.retryable = isRetryableStatus(response.status);
     throw error;
   }

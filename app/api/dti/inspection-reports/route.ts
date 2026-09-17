@@ -247,16 +247,6 @@ async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabas
     if (error) throw error;
   }
 
-  if (componentType === "Drill Pipe" && nominalWall) {
-    for (let start = 0; start < componentItems.length; start += 50) {
-      await Promise.all(componentItems.slice(start, start + 50).map(async (item) => {
-        const rowData = cleanRowData(componentType, { ...object(item.row_data), nominalWallThickness: nominalWall });
-        const result = await admin.from("titan_dti_inspection_items").update({ row_data: rowData, updated_by: actorId }).eq("id", item.id).eq("report_id", reportId);
-        if (result.error) throw result.error;
-      }));
-    }
-  }
-
   if (surplus.length || missingRows.length) {
     await logEvent(admin, reportId, componentType, null, "Row Count Changed", { count: componentItems.length }, { count: requestedCount }, actorId);
   }
@@ -277,7 +267,13 @@ async function saveItemGrade(admin: ReturnType<typeof configuredSupabase>, repor
 }
 
 async function gradeReportItems(admin: ReturnType<typeof configuredSupabase>, report: Row, items: Row[], actorId: string, itemId?: string | null) {
-  const targets = itemId ? items.filter((item) => clean(item.id) === itemId) : items;
+  const hasInspectionData = (item: Row) => Object.entries(object(item.row_data)).some(([key, value]) =>
+    !["jointNumber", "serialNumber", "description", "nominalWallThickness", "percentNominalWall", "emiProveUpId"].includes(key)
+    && value !== null && value !== undefined && value !== "" && value !== false,
+  );
+  const targets = itemId
+    ? items.filter((item) => clean(item.id) === itemId)
+    : items.filter((item) => item.grading_result || hasInspectionData(item));
   for (let start = 0; start < targets.length; start += 50) {
     await Promise.all(targets.slice(start, start + 50).map((item) => saveItemGrade(admin, report, item, actorId)));
   }
@@ -416,7 +412,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return Response.json({ ok: true, ...refreshed, criteriaVersions: await loadPublishedCriteriaOptions(admin), ...(gradingWarning ? { gradingWarning } : {}), ...(alertWarning ? { alertWarning } : {}) });
+    return Response.json({ ok: true, ...refreshed, ...(gradingWarning ? { gradingWarning } : {}), ...(alertWarning ? { alertWarning } : {}) });
   } catch (error) {
     console.error("DTI inspection report mutation failed", error);
     return Response.json({ error: migrationMissing(error) ? "Run supabase/titan_dti_inspection_reports.sql before using Inspection Reports." : errorMessage(error) }, { status: migrationMissing(error) ? 409 : 500 });

@@ -57,6 +57,13 @@ export default function LoginPage() {
       return;
     }
 
+    const returnTo = window.sessionStorage.getItem("titan:returnTo");
+    if (returnTo?.startsWith("/")) {
+      window.sessionStorage.removeItem("titan:returnTo");
+      window.location.href = returnTo;
+      return;
+    }
+
     if (profile.role === "operator") {
       window.location.href = "/hardband";
       return;
