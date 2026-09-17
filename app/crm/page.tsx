@@ -1095,6 +1095,7 @@ export default function CrmPage() {
   const [boardActionMessage, setBoardActionMessage] = useState("");
   const [boardActionError, setBoardActionError] = useState("");
   const [createdReportId, setCreatedReportId] = useState("");
+  const [createdBoardHref, setCreatedBoardHref] = useState("");
   const [newJobForm, setNewJobForm] = useState<NewCrmJobForm | null>(null);
   const [creatingJob, setCreatingJob] = useState(false);
 
@@ -1254,6 +1255,7 @@ export default function CrmPage() {
     setBoardActionError("");
     setBoardActionMessage("");
     setCreatedReportId("");
+    setCreatedBoardHref("");
     setNewJobForm({ ...emptyNewJobForm, groupName });
   }
 
@@ -1322,9 +1324,16 @@ export default function CrmPage() {
       const generatedCount = Array.isArray(body.generatedReports) ? body.generatedReports.length : 0;
       const warnings = Array.isArray(body.warnings) ? body.warnings.filter((warning: unknown) => typeof warning === "string") : [];
       const firstGeneratedReport = generatedCount && typeof body.generatedReports[0]?.id === "string" ? body.generatedReports[0].id : "";
+      const generatedLane = body.generatedLane && typeof body.generatedLane === "object" ? body.generatedLane : null;
+      const boardHref = typeof generatedLane?.targetHref === "string" ? generatedLane.targetHref : "";
       setCreatedReportId(firstGeneratedReport);
-      setBoardActionMessage(generatedCount
-        ? `${title} was created with ${generatedCount} draft DTI ${generatedCount === 1 ? "report" : "reports"}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`
+      setCreatedBoardHref(boardHref);
+      const createdOutputs = [
+        generatedCount ? `${generatedCount} draft DTI ${generatedCount === 1 ? "report" : "reports"}` : "",
+        boardHref ? "a DTI Operations Board lane" : "",
+      ].filter(Boolean);
+      setBoardActionMessage(createdOutputs.length
+        ? `${title} was created with ${createdOutputs.join(" and ")}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`
         : `${title} was created in ${newJobForm.groupName}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`);
     } catch (error) {
       setBoardActionError(error instanceof Error ? error.message : "TITAN could not create this job.");
@@ -2311,7 +2320,7 @@ export default function CrmPage() {
           </div>
 
           {boardActionError && <div className={styles.mondayBoardError}>{boardActionError}</div>}
-          {boardActionMessage && !boardActionError && <div className={styles.mondayBoardNotice}><span>{boardActionMessage}</span>{createdReportId ? <button type="button" onClick={() => window.location.assign(`/dti/inspection-reports/${encodeURIComponent(createdReportId)}`)}>Open Report</button> : null}</div>}
+          {boardActionMessage && !boardActionError && <div className={styles.mondayBoardNotice}><span>{boardActionMessage}</span><div className={styles.mondayBoardNoticeActions}>{createdBoardHref ? <button type="button" onClick={() => window.location.assign(createdBoardHref)}>Open Board</button> : null}{createdReportId ? <button type="button" onClick={() => window.location.assign(`/dti/inspection-reports/${encodeURIComponent(createdReportId)}`)}>Open Report</button> : null}</div></div>}
 
           {reviewLoading && !reviewResult ? (
             <div className={styles.reviewEmpty}>Loading CRM workspace...</div>

@@ -68,6 +68,14 @@ type GeneratedDtiReport = {
   criteriaMatched: boolean;
 };
 
+type GeneratedDtiLane = {
+  laneId: string;
+  laneTitle: string;
+  jobId: string;
+  jobNumber: string;
+  targetHref: string;
+};
+
 const wadeCrmEmail = "wade@pathfinderinspections.com";
 const crmBoardFilesBucket = "crm-board-files";
 
@@ -311,6 +319,44 @@ async function createScheduledDtiReports(
   }
 
   return { generatedReports, warnings };
+}
+
+async function ensureScheduledDtiOperationsLane(
+  admin: ReturnType<typeof configuredSupabase>,
+  crmOpportunityId: string,
+  body: CreateJobBody,
+  actorId: string,
+) {
+  const warnings: string[] = [];
+  if (normalizeText(body.serviceLine) !== "dti") return { generatedLane: null as GeneratedDtiLane | null, warnings };
+
+  const jobResult = await admin.from("titan_jobs").select("id").eq("crm_opportunity_id", crmOpportunityId).maybeSingle();
+  if (jobResult.error) throw jobResult.error;
+  if (!jobResult.data) {
+    return { generatedLane: null as GeneratedDtiLane | null, warnings: ["The DTI job was created, but its Operations Board lane could not be connected yet."] };
+  }
+
+  const laneResult = await admin.rpc("ensure_titan_dti_operations_lane", {
+    p_job_id: jobResult.data.id,
+    p_actor_id: actorId,
+  });
+  if (laneResult.error) {
+    const missingFunction = laneResult.error.code === "PGRST202" || normalizeText(laneResult.error.message).includes("schema cache");
+    warnings.push(missingFunction
+      ? "Run supabase/titan_dti_operations_job_lanes.sql to activate automatic Operations Board lanes."
+      : `The Operations Board lane could not be created (${laneResult.error.message}).`);
+    return { generatedLane: null as GeneratedDtiLane | null, warnings };
+  }
+
+  const value = isObject(laneResult.data) ? laneResult.data : {};
+  const generatedLane = cleanText(value.laneId) ? {
+    laneId: cleanText(value.laneId),
+    laneTitle: cleanText(value.laneTitle),
+    jobId: cleanText(value.jobId),
+    jobNumber: cleanText(value.jobNumber),
+    targetHref: cleanText(value.targetHref) || "/service-lines/boards/dti",
+  } : null;
+  return { generatedLane, warnings };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -662,16 +708,25 @@ export async function POST(request: Request) {
     });
 
     const inspectionItems = cleanDtiInspectionItems(body.inspectionItems);
-    const reportResult = await createScheduledDtiReports(
-      adminSupabase,
-      createdJob.id,
-      externalId,
-      body,
-      inspectionItems,
-      authorization.userId,
-    );
+    const [reportResult, laneResult] = await Promise.all([
+      createScheduledDtiReports(
+        adminSupabase,
+        createdJob.id,
+        externalId,
+        body,
+        inspectionItems,
+        authorization.userId,
+      ),
+      ensureScheduledDtiOperationsLane(
+        adminSupabase,
+        createdJob.id,
+        body,
+        authorization.userId,
+      ),
+    ]);
+    const warnings = [...reportResult.warnings, ...laneResult.warnings];
 
-    if (reportResult.generatedReports.length) {
+    if (reportResult.generatedReports.length || laneResult.generatedLane) {
       const finalMetadata = {
         ...metadata,
         unmappedFieldValues: {
@@ -679,12 +734,19 @@ export async function POST(request: Request) {
           Report: reportResult.generatedReports.map((report) => report.reportNumber).join(", "),
         },
         dtiGeneratedReports: reportResult.generatedReports,
+        dtiOperationsLane: laneResult.generatedLane,
       };
       const metadataUpdate = await adminSupabase.from("crm_opportunities").update({ metadata: finalMetadata }).eq("id", createdJob.id);
-      if (metadataUpdate.error) reportResult.warnings.push("The reports were created, but their numbers could not be written back to Job Schedule.");
+      if (metadataUpdate.error) warnings.push("The DTI records were created, but their references could not be written back to Job Schedule.");
     }
 
-    return Response.json({ ok: true, job: createdJob, ...reportResult }, { status: 201 });
+    return Response.json({
+      ok: true,
+      job: createdJob,
+      generatedReports: reportResult.generatedReports,
+      generatedLane: laneResult.generatedLane,
+      warnings,
+    }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
   }

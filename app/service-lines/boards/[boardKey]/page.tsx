@@ -425,6 +425,10 @@ function isBullpenColumn(column: BoardColumn) {
   return title === "bullpen" || column.key.includes("bullpen");
 }
 
+function isConnectedDtiJobColumn(column: BoardColumn) {
+  return /^titan_job_[a-f0-9]{32}$/i.test(column.key);
+}
+
 function matchesQuickLane(column: BoardColumn, lane: QuickLaneDefinition) {
   const normalizedTitle = normalizeLaneMatch(column.title);
   const normalizedKey = normalizeLaneMatch(column.key);
@@ -554,6 +558,7 @@ function DroppableColumn({
   onAddCard,
   onEditColumn,
   onArchiveColumn,
+  onCompleteColumn,
   onSendToBullpen,
   onSendToQuickLane,
   bullpenColumnId,
@@ -571,6 +576,7 @@ function DroppableColumn({
   onAddCard: (column: BoardColumn) => void;
   onEditColumn: (column: BoardColumn) => void;
   onArchiveColumn: (column: BoardColumn) => void;
+  onCompleteColumn: (column: BoardColumn) => void;
   onSendToBullpen: (card: BoardCard) => void;
   onSendToQuickLane: (card: BoardCard, lane: QuickLaneDefinition) => void;
   bullpenColumnId: string;
@@ -644,11 +650,12 @@ function DroppableColumn({
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
-              onArchiveColumn(column);
+              if (isConnectedDtiJobColumn(column)) onCompleteColumn(column);
+              else onArchiveColumn(column);
             }}
-            aria-label={`Archive ${column.title} list`}
+            aria-label={isConnectedDtiJobColumn(column) ? `Complete ${column.title} job` : `Archive ${column.title} list`}
           >
-            Archive
+            {isConnectedDtiJobColumn(column) ? "Complete Job" : "Archive"}
           </button>
         </div>
       </header>
@@ -1556,6 +1563,45 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
     await loadBoard();
   }
 
+  async function completeJobColumn(column: BoardColumn) {
+    const cardCount = cards.filter((card) => card.columnId === column.id).length;
+    const confirmed = window.confirm(
+      `Mark "${column.title}" complete? The job will be archived, this lane will be removed, and ${cardCount} card${cardCount === 1 ? "" : "s"} will be moved to Bullpen.`
+    );
+    if (!confirmed) return;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Your session expired. Sign in again before completing this job.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/dti/operations-job-lanes", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "complete", laneId: column.id }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string; jobNumber?: string; cardsMoved?: number };
+      if (!response.ok) throw new Error(result.error || "TITAN could not complete this job.");
+
+      if (selectedCard?.columnId === column.id) setSelectedCardId("");
+      await loadBoard({ showLoading: false, preserveDeckScroll: true });
+      const movedCards = Number(result.cardsMoved ?? cardCount);
+      setMessage(`${result.jobNumber || "Job"} was completed and archived. ${movedCards} card${movedCards === 1 ? " was" : "s were"} returned to Bullpen.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "TITAN could not complete this job.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function moveColumn(activeColumnId: string, overColumnId: string) {
     if (!activeColumnId || !overColumnId || activeColumnId === overColumnId) return;
     rememberDeckScroll();
@@ -2297,6 +2343,7 @@ export default function ServiceLineBoardPage({ params }: PageProps) {
                   onAddCard={startNewCardForColumn}
                   onEditColumn={startEditColumn}
                   onArchiveColumn={(columnToArchive) => void archiveColumn(columnToArchive)}
+                  onCompleteColumn={(columnToComplete) => void completeJobColumn(columnToComplete)}
                   onSendToBullpen={(card) => void sendToBullpen(card)}
                   onSendToQuickLane={(card, lane) => void sendToQuickLane(card, lane)}
                   bullpenColumnId={bullpenColumn?.id ?? ""}

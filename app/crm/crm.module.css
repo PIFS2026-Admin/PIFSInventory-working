@@ -1299,6 +1299,12 @@
   font-weight: 900;
 }
 
+.mondayBoardNoticeActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .crmDtiInspectionItems {
   display: grid;
   gap: 10px;
@@ -2748,6 +2754,11 @@
 
   .crmDtiInspectionPlan {
     width: 100%;
+  }
+
+  .mondayBoardNotice {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .crmDtiInspectionPlanHead {
