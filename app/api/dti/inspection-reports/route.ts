@@ -25,6 +25,24 @@ function migrationMissing(error: unknown) { const value = normalized(errorMessag
 function legacyRowTrigger(error: unknown) { return (error as { code?: unknown })?.code === "42703" && normalized(errorMessage(error)).includes("report_number"); }
 function gradingMigrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("grading_result") || value.includes("grading_criteria_version_id") || value.includes("value_unit") || value.includes("schema cache"); }
 
+function managedCriteriaIdentity(name: unknown) {
+  const parts = clean(name).split("|").map((part) => part.trim());
+  if (parts.length < 5 || parts[0] !== "DS-1 Premium") return null;
+  const weightPpf = Number(parts[2]);
+  if (!Number.isFinite(weightPpf)) return null;
+  return { pipeSize: parts[1], weightPpf, grade: parts[3], connection: parts.slice(4).join(" | ") };
+}
+
+function tubularSpecKey(values: { pipeSize?: unknown; weightPpf?: unknown; grade?: unknown; connection?: unknown }) {
+  return `${normalized(values.pipeSize)}|${Number(values.weightPpf).toFixed(3)}|${normalized(values.grade)}|${normalized(values.connection)}`;
+}
+
+function snapshotNominalWall(snapshot: unknown) {
+  const spec = object(object(snapshot).tubularSpec);
+  const value = Number(spec.new_wall_inches);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 async function authorize(request: Request, admin: ReturnType<typeof configuredSupabase>) {
   return authorizeDtiAccess(request, admin);
 }
@@ -43,6 +61,7 @@ async function loadReport(admin: ReturnType<typeof configuredSupabase>, reportId
 async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredSupabase>) {
   const setRows: Row[] = [];
   const versionRows: Row[] = [];
+  const specRows: Row[] = [];
   try {
     for (let from = 0; ; from += 1000) {
       const result = await admin.from("titan_dti_criteria_sets").select("id,name,standard_type,component_type,customer_name").is("archived_at", null).range(from, from + 999);
@@ -56,15 +75,24 @@ async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredS
       versionRows.push(...(result.data ?? []));
       if ((result.data ?? []).length < 1000) break;
     }
+    for (let from = 0; ; from += 1000) {
+      const result = await admin.from("titan_dti_tubular_specs").select("pipe_size,weight_ppf,grade,connection,new_wall_inches").is("archived_at", null).range(from, from + 999);
+      if (result.error) throw result.error;
+      specRows.push(...(result.data ?? []));
+      if ((result.data ?? []).length < 1000) break;
+    }
   } catch (error) {
     const message = normalized(errorMessage(error));
     if (message.includes("titan_dti_criteria") || message.includes("schema cache")) return [];
     throw error;
   }
   const sets = new Map(setRows.map((criteriaSet) => [criteriaSet.id, criteriaSet]));
+  const nominalWallBySpec = new Map(specRows.map((spec) => [tubularSpecKey({ pipeSize: spec.pipe_size, weightPpf: spec.weight_ppf, grade: spec.grade, connection: spec.connection }), spec.new_wall_inches]));
   return versionRows.flatMap((version) => {
     const criteriaSet = sets.get(version.criteria_set_id);
-    return criteriaSet ? [{ ...version, criteria_set: criteriaSet }] : [];
+    const identity = managedCriteriaIdentity(criteriaSet?.name);
+    const nominalWall = identity ? nominalWallBySpec.get(tubularSpecKey(identity)) ?? null : null;
+    return criteriaSet ? [{ ...version, criteria_set: criteriaSet, nominal_wall_inches: nominalWall }] : [];
   });
 }
 
@@ -81,11 +109,19 @@ async function loadCriteriaSnapshot(admin: ReturnType<typeof configuredSupabase>
   if (setResult.error) throw setResult.error; if (rulesResult.error) throw rulesResult.error; if (documentResult.error) throw documentResult.error;
   if (!setResult.data || setResult.data.component_type !== componentType) throw new Error(`Select published criteria for ${componentType}.`);
   if (!rulesResult.data?.length) throw new Error("Published criteria must contain active rules.");
+  const identity = managedCriteriaIdentity(setResult.data.name);
+  let tubularSpec: Row | null = null;
+  if (identity) {
+    const specResult = await admin.from("titan_dti_tubular_specs").select("id,pipe_size,weight_ppf,grade,connection,new_wall_inches,premium_min_wall_inches,class_2_min_wall_inches").eq("pipe_size", identity.pipeSize).eq("weight_ppf", identity.weightPpf).eq("grade", identity.grade).eq("connection", identity.connection).is("archived_at", null).maybeSingle();
+    if (specResult.error) throw specResult.error;
+    tubularSpec = specResult.data;
+  }
   return {
     capturedAt: new Date().toISOString(),
     criteriaSet: setResult.data,
     version: versionResult.data,
     sourceDocument: documentResult.data,
+    tubularSpec,
     rules: rulesResult.data,
   };
 }
@@ -172,7 +208,7 @@ async function syncLinkedEmiProveUp(admin: ReturnType<typeof configuredSupabase>
   }
 }
 
-async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabase>, reportId: string, componentType: DtiComponentType, requestedCount: number, loadedItems: Row[], actorId: string) {
+async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabase>, reportId: string, componentType: DtiComponentType, requestedCount: number, loadedItems: Row[], actorId: string, nominalWall: number | null = null) {
   const componentItems = loadedItems.filter((item) => clean(item.component_type) === componentType);
   const plan = planDtiInspectionRowCount(componentItems.map((item) => Number(item.sequence_number)), requestedCount);
   const surplusSet = new Set(plan.surplusSequences);
@@ -194,13 +230,23 @@ async function syncInspectionRowCount(admin: ReturnType<typeof configuredSupabas
       report_id: reportId,
       component_type: componentType,
       sequence_number: sequenceNumber,
-      row_data: cleanRowData(componentType, { jointNumber: String(sequenceNumber) }),
+      row_data: cleanRowData(componentType, { jointNumber: String(sequenceNumber), ...(componentType === "Drill Pipe" && nominalWall ? { nominalWallThickness: nominalWall } : {}) }),
       created_by: actorId,
       updated_by: actorId,
     }));
   if (missingRows.length) {
     const { error } = await admin.from("titan_dti_inspection_items").insert(missingRows);
     if (error) throw error;
+  }
+
+  if (componentType === "Drill Pipe" && nominalWall) {
+    for (let start = 0; start < componentItems.length; start += 50) {
+      await Promise.all(componentItems.slice(start, start + 50).map(async (item) => {
+        const rowData = cleanRowData(componentType, { ...object(item.row_data), nominalWallThickness: nominalWall });
+        const result = await admin.from("titan_dti_inspection_items").update({ row_data: rowData, updated_by: actorId }).eq("id", item.id).eq("report_id", reportId);
+        if (result.error) throw result.error;
+      }));
+    }
   }
 
   if (surplus.length || missingRows.length) {
@@ -277,13 +323,14 @@ export async function POST(request: Request) {
       const criteriaVersionId = clean(body.criteriaVersionId);
       const supportsCriteria = Object.prototype.hasOwnProperty.call(loaded.report, "criteria_version_id") || Boolean(criteriaVersionId);
       const sameCriteriaVersion = criteriaVersionId && criteriaVersionId === clean(loaded.report.criteria_version_id);
-      const criteriaSnapshot = sameCriteriaVersion && loaded.report.criteria_snapshot
+      const reusableSnapshot = sameCriteriaVersion && loaded.report.criteria_snapshot && (reportComponentType !== "Drill Pipe" || snapshotNominalWall(loaded.report.criteria_snapshot));
+      const criteriaSnapshot = reusableSnapshot
         ? loaded.report.criteria_snapshot
         : criteriaVersionId ? await loadCriteriaSnapshot(admin, criteriaVersionId, reportComponentType) : null;
       const payload = { operator_name: operatorName, contractor_name: clean(body.contractorName) || null, rig_number: clean(body.rigNumber) || null, report_date: reportDate, field_invoice: clean(body.fieldInvoice) || null, inspection_crew: clean(body.inspectionCrew) || null, connection_size: clean(body.connectionSize) || null, connection_type: clean(body.connectionType) || null, grade: clean(body.grade) || null, state: clean(body.state) || null, inspection_scope: { ...object(body.inspectionScope), reportComponentType }, machine_shop: object(body.machineShop), remarks: object(body.remarks), status, completed_at: status === "Complete" ? new Date().toISOString() : null, updated_by: authorization.userId, ...(supportsCriteria ? { criteria_version_id: criteriaVersionId || null, criteria_snapshot: criteriaSnapshot } : {}) };
       const { data, error } = await admin.from("titan_dti_inspection_reports").update(payload).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, loaded.report.status === status ? "Updated" : "Status Changed", loaded.report, data, authorization.userId);
-      await syncInspectionRowCount(admin, reportId, reportComponentType, jointCount, loaded.items, authorization.userId);
+      await syncInspectionRowCount(admin, reportId, reportComponentType, jointCount, loaded.items, authorization.userId, snapshotNominalWall(criteriaSnapshot));
     } else if (action === "delete-report") {
       const { data, error } = await admin.from("titan_dti_inspection_reports").update({ status: "Archived", updated_by: authorization.userId }).eq("id", reportId).select("*").single(); if (error) throw error;
       await logEvent(admin, reportId, "Report", reportId, "Deleted", loaded.report, data, authorization.userId); return Response.json({ ok: true, archived: true });
@@ -291,7 +338,8 @@ export async function POST(request: Request) {
       const componentType = clean(body.componentType) as DtiComponentType; const sequenceNumber = whole(body.sequenceNumber); const itemId = clean(body.itemId);
       if (!(componentType in dtiInspectionFields) || sequenceNumber < 1) return Response.json({ error: "Select a component type and valid sequence number." }, { status: 400 });
       if (componentType !== reportComponentType) return Response.json({ error: `This is a ${reportComponentType} report. Create a separate ${componentType} report.` }, { status: 400 });
-      const rowData = cleanRowData(componentType, body.rowData); let prior: Row | null = null;
+      const nominalWall = componentType === "Drill Pipe" ? snapshotNominalWall(loaded.report.criteria_snapshot) : null;
+      const rowData = cleanRowData(componentType, { ...object(body.rowData), ...(nominalWall ? { nominalWallThickness: nominalWall } : {}) }); let prior: Row | null = null;
       if (validUuid(itemId)) { const result = await admin.from("titan_dti_inspection_items").select("*").eq("id", itemId).eq("report_id", reportId).maybeSingle(); if (result.error) throw result.error; prior = result.data; }
       if (!prior) { const result = await admin.from("titan_dti_inspection_items").select("*").eq("report_id", reportId).eq("component_type", componentType).eq("sequence_number", sequenceNumber).maybeSingle(); if (result.error) throw result.error; prior = result.data; }
       const payload = { report_id: reportId, component_type: componentType, sequence_number: sequenceNumber, row_data: rowData, updated_by: authorization.userId };
