@@ -428,19 +428,25 @@ function buildDtiSummaryPdf(summary: Record<string, any>) {
 
     if (title === "damages") {
       countField("Total Damages", dtiCount(summary, "total_damages"), innerX, y, innerW, 78);
-      y -= 17;
+      y -= 14;
       splitCounts("Damage Seal", dtiCount(summary, "damage_seat_box"), dtiCount(summary, "damage_seat_pin"), innerX, y, innerW);
-      y -= 17;
+      y -= 14;
       splitCounts("Damage Threads", dtiCount(summary, "damage_threads_box"), dtiCount(summary, "damage_threads_pin"), innerX, y, innerW);
-      y -= 17;
+      y -= 14;
+      splitCounts("Torque Shoulder", dtiCount(summary, "damage_torque_shoulder_box"), dtiCount(summary, "damage_torque_shoulder_pin"), innerX, y, innerW);
+      y -= 14;
+      splitCounts("Pitted", dtiCount(summary, "pitted_box"), dtiCount(summary, "pitted_pin"), innerX, y, innerW);
+      y -= 14;
+      splitCounts("Over Refaced", dtiCount(summary, "over_refaced_box"), dtiCount(summary, "over_refaced_pin"), innerX, y, innerW);
+      y -= 14;
       splitCounts("Damaged Hardband", dtiCount(summary, "damaged_hardband_box") || dtiCount(summary, "short_box"), dtiCount(summary, "damaged_hardband_pin"), innerX, y, innerW);
-      y -= 17;
+      y -= 14;
       countField("Bent Tube", dtiCount(summary, "bent_tube"), innerX, y, innerW, 60);
-      y -= 17;
+      y -= 14;
       textAt("Other", innerX, y, 8.5, true);
       field("Description", dtiValue(summary, "damage_other_description") || dtiValue(summary, "damage_other"), innerX + 72, y, 120, 58, 8);
       countField("Qty", dtiCount(summary, "damage_other_quantity"), innerX + 188, y, innerW - 188, 24);
-      ruledNotes(dtiValue(summary, "damage_notes"), innerX, y - 8, innerW, 54, 48, 4);
+      ruledNotes(dtiValue(summary, "damage_notes"), innerX, y - 7, innerW, 28, 48, 2);
       return;
     }
 

@@ -22,6 +22,12 @@ type Summary = {
   damageSeatPin: number;
   damageThreadsBox: number;
   damageThreadsPin: number;
+  damageTorqueShoulderBox: number;
+  damageTorqueShoulderPin: number;
+  pittedBox: number;
+  pittedPin: number;
+  overRefacedBox: number;
+  overRefacedPin: number;
   shortBox: number;
   damagedHardbandBox: number;
   damagedHardbandPin: number;
@@ -91,6 +97,12 @@ function mapRow(row: SummaryRow): Summary {
     damageSeatPin: count(row.damage_seat_pin),
     damageThreadsBox: count(row.damage_threads_box),
     damageThreadsPin: count(row.damage_threads_pin),
+    damageTorqueShoulderBox: count(row.damage_torque_shoulder_box),
+    damageTorqueShoulderPin: count(row.damage_torque_shoulder_pin),
+    pittedBox: count(row.pitted_box),
+    pittedPin: count(row.pitted_pin),
+    overRefacedBox: count(row.over_refaced_box),
+    overRefacedPin: count(row.over_refaced_pin),
     shortBox: count(row.short_box),
     damagedHardbandBox: count(row.damaged_hardband_box ?? row.short_box),
     damagedHardbandPin: count(row.damaged_hardband_pin),
@@ -236,6 +248,9 @@ export default function DailySummaryPrintPage({
             <CountLine label="Total Damages" value={summary.totalDamages} />
             <div className="summary-split-row print"><span>Damage Seal</span><CountLine label="Box" value={summary.damageSeatBox} /><CountLine label="Pin" value={summary.damageSeatPin} /></div>
             <div className="summary-split-row print"><span>Damage Threads</span><CountLine label="Box" value={summary.damageThreadsBox} /><CountLine label="Pin" value={summary.damageThreadsPin} /></div>
+            <div className="summary-split-row print"><span>Torque Shoulder</span><CountLine label="Box" value={summary.damageTorqueShoulderBox} /><CountLine label="Pin" value={summary.damageTorqueShoulderPin} /></div>
+            <div className="summary-split-row print"><span>Pitted</span><CountLine label="Box" value={summary.pittedBox} /><CountLine label="Pin" value={summary.pittedPin} /></div>
+            <div className="summary-split-row print"><span>Over Refaced</span><CountLine label="Box" value={summary.overRefacedBox} /><CountLine label="Pin" value={summary.overRefacedPin} /></div>
             <div className="summary-split-row print"><span>Damaged Hardband</span><CountLine label="Box" value={summary.damagedHardbandBox || summary.shortBox} /><CountLine label="Pin" value={summary.damagedHardbandPin} /></div>
             <CountLine label="Bent Tube" value={summary.bentTube} />
             <div className="summary-split-row print"><span>Other</span><Line label="Description" value={summary.damageOtherDescription || summary.damageOther} /><CountLine label="Qty" value={summary.damageOtherQuantity} /></div>

@@ -16,6 +16,12 @@ create table if not exists public.dti_daily_summaries (
   damage_seat_pin integer not null default 0,
   damage_threads_box integer not null default 0,
   damage_threads_pin integer not null default 0,
+  damage_torque_shoulder_box integer not null default 0,
+  damage_torque_shoulder_pin integer not null default 0,
+  pitted_box integer not null default 0,
+  pitted_pin integer not null default 0,
+  over_refaced_box integer not null default 0,
+  over_refaced_pin integer not null default 0,
   short_box integer not null default 0,
   damaged_hardband_box integer not null default 0,
   damaged_hardband_pin integer not null default 0,
@@ -72,6 +78,12 @@ alter table public.dti_daily_summaries add column if not exists damage_seat_box 
 alter table public.dti_daily_summaries add column if not exists damage_seat_pin integer default 0;
 alter table public.dti_daily_summaries add column if not exists damage_threads_box integer default 0;
 alter table public.dti_daily_summaries add column if not exists damage_threads_pin integer default 0;
+alter table public.dti_daily_summaries add column if not exists damage_torque_shoulder_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists damage_torque_shoulder_pin integer default 0;
+alter table public.dti_daily_summaries add column if not exists pitted_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists pitted_pin integer default 0;
+alter table public.dti_daily_summaries add column if not exists over_refaced_box integer default 0;
+alter table public.dti_daily_summaries add column if not exists over_refaced_pin integer default 0;
 alter table public.dti_daily_summaries add column if not exists short_box integer default 0;
 alter table public.dti_daily_summaries add column if not exists damaged_hardband_box integer default 0;
 alter table public.dti_daily_summaries add column if not exists damaged_hardband_pin integer default 0;

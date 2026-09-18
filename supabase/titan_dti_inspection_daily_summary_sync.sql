@@ -16,7 +16,13 @@ end $$;
 alter table public.dti_daily_summaries
   add column if not exists job_id uuid,
   add column if not exists source_rollup jsonb not null default '{}'::jsonb,
-  add column if not exists inspection_report_id uuid;
+  add column if not exists inspection_report_id uuid,
+  add column if not exists damage_torque_shoulder_box integer not null default 0,
+  add column if not exists damage_torque_shoulder_pin integer not null default 0,
+  add column if not exists pitted_box integer not null default 0,
+  add column if not exists pitted_pin integer not null default 0,
+  add column if not exists over_refaced_box integer not null default 0,
+  add column if not exists over_refaced_pin integer not null default 0;
 
 do $$
 begin
@@ -163,19 +169,19 @@ begin
       count(*) filter (where damage_seat_pin)::integer as damage_seat_pin,
       count(*) filter (where damage_threads_box)::integer as damage_threads_box,
       count(*) filter (where damage_threads_pin)::integer as damage_threads_pin,
+      count(*) filter (where torque_box)::integer as damage_torque_shoulder_box,
+      count(*) filter (where torque_pin)::integer as damage_torque_shoulder_pin,
+      count(*) filter (where pitted_box)::integer as pitted_box,
+      count(*) filter (where pitted_pin)::integer as pitted_pin,
+      count(*) filter (where over_refaced_box)::integer as over_refaced_box,
+      count(*) filter (where over_refaced_pin)::integer as over_refaced_pin,
       count(*) filter (where damaged_hardband_box)::integer as damaged_hardband_box,
       count(*) filter (where damaged_hardband_pin)::integer as damaged_hardband_pin,
       count(*) filter (where bent_tube)::integer as bent_tube,
       (count(*) filter (where other_damage_1)
         + count(*) filter (where other_damage_2)
         + count(*) filter (where other_damage_3)
-        + count(*) filter (where other_damage_4)
-        + count(*) filter (where torque_box)
-        + count(*) filter (where torque_pin)
-        + count(*) filter (where pitted_box)
-        + count(*) filter (where pitted_pin)
-        + count(*) filter (where over_refaced_box)
-        + count(*) filter (where over_refaced_pin))::integer as damage_other_quantity,
+        + count(*) filter (where other_damage_4))::integer as damage_other_quantity,
       count(*) filter (where min_tong_box)::integer as min_tong_box,
       count(*) filter (where min_tong_pin)::integer as min_tong_pin,
       count(*) filter (where tstr_box)::integer as tstr_box,
@@ -226,6 +232,12 @@ begin
     damage_seat_pin = (v_counts ->> 'damage_seat_pin')::integer,
     damage_threads_box = (v_counts ->> 'damage_threads_box')::integer,
     damage_threads_pin = (v_counts ->> 'damage_threads_pin')::integer,
+    damage_torque_shoulder_box = (v_counts ->> 'damage_torque_shoulder_box')::integer,
+    damage_torque_shoulder_pin = (v_counts ->> 'damage_torque_shoulder_pin')::integer,
+    pitted_box = (v_counts ->> 'pitted_box')::integer,
+    pitted_pin = (v_counts ->> 'pitted_pin')::integer,
+    over_refaced_box = (v_counts ->> 'over_refaced_box')::integer,
+    over_refaced_pin = (v_counts ->> 'over_refaced_pin')::integer,
     short_box = (v_counts ->> 'damaged_hardband_box')::integer,
     damaged_hardband_box = (v_counts ->> 'damaged_hardband_box')::integer,
     damaged_hardband_pin = (v_counts ->> 'damaged_hardband_pin')::integer,
@@ -250,6 +262,9 @@ begin
     total_damages =
       (v_counts ->> 'damage_seat_box')::integer + (v_counts ->> 'damage_seat_pin')::integer
       + (v_counts ->> 'damage_threads_box')::integer + (v_counts ->> 'damage_threads_pin')::integer
+      + (v_counts ->> 'damage_torque_shoulder_box')::integer + (v_counts ->> 'damage_torque_shoulder_pin')::integer
+      + (v_counts ->> 'pitted_box')::integer + (v_counts ->> 'pitted_pin')::integer
+      + (v_counts ->> 'over_refaced_box')::integer + (v_counts ->> 'over_refaced_pin')::integer
       + (v_counts ->> 'damaged_hardband_box')::integer + (v_counts ->> 'damaged_hardband_pin')::integer
       + (v_counts ->> 'bent_tube')::integer + (v_counts ->> 'damage_other_quantity')::integer,
     total_dbr =
@@ -287,6 +302,8 @@ begin
     summary_date, field_invoice, page_number, page_total, inspection_type,
     connection_size_type, total_joints_inspected, total_damages,
     damage_seat_box, damage_seat_pin, damage_threads_box, damage_threads_pin,
+    damage_torque_shoulder_box, damage_torque_shoulder_pin, pitted_box, pitted_pin,
+    over_refaced_box, over_refaced_pin,
     short_box, damaged_hardband_box, damaged_hardband_pin, bent_tube,
     damage_other_quantity, total_dbr, min_tong_box, min_tong_pin, tstr_box,
     tstr_pin, emi, damaged_tube, min_wall, dbr_other_quantity, total_refaces,
@@ -300,10 +317,16 @@ begin
     v_inspection_type, nullif(v_connection, ''), (v_counts ->> 'inspected')::integer,
     (v_counts ->> 'damage_seat_box')::integer + (v_counts ->> 'damage_seat_pin')::integer
       + (v_counts ->> 'damage_threads_box')::integer + (v_counts ->> 'damage_threads_pin')::integer
+      + (v_counts ->> 'damage_torque_shoulder_box')::integer + (v_counts ->> 'damage_torque_shoulder_pin')::integer
+      + (v_counts ->> 'pitted_box')::integer + (v_counts ->> 'pitted_pin')::integer
+      + (v_counts ->> 'over_refaced_box')::integer + (v_counts ->> 'over_refaced_pin')::integer
       + (v_counts ->> 'damaged_hardband_box')::integer + (v_counts ->> 'damaged_hardband_pin')::integer
       + (v_counts ->> 'bent_tube')::integer + (v_counts ->> 'damage_other_quantity')::integer,
     (v_counts ->> 'damage_seat_box')::integer, (v_counts ->> 'damage_seat_pin')::integer,
     (v_counts ->> 'damage_threads_box')::integer, (v_counts ->> 'damage_threads_pin')::integer,
+    (v_counts ->> 'damage_torque_shoulder_box')::integer, (v_counts ->> 'damage_torque_shoulder_pin')::integer,
+    (v_counts ->> 'pitted_box')::integer, (v_counts ->> 'pitted_pin')::integer,
+    (v_counts ->> 'over_refaced_box')::integer, (v_counts ->> 'over_refaced_pin')::integer,
     (v_counts ->> 'damaged_hardband_box')::integer, (v_counts ->> 'damaged_hardband_box')::integer,
     (v_counts ->> 'damaged_hardband_pin')::integer, (v_counts ->> 'bent_tube')::integer,
     (v_counts ->> 'damage_other_quantity')::integer,

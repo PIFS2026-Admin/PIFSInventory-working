@@ -55,6 +55,12 @@ type SummaryForm = {
   damageSeatPin: string;
   damageThreadsBox: string;
   damageThreadsPin: string;
+  damageTorqueShoulderBox: string;
+  damageTorqueShoulderPin: string;
+  pittedBox: string;
+  pittedPin: string;
+  overRefacedBox: string;
+  overRefacedPin: string;
   shortBox: string;
   damagedHardbandBox: string;
   damagedHardbandPin: string;
@@ -146,6 +152,12 @@ function blankForm(profileName = ""): SummaryForm {
     damageSeatPin: "",
     damageThreadsBox: "",
     damageThreadsPin: "",
+    damageTorqueShoulderBox: "",
+    damageTorqueShoulderPin: "",
+    pittedBox: "",
+    pittedPin: "",
+    overRefacedBox: "",
+    overRefacedPin: "",
     shortBox: "",
     damagedHardbandBox: "",
     damagedHardbandPin: "",
@@ -228,6 +240,12 @@ function mapRow(row: any): SummaryForm {
     damageSeatPin: readNumber(row.damage_seat_pin),
     damageThreadsBox: readNumber(row.damage_threads_box),
     damageThreadsPin: readNumber(row.damage_threads_pin),
+    damageTorqueShoulderBox: readNumber(row.damage_torque_shoulder_box),
+    damageTorqueShoulderPin: readNumber(row.damage_torque_shoulder_pin),
+    pittedBox: readNumber(row.pitted_box),
+    pittedPin: readNumber(row.pitted_pin),
+    overRefacedBox: readNumber(row.over_refaced_box),
+    overRefacedPin: readNumber(row.over_refaced_pin),
     shortBox: readNumber(row.short_box),
     damagedHardbandBox: readNumber(row.damaged_hardband_box ?? row.short_box),
     damagedHardbandPin: readNumber(row.damaged_hardband_pin),
@@ -284,6 +302,12 @@ function buildPayload(form: SummaryForm, profileId: string, summaryNumber: strin
     damage_seat_pin: numberValue(form.damageSeatPin),
     damage_threads_box: numberValue(form.damageThreadsBox),
     damage_threads_pin: numberValue(form.damageThreadsPin),
+    damage_torque_shoulder_box: numberValue(form.damageTorqueShoulderBox),
+    damage_torque_shoulder_pin: numberValue(form.damageTorqueShoulderPin),
+    pitted_box: numberValue(form.pittedBox),
+    pitted_pin: numberValue(form.pittedPin),
+    over_refaced_box: numberValue(form.overRefacedBox),
+    over_refaced_pin: numberValue(form.overRefacedPin),
     short_box: numberValue(form.damagedHardbandBox || form.shortBox),
     damaged_hardband_box: numberValue(form.damagedHardbandBox || form.shortBox),
     damaged_hardband_pin: numberValue(form.damagedHardbandPin),
@@ -418,6 +442,12 @@ export default function DailySummaryPage({ config }: { config: DailySummaryConfi
         numberValue(form.damageSeatPin) +
         numberValue(form.damageThreadsBox) +
         numberValue(form.damageThreadsPin) +
+        numberValue(form.damageTorqueShoulderBox) +
+        numberValue(form.damageTorqueShoulderPin) +
+        numberValue(form.pittedBox) +
+        numberValue(form.pittedPin) +
+        numberValue(form.overRefacedBox) +
+        numberValue(form.overRefacedPin) +
         numberValue(form.damagedHardbandBox || form.shortBox) +
         numberValue(form.damagedHardbandPin) +
         numberValue(form.bentTube) +
@@ -1057,6 +1087,21 @@ export default function DailySummaryPage({ config }: { config: DailySummaryConfi
                   <span>Damage Threads</span>
                   <NumberLine label="Box" value={form.damageThreadsBox} onChange={(value) => updateForm({ damageThreadsBox: value })} readOnly={readOnly} />
                   <NumberLine label="Pin" value={form.damageThreadsPin} onChange={(value) => updateForm({ damageThreadsPin: value })} readOnly={readOnly} />
+                </div>
+                <div className="summary-split-row">
+                  <span>Torque Shoulder</span>
+                  <NumberLine label="Box" value={form.damageTorqueShoulderBox} onChange={(value) => updateForm({ damageTorqueShoulderBox: value })} readOnly={readOnly} />
+                  <NumberLine label="Pin" value={form.damageTorqueShoulderPin} onChange={(value) => updateForm({ damageTorqueShoulderPin: value })} readOnly={readOnly} />
+                </div>
+                <div className="summary-split-row">
+                  <span>Pitted</span>
+                  <NumberLine label="Box" value={form.pittedBox} onChange={(value) => updateForm({ pittedBox: value })} readOnly={readOnly} />
+                  <NumberLine label="Pin" value={form.pittedPin} onChange={(value) => updateForm({ pittedPin: value })} readOnly={readOnly} />
+                </div>
+                <div className="summary-split-row">
+                  <span>Over Refaced</span>
+                  <NumberLine label="Box" value={form.overRefacedBox} onChange={(value) => updateForm({ overRefacedBox: value })} readOnly={readOnly} />
+                  <NumberLine label="Pin" value={form.overRefacedPin} onChange={(value) => updateForm({ overRefacedPin: value })} readOnly={readOnly} />
                 </div>
                 <div className="summary-split-row">
                   <span>Damaged Hardband</span>
