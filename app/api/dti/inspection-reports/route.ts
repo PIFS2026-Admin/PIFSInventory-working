@@ -22,6 +22,7 @@ function decimalOrNull(value: unknown) { if (value === "" || value === null || v
 function object(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Row : {}; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? error); }
 function migrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("titan_dti_inspection_report") || value.includes("titan_dti_emi_prove_up") || value.includes("schema cache"); }
+function dailySummaryLinkMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("inspection_report_id") || value.includes("dti_daily_summaries"); }
 function legacyRowTrigger(error: unknown) { return (error as { code?: unknown })?.code === "42703" && normalized(errorMessage(error)).includes("report_number"); }
 function gradingMigrationMissing(error: unknown) { const value = normalized(errorMessage(error)); return value.includes("grading_result") || value.includes("grading_criteria_version_id") || value.includes("value_unit") || value.includes("schema cache"); }
 
@@ -59,14 +60,16 @@ async function authorize(request: Request, admin: ReturnType<typeof configuredSu
 }
 
 async function loadReport(admin: ReturnType<typeof configuredSupabase>, reportId: string) {
-  const [reportResult, itemsResult, proveUpsResult] = await Promise.all([
+  const [reportResult, itemsResult, proveUpsResult, dailySummaryResult] = await Promise.all([
     admin.from("titan_dti_inspection_reports").select("*").eq("id", reportId).maybeSingle(),
     admin.from("titan_dti_inspection_items").select("*").eq("report_id", reportId).order("component_type").order("sequence_number"),
     admin.from("titan_dti_emi_prove_ups").select("*").eq("report_id", reportId).order("sequence_number"),
+    admin.from("dti_daily_summaries").select("id,summary_number,status,updated_at").eq("inspection_report_id", reportId).maybeSingle(),
   ]);
   if (reportResult.error) throw reportResult.error; if (itemsResult.error) throw itemsResult.error; if (proveUpsResult.error) throw proveUpsResult.error;
+  if (dailySummaryResult.error && !dailySummaryLinkMissing(dailySummaryResult.error)) throw dailySummaryResult.error;
   if (!reportResult.data) return null;
-  return { report: reportResult.data, items: itemsResult.data ?? [], proveUps: proveUpsResult.data ?? [] };
+  return { report: reportResult.data, items: itemsResult.data ?? [], proveUps: proveUpsResult.data ?? [], dailySummary: dailySummaryResult.error ? null : dailySummaryResult.data ?? null };
 }
 
 async function loadPublishedCriteriaOptions(admin: ReturnType<typeof configuredSupabase>) {
