@@ -35,6 +35,25 @@ export type DtiThresholdMetrics = {
 
 export const DTI_ALERT_THRESHOLD_PERCENT = 10;
 
+export const dtiRefacingReportFieldKeys = [
+  "refacePresent",
+  "refaceInitialClass",
+  "refaceFinalClass",
+  "refaceClassReject",
+  "refaceBoxRepairRequired",
+  "refaceBoxDepthBefore",
+  "refaceBoxDepthAfter",
+  "refaceBoxTongBefore",
+  "refaceBoxTongAfter",
+  "refaceBoxResults",
+  "refacePinRepairRequired",
+  "refacePinLengthBefore",
+  "refacePinLengthAfter",
+  "refacePinTongBefore",
+  "refacePinTongAfter",
+  "refacePinResults",
+] as const;
+
 const field = (key: string, label: string, group: string, kind: DtiFieldKind = "number", end?: DtiReportField["end"]): DtiReportField => ({ key, label, group, kind, end });
 
 export const dtiComponentTypes: DtiComponentType[] = ["Drill Pipe", "HWDP", "Subs"];

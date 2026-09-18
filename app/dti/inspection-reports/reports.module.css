@@ -188,9 +188,28 @@
 .rowPhotoStrip { display: grid; grid-template-columns: repeat(auto-fill,minmax(96px,120px)); gap: 8px; margin-top: 10px; }
 .rowPhotoStrip a { display: block; aspect-ratio: 4 / 3; border: 1px solid #3a4352; border-radius: 5px; overflow: hidden; }
 .rowPhotoStrip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.refacingEditor { margin-top: 12px; border: 1px solid #303744; border-radius: 7px; background: #12171f; overflow: hidden; }
+.refacingScroll { overflow-x: auto; }
+.refacingTable { width: max-content; min-width: 100%; border-collapse: collapse; table-layout: fixed; }
+.refacingTable th, .refacingTable td { width: 138px; min-width: 138px; border-right: 1px solid #303744; border-bottom: 1px solid #303744; padding: 7px; vertical-align: middle; }
+.refacingTable th { background: #171c24; color: #c7ced9; font-size: 9px; text-transform: uppercase; }
+.refacingTable th:first-child, .refacingTable td:first-child { position: sticky; z-index: 2; left: 0; width: 52px; min-width: 52px; background: #171c24; text-align: center; }
+.refacingTable th:nth-child(2), .refacingTable td:nth-child(2) { position: sticky; z-index: 2; left: 52px; width: 140px; min-width: 140px; background: #12171f; }
+.refacingTable th:nth-child(2) { background: #171c24; }
+.refacingTable label { display: grid; gap: 4px; }
+.refacingTable label > span { display: none; color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.refacingTable input, .refacingTable select { width: 100%; min-height: 38px; border: 1px solid #3a4352; border-radius: 5px; background: #0d1218; color: #fff; padding: 7px 8px; }
+.refacingPrint { font-family: Arial,sans-serif; color: #111; }
+.refacingPrintTable { margin-top: 18px; }
+.refacingPrintTable table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 6px; }
+.refacingPrintTable th, .refacingPrintTable td { border: 1px solid #111; padding: 3px 2px; text-align: center; overflow-wrap: anywhere; }
+.refacingPrintTable th { background: #d1d5db; font-weight: 800; text-transform: uppercase; }
+.refacingPrintTable thead tr:first-child th { height: 25px; }
+.refacingPrintTable thead tr:last-child th { height: 18px; }
+.refacingPrintTable tbody td { height: 22px; }
 @media (max-width: 800px) { .formGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .list article { grid-template-columns: 1fr auto; } }
 @media (max-width: 900px) { .fieldGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .proveUpForm { grid-template-columns: repeat(2,minmax(0,1fr)); } .itemList article { grid-template-columns: 1fr 1fr; } .summaryGrid { grid-template-columns: repeat(3,minmax(0,1fr)); } .setupSections { grid-template-columns: 1fr; } .photoGrid, .photoCaptureGrid, .pendingPhotos { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-@media (max-width: 560px) { .page { padding: 10px; padding-bottom: calc(90px + env(safe-area-inset-bottom)); } .header { align-items: flex-start; flex-wrap: wrap; } .title h1 { font-size: 21px; } .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; } .actions button { width: 100%; padding-inline: 7px; } .formGrid, .fieldGrid, .proveUpForm, .photoGrid, .photoCaptureGrid, .pendingPhotos { grid-template-columns: 1fr; } .formGrid .wide { grid-column: auto; } .list article, .itemList article { grid-template-columns: 1fr; } .rowActions button { flex: 1; } .reportBand { grid-template-columns: repeat(2,minmax(0,1fr)); } .tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .syncBar, .passLaunch, .rowFinder, .photoSearch { align-items: stretch; flex-direction: column; } .passLaunch button, .rowFinder label { width: 100%; max-width: none; } .rowFinder > div { justify-content: space-between; } .rowFinder > div strong { white-space: normal; text-align: center; } .summaryGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 560px) { .page { padding: 10px; padding-bottom: calc(90px + env(safe-area-inset-bottom)); } .header { align-items: flex-start; flex-wrap: wrap; } .title h1 { font-size: 21px; } .actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; } .actions button { width: 100%; padding-inline: 7px; } .formGrid, .fieldGrid, .proveUpForm, .photoGrid, .photoCaptureGrid, .pendingPhotos { grid-template-columns: 1fr; } .formGrid .wide { grid-column: auto; } .list article, .itemList article { grid-template-columns: 1fr; } .rowActions button { flex: 1; } .reportBand { grid-template-columns: repeat(2,minmax(0,1fr)); } .tabs { grid-template-columns: repeat(2,minmax(0,1fr)); } .syncBar, .passLaunch, .rowFinder, .photoSearch { align-items: stretch; flex-direction: column; } .passLaunch button, .rowFinder label { width: 100%; max-width: none; } .rowFinder > div { justify-content: space-between; } .rowFinder > div strong { white-space: normal; text-align: center; } .summaryGrid { grid-template-columns: repeat(2,minmax(0,1fr)); } .refacingScroll { overflow: visible; } .refacingTable, .refacingTable tbody, .refacingTable tr, .refacingTable td { display: block; width: 100%; min-width: 0; } .refacingTable thead { display: none; } .refacingTable tr { border-bottom: 8px solid #0b0d10; } .refacingTable td { position: static !important; display: block; background: #12171f !important; text-align: left !important; padding: 8px 10px; } .refacingTable td:first-child { color: #fb923c; font-weight: 900; } .refacingTable td:nth-child(2)::before { content: 'Serial #'; display: block; color: #fb923c; font-size: 9px; font-weight: 900; text-transform: uppercase; } .refacingTable label > span { display: block; } }
 
 @page { size: landscape; margin: .35in; }
 @media print {

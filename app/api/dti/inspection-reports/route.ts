@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { authorizeDtiAccess } from "../../../../lib/serverDtiAccess";
-import { calculatePercentNominalWall, dtiComponentLabel, dtiInspectionFields, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
+import { calculatePercentNominalWall, dtiComponentLabel, dtiInspectionFields, dtiRefacingReportFieldKeys, isDtiComponentType, normalizeDtiYesNo, planDtiInspectionRowCount, resolveDtiReportComponentType, type DtiComponentType } from "../../../../lib/dtiInspectionReport";
 import { evaluateDtiThresholdAlerts } from "../../../../lib/dtiThresholdAlerts";
 import { evaluateDtiCriteria, type DtiCriteriaSnapshot } from "../../../../lib/dtiCriteriaEngine";
 
@@ -180,6 +180,7 @@ function cleanRowData(componentType: DtiComponentType, value: unknown) {
   cleaned.pinPassComplete = source.pinPassComplete === true;
   cleaned.emiProveUp = source.emiProveUp === true;
   cleaned.emiProveUpId = validUuid(clean(source.emiProveUpId)) ? clean(source.emiProveUpId) : "";
+  for (const key of dtiRefacingReportFieldKeys) cleaned[key] = clean(source[key]).slice(0, 160);
   if (componentType === "Drill Pipe") cleaned.percentNominalWall = calculatePercentNominalWall(cleaned);
   return cleaned;
 }
