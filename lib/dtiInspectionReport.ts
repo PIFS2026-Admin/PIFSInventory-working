@@ -170,7 +170,7 @@ export const dtiInspectionFields: Record<DtiComponentType, DtiReportField[]> = {
 export function dtiInspectionFieldsForPass(componentType: DtiComponentType, pass: DtiInspectionPass) {
   const fields = dtiInspectionFields[componentType];
   if (pass === "Full") return fields;
-  return fields.filter((item) => item.group === "Identification" || item.end === pass);
+  return fields.filter((item) => item.group === "Identification" || item.end === pass || item.key === "bentTube");
 }
 
 export function dtiPhotoEvidenceFields(componentType: DtiComponentType) {
