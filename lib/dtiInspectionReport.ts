@@ -227,6 +227,8 @@ const repairKeys = [
   "damagedTorqueShoulderBox", "damagedTorqueShoulderPin", "pittedBox", "pittedPin",
   "overRefacedBox", "overRefacedPin", "bentTube", "otherDamage1", "otherDamage2",
   "otherDamage3", "otherDamage4", "damagedHardbandBox", "damagedHardbandPin",
+  "boxReface", "boxRefaceType", "pinReface", "pinRefaceType",
+  "threadReconditionBox", "threadReconditionPin", "bevelRepairBox", "bevelRepairPin",
 ];
 const dbrKeys = [
   "dbrHardbandBox", "dbrHardbandPin", "minimumWallTube", "minimumTongBox",
@@ -243,22 +245,36 @@ const pinRepairAlertKeys = [
 ];
 
 function marked(value: unknown) {
-  return value === true || (typeof value === "string" && value.trim() !== "");
+  if (value === true) return true;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  return !["", "false", "no", "0"].includes(value.trim().toLowerCase());
 }
 
 function countMarked(items: DtiInspectionItemLike[], key: string) {
   return items.reduce((total, item) => total + (marked(item.row_data[key]) ? 1 : 0), 0);
 }
 
+function premiumWall(rowData: Record<string, unknown>) {
+  const stored = rowData.percentNominalWall;
+  const calculated = calculatePercentNominalWall(rowData);
+  const value = stored === "" || stored === null || stored === undefined ? calculated : Number(stored);
+  if (value === null || !Number.isFinite(value)) return false;
+  const ratio = Math.abs(value) <= 1 ? value : value / 100;
+  return ratio > 0.8;
+}
+
 export function summarizeDtiInspection(items: DtiInspectionItemLike[], componentType?: DtiComponentType): DtiInspectionSummary {
-  const machineShop = items.filter((item) => repairKeys.some((key) => marked(item.row_data[key]))).length;
-  const dbr = items.filter((item) => dbrKeys.some((key) => marked(item.row_data[key]))).length;
+  const hasRepair = (item: DtiInspectionItemLike) => repairKeys.some((key) => marked(item.row_data[key]));
+  const hasDbr = (item: DtiInspectionItemLike) => dbrKeys.some((key) => marked(item.row_data[key]));
+  const machineShop = items.filter(hasRepair).length;
+  const dbr = items.filter(hasDbr).length;
   const inspected = items.length;
 
   return {
     inspected,
-    premium: inspected - dbr,
-    rigReady: inspected - machineShop - dbr,
+    premium: componentType === "Drill Pipe" ? items.filter((item) => premiumWall(item.row_data)).length : inspected - dbr,
+    rigReady: items.filter((item) => !hasRepair(item) && !hasDbr(item)).length,
     machineShop,
     dbr,
     boxRefaces: countMarked(items, "boxReface"),
