@@ -3,7 +3,7 @@ import "server-only";
 import JSZip from "jszip";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { normalizeDtiRefaceCode, resolveDtiReportComponentType, type DtiComponentType } from "./dtiInspectionReport";
+import { dtiComponentLabel, normalizeDtiRefaceCode, resolveDtiReportComponentType, summarizeDtiInspection, type DtiComponentType } from "./dtiInspectionReport";
 
 type Report = Record<string, unknown>;
 type Item = { component_type: DtiComponentType; sequence_number: number; row_data: Record<string, unknown> };
@@ -47,6 +47,12 @@ subsColumns.comments = "V";
 
 function text(value: unknown) { return String(value ?? "").trim(); }
 function record(value: unknown) { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function marked(value: unknown) {
+  if (value === true) return true;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value !== "string") return false;
+  return !["", "false", "no", "0"].includes(value.trim().toLowerCase());
+}
 
 function excelValue(key: string, value: unknown) {
   if (value === null || value === undefined || value === "" || value === false) return null;
@@ -100,6 +106,115 @@ function setIfPresent(sheet: string, address: string, value: unknown) {
 function excelDateSerial(date: string) {
   const [year, month, day] = date.split("-").map(Number);
   return (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86_400_000;
+}
+
+function countMarked(rows: Item[], key: string) {
+  return rows.reduce((total, item) => total + (marked(item.row_data[key]) ? 1 : 0), 0);
+}
+
+function inspectionType(report: Report, componentType: DtiComponentType) {
+  const scope = record(report.inspection_scope);
+  const prefix = componentType === "Drill Pipe" ? "drillPipe" : componentType === "HWDP" ? "hwdp" : "subs";
+  const category = text(scope.inspectionCategory);
+  return [
+    dtiComponentLabel(componentType),
+    category === "HDLS" ? "HDLS" : category ? `Category ${category}` : "",
+    scope[`${prefix}Additional1`],
+    scope[`${prefix}Additional2`],
+  ].map(text).filter(Boolean).join(" / ");
+}
+
+function writeSummary(sheet: string, report: Report, componentType: DtiComponentType, rows: Item[], remarksCell: string) {
+  const summary = summarizeDtiInspection(rows, componentType);
+  const scope = record(report.inspection_scope);
+  const machineShop = record(report.machine_shop);
+  let output = sheet;
+  output = writeCell(output, "C1", report.operator_name);
+  output = writeCell(output, "F1", report.state);
+  output = writeCell(output, "C2", [report.contractor_name, report.rig_number].map(text).filter(Boolean).join(" "));
+  const reportDate = text(report.report_date);
+  output = writeCell(output, "C3", /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? excelDateSerial(reportDate) : reportDate);
+  output = writeCell(output, "C4", report.field_invoice);
+  output = writeCell(output, "C5", report.inspection_crew);
+  output = writeCell(output, "C6", inspectionType(report, componentType));
+  output = writeCell(output, "A8", report.connection_size);
+  if (componentType === "Drill Pipe") output = writeCell(output, "B8", scope.criteriaWeightPpf);
+  output = writeCell(output, "C8", report.connection_type);
+  output = writeCell(output, "E8", report.grade);
+  output = writeCell(output, "A11", machineShop.name || "N/A");
+  output = writeCell(output, "C11", machineShop.contact || "N/A");
+  output = writeCell(output, "D11", machineShop.phone || "N/A");
+  output = writeCell(output, "C15", summary.premium);
+  output = writeCell(output, "J15", summary.inspected);
+  output = writeCell(output, "J16", summary.rigReady);
+  output = writeCell(output, "C17", summary.dbr);
+  output = writeCell(output, "J17", summary.machineShop);
+  output = setIfPresent(output, remarksCell, record(report.remarks)[componentType === "Drill Pipe" ? "drillPipe" : componentType === "HWDP" ? "hwdp" : "subs"]);
+
+  const boxHardbands = countMarked(rows, "hardbandBox");
+  const pinHardbands = countMarked(rows, "hardbandPin");
+  const damagedBoxHardbands = countMarked(rows, "damagedHardbandBox");
+  const damagedPinHardbands = countMarked(rows, "damagedHardbandPin");
+  const dbrBoxHardbands = countMarked(rows, "dbrHardbandBox");
+  const dbrPinHardbands = countMarked(rows, "dbrHardbandPin");
+
+  if (componentType === "Drill Pipe") {
+    output = writeCell(output, "A22", summary.boxRefaces);
+    output = writeCell(output, "D22", summary.pinRefaces);
+    output = writeCell(output, "G19", boxHardbands + pinHardbands);
+    output = writeCell(output, "I20", boxHardbands);
+    output = writeCell(output, "K20", pinHardbands);
+    output = writeCell(output, "G21", damagedBoxHardbands + damagedPinHardbands);
+    output = writeCell(output, "I22", damagedBoxHardbands);
+    output = writeCell(output, "K22", damagedPinHardbands);
+    output = writeCell(output, "G23", dbrBoxHardbands + dbrPinHardbands);
+    output = writeCell(output, "I24", dbrBoxHardbands);
+    output = writeCell(output, "K24", dbrPinHardbands);
+    return output;
+  }
+
+  output = writeCell(output, "F22", summary.boxRefaces);
+  output = writeCell(output, "I22", summary.pinRefaces);
+  output = writeCell(output, "G25", boxHardbands + pinHardbands);
+  output = writeCell(output, "I26", boxHardbands);
+  output = writeCell(output, "K26", pinHardbands);
+  output = writeCell(output, "G27", damagedBoxHardbands + damagedPinHardbands);
+  output = writeCell(output, "I28", damagedBoxHardbands);
+  output = writeCell(output, "K28", damagedPinHardbands);
+  output = writeCell(output, "G29", dbrBoxHardbands + dbrPinHardbands);
+  output = writeCell(output, "I30", dbrBoxHardbands);
+  output = writeCell(output, "K30", dbrPinHardbands);
+  if (componentType === "HWDP") {
+    output = writeCell(output, "F31", "Center Pad 1");
+    output = writeCell(output, "G31", summary.centerPad1);
+    output = writeCell(output, "I31", "Center Pad 2");
+    output = writeCell(output, "K31", summary.centerPad2);
+  } else {
+    for (const address of ["F31", "G31", "I31", "K31"]) output = clearCell(output, address);
+  }
+  return output;
+}
+
+function showOnlyReportSheets(workbookXml: string, componentType: DtiComponentType) {
+  const visibleNames = componentType === "Drill Pipe"
+    ? new Set(["Summary Drill Pipe", "Prop Drill Pipe Inp Report"])
+    : componentType === "HWDP"
+      ? new Set(["Summary HWDP", "Prop HWDP Inp Report"])
+      : new Set(["Summary Sub", "Prop Subs Inp Report"]);
+  let activeTab = 0;
+  let sheetIndex = -1;
+  let output = workbookXml.replace(/<sheet\b[^>]*\/>/g, (sheetTag) => {
+    sheetIndex += 1;
+    const name = sheetTag.match(/\bname="([^"]+)"/)?.[1] ?? "";
+    const cleaned = sheetTag.replace(/\s+state="[^"]*"/g, "");
+    if (visibleNames.has(name)) {
+      if (name.startsWith("Summary ")) activeTab = sheetIndex;
+      return cleaned;
+    }
+    return cleaned.replace(/\/>$/, ' state="hidden"/>');
+  });
+  output = output.replace(/(<workbookView\b[^>]*?)\s+activeTab="[^"]*"/, `$1 activeTab="${activeTab}"`);
+  return output;
 }
 
 function writeInspectionRows(sheet: string, rows: Item[], columns: Record<string, string>, serialSplitColumn?: string, defaults: Record<string, unknown> = {}) {
@@ -164,17 +279,6 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
   }
   saveSheet("DATA SHEET", dataSheet);
 
-  const machineShop = record(report.machine_shop);
-  const remarks = record(report.remarks);
-  for (const [sheetName, prefix, remarksCell] of [["Summary Drill Pipe", "drillPipe", "A55"], ["Summary HWDP", "hwdp", "A48"], ["Summary Sub", "subs", "A48"]] as const) {
-    let sheet = await readSheet(sheetName);
-    sheet = setIfPresent(sheet, "A11", machineShop.name || "N/A");
-    sheet = setIfPresent(sheet, "C11", machineShop.contact);
-    sheet = setIfPresent(sheet, "D11", machineShop.phone);
-    sheet = setIfPresent(sheet, remarksCell, remarks[prefix]);
-    saveSheet(sheetName, sheet);
-  }
-
   const tubularSpec = record(record(report.criteria_snapshot).tubularSpec);
   const drillPipeDefaults = Number(tubularSpec.new_wall_inches) > 0 ? { nominalWallThickness: Number(tubularSpec.new_wall_inches) } : {};
   let drillPipe = writeInspectionRows(await readSheet("Prop Drill Pipe Inp Report"), reportComponentType === "Drill Pipe" ? items.filter((item) => item.component_type === "Drill Pipe") : [], drillPipeColumns, undefined, drillPipeDefaults);
@@ -185,6 +289,11 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
   saveSheet("Prop Drill Pipe Inp Report", drillPipe);
   saveSheet("Prop HWDP Inp Report", hwdp);
   saveSheet("Prop Subs Inp Report", subs);
+
+  const reportRows = items.filter((item) => item.component_type === reportComponentType);
+  const summaryName = reportComponentType === "Drill Pipe" ? "Summary Drill Pipe" : reportComponentType === "HWDP" ? "Summary HWDP" : "Summary Sub";
+  const summaryRemarksCell = reportComponentType === "Drill Pipe" ? "A55" : "A48";
+  saveSheet(summaryName, writeSummary(await readSheet(summaryName), report, reportComponentType, reportRows, summaryRemarksCell));
 
   let proveUpSheet = await readSheet("EMI Prove Up Tap");
   proveUpSheet = setIfPresent(proveUpSheet, "B1", report.inspection_crew);
@@ -202,6 +311,7 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
   const workbookFile = zip.file("xl/workbook.xml");
   if (workbookFile) {
     let workbookXml = await workbookFile.async("string");
+    workbookXml = showOnlyReportSheets(workbookXml, reportComponentType);
     workbookXml = workbookXml.replace(/<calcPr\b([^>]*)\/?\s*>/, (_match, attrs: string) => {
       const cleaned = attrs.replace(/\s+(calcMode|fullCalcOnLoad|forceFullCalc)="[^"]*"/g, "").replace(/\s*\/$/, "");
       return `<calcPr${cleaned} calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>`;
