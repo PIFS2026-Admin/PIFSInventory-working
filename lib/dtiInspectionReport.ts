@@ -11,6 +11,10 @@ export type DtiInspectionSummary = {
   dbr: number;
   boxRefaces: number;
   pinRefaces: number;
+  damagedBoxes: number;
+  damagedPins: number;
+  hardbandBoxes: number;
+  hardbandPins: number;
   hardbands: number;
   damagedHardbands: number;
   dbrHardbands: number;
@@ -115,6 +119,9 @@ const centerPadFields: DtiReportField[] = [
   field("hardbandCenterPad2", "Hardband Center Pad 2", "Hardband", "flag"),
 ];
 
+const boxDamageKeys = findingFields.filter((item) => item.group === "Damage" && item.end === "Box").map((item) => item.key);
+const pinDamageKeys = findingFields.filter((item) => item.group === "Damage" && item.end === "Pin").map((item) => item.key);
+
 const hwdpFindingFields = findingFields.flatMap((item) => item.key === "hardbandBox" ? [item, ...centerPadFields] : [item]);
 
 const identification = [field("jointNumber", "Joint Number", "Identification", "text"), field("serialNumber", "Serial Number", "Identification", "text")];
@@ -196,18 +203,6 @@ export function normalizeDtiInspectionRowData(rowData: Record<string, unknown>) 
   };
 }
 
-export const dtiInspectionCategoryOptions = [
-  "Cat 2",
-  "Cat 2 w/Blacklight",
-  "Cat 3",
-  "Cat 3-5",
-  "Cat 4",
-  "Cat 4 w/Blacklight",
-  "Cat 5",
-  "API RP 7G",
-  "Lathe reface",
-];
-
 const repairKeys = [
   "damagedSealBox", "damagedSealPin", "damagedThreadsBox", "damagedThreadsPin",
   "damagedTorqueShoulderBox", "damagedTorqueShoulderPin", "pittedBox", "pittedPin",
@@ -249,6 +244,10 @@ export function summarizeDtiInspection(items: DtiInspectionItemLike[], component
     dbr,
     boxRefaces: countMarked(items, "boxReface"),
     pinRefaces: countMarked(items, "pinReface"),
+    damagedBoxes: items.filter((item) => boxDamageKeys.some((key) => marked(item.row_data[key]))).length,
+    damagedPins: items.filter((item) => pinDamageKeys.some((key) => marked(item.row_data[key]))).length,
+    hardbandBoxes: countMarked(items, "hardbandBox"),
+    hardbandPins: countMarked(items, "hardbandPin"),
     hardbands: countMarked(items, "hardbandBox") + countMarked(items, "hardbandPin"),
     damagedHardbands: countMarked(items, "damagedHardbandBox") + countMarked(items, "damagedHardbandPin"),
     dbrHardbands: countMarked(items, "dbrHardbandBox") + countMarked(items, "dbrHardbandPin"),

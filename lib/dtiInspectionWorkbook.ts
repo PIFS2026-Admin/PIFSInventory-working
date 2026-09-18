@@ -156,7 +156,9 @@ export async function buildDtiInspectionWorkbook(report: Report, items: Item[], 
     subs: ["E17", "E19", "E21"],
   } as const;
   for (const [prefix, cells] of Object.entries(scopeCells)) {
-    dataSheet = setIfPresent(dataSheet, cells[0], scope[`${prefix}Category`]);
+    const inspectionCategory = String(scope.inspectionCategory ?? "").trim();
+    const categoryLabel = inspectionCategory === "HDLS" ? "HDLS" : inspectionCategory ? `Cat ${inspectionCategory}` : scope[`${prefix}Category`];
+    dataSheet = setIfPresent(dataSheet, cells[0], categoryLabel);
     dataSheet = setIfPresent(dataSheet, cells[1], scope[`${prefix}Additional1`]);
     dataSheet = setIfPresent(dataSheet, cells[2], scope[`${prefix}Additional2`]);
   }
