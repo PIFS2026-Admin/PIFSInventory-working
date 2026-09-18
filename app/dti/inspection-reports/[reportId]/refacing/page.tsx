@@ -3,7 +3,8 @@
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { dtiComponentLabel, normalizeDtiRefaceCode, resolveDtiReportComponentType, type DtiComponentType } from "../../../../../lib/dtiInspectionReport";
+import { dtiComponentLabel, resolveDtiReportComponentType, type DtiComponentType } from "../../../../../lib/dtiInspectionReport";
+import { dtiRefacingFields as fields, getDtiRefacingData as refacingData, getDtiRefacingRows } from "../../../../../lib/dtiRefacingReport";
 import { getValidAccessToken, redirectToLogin } from "../../../../../lib/clientSession";
 import { getDtiOfflineSnapshot, saveDtiOfflineSnapshot, sendOrQueueDtiMutation } from "../../../../../lib/dtiOfflineQueue";
 import styles from "../../reports.module.css";
@@ -35,52 +36,8 @@ type Item = {
 type ApiData = { report?: Report; items?: Item[]; error?: string };
 
 const endpoint = "/api/dti/inspection-reports";
-const fields = [
-  ["refacePresent", "Present"],
-  ["refaceInitialClass", "Initial Class"],
-  ["refaceFinalClass", "Final Class"],
-  ["refaceClassReject", "Class Reject"],
-  ["refaceBoxRepairRequired", "Box Repair Req."],
-  ["refaceBoxDepthBefore", "Box Depth Before"],
-  ["refaceBoxDepthAfter", "Box Depth After"],
-  ["refaceBoxTongBefore", "Box Tong Before"],
-  ["refaceBoxTongAfter", "Box Tong After"],
-  ["refaceBoxResults", "Box Results"],
-  ["refacePinRepairRequired", "Pin Repair Req."],
-  ["refacePinLengthBefore", "Pin Length Before"],
-  ["refacePinLengthAfter", "Pin Length After"],
-  ["refacePinTongBefore", "Pin Tong Before"],
-  ["refacePinTongAfter", "Pin Tong After"],
-  ["refacePinResults", "Pin Results"],
-] as const;
-
 function text(value: unknown) { return String(value ?? "").trim(); }
-function marked(value: unknown) { return value === true || text(value) !== ""; }
 function display(value: unknown) { return text(value) || "-"; }
-
-function refacingData(item: Item) {
-  const row = item.row_data;
-  const initialClass = text(row.refaceInitialClass) || text(item.grading_result?.areas?.Final?.classification);
-  return {
-    ...row,
-    refacePresent: text(row.refacePresent) || "Yes",
-    refaceInitialClass: initialClass,
-    refaceFinalClass: text(row.refaceFinalClass),
-    refaceClassReject: text(row.refaceClassReject),
-    refaceBoxRepairRequired: text(row.refaceBoxRepairRequired) || normalizeDtiRefaceCode(row.boxRefaceType) || (row.boxReface === true ? "Yes" : ""),
-    refaceBoxDepthBefore: text(row.refaceBoxDepthBefore) || text(row.boxCriticalLength),
-    refaceBoxDepthAfter: text(row.refaceBoxDepthAfter) || text(row.boxLengthAfterRepair),
-    refaceBoxTongBefore: text(row.refaceBoxTongBefore) || text(row.boxTongSpace),
-    refaceBoxTongAfter: text(row.refaceBoxTongAfter),
-    refaceBoxResults: text(row.refaceBoxResults),
-    refacePinRepairRequired: text(row.refacePinRepairRequired) || normalizeDtiRefaceCode(row.pinRefaceType) || (row.pinReface === true ? "Yes" : ""),
-    refacePinLengthBefore: text(row.refacePinLengthBefore) || text(row.pinCriticalLength),
-    refacePinLengthAfter: text(row.refacePinLengthAfter) || text(row.pinLengthAfterRepair),
-    refacePinTongBefore: text(row.refacePinTongBefore) || text(row.pinTongSpace),
-    refacePinTongAfter: text(row.refacePinTongAfter),
-    refacePinResults: text(row.refacePinResults),
-  };
-}
 
 export default function DtiRefacingReportPage() {
   const params = useParams<{ reportId: string }>();
@@ -90,6 +47,7 @@ export default function DtiRefacingReportPage() {
   const [drafts, setDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const [dirty, setDirty] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState("Loading refacing report...");
 
   const load = useCallback(async () => {
@@ -119,12 +77,7 @@ export default function DtiRefacingReportPage() {
   const report = data?.report;
   const componentType = resolveDtiReportComponentType(report?.inspection_scope, data?.items);
   const componentLabel = dtiComponentLabel(componentType);
-  const rows = useMemo(() => (data?.items ?? [])
-    .filter((item) => item.component_type === componentType && (
-      marked(item.row_data.boxReface) || marked(item.row_data.pinReface)
-      || marked(item.row_data.boxRefaceType) || marked(item.row_data.pinRefaceType)
-    ))
-    .sort((a, b) => a.sequence_number - b.sequence_number), [componentType, data?.items]);
+  const rows = useMemo(() => getDtiRefacingRows(data?.items ?? [], componentType), [componentType, data?.items]);
 
   function update(itemId: string, key: string, value: string) {
     setDrafts((current) => ({ ...current, [itemId]: { ...(current[itemId] ?? {}), [key]: value } }));
@@ -152,9 +105,25 @@ export default function DtiRefacingReportPage() {
     finally { setSaving(false); }
   }
 
+  async function exportExcel() {
+    if (!report || exporting) return;
+    setExporting(true); setMessage("");
+    try {
+      const token = await getValidAccessToken();
+      if (!token) { redirectToLogin(); return; }
+      const response = await fetch(`/api/dti/inspection-reports/refacing-export?reportId=${encodeURIComponent(reportId)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new Error(body.error || "TITAN could not export the refacing report."); }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob); const anchor = document.createElement("a");
+      anchor.href = url; anchor.download = `${report.report_number}-RFX.xlsx`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+      setMessage("Refacing report exported to Excel.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "TITAN could not export the refacing report."); }
+    finally { setExporting(false); }
+  }
+
   return <main className={styles.page}>
     <div className={styles.screenOnly}>
-      <header className={`${styles.header} titan-page-header`}><div className={styles.title}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority /><div><span>{report ? `${report.report_number}-RFX` : "DTI Refacing"}</span><h1>{componentLabel} Refacing Report</h1></div></div><div className={styles.actions}><button type="button" onClick={() => window.location.assign(`/dti/inspection-reports/${encodeURIComponent(reportId)}`)}>Back to Inspection</button><button type="button" onClick={() => void load()}>Refresh</button><button type="button" onClick={() => window.print()} disabled={!report}>Print / PDF</button><button className={styles.primary} type="button" onClick={() => void saveRows()} disabled={!dirty.length || saving}>{saving ? "Saving" : `Save${dirty.length ? ` (${dirty.length})` : ""}`}</button></div></header>
+      <header className={`${styles.header} titan-page-header`}><div className={styles.title}><Image src="/titan_logo.jpg" alt="TITAN" width={64} height={42} priority /><div><span>{report ? `${report.report_number}-RFX` : "DTI Refacing"}</span><h1>{componentLabel} Refacing Report</h1></div></div><div className={styles.actions}><button type="button" onClick={() => window.location.assign(`/dti/inspection-reports/${encodeURIComponent(reportId)}`)}>Back to Inspection</button><button type="button" onClick={() => void load()}>Refresh</button><button type="button" onClick={() => window.print()} disabled={!report}>Print / PDF</button><button type="button" onClick={() => void exportExcel()} disabled={!report || exporting}>{exporting ? "Exporting" : "Export Excel"}</button><button className={styles.primary} type="button" onClick={() => void saveRows()} disabled={!dirty.length || saving}>{saving ? "Saving" : `Save${dirty.length ? ` (${dirty.length})` : ""}`}</button></div></header>
       {message ? <div className={message.includes("saved") ? styles.saved : styles.message}>{message}</div> : null}
       {report ? <section className={styles.reportBand}>{([['Operator',report.operator_name],['Contractor',report.contractor_name],['Rig Number',report.rig_number],['Report Date',report.report_date],['Field Invoice',report.field_invoice],['Inspection Crew',report.inspection_crew],['Connection',`${report.connection_size || "-"} / ${report.connection_type || "-"}`],['Grade / State',`${report.grade || "-"} / ${report.state || "-"}`]] as const).map(([label,value]) => <div key={label}><span>{label}</span><strong>{value || "-"}</strong></div>)}</section> : null}
       <section className={styles.refacingEditor}><div className={styles.sectionHead}><div><span>Inspection Findings</span><h2>{rows.length} Joint{rows.length === 1 ? "" : "s"} Requiring Reface</h2></div></div>
