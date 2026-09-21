@@ -27,6 +27,7 @@ export type PermissionModuleKey =
   | "hardbanding"
   | "tubing"
   | "lead_scorecards"
+  | "financials"
   | "reports"
   | "exports"
   | "crm"
@@ -100,6 +101,7 @@ export type ModuleKey =
   | "hardband"
   | "crm"
   | "communications"
+  | "financials"
   | "admin"
   | "reports"
   | "dashboard";
@@ -140,6 +142,7 @@ export const permissionModules: ModulePermissionConfig[] = [
   { key: "hardbanding", label: "Hardbanding", description: "Hardband jobs, serials, wire usage, and closeout reports." },
   { key: "tubing", label: "Tubing", description: "Tubing jobs, activity, summaries, and production records." },
   { key: "lead_scorecards", label: "Lead Scorecards", description: "Lead performance and scorecard dashboards." },
+  { key: "financials", label: "Financial KPIs", description: "Job-cost trackers, KPI analytics, targets, and the controlled cost basis." },
   { key: "reports", label: "Reports", description: "Internal reports, ticket history, and customer reports." },
   { key: "exports", label: "Exports", description: "CSV/PDF exports and printable records." },
   { key: "crm", label: "CRM", description: "Accounts, contacts, opportunities, activities, Monday migration, and customer relationship reporting." },
@@ -306,6 +309,11 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
     description: "Companies, users, roles, yards, racks, options, and setup tools.",
   },
   {
+    key: "financials",
+    label: "Financials",
+    description: "Financial KPI dashboards, job-cost trackers, targets, and rates.",
+  },
+  {
     key: "reports",
     label: "Reports",
     description: "Pipe inventory reports, ticket searches, and exports.",
@@ -329,6 +337,7 @@ const legacyModuleRequirements: Record<ModuleKey, PermissionModuleKey[]> = {
   hardband: ["hardbanding"],
   crm: ["crm"],
   communications: ["communications"],
+  financials: ["financials"],
   admin: ["user_management", "system_settings", "email_notification_settings"],
   reports: ["reports", "exports"],
   dashboard: ["dashboard"],
@@ -418,6 +427,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
     allowViewExport(permissions, ["dashboard", "reports", "exports", "lead_scorecards"]);
     allow(permissions, ["dti", "cdt", "hardbanding", "tubing", "daily_summaries", "work_orders"], ["view", "edit", "approve", "close", "export", "receive_notifications"]);
     allow(permissions, ["consumable_inventory", "purchase_orders", "issue_tickets"], ["view", "create", "approve", "export", "receive_notifications"]);
+    allow(permissions, ["financials"], ["view", "create", "edit", "approve", "export", "manage_settings"]);
   }
 
   if (role === "dti_superintendent") {
@@ -493,6 +503,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "export",
       "receive_notifications",
     ]);
+    allow(permissions, ["financials"], ["view", "create", "edit", "export"]);
   }
 
   if (role === "cdt_lead" || role === "hardband_lead" || role === "tubing_lead") {
@@ -630,6 +641,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/hardband") return "hardband";
   if (href === "/crm") return "crm";
   if (href === "/communications") return "communications";
+  if (href === "/financials") return "financials";
   if (href === "/admin") return "admin";
   if (href === "/reports") return "reports";
   if (href.startsWith("/?open=reports")) return "reports";

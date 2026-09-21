@@ -12,7 +12,7 @@ type AppTab = {
 };
 
 const appTabs: AppTab[] = [
-  { href: "/home", label: "Home", icon: "home", match: ["/home", "/dashboard"] },
+  { href: "/home", label: "Home", icon: "home", match: ["/home", "/dashboard", "/financials"] },
   { href: "/service-lines", label: "Services", icon: "service", match: ["/service-lines", "/dti", "/dti-summary", "/hardband", "/equipment-repairs"] },
   { href: "/communications", label: "Comms", icon: "chat", match: ["/communications"] },
   { href: "/inventory?view=orders", label: "Store", icon: "store", match: ["/inventory"], view: ["orders", "cart"] },
