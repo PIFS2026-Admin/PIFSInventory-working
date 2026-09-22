@@ -137,6 +137,25 @@ function financialCategoryLabel(job: FinancialJob, categories: Category[]) {
   return categories.find((category) => category.service_line === job.service_line && category.code === job.category_code)?.label || job.category_code;
 }
 
+function metricValue(metricKey: string, rows: FinancialJob[]) {
+  const revenue = rows.reduce((sum, job) => sum + numberValue(job.revenue), 0);
+  const manhours = rows.reduce((sum, job) => sum + numberValue(job.manhours), 0);
+  const profit = rows.reduce((sum, job) => sum + numberValue(job.computed.profit), 0);
+  if (metricKey === "labor_pct") {
+    const laborDollars = rows.reduce((sum, job) => sum + numberValue(job.computed.labor_pct) * numberValue(job.revenue), 0);
+    return revenue ? laborDollars / revenue : null;
+  }
+  if (metricKey === "rev_per_mh") return manhours ? revenue / manhours : null;
+  if (metricKey === "margin") return revenue ? profit / revenue : null;
+  return null;
+}
+
+function formatTargetValue(value: unknown, unit: string) {
+  if (unit === "percent") return percent(value);
+  if (unit === "currency") return money(value);
+  return numberValue(value).toLocaleString();
+}
+
 function csvValue(value: unknown) {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -271,6 +290,43 @@ export default function FinancialsPage() {
 
   const activeTargets = useMemo(() => targets.filter((target) => line === "all" || target.service_line === line), [line, targets]);
   const selectedCategories = categories.filter((category) => category.service_line === formLine);
+
+  const evaluatedTargets = useMemo(() => {
+    const effective = new Map<string, Target>();
+    activeTargets.forEach((target) => {
+      const key = `${target.service_line}:${target.category_code}:${target.metric_key}`;
+      const current = effective.get(key);
+      if (!current || target.yard_id) effective.set(key, target);
+    });
+    return Array.from(effective.values()).map((target) => {
+      const matchingJobs = jobs.filter((job) => job.service_line === target.service_line && job.category_code === target.category_code);
+      const actual = metricValue(target.metric_key, matchingJobs);
+      const targetValue = numberValue(target.target_value);
+      const variance = actual === null ? null : actual - targetValue;
+      const met = actual === null ? null : target.direction === "above" ? actual >= targetValue : actual <= targetValue;
+      return { ...target, actual, variance, met, jobCount: matchingJobs.length };
+    }).sort((a, b) => financialLineNames[a.service_line].localeCompare(financialLineNames[b.service_line]) || a.metric_key.localeCompare(b.metric_key));
+  }, [activeTargets, jobs]);
+
+  const monthlyPerformance = useMemo(() => {
+    const grouped = new Map<string, { jobs: number; revenue: number; cost: number; profit: number; manhours: number }>();
+    jobs.forEach((job) => {
+      const month = job.job_date.slice(0, 7);
+      const current = grouped.get(month) || { jobs: 0, revenue: 0, cost: 0, profit: 0, manhours: 0 };
+      current.jobs += 1;
+      current.revenue += numberValue(job.revenue);
+      current.cost += numberValue(job.computed.total_cost);
+      current.profit += numberValue(job.computed.profit);
+      current.manhours += numberValue(job.manhours);
+      grouped.set(month, current);
+    });
+    return Array.from(grouped, ([month, values]) => ({
+      month,
+      ...values,
+      margin: values.revenue ? values.profit / values.revenue : 0,
+      revenuePerMh: values.manhours ? values.revenue / values.manhours : 0,
+    })).sort((a, b) => b.month.localeCompare(a.month));
+  }, [jobs]);
 
   const filteredJobs = useMemo(() => jobs.filter((job) =>
     matchesTextFilter(financialCategoryLabel(job, categories), jobFilters.category) &&
@@ -590,7 +646,26 @@ export default function FinancialsPage() {
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Revenue Ledger</span><h2>Tubing Monthly Revenue</h2></div>{(permissions.create || permissions.edit) && <button type="button" onClick={() => setShowTubingRevenueForm(true)}>Add Revenue</button>}</div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Customer</th><th>Amount</th><th>Source</th><th></th></tr></thead><tbody>{tubingRevenue.map((row) => <tr key={row.id}><td>{row.revenue_month.slice(0, 7)}</td><td>{row.customer || "(whole month)"}</td><td>{money(row.amount)}</td><td>{row.source}</td><td>{permissions.edit && <button type="button" onClick={() => { setTubingRevenueMonth(row.revenue_month.slice(0, 7)); setTubingRevenueCustomer(row.customer || ""); setTubingRevenueAmount(String(row.amount)); setShowTubingRevenueForm(true); }}>Change</button>}</td></tr>)}{!tubingRevenue.length && <tr><td colSpan={5}>No Tubing revenue matches these filters.</td></tr>}</tbody></table></div></section>
       </>}
 
-      {!loading && tab === "kpis" && line !== "tu" && <><section className={styles.metrics}><div><span>Labor % Revenue</span><strong>{percent(totals.laborPercent)}</strong></div><div><span>Revenue / Manhour</span><strong>{money(totals.revenuePerMh)}</strong></div><div><span>% Profit</span><strong>{percent(totals.margin)}</strong></div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Active KPI Targets</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th></tr></thead><tbody>{activeTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{target.unit === "percent" ? percent(target.target_value) : target.unit === "currency" ? money(target.target_value) : target.target_value}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td></tr>)}{!activeTargets.length && <tr><td colSpan={6}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section></>}
+      {!loading && tab === "kpis" && line !== "tu" && <>
+        <section className={styles.metrics}>
+          <div><span>Labor % Revenue</span><strong>{percent(totals.laborPercent)}</strong></div>
+          <div><span>Revenue / Manhour</span><strong>{money(totals.revenuePerMh)}</strong></div>
+          <div><span>Profit Margin</span><strong>{percent(totals.margin)}</strong></div>
+          <div><span>Jobs Evaluated</span><strong>{totals.jobs.toLocaleString()}</strong></div>
+          <div><span>Targets Met</span><strong>{evaluatedTargets.filter((target) => target.met === true).length} / {evaluatedTargets.filter((target) => target.met !== null).length}</strong></div>
+          <div><span>Reporting Months</span><strong>{monthlyPerformance.length}</strong></div>
+        </section>
+        <section className={styles.tableSection}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Live Scorecard</span><h2>Actual Performance vs Target</h2></div><span>Calculated from the selected period</span></div>
+          {evaluatedTargets.length ? <div className={styles.kpiGrid}>{evaluatedTargets.map((target) => <article key={`${target.service_line}:${target.category_code}:${target.metric_key}`} className={styles.kpiCard} data-status={target.met === null ? "no-data" : target.met ? "met" : "missed"}>
+            <div className={styles.kpiCardHead}><div><span>{financialLineNames[target.service_line]}</span><strong>{target.metric_key.replaceAll("_", " ")}</strong></div><b>{target.met === null ? "No data" : target.met ? "Met" : "Missed"}</b></div>
+            <div className={styles.kpiValues}><div><span>Actual</span><strong>{target.actual === null ? "-" : formatTargetValue(target.actual, target.unit)}</strong></div><div><span>Target</span><strong>{target.direction === "above" ? ">= " : "<= "}{formatTargetValue(target.target_value, target.unit)}</strong></div></div>
+            <p>{target.jobCount} jobs · {target.category_code} · {target.yard_id ? "Yard override" : "Line default"}{target.variance === null ? "" : ` · ${target.variance >= 0 ? "+" : ""}${formatTargetValue(target.variance, target.unit)} variance`}</p>
+          </article>)}</div> : <div className={styles.emptyState}>No controlled targets are configured for this selection. Actual KPIs and monthly performance remain available.</div>}
+        </section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={8}>No jobs match this period.</td></tr>}</tbody></table></div></section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th></tr></thead><tbody>{evaluatedTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td></tr>)}{!evaluatedTargets.length && <tr><td colSpan={6}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
+      </>}
       {!loading && tab === "kpis" && line === "tu" && <section className={styles.metrics}><div><span>Joints</span><strong>{tubingTotals.joints.toLocaleString()}</strong></div><div><span>Joints / Manhour</span><strong>{tubingTotals.jointsPerMh.toFixed(2)}</strong></div><div><span>Jobs</span><strong>{tubingTotals.jobs.toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(tubingTotals.revenue)}</strong></div></section>}
 
       {!loading && tab === "cost-basis" && line !== "tu" && <><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Frozen Cost Basis</span><h2>Everyday Rates</h2></div><span>New rates affect future saves only.</span></div><div className={styles.rateGrid}>{rates.filter((rate) => line === "all" || rate.service_line === line).map((rate) => <div key={rate.id}><span>{financialLineNames[rate.service_line]}</span><strong>{rate.label}</strong><b>{rate.rate_key === "overhead" ? percent(rate.rate_value) : money(rate.rate_value)}</b></div>)}</div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Changes Over Time</span><h2>Effective-Dated and Job-Size Rates</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Cost Item</th><th>Effective From</th><th>Minimum Quantity</th><th>Value</th></tr></thead><tbody>{ratePeriods.filter((period) => line === "all" || period.service_line === line).map((period) => <tr key={period.id}><td>{financialLineNames[period.service_line]}</td><td>{period.rate_key}</td><td>{period.effective_from}</td><td>{period.minimum_quantity}</td><td>{money(period.rate_value)}</td></tr>)}{!ratePeriods.length && <tr><td colSpan={5}>No dated or tiered rates have been added.</td></tr>}</tbody></table></div></section></>}
