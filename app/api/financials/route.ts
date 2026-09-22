@@ -185,14 +185,17 @@ export async function GET(request: Request) {
     if (line !== "all") jobsQuery = jobsQuery.eq("service_line", line);
     if (!includeVoid) jobsQuery = jobsQuery.eq("status", "active");
 
-    const [jobs, categories, rates, periods, targets] = await Promise.all([
+    const [jobs, categories, rates, periods, targets, tubingWeeks, tubingEntries, tubingRevenue] = await Promise.all([
       jobsQuery,
       context.admin.from("titan_financial_categories").select("*").eq("is_active", true).order("service_line").order("sort_order"),
       context.admin.from("titan_financial_rates").select("*").eq("yard_id", yardId).eq("is_active", true).order("service_line").order("sort_order"),
       context.admin.from("titan_financial_rate_periods").select("*").eq("yard_id", yardId).eq("is_active", true).order("effective_from", { ascending: false }),
       context.admin.from("titan_financial_targets").select("*").eq("is_active", true).or(`yard_id.is.null,yard_id.eq.${yardId}`),
+      context.admin.from("titan_financial_tubing_weeks").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }),
+      context.admin.from("titan_financial_tubing_entries").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }).order("customer"),
+      context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId).eq("is_active", true).gte("revenue_month", `${dateFrom.slice(0, 7)}-01`).lte("revenue_month", dateTo).order("revenue_month", { ascending: false }).order("customer"),
     ]);
-    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error].find(Boolean);
+    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error, tubingWeeks.error, tubingEntries.error, tubingRevenue.error].find(Boolean);
     if (firstError) {
       if (isMissingFinancialSchema(firstError)) {
         return Response.json({ error: "Run supabase/titan_financial_kpis.sql before opening Financials.", setupRequired: true }, { status: 503 });
@@ -205,6 +208,11 @@ export async function GET(request: Request) {
       rates: rates.data || [],
       ratePeriods: periods.data || [],
       targets: targets.data || [],
+      tubing: {
+        weeks: tubingWeeks.data || [],
+        entries: tubingEntries.data || [],
+        revenue: tubingRevenue.data || [],
+      },
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
     });
@@ -222,6 +230,74 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     const yardId = String(body.yardId || "");
     await assertYardAccess(context, yardId);
+
+    if (action === "save_tubing_week") {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change Tubing financial records." }, { status: 403 });
+      const weekStart = String(body.weekStart || "");
+      const weekDate = new Date(`${weekStart}T00:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || Number.isNaN(weekDate.getTime()) || weekDate.getUTCDay() !== 0) {
+        throw new Error("Tubing weeks must start on a Sunday.");
+      }
+      const manhours = body.manhours === null || body.manhours === "" ? null : Number(body.manhours);
+      if (manhours !== null && (!Number.isFinite(manhours) || manhours < 0)) throw new Error("Enter valid whole-week manhours.");
+      const entries = Array.isArray(body.entries) ? body.entries : [];
+      const cleanedEntries = entries.map((entry: Record<string, unknown>) => {
+        const customer = String(entry.customer || "").trim();
+        if (!customer) throw new Error("Every Tubing activity row needs a customer.");
+        const values = Object.fromEntries(["joints", "jobs", "trucks_in", "trucks_out"].map((key) => {
+          const raw = entry[key];
+          if (raw === null || raw === undefined || raw === "") return [key, null];
+          const value = Number(raw);
+          if (!Number.isInteger(value) || value < 0) throw new Error(`${key.replaceAll("_", " ")} must be a whole number or blank.`);
+          return [key, value];
+        }));
+        return { yard_id: yardId, week_start: weekStart, customer, ...values, is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
+      });
+      const before = await context.admin.from("titan_financial_tubing_weeks").select("*").eq("yard_id", yardId).eq("week_start", weekStart).maybeSingle();
+      if (before.error) throw before.error;
+      const week = await context.admin.from("titan_financial_tubing_weeks").upsert({
+        yard_id: yardId, week_start: weekStart, manhours, is_active: true,
+        updated_at: new Date().toISOString(), updated_by: context.user.id,
+        ...(before.data ? {} : { created_by: context.user.id }),
+      }, { onConflict: "yard_id,week_start" }).select("*").single();
+      if (week.error) throw week.error;
+      if (cleanedEntries.length) {
+        const savedEntries = await context.admin.from("titan_financial_tubing_entries").upsert(
+          cleanedEntries,
+          { onConflict: "yard_id,week_start,customer" },
+        );
+        if (savedEntries.error) throw savedEntries.error;
+      }
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_tubing_week", entity_id: week.data.id,
+        action: before.data ? "update" : "create", before_value: before.data,
+        after_value: { week: week.data, entries: cleanedEntries }, actor_id: context.user.id,
+      });
+      return Response.json({ week: week.data });
+    }
+
+    if (action === "save_tubing_revenue") {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change Tubing financial records." }, { status: 403 });
+      const revenueMonth = String(body.revenueMonth || "");
+      if (!/^\d{4}-\d{2}-01$/.test(revenueMonth)) throw new Error("Select a valid revenue month.");
+      const customer = String(body.customer || "").trim() || null;
+      const amount = Number(body.amount);
+      if (!Number.isFinite(amount)) throw new Error("Enter a valid revenue amount.");
+      let existingQuery = context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId).eq("revenue_month", revenueMonth);
+      existingQuery = customer === null ? existingQuery.is("customer", null) : existingQuery.eq("customer", customer);
+      const existing = await existingQuery.maybeSingle();
+      if (existing.error) throw existing.error;
+      const values = { amount, source: "entered", is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_tubing_revenue").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_tubing_revenue").insert({ yard_id: yardId, revenue_month: revenueMonth, customer, ...values, created_by: context.user.id }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_tubing_revenue", entity_id: saved.data.id,
+        action: existing.data ? "update" : "create", before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ revenue: saved.data });
+    }
 
     if (action === "preview" || action === "create") {
       if (action === "create" && !permissions.create) return Response.json({ error: "You cannot add financial jobs." }, { status: 403 });
