@@ -5,7 +5,7 @@ import { financialLineNames, FinancialLine } from "../../lib/financialKpi";
 import { supabase } from "../../lib/supabase";
 import styles from "./financials.module.css";
 
-type TabKey = "overview" | "trackers" | "kpis" | "cost-basis";
+type TabKey = "overview" | "trackers" | "kpis" | "reviews" | "cost-basis";
 type ViewLine = FinancialLine | "tu" | "all";
 type Yard = { id: string; name: string; code: string };
 type PermissionSet = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean };
@@ -34,6 +34,18 @@ type Target = { id: string; service_line: FinancialLine; yard_id: string | null;
 type TubingWeek = { id: string; week_start: string; manhours: number | string | null };
 type TubingEntry = { id: string; week_start: string; customer: string; joints: number | null; jobs: number | null; trucks_in: number | null; trucks_out: number | null };
 type TubingRevenue = { id: string; revenue_month: string; customer: string | null; amount: number | string; source: string };
+type FinancialReview = {
+  id: string;
+  yard_id: string;
+  service_line: FinancialLine;
+  quarter: string;
+  status: "open" | "final";
+  highlights: string | null;
+  lowlights: string | null;
+  goals: string | null;
+  snapshot: Record<string, unknown> | null;
+  finalized_at: string | null;
+};
 type Field = { key: string; label: string; kind?: "text" | "number" | "date" | "textarea" };
 
 const lines = Object.keys(financialLineNames) as FinancialLine[];
@@ -156,6 +168,16 @@ function formatTargetValue(value: unknown, unit: string) {
   return numberValue(value).toLocaleString();
 }
 
+function quarterForDate(date: Date) {
+  return `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+}
+
+const quarterOptions = Array.from({ length: 12 }, (_, index) => {
+  const date = new Date();
+  date.setMonth(date.getMonth() - index * 3);
+  return quarterForDate(date);
+});
+
 function csvValue(value: unknown) {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -181,6 +203,7 @@ export default function FinancialsPage() {
   const [tubingWeeks, setTubingWeeks] = useState<TubingWeek[]>([]);
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
+  const [reviews, setReviews] = useState<FinancialReview[]>([]);
   const [permissions, setPermissions] = useState<PermissionSet>(emptyPermissions);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -202,6 +225,13 @@ export default function FinancialsPage() {
   const [tubingRevenueCustomer, setTubingRevenueCustomer] = useState("");
   const [tubingRevenueAmount, setTubingRevenueAmount] = useState("");
   const [jobFilters, setJobFilters] = useState<Record<string, string>>({});
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [reviewId, setReviewId] = useState("");
+  const [reviewLine, setReviewLine] = useState<FinancialLine>("dti");
+  const [reviewQuarter, setReviewQuarter] = useState(quarterOptions[0]);
+  const [reviewHighlights, setReviewHighlights] = useState("");
+  const [reviewLowlights, setReviewLowlights] = useState("");
+  const [reviewGoals, setReviewGoals] = useState("");
 
   useEffect(() => {
     void initialize();
@@ -252,6 +282,7 @@ export default function FinancialsPage() {
     setTubingWeeks(result.tubing?.weeks || []);
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
+    setReviews(result.reviews || []);
     setPermissions(result.permissions || emptyPermissions);
     setLoading(false);
   }
@@ -389,6 +420,8 @@ export default function FinancialsPage() {
     };
   }).sort((a, b) => b.joints - a.joints), [tubingCustomers, tubingEntries]);
 
+  const visibleReviews = useMemo(() => reviews.filter((review) => line === "all" || review.service_line === line), [reviews, line]);
+
   function resetForm(nextLine: FinancialLine = formLine) {
     setEditingId("");
     setFormLine(nextLine);
@@ -400,6 +433,52 @@ export default function FinancialsPage() {
 
   function updateJobFilter(key: string, value: string) {
     setJobFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function openReview(review?: FinancialReview) {
+    const nextLine = review?.service_line || (line === "all" || line === "tu" ? "dti" : line);
+    setReviewId(review?.id || "");
+    setReviewLine(nextLine);
+    setReviewQuarter(review?.quarter || quarterOptions[0]);
+    setReviewHighlights(review?.highlights || "");
+    setReviewLowlights(review?.lowlights || "");
+    setReviewGoals(review?.goals || "");
+    setShowReviewForm(true);
+  }
+
+  async function saveReview() {
+    setSaving(true);
+    setMessage("");
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save_review", yardId, line: reviewLine, quarter: reviewQuarter, highlights: reviewHighlights, lowlights: reviewLowlights, goals: reviewGoals }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The financial review could not be saved.");
+      return;
+    }
+    setShowReviewForm(false);
+    setReviewId("");
+    setMessage("Financial review saved as open.");
+    await loadFinancials();
+  }
+
+  async function finalizeReview(review: FinancialReview) {
+    if (!window.confirm(`Finalize ${review.quarter} for ${financialLineNames[review.service_line]}? The KPI snapshot will be locked.`)) return;
+    setSaving(true);
+    setMessage("");
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "finalize_review", yardId, id: review.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    setMessage(response.ok ? `${review.quarter} review finalized with a frozen KPI snapshot.` : result.error || "The review could not be finalized.");
+    if (response.ok) await loadFinancials();
   }
 
   function changeFormLine(nextLine: FinancialLine) {
@@ -557,7 +636,8 @@ export default function FinancialsPage() {
         <div className={styles.headerActions}>
           {permissions.export && <button type="button" onClick={exportJobs}>Export CSV</button>}
           {permissions.create && line === "tu" && <button type="button" className={styles.primary} onClick={() => { setTab("trackers"); openTubingWeek(); }}>Add Week</button>}
-          {permissions.create && line !== "tu" && <button type="button" className={styles.primary} onClick={() => { resetForm(line === "all" ? "dti" : line); setShowJobForm(true); }}>Add Job</button>}
+          {permissions.create && line !== "tu" && tab === "reviews" && <button type="button" className={styles.primary} onClick={() => openReview()}>New Review</button>}
+          {permissions.create && line !== "tu" && tab !== "reviews" && <button type="button" className={styles.primary} onClick={() => { resetForm(line === "all" ? "dti" : line); setShowJobForm(true); }}>Add Job</button>}
         </div>
       </header>
 
@@ -569,7 +649,7 @@ export default function FinancialsPage() {
       </section>
 
       <nav className={styles.tabs} aria-label="Financial views">
-        {(["overview", "trackers", "kpis", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item[0].toUpperCase() + item.slice(1)}</button>)}
+        {(["overview", "trackers", "kpis", "reviews", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item[0].toUpperCase() + item.slice(1)}</button>)}
       </nav>
 
       {message && <div className={styles.notice}>{message}</div>}
@@ -585,6 +665,20 @@ export default function FinancialsPage() {
           </div>
           {preview && <div className={styles.preview}><div><span>Total Cost</span><strong>{money(preview.total_cost)}</strong></div><div><span>Profit</span><strong>{money(preview.profit)}</strong></div><div><span>Margin</span><strong>{percent(preview.margin)}</strong></div><div><span>Revenue / Manhour</span><strong>{money(preview.rev_per_mh)}</strong></div></div>}
           <div className={styles.formActions}><button type="button" disabled={saving} onClick={() => void runJobAction("preview")}>Preview Cost Math</button><button type="button" disabled={saving} className={styles.primary} onClick={() => void runJobAction(editingId ? "update" : "create")}>{saving ? "Saving..." : editingId ? "Save Changes" : "Add Job"}</button></div>
+        </section>
+      )}
+
+      {showReviewForm && (
+        <section className={styles.jobForm}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>{reviewId ? "Open Review" : "Quarterly Review"}</span><h2>{reviewId ? "Edit Financial Review" : "Start Financial Review"}</h2></div><button type="button" onClick={() => setShowReviewForm(false)}>Close</button></div>
+          <div className={styles.formGrid}>
+            <label><span>Service Line</span><select value={reviewLine} disabled={Boolean(reviewId)} onChange={(event) => setReviewLine(event.target.value as FinancialLine)}>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}</select></label>
+            <label><span>Quarter</span><select value={reviewQuarter} disabled={Boolean(reviewId)} onChange={(event) => setReviewQuarter(event.target.value)}>{quarterOptions.map((quarter) => <option key={quarter} value={quarter}>{quarter}</option>)}</select></label>
+            <label className={styles.reviewNarrative}><span>Highlights</span><textarea value={reviewHighlights} onChange={(event) => setReviewHighlights(event.target.value)} placeholder="What performed well?" /></label>
+            <label className={styles.reviewNarrative}><span>Lowlights</span><textarea value={reviewLowlights} onChange={(event) => setReviewLowlights(event.target.value)} placeholder="What missed expectations?" /></label>
+            <label className={styles.reviewNarrative}><span>Goals</span><textarea value={reviewGoals} onChange={(event) => setReviewGoals(event.target.value)} placeholder="What should improve next quarter?" /></label>
+          </div>
+          <div className={styles.formActions}><button type="button" disabled={saving} className={styles.primary} onClick={() => void saveReview()}>{saving ? "Saving..." : "Save Open Review"}</button></div>
         </section>
       )}
 
@@ -666,6 +760,18 @@ export default function FinancialsPage() {
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={8}>No jobs match this period.</td></tr>}</tbody></table></div></section>
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th></tr></thead><tbody>{evaluatedTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td></tr>)}{!evaluatedTargets.length && <tr><td colSpan={6}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
       </>}
+
+      {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Quarterly Control</span><h2>Financial Reviews</h2></div><span>Final reviews retain the KPI values captured at approval.</span></div>
+        {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => <article key={review.id} className={styles.reviewCard} data-status={review.status}>
+          <div className={styles.reviewCardHead}><div><span>{financialLineNames[review.service_line]}</span><h3>{review.quarter}</h3></div><b>{review.status}</b></div>
+          {review.status === "final" && review.snapshot ? <div className={styles.reviewMetrics}><div><span>Jobs</span><strong>{numberValue(review.snapshot.jobs).toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(review.snapshot.revenue)}</strong></div><div><span>Profit</span><strong>{money(review.snapshot.profit)}</strong></div><div><span>Margin</span><strong>{percent(review.snapshot.margin)}</strong></div></div> : <p className={styles.openReviewNote}>Open review. KPI values will be captured when it is finalized.</p>}
+          <div className={styles.reviewNarratives}><div><span>Highlights</span><p>{review.highlights || "-"}</p></div><div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div><div><span>Goals</span><p>{review.goals || "-"}</p></div></div>
+          <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
+        </article>)}</div> : <div className={styles.emptyState}>No quarterly reviews have been started for this selection.</div>}
+      </section>}
+
+      {!loading && tab === "reviews" && line === "tu" && <div className={styles.emptyState}>Tubing reviews will be added with its dedicated production targets. Select another service line to manage financial reviews.</div>}
       {!loading && tab === "kpis" && line === "tu" && <section className={styles.metrics}><div><span>Joints</span><strong>{tubingTotals.joints.toLocaleString()}</strong></div><div><span>Joints / Manhour</span><strong>{tubingTotals.jointsPerMh.toFixed(2)}</strong></div><div><span>Jobs</span><strong>{tubingTotals.jobs.toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(tubingTotals.revenue)}</strong></div></section>}
 
       {!loading && tab === "cost-basis" && line !== "tu" && <><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Frozen Cost Basis</span><h2>Everyday Rates</h2></div><span>New rates affect future saves only.</span></div><div className={styles.rateGrid}>{rates.filter((rate) => line === "all" || rate.service_line === line).map((rate) => <div key={rate.id}><span>{financialLineNames[rate.service_line]}</span><strong>{rate.label}</strong><b>{rate.rate_key === "overhead" ? percent(rate.rate_value) : money(rate.rate_value)}</b></div>)}</div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Changes Over Time</span><h2>Effective-Dated and Job-Size Rates</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Cost Item</th><th>Effective From</th><th>Minimum Quantity</th><th>Value</th></tr></thead><tbody>{ratePeriods.filter((period) => line === "all" || period.service_line === line).map((period) => <tr key={period.id}><td>{financialLineNames[period.service_line]}</td><td>{period.rate_key}</td><td>{period.effective_from}</td><td>{period.minimum_quantity}</td><td>{money(period.rate_value)}</td></tr>)}{!ratePeriods.length && <tr><td colSpan={5}>No dated or tiered rates have been added.</td></tr>}</tbody></table></div></section></>}

@@ -161,6 +161,21 @@ function permissionSummary(context: Awaited<ReturnType<typeof requestContext>>) 
   };
 }
 
+function quarterBounds(quarter: string) {
+  const match = quarter.match(/^(\d{4})-Q([1-4])$/);
+  if (!match) throw new Error("Select a valid financial quarter.");
+  const year = Number(match[1]);
+  const quarterNumber = Number(match[2]);
+  const startMonth = (quarterNumber - 1) * 3;
+  const start = new Date(Date.UTC(year, startMonth, 1)).toISOString().slice(0, 10);
+  const end = new Date(Date.UTC(year, startMonth + 3, 0)).toISOString().slice(0, 10);
+  return { start, end };
+}
+
+function reviewText(value: unknown) {
+  return String(value || "").trim() || null;
+}
+
 export async function GET(request: Request) {
   try {
     const context = await requestContext(request);
@@ -185,7 +200,7 @@ export async function GET(request: Request) {
     if (line !== "all") jobsQuery = jobsQuery.eq("service_line", line);
     if (!includeVoid) jobsQuery = jobsQuery.eq("status", "active");
 
-    const [jobs, categories, rates, periods, targets, tubingWeeks, tubingEntries, tubingRevenue] = await Promise.all([
+    const [jobs, categories, rates, periods, targets, tubingWeeks, tubingEntries, tubingRevenue, reviews] = await Promise.all([
       jobsQuery,
       context.admin.from("titan_financial_categories").select("*").eq("is_active", true).order("service_line").order("sort_order"),
       context.admin.from("titan_financial_rates").select("*").eq("yard_id", yardId).eq("is_active", true).order("service_line").order("sort_order"),
@@ -194,8 +209,9 @@ export async function GET(request: Request) {
       context.admin.from("titan_financial_tubing_weeks").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }),
       context.admin.from("titan_financial_tubing_entries").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }).order("customer"),
       context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId).eq("is_active", true).gte("revenue_month", `${dateFrom.slice(0, 7)}-01`).lte("revenue_month", dateTo).order("revenue_month", { ascending: false }).order("customer"),
+      context.admin.from("titan_financial_reviews").select("*").eq("yard_id", yardId).order("quarter", { ascending: false }).order("service_line"),
     ]);
-    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error, tubingWeeks.error, tubingEntries.error, tubingRevenue.error].find(Boolean);
+    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error, tubingWeeks.error, tubingEntries.error, tubingRevenue.error, reviews.error].find(Boolean);
     if (firstError) {
       if (isMissingFinancialSchema(firstError)) {
         return Response.json({ error: "Run supabase/titan_financial_kpis.sql before opening Financials.", setupRequired: true }, { status: 503 });
@@ -213,6 +229,7 @@ export async function GET(request: Request) {
         entries: tubingEntries.data || [],
         revenue: tubingRevenue.data || [],
       },
+      reviews: reviews.data || [],
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
     });
@@ -230,6 +247,84 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     const yardId = String(body.yardId || "");
     await assertYardAccess(context, yardId);
+
+    if (action === "save_review") {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const line = lineValue(body.line);
+      const quarter = String(body.quarter || "");
+      quarterBounds(quarter);
+      const existing = await context.admin.from("titan_financial_reviews").select("*")
+        .eq("yard_id", yardId).eq("service_line", line).eq("quarter", quarter).maybeSingle();
+      if (existing.error) throw existing.error;
+      if (existing.data?.status === "final") throw new Error("A finalized review cannot be changed.");
+      const values = {
+        highlights: reviewText(body.highlights),
+        lowlights: reviewText(body.lowlights),
+        goals: reviewText(body.goals),
+        updated_at: new Date().toISOString(),
+        updated_by: context.user.id,
+      };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_reviews").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_reviews").insert({
+          yard_id: yardId, service_line: line, quarter, ...values, created_by: context.user.id,
+        }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_review", entity_id: saved.data.id,
+        action: existing.data ? "update" : "create", before_value: existing.data,
+        after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ review: saved.data });
+    }
+
+    if (action === "finalize_review") {
+      if (!permissions.approve) return Response.json({ error: "You cannot finalize financial reviews." }, { status: 403 });
+      const id = String(body.id || "");
+      const review = await context.admin.from("titan_financial_reviews").select("*").eq("id", id).single();
+      if (review.error || !review.data || review.data.yard_id !== yardId) throw new Error("Financial review not found.");
+      if (review.data.status === "final") throw new Error("This review is already final.");
+      const line = lineValue(review.data.service_line);
+      const bounds = quarterBounds(review.data.quarter);
+      const source = await context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed")
+        .eq("yard_id", yardId).eq("service_line", line).eq("status", "active")
+        .gte("job_date", bounds.start).lte("job_date", bounds.end);
+      if (source.error) throw source.error;
+      const sourceJobs = source.data || [];
+      const totals = sourceJobs.reduce((summary, job) => {
+        const revenue = Number(job.revenue || 0);
+        const computed = (job.computed || {}) as Record<string, unknown>;
+        summary.revenue += revenue;
+        summary.cost += Number(computed.total_cost || 0);
+        summary.profit += Number(computed.profit || 0);
+        summary.manhours += Number(job.manhours || 0);
+        summary.laborDollars += Number(computed.labor_pct || 0) * revenue;
+        return summary;
+      }, { revenue: 0, cost: 0, profit: 0, manhours: 0, laborDollars: 0 });
+      const finalizedAt = new Date().toISOString();
+      const snapshot = {
+        quarter: review.data.quarter, service_line: line, period_start: bounds.start, period_end: bounds.end,
+        jobs: sourceJobs.length, revenue: totals.revenue, cost: totals.cost, profit: totals.profit,
+        margin: totals.revenue ? totals.profit / totals.revenue : 0,
+        manhours: totals.manhours, revenue_per_manhour: totals.manhours ? totals.revenue / totals.manhours : 0,
+        labor_percent: totals.revenue ? totals.laborDollars / totals.revenue : 0,
+        source_job_ids: sourceJobs.map((job) => job.id), generated_at: finalizedAt,
+      };
+      const finalized = await context.admin.from("titan_financial_reviews").update({
+        status: "final", snapshot, finalized_by: context.user.id, finalized_at: finalizedAt,
+        updated_at: finalizedAt, updated_by: context.user.id,
+      }).eq("id", id).select("*").single();
+      if (finalized.error) throw finalized.error;
+      const snapshotInsert = await context.admin.from("titan_financial_review_snapshots").insert({
+        review_id: id, snapshot, finalized_by: context.user.id, finalized_at: finalizedAt,
+      });
+      if (snapshotInsert.error) throw snapshotInsert.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_review", entity_id: id, action: "finalize",
+        before_value: review.data, after_value: finalized.data, actor_id: context.user.id,
+      });
+      return Response.json({ review: finalized.data });
+    }
 
     if (action === "save_tubing_week") {
       if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change Tubing financial records." }, { status: 403 });

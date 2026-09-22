@@ -228,6 +228,27 @@
 .kpiValues strong { display: block; margin-top: 3px; font-size: 21px; overflow-wrap: anywhere; }
 .kpiCard p { margin: 14px 0 0; color: #8998aa; font-size: 10px; line-height: 1.45; }
 
+.reviewNarrative { grid-column: span 4; }
+.reviewNarrative textarea { min-height: 92px; }
+.reviewGrid { display: grid; grid-template-columns: repeat(2, minmax(320px, 1fr)); }
+.reviewCard { min-width: 0; padding: 14px; border-right: 1px solid #2c3542; border-bottom: 1px solid #2c3542; background: #121820; }
+.reviewCard[data-status="final"] { border-top: 3px solid #28b878; }
+.reviewCard[data-status="open"] { border-top: 3px solid #ff7417; }
+.reviewCardHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.reviewCardHead span, .reviewMetrics span, .reviewNarratives span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.reviewCardHead h3 { margin: 3px 0 0; font-size: 21px; }
+.reviewCardHead b { padding: 4px 7px; border: 1px solid #805127; color: #ffae78; font-size: 10px; text-transform: uppercase; }
+.reviewCard[data-status="final"] .reviewCardHead b { border-color: #287f5b; color: #75d9ac; }
+.reviewMetrics { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 14px; border: 1px solid #344052; }
+.reviewMetrics > div { min-width: 0; padding: 9px; border-right: 1px solid #344052; }
+.reviewMetrics > div:last-child { border-right: 0; }
+.reviewMetrics strong { display: block; margin-top: 3px; overflow-wrap: anywhere; }
+.reviewNarratives { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+.reviewNarratives p, .openReviewNote { margin: 4px 0 0; color: #c3ccd8; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.openReviewNote { color: #9eabbc; }
+.reviewActions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.reviewActions span { margin-left: auto; color: #8998aa; font-size: 10px; }
+
 .rateGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));
@@ -244,6 +265,7 @@
   .metrics { grid-template-columns: repeat(3, 1fr); }
   .formGrid, .rateGrid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .kpiGrid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
+  .reviewGrid { grid-template-columns: 1fr; }
   .twoColumn { grid-template-columns: 1fr; }
 }
 
@@ -261,4 +283,8 @@
   .preview > div:nth-child(2) { border-right: 0; }
   .rateGrid { grid-template-columns: 1fr 1fr; }
   .kpiGrid { grid-template-columns: 1fr; }
+  .reviewNarrative { grid-column: span 2; }
+  .reviewMetrics { grid-template-columns: 1fr 1fr; }
+  .reviewMetrics > div:nth-child(2) { border-right: 0; }
+  .reviewNarratives { grid-template-columns: 1fr; }
 }
