@@ -197,6 +197,43 @@
 .barRow i { display: block; height: 100%; background: #ff7417; }
 .barRow strong { text-align: right; font-size: 12px; }
 
+.marketShareList { display: grid; }
+.marketShareRow {
+  display: grid;
+  grid-template-columns: minmax(170px, .8fr) minmax(260px, 2fr) minmax(430px, 1.4fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2c3542;
+}
+.marketShareRow:last-child { border-bottom: 0; }
+.marketShareRow > div:first-child { display: grid; gap: 3px; }
+.marketShareRow > div:first-child span { color: #8998aa; font-size: 10px; }
+.marketBar { display: flex; height: 22px; overflow: hidden; border: 1px solid #3a4657; background: #0b0f14; }
+.marketBar i { display: block; height: 100%; min-width: 0; }
+.marketShareValues { display: flex; align-items: center; justify-content: flex-end; gap: 11px; white-space: nowrap; }
+.marketShareValues b { color: #72dca9; }
+.marketShareValues span { color: #9eabbc; font-size: 10px; }
+.marketPf { background: #18794e; color: #b5f5d6; }
+.marketShared { background: #c47918; color: #ffe0a3; }
+.marketComp { background: #9b3f49; color: #ffd0d5; }
+.marketUnknown { background: #4c5868; color: #e0e6ed; }
+.marketLegend { display: flex; flex-wrap: wrap; gap: 6px; }
+.marketLegend span,
+.providerList span { padding: 4px 7px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.marketTable { min-width: 1900px !important; }
+.marketTable th:first-child,
+.marketTable td:first-child { position: sticky; left: 0; z-index: 1; background: #171e27; }
+.marketTable th:nth-child(2),
+.marketTable td:nth-child(2) { position: sticky; left: 145px; z-index: 1; background: #171e27; }
+.marketCell { display: grid; gap: 2px; min-width: 105px; padding: 6px 7px; }
+.marketCell b { font-size: 10px; text-transform: uppercase; }
+.marketCell small { color: inherit; font-size: 9px; opacity: .9; white-space: normal; }
+.providerList { display: grid; }
+.providerList > div { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 9px; min-height: 42px; padding: 7px 12px; border-bottom: 1px solid #2c3542; }
+.providerList > div:last-child { border-bottom: 0; }
+
 .twoColumn {
   display: grid;
   grid-template-columns: 1.2fr .8fr;
@@ -315,4 +352,6 @@
   .reviewNarratives { grid-template-columns: 1fr; }
   .barRow { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
   .barRow strong { font-size: 11px; }
+  .marketShareRow { grid-template-columns: 1fr; gap: 8px; }
+  .marketShareValues { justify-content: flex-start; overflow-x: auto; }
 }

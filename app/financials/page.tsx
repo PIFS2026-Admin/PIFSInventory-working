@@ -5,7 +5,7 @@ import { financialLineNames, financialLineRateKeys, FinancialLine } from "../../
 import { supabase } from "../../lib/supabase";
 import styles from "./financials.module.css";
 
-type TabKey = "overview" | "trackers" | "kpis" | "analytics" | "reviews" | "cost-basis";
+type TabKey = "overview" | "trackers" | "kpis" | "analytics" | "market" | "reviews" | "cost-basis";
 type AnalyticsPage = "financials" | "production" | "lead" | "trends";
 type ViewLine = FinancialLine | "tu" | "all";
 type ConfigurationLine = FinancialLine | "tu";
@@ -49,6 +49,20 @@ type FinancialReview = {
   snapshot: Record<string, unknown> | null;
   finalized_at: string | null;
 };
+type MarketKind = "pf" | "shared" | "comp" | "unknown" | "na";
+type MarketService = { id: string; service_key: string; name: string; sort_order: number };
+type MarketRig = { id: string; rig_name: string; operator: string; segment: string };
+type MarketCell = { id: string; rig_id: string; service_id: string; kind: MarketKind; holder_name: string | null; effective_date: string };
+type MarketCompetitor = { id: string; canonical_name: string; is_pathfinder: boolean };
+type MarketTrend = { id: string; service_key: string; quarter: string; won_pct: number | string; shared_pct: number | string | null };
+type MarketData = {
+  setupRequired: boolean;
+  services: MarketService[];
+  rigs: MarketRig[];
+  cells: MarketCell[];
+  competitors: MarketCompetitor[];
+  trend: MarketTrend[];
+};
 type Field = { key: string; label: string; kind?: "text" | "number" | "date" | "textarea" };
 
 const lines = Object.keys(financialLineNames) as FinancialLine[];
@@ -71,6 +85,7 @@ const pickListKeys: Record<ConfigurationLine, string[]> = {
 const today = new Date().toISOString().slice(0, 10);
 const yearStart = `${new Date().getFullYear()}-01-01`;
 const emptyPermissions: PermissionSet = { view: false, create: false, edit: false, approve: false, export: false, manageSettings: false };
+const emptyMarket: MarketData = { setupRequired: false, services: [], rigs: [], cells: [], competitors: [], trend: [] };
 
 const commonIdentityFields: Field[] = [
   { key: "invoice", label: "Invoice" }, { key: "operator", label: "Operator" },
@@ -276,6 +291,9 @@ export default function FinancialsPage() {
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
   const [reviews, setReviews] = useState<FinancialReview[]>([]);
+  const [market, setMarket] = useState<MarketData>(emptyMarket);
+  const [marketAsOf, setMarketAsOf] = useState("");
+  const [marketFilters, setMarketFilters] = useState({ operator: "", segment: "" });
   const [permissions, setPermissions] = useState<PermissionSet>(emptyPermissions);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -379,6 +397,7 @@ export default function FinancialsPage() {
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
     setReviews(result.reviews || []);
+    setMarket(result.market || emptyMarket);
     setPermissions(result.permissions || emptyPermissions);
     setLoading(false);
   }
@@ -565,6 +584,35 @@ export default function FinancialsPage() {
   }, [analyticsJobs]);
   const analyticsBarMax = Math.max(1, ...analyticsMonthly.map((row) => row.revenue));
   const analyticsQuantityLabel = line === "dti" ? "Joints" : line === "hb" ? "Ends" : line === "all" ? "Production" : "Feet";
+
+  const marketDates = useMemo(() => Array.from(new Set(market.cells.map((cell) => cell.effective_date.slice(0, 10)))).sort().reverse(), [market.cells]);
+  const selectedMarketDate = marketAsOf && marketDates.includes(marketAsOf) ? marketAsOf : marketDates[0] || "";
+  const marketOperators = useMemo(() => Array.from(new Set(market.rigs.map((rig) => rig.operator).filter(Boolean))).sort(), [market.rigs]);
+  const marketSegments = useMemo(() => Array.from(new Set(market.rigs.map((rig) => rig.segment).filter(Boolean))).sort(), [market.rigs]);
+  const visibleMarketRigs = useMemo(() => market.rigs.filter((rig) =>
+    (!marketFilters.operator || rig.operator === marketFilters.operator) &&
+    (!marketFilters.segment || rig.segment === marketFilters.segment)
+  ), [market.rigs, marketFilters]);
+  const marketCellMap = useMemo(() => {
+    const values = new Map<string, MarketCell>();
+    market.cells.forEach((cell) => {
+      if (selectedMarketDate && cell.effective_date.slice(0, 10) > selectedMarketDate) return;
+      const key = `${cell.rig_id}:${cell.service_id}`;
+      const current = values.get(key);
+      if (!current || current.effective_date < cell.effective_date) values.set(key, cell);
+    });
+    return values;
+  }, [market.cells, selectedMarketDate]);
+  const marketShare = useMemo(() => market.services.map((service) => {
+    const cells = visibleMarketRigs.map((rig) => marketCellMap.get(`${rig.id}:${service.id}`)).filter(Boolean) as MarketCell[];
+    const counts = cells.reduce((sum, cell) => ({ ...sum, [cell.kind]: sum[cell.kind] + 1 }), { pf: 0, shared: 0, comp: 0, unknown: 0, na: 0 } as Record<MarketKind, number>);
+    const inPlay = counts.pf + counts.shared + counts.comp + counts.unknown;
+    return { ...service, ...counts, inPlay, wonPct: inPlay ? counts.pf / inPlay : 0, sharedPct: inPlay ? counts.shared / inPlay : 0 };
+  }), [market.services, visibleMarketRigs, marketCellMap]);
+  const marketTotals = useMemo(() => marketShare.reduce((sum, row) => ({
+    owned: sum.owned + row.pf, shared: sum.shared + row.shared, competitor: sum.competitor + row.comp, unknown: sum.unknown + row.unknown, inPlay: sum.inPlay + row.inPlay,
+  }), { owned: 0, shared: 0, competitor: 0, unknown: 0, inPlay: 0 }), [marketShare]);
+  const marketTrendQuarters = useMemo(() => Array.from(new Set(market.trend.map((row) => row.quarter))).sort(), [market.trend]);
 
   function resetForm(nextLine: FinancialLine = formLine) {
     setEditingId("");
@@ -918,6 +966,22 @@ export default function FinancialsPage() {
   }
 
   function exportJobs() {
+    if (tab === "market") {
+      const headers = ["As Of", "Operator", "Rig", "Standing", ...market.services.map((service) => service.name)];
+      const rows = visibleMarketRigs.map((rig) => [selectedMarketDate, rig.operator, rig.rig_name, rig.segment, ...market.services.map((service) => {
+        const cell = marketCellMap.get(`${rig.id}:${service.id}`);
+        if (!cell) return "No record";
+        const status = { pf: "Pathfinder", shared: "Shared", comp: "Competitor", unknown: "Unknown", na: "Not applicable" }[cell.kind];
+        return cell.holder_name ? `${status}: ${cell.holder_name}` : status;
+      })]);
+      const csv = [headers, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      link.download = `titan-market-share-${selectedMarketDate || "current"}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      return;
+    }
     if (line === "tu") {
       const headers = ["Record Type", "Period", "Customer", "Joints", "Jobs", "Trucks In", "Trucks Out", "Manhours", "Revenue", "Source"];
       const weeklyRows = tubingEntries.map((entry) => ["Weekly Activity", entry.week_start, entry.customer, entry.joints, entry.jobs, entry.trucks_in, entry.trucks_out, tubingWeeks.find((week) => week.week_start.slice(0, 10) === entry.week_start.slice(0, 10))?.manhours, "", ""]);
@@ -946,21 +1010,22 @@ export default function FinancialsPage() {
         <div><span className={styles.eyebrow}>KPI / Financial</span><h1>Financial Performance</h1><p>Controlled job-cost reporting with frozen historical calculations.</p></div>
         <div className={styles.headerActions}>
           {permissions.export && <button type="button" onClick={exportJobs}>Export CSV</button>}
-          {permissions.create && line === "tu" && <button type="button" className={styles.primary} onClick={() => { setTab("trackers"); openTubingWeek(); }}>Add Week</button>}
+          {permissions.create && line === "tu" && tab !== "market" && <button type="button" className={styles.primary} onClick={() => { setTab("trackers"); openTubingWeek(); }}>Add Week</button>}
           {permissions.create && line !== "tu" && tab === "reviews" && <button type="button" className={styles.primary} onClick={() => openReview()}>New Review</button>}
-          {permissions.create && line !== "tu" && tab !== "reviews" && <button type="button" className={styles.primary} onClick={() => { resetForm(line === "all" ? "dti" : line); setShowJobForm(true); }}>Add Job</button>}
+          {permissions.create && line !== "tu" && ["overview", "trackers"].includes(tab) && <button type="button" className={styles.primary} onClick={() => { resetForm(line === "all" ? "dti" : line); setShowJobForm(true); }}>Add Job</button>}
         </div>
       </header>
 
       <section className={styles.filters} aria-label="Financial filters">
         <label><span>Yard</span><select value={yardId} onChange={(event) => { setJobFilters({}); setAnalyticsFilters({}); setYardId(event.target.value); window.localStorage.setItem("titan_financial_yard_id", event.target.value); }}>{yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
-        <label><span>Service Line</span><select value={line} onChange={(event) => { setJobFilters({}); setAnalyticsFilters({}); setLine(event.target.value as ViewLine); }}><option value="all">All Service Lines</option>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}<option value="tu">Tubing</option></select></label>
+        {tab !== "market" && <><label><span>Service Line</span><select value={line} onChange={(event) => { setJobFilters({}); setAnalyticsFilters({}); setLine(event.target.value as ViewLine); }}><option value="all">All Service Lines</option>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}<option value="tu">Tubing</option></select></label>
         <label><span>From</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
-        <label><span>To</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
+        <label><span>To</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label></>}
+        {tab === "market" && <><label><span>Market Snapshot</span><select value={selectedMarketDate} onChange={(event) => setMarketAsOf(event.target.value)}>{marketDates.map((date) => <option key={date} value={date}>{new Date(`${date}T00:00:00`).toLocaleDateString()}</option>)}</select></label><label><span>Operator</span><select value={marketFilters.operator} onChange={(event) => setMarketFilters((current) => ({ ...current, operator: event.target.value }))}><option value="">All Operators</option>{marketOperators.map((operator) => <option key={operator}>{operator}</option>)}</select></label><label><span>Standing</span><select value={marketFilters.segment} onChange={(event) => setMarketFilters((current) => ({ ...current, segment: event.target.value }))}><option value="">All Standings</option>{marketSegments.map((segment) => <option key={segment}>{segment}</option>)}</select></label></>}
       </section>
 
       <nav className={styles.tabs} aria-label="Financial views">
-        {(["overview", "trackers", "kpis", "analytics", "reviews", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item[0].toUpperCase() + item.slice(1)}</button>)}
+        {(["overview", "trackers", "kpis", "analytics", "market", "reviews", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item === "market" ? "Market Share" : item[0].toUpperCase() + item.slice(1)}</button>)}
       </nav>
 
       {message && <div className={styles.notice}>{message}</div>}
@@ -1118,6 +1183,52 @@ export default function FinancialsPage() {
       </>}
 
       {!loading && tab === "analytics" && line === "tu" && <div className={styles.emptyState}>Tubing uses weekly production and monthly revenue rather than job-cost analytics. Its complete analysis remains on Overview and Trackers.</div>}
+
+      {!loading && tab === "market" && market.setupRequired && <section className={styles.tableSection}>
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>One-Time Setup</span><h2>Market Share Database</h2></div></div>
+        <div className={styles.emptyState}>Run <strong>supabase/titan_financial_market.sql</strong>, then load the verified Compass market snapshot.</div>
+      </section>}
+
+      {!loading && tab === "market" && !market.setupRequired && <>
+        <section className={styles.metrics}>
+          <div><span>Active Rigs</span><strong>{visibleMarketRigs.length.toLocaleString()}</strong></div>
+          <div><span>Services Tracked</span><strong>{market.services.length.toLocaleString()}</strong></div>
+          <div><span>Pathfinder Positions</span><strong>{marketTotals.owned.toLocaleString()}</strong></div>
+          <div><span>Shared Positions</span><strong>{marketTotals.shared.toLocaleString()}</strong></div>
+          <div><span>Competitor Positions</span><strong>{marketTotals.competitor.toLocaleString()}</strong></div>
+          <div><span>Unknown Positions</span><strong>{marketTotals.unknown.toLocaleString()}</strong></div>
+        </section>
+
+        <section className={styles.tableSection}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Service Position</span><h2>Share by Service</h2></div><span>{selectedMarketDate ? `Snapshot ${new Date(`${selectedMarketDate}T00:00:00`).toLocaleDateString()}` : "No snapshot loaded"}</span></div>
+          <div className={styles.marketShareList}>{marketShare.map((service) => <article className={styles.marketShareRow} key={service.id}>
+            <div><strong>{service.name}</strong><span>{service.inPlay} addressable rig{service.inPlay === 1 ? "" : "s"}</span></div>
+            <div className={styles.marketBar} aria-label={`${service.name}: ${percent(service.wonPct)} Pathfinder, ${percent(service.sharedPct)} shared`}>
+              <i className={styles.marketPf} style={{ width: `${service.wonPct * 100}%` }} />
+              <i className={styles.marketShared} style={{ width: `${service.sharedPct * 100}%` }} />
+              <i className={styles.marketComp} style={{ width: `${service.inPlay ? service.comp / service.inPlay * 100 : 0}%` }} />
+              <i className={styles.marketUnknown} style={{ width: `${service.inPlay ? service.unknown / service.inPlay * 100 : 0}%` }} />
+            </div>
+            <div className={styles.marketShareValues}><b>{percent(service.wonPct)} won</b><span>{service.pf} owned</span><span>{service.shared} shared</span><span>{service.comp} competitor</span><span>{service.unknown} unknown</span></div>
+          </article>)}</div>
+          {!marketShare.length && <div className={styles.emptyState}>No market services have been loaded for this yard.</div>}
+        </section>
+
+        <section className={styles.tableSection}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Rig Battlefield</span><h2>Provider Position by Rig and Service</h2></div><div className={styles.marketLegend}><span className={styles.marketPf}>Pathfinder</span><span className={styles.marketShared}>Shared</span><span className={styles.marketComp}>Competitor</span><span className={styles.marketUnknown}>Unknown</span></div></div>
+          <div className={styles.tableWrap}><table className={styles.marketTable}><thead><tr><th>Operator</th><th>Rig</th><th>Standing</th>{market.services.map((service) => <th key={service.id}>{service.name}</th>)}</tr></thead><tbody>{visibleMarketRigs.map((rig) => <tr key={rig.id}><td>{rig.operator || "-"}</td><td><strong>{rig.rig_name || "Spud rig"}</strong></td><td>{rig.segment || "-"}</td>{market.services.map((service) => {
+            const cell = marketCellMap.get(`${rig.id}:${service.id}`);
+            const label = cell?.kind === "pf" ? "Pathfinder" : cell?.kind === "shared" ? "Shared" : cell?.kind === "comp" ? "Competitor" : cell?.kind === "na" ? "N/A" : "Unknown";
+            const className = cell?.kind === "pf" ? styles.marketPf : cell?.kind === "shared" ? styles.marketShared : cell?.kind === "comp" ? styles.marketComp : styles.marketUnknown;
+            return <td key={service.id}><span className={`${styles.marketCell} ${className}`}><b>{label}</b>{cell?.holder_name && cell.holder_name !== label ? <small>{cell.holder_name}</small> : null}</span></td>;
+          })}</tr>)}{!visibleMarketRigs.length && <tr><td colSpan={market.services.length + 3}>No rigs match these filters.</td></tr>}</tbody></table></div>
+        </section>
+
+        <section className={styles.twoColumn}>
+          <div className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Historical Movement</span><h2>Won Share by Quarter</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Quarter</th>{market.services.map((service) => <th key={service.id}>{service.name}</th>)}</tr></thead><tbody>{marketTrendQuarters.map((quarter) => <tr key={quarter}><td>{quarter}</td>{market.services.map((service) => { const row = market.trend.find((item) => item.quarter === quarter && item.service_key === service.service_key); return <td key={service.id}>{row ? percent(row.won_pct) : "-"}</td>; })}</tr>)}{!marketTrendQuarters.length && <tr><td colSpan={market.services.length + 1}>No historical trend points are loaded.</td></tr>}</tbody></table></div></div>
+          <div className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Provider Directory</span><h2>Known Market Providers</h2></div><strong>{market.competitors.length}</strong></div><div className={styles.providerList}>{market.competitors.map((provider) => <div key={provider.id}><span className={provider.is_pathfinder ? styles.marketPf : styles.marketComp}>{provider.is_pathfinder ? "TITAN" : "MARKET"}</span><strong>{provider.canonical_name}</strong></div>)}{!market.competitors.length && <div className={styles.emptyState}>No providers are loaded.</div>}</div></div>
+        </section>
+      </>}
 
       {!loading && tab === "trackers" && line !== "tu" && <section className={styles.tableSection}>
         <div className={styles.sectionHeading}>

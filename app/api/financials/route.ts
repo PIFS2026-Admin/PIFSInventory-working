@@ -41,6 +41,11 @@ function isMissingFinancialSchema(error: { message?: string } | null | undefined
   return message.includes("titan_financial_") && (message.includes("does not exist") || message.includes("schema cache"));
 }
 
+function isMissingMarketSchema(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("titan_financial_market_") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
@@ -227,6 +232,26 @@ export async function GET(request: Request) {
       }
       throw firstError;
     }
+    const [marketServices, marketRigs, marketCells, marketCompetitors, marketTrend] = await Promise.all([
+      context.admin.from("titan_financial_market_services").select("*").eq("yard_id", yardId).eq("is_active", true).eq("is_visible", true).order("sort_order"),
+      context.admin.from("titan_financial_market_rigs").select("*").eq("yard_id", yardId).eq("is_active", true).order("operator").order("rig_name"),
+      context.admin.from("titan_financial_market_cells").select("*").eq("yard_id", yardId).order("effective_date", { ascending: false }).limit(10000),
+      context.admin.from("titan_financial_market_competitors").select("*").eq("yard_id", yardId).eq("is_active", true).order("canonical_name"),
+      context.admin.from("titan_financial_market_trend").select("*").eq("yard_id", yardId).order("quarter"),
+    ]);
+    const marketError = [marketServices.error, marketRigs.error, marketCells.error, marketCompetitors.error, marketTrend.error].find(Boolean);
+    const market = marketError && isMissingMarketSchema(marketError)
+      ? { setupRequired: true, services: [], rigs: [], cells: [], competitors: [], trend: [] }
+      : marketError
+        ? (() => { throw marketError; })()
+        : {
+            setupRequired: false,
+            services: marketServices.data || [],
+            rigs: marketRigs.data || [],
+            cells: marketCells.data || [],
+            competitors: marketCompetitors.data || [],
+            trend: marketTrend.data || [],
+          };
     return Response.json({
       jobs: jobs.data || [],
       categories: categories.data || [],
@@ -240,6 +265,7 @@ export async function GET(request: Request) {
         revenue: tubingRevenue.data || [],
       },
       reviews: reviews.data || [],
+      market,
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
     });
