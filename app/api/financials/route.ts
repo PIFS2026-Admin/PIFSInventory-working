@@ -23,6 +23,7 @@ import {
 const financialLines = new Set<FinancialLine>(["dti", "cdt", "hb", "trs", "wash"]);
 const configurationLines = new Set(["dti", "cdt", "hb", "trs", "wash", "tu"]);
 const financialPickListKeys = new Set(["operator", "state", "size", "connection", "casing_section", "job_type", "items", "customer", "lead", "band", "insp_type", "reface_type"]);
+const financialReviewPhotoBucket = "titan-financial-review-photos";
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -49,6 +50,21 @@ function isMissingMarketSchema(error: { message?: string } | null | undefined) {
 function isMissingReviewComposerSchema(error: { message?: string } | null | undefined) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("titan_financial_review_sections") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
+function isMissingReviewPhotoSchema(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return (message.includes("titan_financial_review_photos") || message.includes("bucket not found")) && (message.includes("does not exist") || message.includes("schema cache") || message.includes("bucket not found"));
+}
+
+function safePhotoName(value: string) {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "review-photo.jpg";
+}
+
+async function financialReviewPhotoView(admin: ReturnType<typeof adminClient>, photo: Record<string, unknown>) {
+  const signed = await admin.storage.from(financialReviewPhotoBucket).createSignedUrl(String(photo.storage_path || ""), 60 * 60);
+  if (signed.error) throw signed.error;
+  return { ...photo, url: signed.data.signedUrl };
 }
 
 function errorText(error: unknown) {
@@ -237,7 +253,7 @@ function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string 
 
 const reviewMetricKeys = new Set(["jobs", "revenue", "cost", "profit", "margin", "manhours", "revenue_per_manhour", "labor_percent"]);
 const reviewChartGroups = new Set(["month", "operator", "lead", "category"]);
-const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric"]);
+const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric", "photo"]);
 const standardReviewTemplate = [
   { kind: "narrative", title: "Executive Summary", config: {}, body: null },
   { kind: "metric", title: "Revenue", config: { metric_key: "revenue" }, body: null },
@@ -269,6 +285,7 @@ function reviewChartSeries(rows: Array<Record<string, unknown>>, groupBy: string
 function reviewSectionSnapshot(section: { kind: string; title: string | null; body: string | null; config: Record<string, unknown> }, currentRows: Array<Record<string, unknown>>, comparisonRows: Array<Record<string, unknown>>) {
   const metricKey = String(section.config?.metric_key || "revenue");
   if (section.kind === "narrative") return { kind: section.kind, title: section.title, body: section.body };
+  if (section.kind === "photo") return { kind: section.kind, title: section.title, body: section.body };
   if (section.kind === "manual_metric") return { kind: section.kind, title: section.title, label: section.config?.label || section.title, value: section.config?.value || "" };
   if (section.kind === "chart") {
     const groupBy = String(section.config?.group_by || "month");
@@ -310,7 +327,13 @@ export async function GET(request: Request) {
       if (sections.error) throw sections.error;
       if (snapshots.error) throw snapshots.error;
       if (yard.error) throw yard.error;
-      return Response.json({ review: review.data, sections: sections.data || [], snapshots: snapshots.data || [], yard: yard.data });
+      const sectionIds = (sections.data || []).map((section) => section.id);
+      const photos = sectionIds.length
+        ? await context.admin.from("titan_financial_review_photos").select("*").in("section_id", sectionIds).eq("is_active", true).order("created_at")
+        : { data: [], error: null };
+      if (photos.error && !isMissingReviewPhotoSchema(photos.error)) throw photos.error;
+      const photoViews = photos.error ? [] : await Promise.all((photos.data || []).map((photo) => financialReviewPhotoView(context.admin, photo)));
+      return Response.json({ review: review.data, sections: sections.data || [], snapshots: snapshots.data || [], photos: photoViews, yard: yard.data });
     }
 
     let jobsQuery = context.admin
@@ -379,6 +402,15 @@ export async function GET(request: Request) {
       : reviewSectionsResult.error
         ? (() => { throw reviewSectionsResult.error; })()
         : { setupRequired: false, sections: reviewSectionsResult.data || [] };
+    const sectionIds = reviewComposer.sections.map((section) => section.id);
+    const reviewPhotosResult = sectionIds.length
+      ? await context.admin.from("titan_financial_review_photos").select("*").in("section_id", sectionIds).eq("is_active", true).order("created_at")
+      : await context.admin.from("titan_financial_review_photos").select("id").limit(0);
+    const reviewPhotos = reviewPhotosResult.error && isMissingReviewPhotoSchema(reviewPhotosResult.error)
+      ? { setupRequired: true, photos: [] }
+      : reviewPhotosResult.error
+        ? (() => { throw reviewPhotosResult.error; })()
+        : { setupRequired: false, photos: await Promise.all((reviewPhotosResult.data || []).map((photo) => financialReviewPhotoView(context.admin, photo))) };
     return Response.json({
       jobs: jobs.data || [],
       categories: categories.data || [],
@@ -394,6 +426,7 @@ export async function GET(request: Request) {
       reviews: reviews.data || [],
       reviewSnapshots: reviewSnapshotsResult.data || [],
       reviewComposer,
+      reviewPhotos,
       market,
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
@@ -408,6 +441,33 @@ export async function POST(request: Request) {
     const context = await requestContext(request);
     const permissions = permissionSummary(context);
     if (!permissions.view) return Response.json({ error: "You do not have access to Financial KPIs." }, { status: 403 });
+    if ((request.headers.get("content-type") || "").includes("multipart/form-data")) {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const form = await request.formData();
+      const yardId = String(form.get("yardId") || "");
+      const sectionId = String(form.get("sectionId") || "");
+      const caption = String(form.get("caption") || "").trim() || null;
+      const file = form.get("file");
+      await assertYardAccess(context, yardId);
+      if (!(file instanceof File) || !file.type.startsWith("image/") || file.size < 1 || file.size > 15 * 1024 * 1024) return Response.json({ error: "Choose an image no larger than 15 MB." }, { status: 400 });
+      const section = await context.admin.from("titan_financial_review_sections").select("id,kind,titan_financial_reviews!inner(id,yard_id,status)").eq("id", sectionId).eq("is_active", true).single();
+      const parent = section.data?.titan_financial_reviews as unknown as { id: string; yard_id: string; status: string } | undefined;
+      if (section.error || !section.data || !parent || parent.yard_id !== yardId) throw new Error("Review photo section not found.");
+      if (section.data.kind !== "photo") throw new Error("Choose a photo section before uploading evidence.");
+      if (parent.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+      const ensured = await context.admin.storage.createBucket(financialReviewPhotoBucket, { public: false, fileSizeLimit: 15 * 1024 * 1024, allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"] });
+      if (ensured.error && !ensured.error.message.toLowerCase().includes("already exists")) throw ensured.error;
+      const storagePath = `${parent.id}/${sectionId}/${Date.now()}-${crypto.randomUUID()}-${safePhotoName(file.name)}`;
+      const uploaded = await context.admin.storage.from(financialReviewPhotoBucket).upload(storagePath, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false });
+      if (uploaded.error) throw uploaded.error;
+      const inserted = await context.admin.from("titan_financial_review_photos").insert({ section_id: sectionId, caption, file_name: file.name || "review-photo.jpg", storage_path: storagePath, mime_type: file.type, file_size: file.size, created_by: context.user.id, updated_by: context.user.id }).select("*").single();
+      if (inserted.error) {
+        await context.admin.storage.from(financialReviewPhotoBucket).remove([storagePath]);
+        throw inserted.error;
+      }
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_review_photo", entity_id: inserted.data.id, action: "create", before_value: null, after_value: inserted.data, actor_id: context.user.id });
+      return Response.json({ photo: await financialReviewPhotoView(context.admin, inserted.data) });
+    }
     const body = await request.json();
     const action = String(body.action || "");
     const yardId = String(body.yardId || "");
@@ -674,7 +734,7 @@ export async function POST(request: Request) {
       if (kind === "chart" && !reviewChartGroups.has(String(config.group_by || ""))) throw new Error("Select a valid chart grouping.");
       const title = reviewText(body.title);
       const values = {
-        kind, title, config, body: kind === "narrative" ? reviewText(body.body) : null,
+        kind, title, config, body: kind === "narrative" || kind === "photo" ? reviewText(body.body) : null,
         updated_at: new Date().toISOString(), updated_by: context.user.id,
       };
       const existing = sectionId
@@ -1014,6 +1074,31 @@ export async function POST(request: Request) {
     }
 
     return Response.json({ error: "Unknown financial action." }, { status: 400 });
+  } catch (error) {
+    const message = errorText(error);
+    const status = message.includes("signed in") || message.includes("session") ? 401 : 400;
+    return Response.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const context = await requestContext(request);
+    const permissions = permissionSummary(context);
+    if (!permissions.edit) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+    const body = await request.json().catch(() => ({}));
+    const yardId = String(body.yardId || "");
+    const photoId = String(body.photoId || "");
+    await assertYardAccess(context, yardId);
+    const photo = await context.admin.from("titan_financial_review_photos").select("*,titan_financial_review_sections!inner(id,titan_financial_reviews!inner(id,yard_id,status))").eq("id", photoId).eq("is_active", true).single();
+    const section = photo.data?.titan_financial_review_sections as unknown as { id: string; titan_financial_reviews: { id: string; yard_id: string; status: string } } | undefined;
+    const review = section?.titan_financial_reviews;
+    if (photo.error || !photo.data || !review || review.yard_id !== yardId) throw new Error("Review photo not found.");
+    if (review.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+    const removed = await context.admin.from("titan_financial_review_photos").update({ is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("id", photoId).select("*").single();
+    if (removed.error) throw removed.error;
+    await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_review_photo", entity_id: photoId, action: "deactivate", before_value: photo.data, after_value: removed.data, actor_id: context.user.id });
+    return Response.json({ photo: removed.data });
   } catch (error) {
     const message = errorText(error);
     const status = message.includes("signed in") || message.includes("session") ? 401 : 400;

@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useEffect, useMemo, useState } from "react";
 import { financialLineNames, financialLineRateKeys, FinancialLine } from "../../lib/financialKpi";
 import { supabase } from "../../lib/supabase";
@@ -58,7 +60,7 @@ type FinancialReviewSnapshot = {
   snapshot: Record<string, unknown>;
   finalized_at: string;
 };
-type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric";
+type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric" | "photo";
 type FinancialReviewSection = {
   id: string;
   review_id: string;
@@ -68,6 +70,13 @@ type FinancialReviewSection = {
   config: Record<string, unknown>;
   body: string | null;
   snapshot: Record<string, unknown> | null;
+};
+type FinancialReviewPhoto = {
+  id: string;
+  section_id: string;
+  caption: string | null;
+  file_name: string;
+  url: string;
 };
 type MarketKind = "pf" | "shared" | "comp" | "unknown" | "na";
 type MarketService = { id: string; service_key: string; name: string; sort_order: number };
@@ -328,6 +337,8 @@ export default function FinancialsPage() {
   const [reviewSnapshots, setReviewSnapshots] = useState<FinancialReviewSnapshot[]>([]);
   const [reviewSections, setReviewSections] = useState<FinancialReviewSection[]>([]);
   const [reviewComposerSetupRequired, setReviewComposerSetupRequired] = useState(false);
+  const [reviewPhotos, setReviewPhotos] = useState<FinancialReviewPhoto[]>([]);
+  const [reviewPhotosSetupRequired, setReviewPhotosSetupRequired] = useState(false);
   const [market, setMarket] = useState<MarketData>(emptyMarket);
   const [marketAsOf, setMarketAsOf] = useState("");
   const [marketFilters, setMarketFilters] = useState({ operator: "", segment: "" });
@@ -450,6 +461,8 @@ export default function FinancialsPage() {
     setReviewSnapshots(result.reviewSnapshots || []);
     setReviewSections(result.reviewComposer?.sections || []);
     setReviewComposerSetupRequired(Boolean(result.reviewComposer?.setupRequired));
+    setReviewPhotos(result.reviewPhotos?.photos || []);
+    setReviewPhotosSetupRequired(Boolean(result.reviewPhotos?.setupRequired));
     setMarket(result.market || emptyMarket);
     setPermissions(result.permissions || emptyPermissions);
     setLoading(false);
@@ -930,6 +943,34 @@ export default function FinancialsPage() {
     if (response.ok) await loadFinancials();
   }
 
+  async function uploadReviewPhoto(section: FinancialReviewSection, file: File | null) {
+    if (!file) return;
+    setSaving(true);
+    setMessage("");
+    const form = new FormData();
+    form.set("yardId", yardId);
+    form.set("sectionId", section.id);
+    form.set("caption", section.body || section.title || "");
+    form.set("file", file);
+    const response = await fetch("/api/financials", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    setMessage(response.ok ? "Review photo added." : result.error || "The review photo could not be added.");
+    if (response.ok) await loadFinancials();
+  }
+
+  async function removeReviewPhoto(photo: FinancialReviewPhoto) {
+    if (!window.confirm(`Remove ${photo.file_name} from this review? The audit record will be retained.`)) return;
+    const response = await fetch("/api/financials", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ yardId, photoId: photo.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Review photo removed." : result.error || "The review photo could not be removed.");
+    if (response.ok) await loadFinancials();
+  }
+
   async function applyReviewTemplate(review: FinancialReview) {
     setSaving(true);
     setMessage("");
@@ -1229,11 +1270,12 @@ export default function FinancialsPage() {
         <section className={styles.jobForm}>
           <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Review Composer</span><h2>{sectionId ? "Edit Review Section" : "Add Review Section"}</h2></div><button type="button" onClick={() => setSectionEditorReviewId("")}>Close</button></div>
           <div className={styles.formGrid}>
-            <label><span>Section Type</span><select value={sectionKind} disabled={Boolean(sectionId)} onChange={(event) => setSectionKind(event.target.value as ReviewSectionKind)}><option value="metric">Metric Comparison</option><option value="chart">Chart</option><option value="narrative">Narrative</option><option value="manual_metric">Manual Value</option></select></label>
+            <label><span>Section Type</span><select value={sectionKind} disabled={Boolean(sectionId)} onChange={(event) => setSectionKind(event.target.value as ReviewSectionKind)}><option value="metric">Metric Comparison</option><option value="chart">Chart</option><option value="narrative">Narrative</option><option value="manual_metric">Manual Value</option><option value="photo" disabled={reviewPhotosSetupRequired}>Photo Gallery</option></select></label>
             <label><span>Section Title</span><input value={sectionTitle} onChange={(event) => setSectionTitle(event.target.value)} placeholder="Optional heading" /></label>
             {(sectionKind === "metric" || sectionKind === "chart") && <label><span>Metric</span><select value={sectionMetric} onChange={(event) => setSectionMetric(event.target.value)}>{reviewMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></label>}
             {sectionKind === "chart" && <label><span>Group By</span><select value={sectionGroup} onChange={(event) => setSectionGroup(event.target.value)}>{reviewChartGroups.map((group) => <option key={group.key} value={group.key}>{group.label}</option>)}</select></label>}
             {sectionKind === "narrative" && <label className={styles.reviewNarrative}><span>Narrative</span><textarea value={sectionBody} onChange={(event) => setSectionBody(event.target.value)} placeholder="Review commentary" /></label>}
+            {sectionKind === "photo" && <label className={styles.reviewNarrative}><span>Gallery Caption</span><textarea value={sectionBody} onChange={(event) => setSectionBody(event.target.value)} placeholder="What do these photos document?" /></label>}
             {sectionKind === "manual_metric" && <><label><span>Label</span><input value={sectionManualLabel} onChange={(event) => setSectionManualLabel(event.target.value)} placeholder="Headcount, downtime, delivered joints..." /></label><label><span>Value</span><input value={sectionManualValue} onChange={(event) => setSectionManualValue(event.target.value)} /></label></>}
           </div>
           <div className={styles.rateWarning}>Computed sections use the review window and comparison setting. Their values freeze when the review is finalized.</div>
@@ -1460,6 +1502,7 @@ export default function FinancialsPage() {
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
         <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Review</span><h2>Financial Reviews</h2></div><span>Quarterly or custom windows. Final reviews retain their captured KPI values.</span></div>
         {reviewComposerSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_sections.sql</strong> to enable configurable review sections.</div>}
+        {reviewPhotosSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_photos.sql</strong> to enable secure review photo galleries.</div>}
         {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => {
           const savedSnapshots = reviewSnapshots.filter((item) => item.review_id === review.id).sort((a, b) => b.finalized_at.localeCompare(a.finalized_at));
           return <article key={review.id} className={styles.reviewCard} data-status={review.status}>
@@ -1477,6 +1520,7 @@ export default function FinancialsPage() {
               <div className={styles.reviewSectionHead}><div><span>{section.kind.replaceAll("_", " ")}</span><strong>{section.title || (section.kind === "narrative" ? "Narrative" : reviewMetrics.find((metric) => metric.key === metricKey)?.label || "Review Section")}</strong></div>{review.status === "open" && permissions.edit && <div className={styles.rowActions}><button type="button" disabled={index === 0} onClick={() => void moveReviewSection(review.id, section.id, -1)}>Move Up</button><button type="button" disabled={index === ordered.length - 1} onClick={() => void moveReviewSection(review.id, section.id, 1)}>Move Down</button><button type="button" onClick={() => openReviewSection(review.id, section)}>Edit</button><button type="button" onClick={() => void deactivateReviewSection(section)}>Remove</button></div>}</div>
               {section.kind === "narrative" && <p>{section.body}</p>}
               {section.kind === "manual_metric" && <div className={styles.reviewManual}><span>{String(section.config.label || section.title || "Value")}</span><strong>{String(section.config.value || "-")}</strong></div>}
+              {section.kind === "photo" && <><p>{section.body || "Photo evidence"}</p><div className={styles.reviewPhotoGrid}>{reviewPhotos.filter((photo) => photo.section_id === section.id).map((photo) => <figure key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={photo.caption || photo.file_name} /></a><figcaption>{photo.caption || photo.file_name}</figcaption>{review.status === "open" && permissions.edit && <button type="button" onClick={() => void removeReviewPhoto(photo)}>Remove</button>}</figure>)}</div>{review.status === "open" && permissions.edit && !reviewPhotosSetupRequired && <label className={styles.photoUploadButton}>Add Photo<input type="file" accept="image/*" capture="environment" disabled={saving} onChange={(event) => { const file = event.target.files?.[0] || null; event.target.value = ""; void uploadReviewPhoto(section, file); }} /></label>}</>}
               {section.kind === "metric" && (section.snapshot ? <div className={styles.reviewMetricCompare}><div><span>Review Window</span><strong>{formatReviewMetric(metricKey, snapshot.current)}</strong></div><div><span>{review.compare_mode === "year" ? "Last Year" : "Prior Period"}</span><strong>{formatReviewMetric(metricKey, snapshot.comparison)}</strong></div></div> : <p className={styles.openReviewNote}>This comparison will calculate and freeze when the review is finalized.</p>)}
               {section.kind === "chart" && (chartRows.length ? <div className={styles.reviewChart}>{chartRows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / chartMax * 100}%` }} /></i><strong>{formatReviewMetric(metricKey, row.value)}</strong></div>)}</div> : <p className={styles.openReviewNote}>This chart will calculate and freeze when the review is finalized.</p>)}
             </section>;

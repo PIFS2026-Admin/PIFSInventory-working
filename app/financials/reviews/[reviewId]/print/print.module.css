@@ -34,6 +34,10 @@
 .chart i { height: 15px; border: 1px solid #94a3b8; background: #f8fafc; }
 .chart b { display: block; height: 100%; background: #ff7417; print-color-adjust: exact; }
 .chart strong { font-size: 10px; text-align: right; }
+.photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.photos figure { margin: 0; border: 1px solid #94a3b8; break-inside: avoid; }
+.photos img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.photos figcaption { padding: 6px; color: #475569; font-size: 9px; line-height: 1.35; }
 .sheet footer { display: grid; gap: 3px; margin-top: 30px; border-top: 2px solid #111827; padding-top: 9px; color: #475569; font-size: 9px; }
 .sheet footer strong { color: #111827; }
 

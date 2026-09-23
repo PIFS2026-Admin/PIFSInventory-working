@@ -24,7 +24,7 @@ type Review = {
 
 type ReviewSection = {
   id: string;
-  kind: "metric" | "chart" | "narrative" | "manual_metric";
+  kind: "metric" | "chart" | "narrative" | "manual_metric" | "photo";
   title: string | null;
   config: Record<string, unknown>;
   body: string | null;
@@ -35,6 +35,7 @@ type PrintData = {
   review: Review;
   sections: ReviewSection[];
   snapshots: Array<{ id: string; finalized_at: string }>;
+  photos: Array<{ id: string; section_id: string; caption: string | null; file_name: string; url: string }>;
   yard: { id: string; name: string; code: string };
 };
 
@@ -153,6 +154,7 @@ function FinancialReviewPrintContent() {
           <div className={styles.sectionTitle}><span>{section.kind.replaceAll("_", " ")}</span><h2>{section.title || metricLabels[metricKey] || "Review Section"}</h2></div>
           {section.kind === "narrative" && <p className={styles.body}>{String(frozen.body || section.body || "-")}</p>}
           {section.kind === "manual_metric" && <div className={styles.manual}><span>{String(frozen.label || section.config.label || section.title || "Value")}</span><strong>{String(frozen.value || section.config.value || "-")}</strong></div>}
+          {section.kind === "photo" && <><p className={styles.body}>{section.body || "Photo evidence"}</p><div className={styles.photos}>{data.photos.filter((photo) => photo.section_id === section.id).map((photo) => <figure key={photo.id}><img src={photo.url} alt={photo.caption || photo.file_name} /><figcaption>{photo.caption || photo.file_name}</figcaption></figure>)}</div></>}
           {section.kind === "metric" && <div className={styles.metricCompare}><div><span>Review Window</span><strong>{metricValue(metricKey, frozen.current)}</strong></div><div><span>{review.compare_mode === "year" ? "Last Year" : "Prior Period"}</span><strong>{metricValue(metricKey, frozen.comparison)}</strong></div></div>}
           {section.kind === "chart" && <div className={styles.chart}>{rows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / maximum * 100}%` }} /></i><strong>{metricValue(metricKey, row.value)}</strong></div>)}</div>}
         </section>;
