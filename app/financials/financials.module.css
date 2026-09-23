@@ -334,6 +334,13 @@
 .reviewChart b { display: block; height: 100%; background: #ff7417; }
 .reviewChart strong { text-align: right; font-size: 10px; }
 .reviewComposerActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.reviewHistory { margin-top: 12px; border: 1px solid #344052; background: #0e141b; }
+.reviewHistory summary { padding: 9px 10px; color: #aeb8c6; font-size: 10px; font-weight: 800; text-transform: uppercase; cursor: pointer; }
+.reviewHistory > div { border-top: 1px solid #344052; }
+.reviewHistory > div > div { display: grid; gap: 3px; padding: 9px 10px; border-bottom: 1px solid #2c3542; }
+.reviewHistory > div > div:last-child { border-bottom: 0; }
+.reviewHistory span { color: #8fa0b6; font-size: 9px; text-transform: uppercase; }
+.reviewHistory strong { color: #c9d3df; font-size: 11px; line-height: 1.45; }
 .reviewActions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .reviewActions span { margin-left: auto; color: #8998aa; font-size: 10px; }
 

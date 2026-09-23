@@ -347,9 +347,16 @@ export async function GET(request: Request) {
             trend: marketTrend.data || [],
           };
     const reviewRows = reviews.data || [];
-    const reviewSectionsResult = reviewRows.length
-      ? await context.admin.from("titan_financial_review_sections").select("*").in("review_id", reviewRows.map((review) => review.id)).eq("is_active", true).order("position").order("created_at")
-      : await context.admin.from("titan_financial_review_sections").select("id").limit(0);
+    const reviewIds = reviewRows.map((review) => review.id);
+    const [reviewSectionsResult, reviewSnapshotsResult] = await Promise.all([
+      reviewRows.length
+        ? context.admin.from("titan_financial_review_sections").select("*").in("review_id", reviewIds).eq("is_active", true).order("position").order("created_at")
+        : context.admin.from("titan_financial_review_sections").select("id").limit(0),
+      reviewRows.length
+        ? context.admin.from("titan_financial_review_snapshots").select("*").in("review_id", reviewIds).order("finalized_at", { ascending: false })
+        : context.admin.from("titan_financial_review_snapshots").select("id").limit(0),
+    ]);
+    if (reviewSnapshotsResult.error) throw reviewSnapshotsResult.error;
     const reviewComposer = reviewSectionsResult.error && isMissingReviewComposerSchema(reviewSectionsResult.error)
       ? { setupRequired: true, sections: [] }
       : reviewSectionsResult.error
@@ -368,6 +375,7 @@ export async function GET(request: Request) {
         revenue: tubingRevenue.data || [],
       },
       reviews: reviews.data || [],
+      reviewSnapshots: reviewSnapshotsResult.data || [],
       reviewComposer,
       market,
       permissions,
@@ -784,6 +792,38 @@ export async function POST(request: Request) {
         before_value: review.data, after_value: finalized.data, actor_id: context.user.id,
       });
       return Response.json({ review: finalized.data });
+    }
+
+    if (action === "reopen_review") {
+      if (!permissions.approve) return Response.json({ error: "You cannot reopen financial reviews." }, { status: 403 });
+      const id = String(body.id || "");
+      const reason = String(body.reason || "").trim();
+      if (reason.length < 8) throw new Error("Enter a clear reason for reopening this review.");
+      const review = await context.admin.from("titan_financial_reviews").select("*").eq("id", id).eq("yard_id", yardId).single();
+      if (review.error || !review.data) throw new Error("Financial review not found.");
+      if (review.data.status !== "final") throw new Error("Only finalized reviews can be reopened.");
+      const sectionReset = await context.admin.from("titan_financial_review_sections").update({ snapshot: null, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("review_id", id).eq("is_active", true);
+      if (sectionReset.error && !isMissingReviewComposerSchema(sectionReset.error)) throw sectionReset.error;
+      const reopenedAt = new Date().toISOString();
+      const reopened = await context.admin.from("titan_financial_reviews").update({
+        status: "open",
+        snapshot: null,
+        finalized_by: null,
+        finalized_at: null,
+        updated_at: reopenedAt,
+        updated_by: context.user.id,
+      }).eq("id", id).select("*").single();
+      if (reopened.error) throw reopened.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId,
+        entity_type: "financial_review",
+        entity_id: id,
+        action: "reopen",
+        before_value: review.data,
+        after_value: { ...reopened.data, reopen_reason: reason },
+        actor_id: context.user.id,
+      });
+      return Response.json({ review: reopened.data });
     }
 
     if (action === "save_tubing_week") {

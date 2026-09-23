@@ -52,6 +52,12 @@ type FinancialReview = {
   snapshot: Record<string, unknown> | null;
   finalized_at: string | null;
 };
+type FinancialReviewSnapshot = {
+  id: string;
+  review_id: string;
+  snapshot: Record<string, unknown>;
+  finalized_at: string;
+};
 type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric";
 type FinancialReviewSection = {
   id: string;
@@ -319,6 +325,7 @@ export default function FinancialsPage() {
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
   const [reviews, setReviews] = useState<FinancialReview[]>([]);
+  const [reviewSnapshots, setReviewSnapshots] = useState<FinancialReviewSnapshot[]>([]);
   const [reviewSections, setReviewSections] = useState<FinancialReviewSection[]>([]);
   const [reviewComposerSetupRequired, setReviewComposerSetupRequired] = useState(false);
   const [market, setMarket] = useState<MarketData>(emptyMarket);
@@ -440,6 +447,7 @@ export default function FinancialsPage() {
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
     setReviews(result.reviews || []);
+    setReviewSnapshots(result.reviewSnapshots || []);
     setReviewSections(result.reviewComposer?.sections || []);
     setReviewComposerSetupRequired(Boolean(result.reviewComposer?.setupRequired));
     setMarket(result.market || emptyMarket);
@@ -972,6 +980,26 @@ export default function FinancialsPage() {
     if (response.ok) await loadFinancials();
   }
 
+  async function reopenReview(review: FinancialReview) {
+    const reason = window.prompt("Why is this finalized review being reopened? The prior snapshot will remain in history.");
+    if (reason === null) return;
+    if (reason.trim().length < 8) {
+      setMessage("Enter a clear reason of at least 8 characters before reopening the review.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reopen_review", yardId, id: review.id, reason: reason.trim() }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    setMessage(response.ok ? "Review reopened. The prior finalized snapshot remains in history." : result.error || "The review could not be reopened.");
+    if (response.ok) await loadFinancials();
+  }
+
   function changeFormLine(nextLine: FinancialLine) {
     resetForm(nextLine);
   }
@@ -1432,11 +1460,14 @@ export default function FinancialsPage() {
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
         <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Review</span><h2>Financial Reviews</h2></div><span>Quarterly or custom windows. Final reviews retain their captured KPI values.</span></div>
         {reviewComposerSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_sections.sql</strong> to enable configurable review sections.</div>}
-        {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => <article key={review.id} className={styles.reviewCard} data-status={review.status}>
+        {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => {
+          const savedSnapshots = reviewSnapshots.filter((item) => item.review_id === review.id).sort((a, b) => b.finalized_at.localeCompare(a.finalized_at));
+          return <article key={review.id} className={styles.reviewCard} data-status={review.status}>
           <div className={styles.reviewCardHead}><div><span>{financialLineNames[review.service_line]} · {review.compare_mode === "year" ? "vs last year" : "vs prior period"}</span><h3>{review.quarter || `${new Date(`${review.range_start.slice(0, 10)}T00:00:00`).toLocaleDateString()} - ${new Date(`${review.range_end.slice(0, 10)}T00:00:00`).toLocaleDateString()}`}</h3></div><b>{review.status}</b></div>
           {review.status === "final" && review.snapshot ? <div className={styles.reviewMetrics}><div><span>Jobs</span><strong>{numberValue(review.snapshot.jobs).toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(review.snapshot.revenue)}</strong></div><div><span>Profit</span><strong>{money(review.snapshot.profit)}</strong></div><div><span>Margin</span><strong>{percent(review.snapshot.margin)}</strong></div></div> : <p className={styles.openReviewNote}>Open review. KPI values will be captured when it is finalized.</p>}
           {review.status === "final" && Boolean(review.snapshot?.comparison) && <div className={styles.reviewComparison}><span>Comparison</span><strong>{numberValue((review.snapshot?.comparison as Record<string, unknown>).jobs).toLocaleString()} jobs · {money((review.snapshot?.comparison as Record<string, unknown>).revenue)} revenue · {percent((review.snapshot?.comparison as Record<string, unknown>).margin)} margin</strong></div>}
           <div className={styles.reviewNarratives}><div><span>Highlights</span><p>{review.highlights || "-"}</p></div><div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div><div><span>Goals</span><p>{review.goals || "-"}</p></div></div>
+          {savedSnapshots.length > 0 && <details className={styles.reviewHistory}><summary>Finalized Snapshot History ({savedSnapshots.length})</summary><div>{savedSnapshots.map((item, index) => <div key={item.id}><span>Version {savedSnapshots.length - index} · {new Date(item.finalized_at).toLocaleString()}</span><strong>{numberValue(item.snapshot.jobs).toLocaleString()} jobs · {money(item.snapshot.revenue)} revenue · {money(item.snapshot.profit)} profit · {percent(item.snapshot.margin)} margin</strong></div>)}</div></details>}
           {!reviewComposerSetupRequired && <div className={styles.reviewSections}>{reviewSections.filter((section) => section.review_id === review.id).sort((a, b) => a.position - b.position).map((section, index, ordered) => {
             const snapshot = section.snapshot || {};
             const metricKey = String(snapshot.metric_key || section.config.metric_key || "revenue");
@@ -1450,8 +1481,8 @@ export default function FinancialsPage() {
               {section.kind === "chart" && (chartRows.length ? <div className={styles.reviewChart}>{chartRows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / chartMax * 100}%` }} /></i><strong>{formatReviewMetric(metricKey, row.value)}</strong></div>)}</div> : <p className={styles.openReviewNote}>This chart will calculate and freeze when the review is finalized.</p>)}
             </section>;
           })}{review.status === "open" && permissions.edit && <div className={styles.reviewComposerActions}><button type="button" onClick={() => openReviewSection(review.id)}>Add Section</button>{!reviewSections.some((section) => section.review_id === review.id) && <button type="button" className={styles.primary} disabled={saving} onClick={() => void applyReviewTemplate(review)}>Use Standard Template</button>}</div>}</div>}
-          <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
-        </article>)}</div> : <div className={styles.emptyState}>No financial reviews have been started for this selection.</div>}
+          <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.status === "final" && permissions.approve ? <button type="button" disabled={saving} onClick={() => void reopenReview(review)}>Reopen Review</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
+        </article>})}</div> : <div className={styles.emptyState}>No financial reviews have been started for this selection.</div>}
       </section>}
 
       {!loading && tab === "reviews" && line === "tu" && <div className={styles.emptyState}>Tubing reviews will be added with its dedicated production targets. Select another service line to manage financial reviews.</div>}
