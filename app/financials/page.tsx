@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { financialLineNames, FinancialLine } from "../../lib/financialKpi";
+import { financialLineNames, financialLineRateKeys, FinancialLine } from "../../lib/financialKpi";
 import { supabase } from "../../lib/supabase";
 import styles from "./financials.module.css";
 
@@ -232,6 +232,12 @@ export default function FinancialsPage() {
   const [reviewHighlights, setReviewHighlights] = useState("");
   const [reviewLowlights, setReviewLowlights] = useState("");
   const [reviewGoals, setReviewGoals] = useState("");
+  const [rateEditorType, setRateEditorType] = useState<"base" | "period" | "">("");
+  const [rateLine, setRateLine] = useState<FinancialLine>("dti");
+  const [rateKey, setRateKey] = useState(financialLineRateKeys.dti[0]);
+  const [rateValue, setRateValue] = useState("");
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState(today);
+  const [rateMinimumQuantity, setRateMinimumQuantity] = useState("0");
 
   useEffect(() => {
     void initialize();
@@ -444,6 +450,64 @@ export default function FinancialsPage() {
     setReviewLowlights(review?.lowlights || "");
     setReviewGoals(review?.goals || "");
     setShowReviewForm(true);
+  }
+
+  function openBaseRate(rate: Rate) {
+    setRateEditorType("base");
+    setRateLine(rate.service_line);
+    setRateKey(rate.rate_key);
+    setRateValue(String(rate.rate_key === "overhead" ? numberValue(rate.rate_value) * 100 : rate.rate_value));
+  }
+
+  function openRatePeriod() {
+    const nextLine = line === "all" || line === "tu" ? "dti" : line;
+    setRateEditorType("period");
+    setRateLine(nextLine);
+    setRateKey(financialLineRateKeys[nextLine][0]);
+    setRateValue("");
+    setRateEffectiveFrom(today);
+    setRateMinimumQuantity("0");
+  }
+
+  function changeRateLine(nextLine: FinancialLine) {
+    setRateLine(nextLine);
+    setRateKey(financialLineRateKeys[nextLine][0]);
+  }
+
+  async function saveRate() {
+    setSaving(true);
+    setMessage("");
+    const storedValue = rateKey === "overhead" ? Number(rateValue) / 100 : Number(rateValue);
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: rateEditorType === "base" ? "save_base_rate" : "save_rate_period",
+        yardId, line: rateLine, rateKey, rateValue: storedValue,
+        effectiveFrom: rateEffectiveFrom, minimumQuantity: rateMinimumQuantity,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The financial rate could not be saved.");
+      return;
+    }
+    setRateEditorType("");
+    setMessage(rateEditorType === "base" ? "Everyday rate updated. Existing jobs retained their frozen rates." : "Scheduled rate saved for future matching jobs.");
+    await loadFinancials();
+  }
+
+  async function deactivateRatePeriod(period: RatePeriod) {
+    if (!window.confirm(`Deactivate the ${period.rate_key} schedule effective ${period.effective_from}?`)) return;
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "deactivate_rate_period", yardId, id: period.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Scheduled rate deactivated. Existing jobs were not changed." : result.error || "The scheduled rate could not be deactivated.");
+    if (response.ok) await loadFinancials();
   }
 
   async function saveReview() {
@@ -682,6 +746,20 @@ export default function FinancialsPage() {
         </section>
       )}
 
+      {rateEditorType && (
+        <section className={styles.jobForm}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Cost Basis</span><h2>{rateEditorType === "base" ? "Edit Everyday Rate" : "Add Scheduled Rate"}</h2></div><button type="button" onClick={() => setRateEditorType("")}>Close</button></div>
+          <div className={styles.formGrid}>
+            <label><span>Service Line</span><select value={rateLine} disabled={rateEditorType === "base"} onChange={(event) => changeRateLine(event.target.value as FinancialLine)}>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}</select></label>
+            <label><span>Cost Item</span><select value={rateKey} disabled={rateEditorType === "base"} onChange={(event) => setRateKey(event.target.value)}>{financialLineRateKeys[rateLine].map((key) => <option key={key} value={key}>{rates.find((rate) => rate.service_line === rateLine && rate.rate_key === key)?.label || key.replaceAll("_", " ")}</option>)}</select></label>
+            {rateEditorType === "period" ? <><label><span>Effective From</span><input type="date" value={rateEffectiveFrom} onChange={(event) => setRateEffectiveFrom(event.target.value)} /></label><label><span>Minimum Job Quantity</span><input type="number" min="0" step="any" value={rateMinimumQuantity} onChange={(event) => setRateMinimumQuantity(event.target.value)} /></label></> : null}
+            <label><span>{rateKey === "overhead" ? "Rate Percent" : "Rate Value"}</span><input type="number" min="0" step="any" value={rateValue} onChange={(event) => setRateValue(event.target.value)} /></label>
+          </div>
+          <div className={styles.rateWarning}>Saved jobs retain their original cost basis. This change applies only when a future job is added or previewed.</div>
+          <div className={styles.formActions}><button type="button" disabled={saving || rateValue === ""} className={styles.primary} onClick={() => void saveRate()}>{saving ? "Saving..." : "Save Rate"}</button></div>
+        </section>
+      )}
+
       {loading ? <div className={styles.loading}>Loading financial records...</div> : null}
 
       {!loading && tab === "overview" && line !== "tu" && (
@@ -774,7 +852,7 @@ export default function FinancialsPage() {
       {!loading && tab === "reviews" && line === "tu" && <div className={styles.emptyState}>Tubing reviews will be added with its dedicated production targets. Select another service line to manage financial reviews.</div>}
       {!loading && tab === "kpis" && line === "tu" && <section className={styles.metrics}><div><span>Joints</span><strong>{tubingTotals.joints.toLocaleString()}</strong></div><div><span>Joints / Manhour</span><strong>{tubingTotals.jointsPerMh.toFixed(2)}</strong></div><div><span>Jobs</span><strong>{tubingTotals.jobs.toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(tubingTotals.revenue)}</strong></div></section>}
 
-      {!loading && tab === "cost-basis" && line !== "tu" && <><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Frozen Cost Basis</span><h2>Everyday Rates</h2></div><span>New rates affect future saves only.</span></div><div className={styles.rateGrid}>{rates.filter((rate) => line === "all" || rate.service_line === line).map((rate) => <div key={rate.id}><span>{financialLineNames[rate.service_line]}</span><strong>{rate.label}</strong><b>{rate.rate_key === "overhead" ? percent(rate.rate_value) : money(rate.rate_value)}</b></div>)}</div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Changes Over Time</span><h2>Effective-Dated and Job-Size Rates</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Cost Item</th><th>Effective From</th><th>Minimum Quantity</th><th>Value</th></tr></thead><tbody>{ratePeriods.filter((period) => line === "all" || period.service_line === line).map((period) => <tr key={period.id}><td>{financialLineNames[period.service_line]}</td><td>{period.rate_key}</td><td>{period.effective_from}</td><td>{period.minimum_quantity}</td><td>{money(period.rate_value)}</td></tr>)}{!ratePeriods.length && <tr><td colSpan={5}>No dated or tiered rates have been added.</td></tr>}</tbody></table></div></section></>}
+      {!loading && tab === "cost-basis" && line !== "tu" && <><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Frozen Cost Basis</span><h2>Everyday Rates</h2></div><span>New rates affect future saves only.</span></div><div className={styles.rateGrid}>{rates.filter((rate) => line === "all" || rate.service_line === line).map((rate) => <div key={rate.id}><span>{financialLineNames[rate.service_line]}</span><strong>{rate.label}</strong><b>{rate.rate_key === "overhead" ? percent(rate.rate_value) : money(rate.rate_value)}</b>{permissions.manageSettings ? <button type="button" onClick={() => openBaseRate(rate)}>Edit</button> : null}</div>)}</div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Changes Over Time</span><h2>Effective-Dated and Job-Size Rates</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={openRatePeriod}>Add Scheduled Rate</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Cost Item</th><th>Effective From</th><th>Minimum Quantity</th><th>Value</th><th></th></tr></thead><tbody>{ratePeriods.filter((period) => line === "all" || period.service_line === line).map((period) => <tr key={period.id}><td>{financialLineNames[period.service_line]}</td><td>{rates.find((rate) => rate.service_line === period.service_line && rate.rate_key === period.rate_key)?.label || period.rate_key.replaceAll("_", " ")}</td><td>{period.effective_from}</td><td>{period.minimum_quantity}</td><td>{period.rate_key === "overhead" ? percent(period.rate_value) : money(period.rate_value)}</td><td>{permissions.manageSettings ? <button type="button" onClick={() => void deactivateRatePeriod(period)}>Deactivate</button> : null}</td></tr>)}{!ratePeriods.length && <tr><td colSpan={6}>No dated or tiered rates have been added.</td></tr>}</tbody></table></div></section></>}
       {!loading && tab === "cost-basis" && line === "tu" && <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Throughput Only</span><h2>Tubing Cost Basis</h2></div></div><div className={styles.emptyState}>Tubing currently records weekly production and monthly revenue without job-level cost calculations.</div></section>}
     </main>
   );

@@ -172,6 +172,7 @@
 .preview span { display: block; color: #95a3b4; font-size: 10px; text-transform: uppercase; }
 .preview strong { display: block; margin-top: 3px; font-size: 17px; }
 .formActions { justify-content: flex-end; padding: 0 12px; }
+.rateWarning { margin: 0 12px 12px; padding: 10px; border-left: 3px solid #ff7417; background: #1c1712; color: #d5b79f; font-size: 11px; line-height: 1.45; }
 
 .twoColumn {
   display: grid;
@@ -258,6 +259,7 @@
 .rateGrid span { color: #ff8a3c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .rateGrid strong { font-size: 12px; }
 .rateGrid b { font-size: 18px; }
+.rateGrid button { justify-self: start; min-height: 29px; margin-top: 7px; padding-inline: 10px; font-size: 10px; }
 
 @media (max-width: 980px) {
   .page { padding: 68px 10px 90px; }

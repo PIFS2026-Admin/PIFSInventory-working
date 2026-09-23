@@ -248,6 +248,76 @@ export async function POST(request: Request) {
     const yardId = String(body.yardId || "");
     await assertYardAccess(context, yardId);
 
+    if (action === "save_base_rate") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage the financial cost basis." }, { status: 403 });
+      const line = lineValue(body.line);
+      const rateKey = String(body.rateKey || "");
+      if (!financialLineRateKeys[line].includes(rateKey)) throw new Error("Select a valid cost item.");
+      const rateValue = Number(body.rateValue);
+      if (!Number.isFinite(rateValue) || rateValue < 0 || (rateKey === "overhead" && rateValue > 1)) throw new Error("Enter a valid rate value.");
+      const existing = await context.admin.from("titan_financial_rates").select("*")
+        .eq("yard_id", yardId).eq("service_line", line).eq("rate_key", rateKey).single();
+      if (existing.error || !existing.data) throw new Error("The base rate could not be found.");
+      const saved = await context.admin.from("titan_financial_rates").update({
+        rate_value: rateValue, updated_at: new Date().toISOString(), updated_by: context.user.id,
+      }).eq("id", existing.data.id).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_rate", entity_id: existing.data.id, action: "update",
+        before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ rate: saved.data });
+    }
+
+    if (action === "save_rate_period") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage the financial cost basis." }, { status: 403 });
+      const line = lineValue(body.line);
+      const rateKey = String(body.rateKey || "");
+      if (!financialLineRateKeys[line].includes(rateKey)) throw new Error("Select a valid cost item.");
+      const effectiveFrom = String(body.effectiveFrom || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) throw new Error("Select a valid effective date.");
+      const minimumQuantity = Number(body.minimumQuantity);
+      const rateValue = Number(body.rateValue);
+      if (!Number.isFinite(minimumQuantity) || minimumQuantity < 0) throw new Error("Minimum quantity must be zero or greater.");
+      if (!Number.isFinite(rateValue) || rateValue < 0 || (rateKey === "overhead" && rateValue > 1)) throw new Error("Enter a valid rate value.");
+      const existing = await context.admin.from("titan_financial_rate_periods").select("*")
+        .eq("yard_id", yardId).eq("service_line", line).eq("rate_key", rateKey)
+        .eq("effective_from", effectiveFrom).eq("minimum_quantity", minimumQuantity).maybeSingle();
+      if (existing.error) throw existing.error;
+      const values = {
+        rate_value: rateValue, is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id,
+      };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_rate_periods").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_rate_periods").insert({
+          yard_id: yardId, service_line: line, rate_key: rateKey, effective_from: effectiveFrom,
+          minimum_quantity: minimumQuantity, ...values, created_by: context.user.id,
+        }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_rate_period", entity_id: saved.data.id,
+        action: existing.data ? "update" : "create", before_value: existing.data,
+        after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ ratePeriod: saved.data });
+    }
+
+    if (action === "deactivate_rate_period") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage the financial cost basis." }, { status: 403 });
+      const id = String(body.id || "");
+      const existing = await context.admin.from("titan_financial_rate_periods").select("*").eq("id", id).single();
+      if (existing.error || !existing.data || existing.data.yard_id !== yardId) throw new Error("Scheduled rate not found.");
+      const saved = await context.admin.from("titan_financial_rate_periods").update({
+        is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id,
+      }).eq("id", id).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_rate_period", entity_id: id, action: "deactivate",
+        before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ ratePeriod: saved.data });
+    }
+
     if (action === "save_review") {
       if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
       const line = lineValue(body.line);
