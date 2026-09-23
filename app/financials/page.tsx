@@ -8,6 +8,7 @@ import styles from "./financials.module.css";
 type TabKey = "overview" | "trackers" | "kpis" | "analytics" | "reviews" | "cost-basis";
 type AnalyticsPage = "financials" | "production" | "lead" | "trends";
 type ViewLine = FinancialLine | "tu" | "all";
+type ConfigurationLine = FinancialLine | "tu";
 type Yard = { id: string; name: string; code: string };
 type PermissionSet = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean };
 type FinancialJob = {
@@ -32,6 +33,7 @@ type Category = { id: string; service_line: string; code: string; label: string 
 type Rate = { id: string; service_line: FinancialLine; rate_key: string; label: string; rate_value: number | string };
 type RatePeriod = { id: string; service_line: FinancialLine; rate_key: string; effective_from: string; minimum_quantity: number | string; rate_value: number | string };
 type Target = { id: string; service_line: FinancialLine; yard_id: string | null; category_code: string; metric_key: string; direction: "above" | "below"; target_value: number | string; unit: string; label: string };
+type PickListValue = { id: string; service_line: ConfigurationLine; list_key: string; list_value: string };
 type TubingWeek = { id: string; week_start: string; manhours: number | string | null };
 type TubingEntry = { id: string; week_start: string; customer: string; joints: number | null; jobs: number | null; trucks_in: number | null; trucks_out: number | null };
 type TubingRevenue = { id: string; revenue_month: string; customer: string | null; amount: number | string; source: string };
@@ -50,6 +52,22 @@ type FinancialReview = {
 type Field = { key: string; label: string; kind?: "text" | "number" | "date" | "textarea" };
 
 const lines = Object.keys(financialLineNames) as FinancialLine[];
+const configurationLines: ConfigurationLine[] = [...lines, "tu"];
+const configurationLineNames: Record<ConfigurationLine, string> = { ...financialLineNames, tu: "Tubing" };
+const pickListLabels: Record<string, string> = {
+  operator: "Operators", state: "States", size: "Pipe Sizes", connection: "Connections",
+  casing_section: "Casing Sections", job_type: "Job Types", items: "Items Washed",
+  customer: "Customers", lead: "Crew Leads", band: "Band Thicknesses",
+  insp_type: "Inspection Types", reface_type: "Reface Types",
+};
+const pickListKeys: Record<ConfigurationLine, string[]> = {
+  dti: ["operator", "lead", "state", "size", "connection", "casing_section", "insp_type", "reface_type"],
+  cdt: ["operator", "lead", "state", "size", "connection", "casing_section"],
+  hb: ["operator", "lead", "state", "size", "connection", "casing_section", "band"],
+  trs: ["operator", "lead", "state", "size", "connection", "casing_section", "job_type"],
+  wash: ["operator", "lead", "items"],
+  tu: ["customer"],
+};
 const today = new Date().toISOString().slice(0, 10);
 const yearStart = `${new Date().getFullYear()}-01-01`;
 const emptyPermissions: PermissionSet = { view: false, create: false, edit: false, approve: false, export: false, manageSettings: false };
@@ -235,6 +253,11 @@ function initialInputs(line: FinancialLine) {
   return lineFields[line].reduce<Record<string, string>>((values, field) => ({ ...values, [field.key]: "" }), {});
 }
 
+function pickListKeyForField(fieldKey: string) {
+  if (fieldKey === "casing_size") return "size";
+  return ["operator", "state", "size", "connection", "casing_section", "job_type", "items", "lead", "band", "insp_type", "reface_type"].includes(fieldKey) ? fieldKey : "";
+}
+
 export default function FinancialsPage() {
   const [tab, setTab] = useState<TabKey>("overview");
   const [token, setToken] = useState("");
@@ -248,6 +271,7 @@ export default function FinancialsPage() {
   const [rates, setRates] = useState<Rate[]>([]);
   const [ratePeriods, setRatePeriods] = useState<RatePeriod[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
+  const [pickLists, setPickLists] = useState<PickListValue[]>([]);
   const [tubingWeeks, setTubingWeeks] = useState<TubingWeek[]>([]);
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
@@ -297,6 +321,12 @@ export default function FinancialsPage() {
   const [targetScope, setTargetScope] = useState<"yard" | "default">("yard");
   const [analyticsPage, setAnalyticsPage] = useState<AnalyticsPage>("financials");
   const [analyticsFilters, setAnalyticsFilters] = useState<Record<string, string>>({});
+  const [settingsEditor, setSettingsEditor] = useState<"category" | "pick-list" | "">("");
+  const [settingsId, setSettingsId] = useState("");
+  const [settingsLine, setSettingsLine] = useState<ConfigurationLine>("dti");
+  const [settingsKey, setSettingsKey] = useState("operator");
+  const [settingsCode, setSettingsCode] = useState("");
+  const [settingsValue, setSettingsValue] = useState("");
 
   useEffect(() => {
     void initialize();
@@ -344,6 +374,7 @@ export default function FinancialsPage() {
     setRates(result.rates || []);
     setRatePeriods(result.ratePeriods || []);
     setTargets(result.targets || []);
+    setPickLists(result.pickLists || []);
     setTubingWeeks(result.tubing?.weeks || []);
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
@@ -455,7 +486,10 @@ export default function FinancialsPage() {
     source: Array.from(new Set(jobs.map((job) => job.source).filter(Boolean))).sort(),
   }), [jobs, categories]);
 
-  const tubingCustomers = useMemo(() => Array.from(new Set(tubingEntries.map((entry) => entry.customer))).sort(), [tubingEntries]);
+  const tubingCustomers = useMemo(() => Array.from(new Set([
+    ...tubingEntries.map((entry) => entry.customer),
+    ...pickLists.filter((value) => value.service_line === "tu" && value.list_key === "customer").map((value) => value.list_value),
+  ])).sort(), [tubingEntries, pickLists]);
   const tubingWeeklyRows = useMemo(() => tubingWeeks.map((week) => {
     const entries = tubingEntries.filter((entry) => entry.week_start.slice(0, 10) === week.week_start.slice(0, 10));
     const joints = entries.reduce((sum, entry) => sum + numberValue(entry.joints), 0);
@@ -631,6 +665,63 @@ export default function FinancialsPage() {
   function changeTargetLine(nextLine: FinancialLine) {
     setTargetLine(nextLine);
     setTargetCategory(categories.find((category) => category.service_line === nextLine)?.code || "standard");
+  }
+
+  function openCategory(category?: Category) {
+    const nextLine = (category?.service_line || (line === "all" || line === "tu" ? "dti" : line)) as FinancialLine;
+    setSettingsEditor("category");
+    setSettingsId(category?.id || "");
+    setSettingsLine(nextLine);
+    setSettingsCode(category?.code || "");
+    setSettingsValue(category?.label || "");
+  }
+
+  function openPickList(value?: PickListValue) {
+    const nextLine = value?.service_line || (line === "all" ? "dti" : line);
+    setSettingsEditor("pick-list");
+    setSettingsId(value?.id || "");
+    setSettingsLine(nextLine);
+    setSettingsKey(value?.list_key || pickListKeys[nextLine][0]);
+    setSettingsValue(value?.list_value || "");
+    setSettingsCode("");
+  }
+
+  function changeSettingsLine(nextLine: ConfigurationLine) {
+    setSettingsLine(nextLine);
+    if (settingsEditor === "pick-list") setSettingsKey(pickListKeys[nextLine][0]);
+  }
+
+  async function saveSetting() {
+    setSaving(true);
+    setMessage("");
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(settingsEditor === "category"
+        ? { action: "save_category", yardId, id: settingsId || undefined, line: settingsLine, code: settingsCode || undefined, label: settingsValue }
+        : { action: "save_pick_list_value", yardId, id: settingsId || undefined, line: settingsLine, listKey: settingsKey, listValue: settingsValue }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The financial setting could not be saved.");
+      return;
+    }
+    setSettingsEditor("");
+    setMessage(settingsEditor === "category" ? "Job category saved." : "Pick-list value saved.");
+    await loadFinancials();
+  }
+
+  async function deactivateSetting(kind: "category" | "pick-list", id: string, label: string) {
+    if (!window.confirm(`Deactivate ${label}? Existing historical rows will remain unchanged.`)) return;
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: kind === "category" ? "deactivate_category" : "deactivate_pick_list_value", yardId, id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? `${kind === "category" ? "Category" : "Pick-list value"} deactivated.` : result.error || "The setting could not be deactivated.");
+    if (response.ok) await loadFinancials();
   }
 
   async function saveTarget() {
@@ -881,7 +972,12 @@ export default function FinancialsPage() {
             <label><span>Service Line</span><select value={formLine} disabled={Boolean(editingId)} onChange={(event) => changeFormLine(event.target.value as FinancialLine)}>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}</select></label>
             <label><span>Job Date</span><input type="date" value={jobDate} onChange={(event) => setJobDate(event.target.value)} /></label>
             <label><span>Job Category</span><select value={categoryCode} onChange={(event) => setCategoryCode(event.target.value)}>{selectedCategories.map((category) => <option key={category.id} value={category.code}>{category.label}</option>)}</select></label>
-            {lineFields[formLine].map((field) => <label key={field.key} className={field.kind === "textarea" ? styles.wideField : ""}><span>{field.label}</span>{field.kind === "textarea" ? <textarea value={inputs[field.key] || ""} onChange={(event) => setInputs({ ...inputs, [field.key]: event.target.value })} /> : <input type={field.kind === "number" ? "number" : "text"} step={field.kind === "number" ? "any" : undefined} value={inputs[field.key] || ""} onChange={(event) => setInputs({ ...inputs, [field.key]: event.target.value })} />}</label>)}
+            {lineFields[formLine].map((field) => {
+              const listKey = pickListKeyForField(field.key);
+              const options = listKey ? pickLists.filter((value) => value.service_line === formLine && value.list_key === listKey) : [];
+              const listId = options.length ? `financial-entry-${formLine}-${field.key}` : undefined;
+              return <label key={field.key} className={field.kind === "textarea" ? styles.wideField : ""}><span>{field.label}</span>{field.kind === "textarea" ? <textarea value={inputs[field.key] || ""} onChange={(event) => setInputs({ ...inputs, [field.key]: event.target.value })} /> : <><input list={listId} type={field.kind === "number" ? "number" : "text"} step={field.kind === "number" ? "any" : undefined} value={inputs[field.key] || ""} onChange={(event) => setInputs({ ...inputs, [field.key]: event.target.value })} />{listId && <datalist id={listId}>{options.map((option) => <option key={option.id} value={option.list_value} />)}</datalist>}</>}</label>;
+            })}
           </div>
           {preview && <div className={styles.preview}><div><span>Total Cost</span><strong>{money(preview.total_cost)}</strong></div><div><span>Profit</span><strong>{money(preview.profit)}</strong></div><div><span>Margin</span><strong>{percent(preview.margin)}</strong></div><div><span>Revenue / Manhour</span><strong>{money(preview.rev_per_mh)}</strong></div></div>}
           <div className={styles.formActions}><button type="button" disabled={saving} onClick={() => void runJobAction("preview")}>Preview Cost Math</button><button type="button" disabled={saving} className={styles.primary} onClick={() => void runJobAction(editingId ? "update" : "create")}>{saving ? "Saving..." : editingId ? "Save Changes" : "Add Job"}</button></div>
@@ -913,6 +1009,20 @@ export default function FinancialsPage() {
           </div>
           <div className={styles.rateWarning}>Saved jobs retain their original cost basis. This change applies only when a future job is added or previewed.</div>
           <div className={styles.formActions}><button type="button" disabled={saving || rateValue === ""} className={styles.primary} onClick={() => void saveRate()}>{saving ? "Saving..." : "Save Rate"}</button></div>
+        </section>
+      )}
+
+      {settingsEditor && (
+        <section className={styles.jobForm}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Configuration</span><h2>{settingsId ? "Edit" : "Add"} {settingsEditor === "category" ? "Job Category" : "Pick-List Value"}</h2></div><button type="button" onClick={() => setSettingsEditor("")}>Close</button></div>
+          <div className={styles.formGrid}>
+            <label><span>Service Line</span><select value={settingsLine} disabled={Boolean(settingsId)} onChange={(event) => changeSettingsLine(event.target.value as ConfigurationLine)}>{configurationLines.filter((item) => settingsEditor === "pick-list" || item !== "tu").map((item) => <option key={item} value={item}>{configurationLineNames[item]}</option>)}</select></label>
+            {settingsEditor === "category" && <label><span>Code</span><input value={settingsCode} disabled={Boolean(settingsId)} placeholder="Created automatically" onChange={(event) => setSettingsCode(event.target.value)} /></label>}
+            {settingsEditor === "pick-list" && <label><span>List</span><select value={settingsKey} disabled={Boolean(settingsId)} onChange={(event) => setSettingsKey(event.target.value)}>{pickListKeys[settingsLine].map((key) => <option key={key} value={key}>{pickListLabels[key]}</option>)}</select></label>}
+            <label><span>{settingsEditor === "category" ? "Category Name" : "Value"}</span><input value={settingsValue} onChange={(event) => setSettingsValue(event.target.value)} /></label>
+          </div>
+          <div className={styles.rateWarning}>Changes apply to future entry choices. Existing financial rows keep their original saved values and calculations.</div>
+          <div className={styles.formActions}><button type="button" disabled={saving || !settingsValue.trim()} className={styles.primary} onClick={() => void saveSetting()}>{saving ? "Saving..." : "Save"}</button></div>
         </section>
       )}
 
@@ -1072,7 +1182,17 @@ export default function FinancialsPage() {
       {!loading && tab === "kpis" && line === "tu" && <section className={styles.metrics}><div><span>Joints</span><strong>{tubingTotals.joints.toLocaleString()}</strong></div><div><span>Joints / Manhour</span><strong>{tubingTotals.jointsPerMh.toFixed(2)}</strong></div><div><span>Jobs</span><strong>{tubingTotals.jobs.toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(tubingTotals.revenue)}</strong></div></section>}
 
       {!loading && tab === "cost-basis" && line !== "tu" && <><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Frozen Cost Basis</span><h2>Everyday Rates</h2></div><span>New rates affect future saves only.</span></div><div className={styles.rateGrid}>{rates.filter((rate) => line === "all" || rate.service_line === line).map((rate) => <div key={rate.id}><span>{financialLineNames[rate.service_line]}</span><strong>{rate.label}</strong><b>{rate.rate_key === "overhead" ? percent(rate.rate_value) : money(rate.rate_value)}</b>{permissions.manageSettings ? <button type="button" onClick={() => openBaseRate(rate)}>Edit</button> : null}</div>)}</div></section><section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Changes Over Time</span><h2>Effective-Dated and Job-Size Rates</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={openRatePeriod}>Add Scheduled Rate</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Cost Item</th><th>Effective From</th><th>Minimum Quantity</th><th>Value</th><th></th></tr></thead><tbody>{ratePeriods.filter((period) => line === "all" || period.service_line === line).map((period) => <tr key={period.id}><td>{financialLineNames[period.service_line]}</td><td>{rates.find((rate) => rate.service_line === period.service_line && rate.rate_key === period.rate_key)?.label || period.rate_key.replaceAll("_", " ")}</td><td>{period.effective_from}</td><td>{period.minimum_quantity}</td><td>{period.rate_key === "overhead" ? percent(period.rate_value) : money(period.rate_value)}</td><td>{permissions.manageSettings ? <button type="button" onClick={() => void deactivateRatePeriod(period)}>Deactivate</button> : null}</td></tr>)}{!ratePeriods.length && <tr><td colSpan={6}>No dated or tiered rates have been added.</td></tr>}</tbody></table></div></section></>}
-      {!loading && tab === "cost-basis" && line === "tu" && <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Throughput Only</span><h2>Tubing Cost Basis</h2></div></div><div className={styles.emptyState}>Tubing currently records weekly production and monthly revenue without job-level cost calculations.</div></section>}
+      {!loading && tab === "cost-basis" && line === "tu" && <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Throughput Only</span><h2>Tubing Cost Basis</h2></div></div><div className={styles.emptyState}>Tubing records weekly production and monthly revenue without job-level cost calculations. Its customer choices are managed below.</div></section>}
+
+      {!loading && tab === "cost-basis" && line !== "tu" && <section className={styles.tableSection}>
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Governed Classification</span><h2>Job Categories</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openCategory()}>Add Category</button> : null}</div>
+        <div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Code</th><th>Category</th><th></th></tr></thead><tbody>{categories.filter((category) => line === "all" || category.service_line === line).map((category) => <tr key={category.id}><td>{configurationLineNames[category.service_line as ConfigurationLine]}</td><td>{category.code}</td><td>{category.label}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openCategory(category)}>Edit</button><button type="button" onClick={() => void deactivateSetting("category", category.id, category.label)}>Deactivate</button></div> : null}</td></tr>)}{!categories.length && <tr><td colSpan={4}>No active categories are configured.</td></tr>}</tbody></table></div>
+      </section>}
+
+      {!loading && tab === "cost-basis" && <section className={styles.tableSection}>
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Field Entry Choices</span><h2>Pick Lists</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openPickList()}>Add Value</button> : null}</div>
+        <div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>List</th><th>Value</th><th></th></tr></thead><tbody>{pickLists.filter((value) => line === "all" || value.service_line === line).map((value) => <tr key={value.id}><td>{configurationLineNames[value.service_line]}</td><td>{pickListLabels[value.list_key] || value.list_key}</td><td>{value.list_value}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openPickList(value)}>Edit</button><button type="button" onClick={() => void deactivateSetting("pick-list", value.id, value.list_value)}>Deactivate</button></div> : null}</td></tr>)}{!pickLists.filter((value) => line === "all" || value.service_line === line).length && <tr><td colSpan={4}>No active pick-list values are configured for this selection.</td></tr>}</tbody></table></div>
+      </section>}
     </main>
   );
 }

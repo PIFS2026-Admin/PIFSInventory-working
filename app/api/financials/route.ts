@@ -21,6 +21,8 @@ import {
 } from "../../../lib/financialKpi";
 
 const financialLines = new Set<FinancialLine>(["dti", "cdt", "hb", "trs", "wash"]);
+const configurationLines = new Set(["dti", "cdt", "hb", "trs", "wash", "tu"]);
+const financialPickListKeys = new Set(["operator", "state", "size", "connection", "casing_section", "job_type", "items", "customer", "lead", "band", "insp_type", "reface_type"]);
 
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,6 +48,12 @@ function errorText(error: unknown) {
 function lineValue(value: unknown): FinancialLine {
   const line = String(value || "") as FinancialLine;
   if (!financialLines.has(line)) throw new Error("Select a valid service line.");
+  return line;
+}
+
+function configurationLineValue(value: unknown) {
+  const line = String(value || "");
+  if (!configurationLines.has(line)) throw new Error("Select a valid service line.");
   return line;
 }
 
@@ -200,18 +208,19 @@ export async function GET(request: Request) {
     if (line !== "all") jobsQuery = jobsQuery.eq("service_line", line);
     if (!includeVoid) jobsQuery = jobsQuery.eq("status", "active");
 
-    const [jobs, categories, rates, periods, targets, tubingWeeks, tubingEntries, tubingRevenue, reviews] = await Promise.all([
+    const [jobs, categories, rates, periods, targets, pickLists, tubingWeeks, tubingEntries, tubingRevenue, reviews] = await Promise.all([
       jobsQuery,
       context.admin.from("titan_financial_categories").select("*").eq("is_active", true).order("service_line").order("sort_order"),
       context.admin.from("titan_financial_rates").select("*").eq("yard_id", yardId).eq("is_active", true).order("service_line").order("sort_order"),
       context.admin.from("titan_financial_rate_periods").select("*").eq("yard_id", yardId).eq("is_active", true).order("effective_from", { ascending: false }),
       context.admin.from("titan_financial_targets").select("*").eq("is_active", true).or(`yard_id.is.null,yard_id.eq.${yardId}`),
+      context.admin.from("titan_financial_pick_list_values").select("*").eq("yard_id", yardId).eq("is_active", true).order("service_line").order("list_key").order("sort_order"),
       context.admin.from("titan_financial_tubing_weeks").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }),
       context.admin.from("titan_financial_tubing_entries").select("*").eq("yard_id", yardId).eq("is_active", true).gte("week_start", dateFrom).lte("week_start", dateTo).order("week_start", { ascending: false }).order("customer"),
       context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId).eq("is_active", true).gte("revenue_month", `${dateFrom.slice(0, 7)}-01`).lte("revenue_month", dateTo).order("revenue_month", { ascending: false }).order("customer"),
       context.admin.from("titan_financial_reviews").select("*").eq("yard_id", yardId).order("quarter", { ascending: false }).order("service_line"),
     ]);
-    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error, tubingWeeks.error, tubingEntries.error, tubingRevenue.error, reviews.error].find(Boolean);
+    const firstError = [jobs.error, categories.error, rates.error, periods.error, targets.error, pickLists.error, tubingWeeks.error, tubingEntries.error, tubingRevenue.error, reviews.error].find(Boolean);
     if (firstError) {
       if (isMissingFinancialSchema(firstError)) {
         return Response.json({ error: "Run supabase/titan_financial_kpis.sql before opening Financials.", setupRequired: true }, { status: 503 });
@@ -224,6 +233,7 @@ export async function GET(request: Request) {
       rates: rates.data || [],
       ratePeriods: periods.data || [],
       targets: targets.data || [],
+      pickLists: pickLists.data || [],
       tubing: {
         weeks: tubingWeeks.data || [],
         entries: tubingEntries.data || [],
@@ -267,6 +277,79 @@ export async function POST(request: Request) {
         before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
       });
       return Response.json({ rate: saved.data });
+    }
+
+    if (action === "save_category") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial job categories." }, { status: 403 });
+      const line = lineValue(body.line);
+      const id = String(body.id || "");
+      const label = String(body.label || "").trim();
+      const code = String(body.code || label).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (!label || !code) throw new Error("Enter a category name.");
+      const existing = id
+        ? await context.admin.from("titan_financial_categories").select("*").eq("id", id).single()
+        : await context.admin.from("titan_financial_categories").select("*").eq("service_line", line).eq("code", code).maybeSingle();
+      if (existing.error || (id && !existing.data)) throw existing.error || new Error("Job category not found.");
+      if (existing.data && (existing.data.service_line !== line || existing.data.code !== code)) throw new Error("A category's service line and code cannot be changed.");
+      const values = { label, is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_categories").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_categories").insert({ service_line: line, code, ...values, created_by: context.user.id }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_category", entity_id: saved.data.id,
+        action: existing.data ? "update" : "create", before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ category: saved.data });
+    }
+
+    if (action === "deactivate_category") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial job categories." }, { status: 403 });
+      const id = String(body.id || "");
+      const existing = await context.admin.from("titan_financial_categories").select("*").eq("id", id).single();
+      if (existing.error || !existing.data) throw new Error("Job category not found.");
+      const [jobsUsing, targetsUsing] = await Promise.all([
+        context.admin.from("titan_financial_jobs").select("id", { count: "exact", head: true }).eq("service_line", existing.data.service_line).eq("category_code", existing.data.code).eq("status", "active"),
+        context.admin.from("titan_financial_targets").select("id", { count: "exact", head: true }).eq("service_line", existing.data.service_line).eq("category_code", existing.data.code).eq("is_active", true),
+      ]);
+      if ((jobsUsing.count || 0) > 0 || (targetsUsing.count || 0) > 0) throw new Error("This category is still used by active jobs or KPI targets and cannot be deactivated.");
+      const saved = await context.admin.from("titan_financial_categories").update({ is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("id", id).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_category", entity_id: id, action: "deactivate", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
+      return Response.json({ category: saved.data });
+    }
+
+    if (action === "save_pick_list_value") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial pick lists." }, { status: 403 });
+      const line = configurationLineValue(body.line);
+      const listKey = String(body.listKey || "");
+      const listValue = String(body.listValue || "").trim();
+      const id = String(body.id || "");
+      if (!financialPickListKeys.has(listKey)) throw new Error("Select a valid pick list.");
+      if (!listValue) throw new Error("Enter a list value.");
+      const existing = id
+        ? await context.admin.from("titan_financial_pick_list_values").select("*").eq("id", id).single()
+        : await context.admin.from("titan_financial_pick_list_values").select("*").eq("yard_id", yardId).eq("service_line", line).eq("list_key", listKey).eq("list_value", listValue).maybeSingle();
+      if (existing.error || (id && !existing.data)) throw existing.error || new Error("Pick-list value not found.");
+      if (existing.data && (existing.data.yard_id !== yardId || existing.data.service_line !== line || existing.data.list_key !== listKey)) throw new Error("A pick-list value cannot move to another list.");
+      const values = { list_value: listValue, is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_pick_list_values").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_pick_list_values").insert({ yard_id: yardId, service_line: line, list_key: listKey, ...values, created_by: context.user.id }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_pick_list", entity_id: saved.data.id, action: existing.data ? "update" : "create", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
+      return Response.json({ pickListValue: saved.data });
+    }
+
+    if (action === "deactivate_pick_list_value") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial pick lists." }, { status: 403 });
+      const id = String(body.id || "");
+      const existing = await context.admin.from("titan_financial_pick_list_values").select("*").eq("id", id).eq("yard_id", yardId).single();
+      if (existing.error || !existing.data) throw new Error("Pick-list value not found.");
+      const saved = await context.admin.from("titan_financial_pick_list_values").update({ is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("id", id).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_pick_list", entity_id: id, action: "deactivate", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
+      return Response.json({ pickListValue: saved.data });
     }
 
     if (action === "save_rate_period") {
