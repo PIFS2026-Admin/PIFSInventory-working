@@ -10,7 +10,8 @@
 .tabs,
 .metrics,
 .tableSection,
-.jobForm {
+.jobForm,
+.analyticsControls {
   max-width: 1680px;
   margin-inline: auto;
 }
@@ -113,7 +114,8 @@
 .metrics strong { display: block; margin-top: 5px; font-size: 21px; overflow-wrap: anywhere; }
 
 .tableSection,
-.jobForm {
+.jobForm,
+.analyticsControls {
   margin-top: 14px;
   border: 1px solid #344052;
   background: #11161d;
@@ -173,6 +175,27 @@
 .preview strong { display: block; margin-top: 3px; font-size: 17px; }
 .formActions { justify-content: flex-end; padding: 0 12px; }
 .rateWarning { margin: 0 12px 12px; padding: 10px; border-left: 3px solid #ff7417; background: #1c1712; color: #d5b79f; font-size: 11px; line-height: 1.45; }
+
+.analyticsFilters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.analyticsFilters label { display: grid; gap: 5px; }
+.analyticsFilters span { color: #ff8a3c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.analyticsFilters input,
+.analyticsFilters select { width: 100%; min-height: 39px; padding: 8px 10px; }
+.analyticsPages { display: flex; gap: 8px; overflow-x: auto; padding: 0 12px 12px; }
+.analyticsPages button { white-space: nowrap; }
+
+.barChart { display: grid; gap: 9px; padding: 14px; }
+.barRow { display: grid; grid-template-columns: 76px minmax(120px, 1fr) 110px; align-items: center; gap: 10px; }
+.barRow > span { color: #9eabbc; font-size: 11px; }
+.barRow > div { height: 18px; overflow: hidden; border: 1px solid #2d3744; background: #0d1218; }
+.barRow i { display: block; height: 100%; background: #ff7417; }
+.barRow strong { text-align: right; font-size: 12px; }
 
 .twoColumn {
   display: grid;
@@ -266,6 +289,7 @@
   .header { align-items: flex-start; }
   .metrics { grid-template-columns: repeat(3, 1fr); }
   .formGrid, .rateGrid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .analyticsFilters { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .kpiGrid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
   .reviewGrid { grid-template-columns: 1fr; }
   .twoColumn { grid-template-columns: 1fr; }
@@ -289,4 +313,6 @@
   .reviewMetrics { grid-template-columns: 1fr 1fr; }
   .reviewMetrics > div:nth-child(2) { border-right: 0; }
   .reviewNarratives { grid-template-columns: 1fr; }
+  .barRow { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
+  .barRow strong { font-size: 11px; }
 }

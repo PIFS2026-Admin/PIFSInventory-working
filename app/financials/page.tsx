@@ -5,7 +5,8 @@ import { financialLineNames, financialLineRateKeys, FinancialLine } from "../../
 import { supabase } from "../../lib/supabase";
 import styles from "./financials.module.css";
 
-type TabKey = "overview" | "trackers" | "kpis" | "reviews" | "cost-basis";
+type TabKey = "overview" | "trackers" | "kpis" | "analytics" | "reviews" | "cost-basis";
+type AnalyticsPage = "financials" | "production" | "lead" | "trends";
 type ViewLine = FinancialLine | "tu" | "all";
 type Yard = { id: string; name: string; code: string };
 type PermissionSet = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean };
@@ -149,6 +150,48 @@ function financialCategoryLabel(job: FinancialJob, categories: Category[]) {
   return categories.find((category) => category.service_line === job.service_line && category.code === job.category_code)?.label || job.category_code;
 }
 
+function jobQuarter(job: FinancialJob) {
+  const month = Number(job.job_date.slice(5, 7));
+  return `${job.job_date.slice(0, 4)}-Q${Math.floor((month - 1) / 3) + 1}`;
+}
+
+function jobState(job: FinancialJob) {
+  return String(job.inputs.state || "");
+}
+
+function jobSize(job: FinancialJob) {
+  return String(job.inputs.casing_size || job.inputs.size || "");
+}
+
+function jobQuantity(job: FinancialJob) {
+  if (job.service_line === "dti") return numberValue(job.inputs.joints);
+  if (job.service_line === "cdt" || job.service_line === "trs" || job.service_line === "wash") return numberValue(job.inputs.footage);
+  return ["dp_box", "dp_pin", "hw_box", "hw_pin", "tub_box", "tub_pin"]
+    .reduce((sum, key) => sum + numberValue(job.inputs[key]), 0);
+}
+
+function summarizeJobs(rows: FinancialJob[]) {
+  const summary = rows.reduce((values, job) => {
+    const revenue = numberValue(job.revenue);
+    values.jobs += 1;
+    values.revenue += revenue;
+    values.cost += numberValue(job.computed.total_cost);
+    values.profit += numberValue(job.computed.profit);
+    values.manhours += numberValue(job.manhours);
+    values.laborDollars += numberValue(job.computed.labor_pct) * revenue;
+    values.quantity += jobQuantity(job);
+    return values;
+  }, { jobs: 0, revenue: 0, cost: 0, profit: 0, manhours: 0, laborDollars: 0, quantity: 0 });
+  return {
+    ...summary,
+    averageJob: summary.jobs ? summary.revenue / summary.jobs : 0,
+    margin: summary.revenue ? summary.profit / summary.revenue : 0,
+    laborPercent: summary.revenue ? summary.laborDollars / summary.revenue : 0,
+    revenuePerMh: summary.manhours ? summary.revenue / summary.manhours : 0,
+    quantityPerMh: summary.manhours ? summary.quantity / summary.manhours : 0,
+  };
+}
+
 function metricValue(metricKey: string, rows: FinancialJob[]) {
   const revenue = rows.reduce((sum, job) => sum + numberValue(job.revenue), 0);
   const manhours = rows.reduce((sum, job) => sum + numberValue(job.manhours), 0);
@@ -252,6 +295,8 @@ export default function FinancialsPage() {
   const [targetValue, setTargetValue] = useState("");
   const [targetLabel, setTargetLabel] = useState("Goal");
   const [targetScope, setTargetScope] = useState<"yard" | "default">("yard");
+  const [analyticsPage, setAnalyticsPage] = useState<AnalyticsPage>("financials");
+  const [analyticsFilters, setAnalyticsFilters] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void initialize();
@@ -441,6 +486,51 @@ export default function FinancialsPage() {
   }).sort((a, b) => b.joints - a.joints), [tubingCustomers, tubingEntries]);
 
   const visibleReviews = useMemo(() => reviews.filter((review) => line === "all" || review.service_line === line), [reviews, line]);
+
+  const analyticsOptions = useMemo(() => ({
+    month: Array.from(new Set(jobs.map((job) => job.job_date.slice(0, 7)))).sort().reverse(),
+    quarter: Array.from(new Set(jobs.map(jobQuarter))).sort().reverse(),
+    state: Array.from(new Set(jobs.map(jobState).filter(Boolean))).sort(),
+    size: Array.from(new Set(jobs.map(jobSize).filter(Boolean))).sort(),
+    operator: Array.from(new Set(jobs.map((job) => job.operator).filter(Boolean) as string[])).sort(),
+    lead: Array.from(new Set(jobs.map((job) => job.lead).filter(Boolean) as string[])).sort(),
+    category: Array.from(new Set(jobs.map((job) => financialCategoryLabel(job, categories)))).sort(),
+  }), [jobs, categories]);
+
+  const analyticsJobs = useMemo(() => jobs.filter((job) =>
+    (!analyticsFilters.month || job.job_date.slice(0, 7) === analyticsFilters.month) &&
+    (!analyticsFilters.quarter || jobQuarter(job) === analyticsFilters.quarter) &&
+    matchesTextFilter(jobState(job), analyticsFilters.state) &&
+    matchesTextFilter(jobSize(job), analyticsFilters.size) &&
+    matchesTextFilter(job.operator, analyticsFilters.operator) &&
+    matchesTextFilter(job.lead, analyticsFilters.lead) &&
+    matchesTextFilter(financialCategoryLabel(job, categories), analyticsFilters.category) &&
+    matchesNumberFilter(jobQuantity(job), analyticsFilters.quantity)
+  ), [jobs, analyticsFilters, categories]);
+
+  const analyticsTotals = useMemo(() => summarizeJobs(analyticsJobs), [analyticsJobs]);
+  const analyticsMonthly = useMemo(() => {
+    const grouped = new Map<string, FinancialJob[]>();
+    analyticsJobs.forEach((job) => grouped.set(job.job_date.slice(0, 7), [...(grouped.get(job.job_date.slice(0, 7)) || []), job]));
+    return Array.from(grouped, ([period, rows]) => ({ period, ...summarizeJobs(rows) })).sort((a, b) => a.period.localeCompare(b.period));
+  }, [analyticsJobs]);
+  const analyticsQuarterly = useMemo(() => {
+    const grouped = new Map<string, FinancialJob[]>();
+    analyticsJobs.forEach((job) => grouped.set(jobQuarter(job), [...(grouped.get(jobQuarter(job)) || []), job]));
+    return Array.from(grouped, ([period, rows]) => ({ period, ...summarizeJobs(rows) })).sort((a, b) => a.period.localeCompare(b.period));
+  }, [analyticsJobs]);
+  const analyticsOperators = useMemo(() => {
+    const grouped = new Map<string, FinancialJob[]>();
+    analyticsJobs.forEach((job) => { const key = job.operator || "Unassigned"; grouped.set(key, [...(grouped.get(key) || []), job]); });
+    return Array.from(grouped, ([name, rows]) => ({ name, ...summarizeJobs(rows) })).sort((a, b) => b.revenue - a.revenue);
+  }, [analyticsJobs]);
+  const analyticsLeads = useMemo(() => {
+    const grouped = new Map<string, FinancialJob[]>();
+    analyticsJobs.forEach((job) => { const key = job.lead || "Unassigned"; grouped.set(key, [...(grouped.get(key) || []), job]); });
+    return Array.from(grouped, ([name, rows]) => ({ name, ...summarizeJobs(rows) })).sort((a, b) => b.revenue - a.revenue);
+  }, [analyticsJobs]);
+  const analyticsBarMax = Math.max(1, ...analyticsMonthly.map((row) => row.revenue));
+  const analyticsQuantityLabel = line === "dti" ? "Joints" : line === "hb" ? "Ends" : line === "all" ? "Production" : "Feet";
 
   function resetForm(nextLine: FinancialLine = formLine) {
     setEditingId("");
@@ -772,14 +862,14 @@ export default function FinancialsPage() {
       </header>
 
       <section className={styles.filters} aria-label="Financial filters">
-        <label><span>Yard</span><select value={yardId} onChange={(event) => { setJobFilters({}); setYardId(event.target.value); window.localStorage.setItem("titan_financial_yard_id", event.target.value); }}>{yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
-        <label><span>Service Line</span><select value={line} onChange={(event) => { setJobFilters({}); setLine(event.target.value as ViewLine); }}><option value="all">All Service Lines</option>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}<option value="tu">Tubing</option></select></label>
+        <label><span>Yard</span><select value={yardId} onChange={(event) => { setJobFilters({}); setAnalyticsFilters({}); setYardId(event.target.value); window.localStorage.setItem("titan_financial_yard_id", event.target.value); }}>{yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
+        <label><span>Service Line</span><select value={line} onChange={(event) => { setJobFilters({}); setAnalyticsFilters({}); setLine(event.target.value as ViewLine); }}><option value="all">All Service Lines</option>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}<option value="tu">Tubing</option></select></label>
         <label><span>From</span><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></label>
         <label><span>To</span><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label>
       </section>
 
       <nav className={styles.tabs} aria-label="Financial views">
-        {(["overview", "trackers", "kpis", "reviews", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item[0].toUpperCase() + item.slice(1)}</button>)}
+        {(["overview", "trackers", "kpis", "analytics", "reviews", "cost-basis"] as TabKey[]).map((item) => <button key={item} type="button" className={tab === item ? styles.activeTab : ""} onClick={() => setTab(item)}>{item === "cost-basis" ? "Cost Basis" : item[0].toUpperCase() + item.slice(1)}</button>)}
       </nav>
 
       {message && <div className={styles.notice}>{message}</div>}
@@ -872,6 +962,52 @@ export default function FinancialsPage() {
           </section>
         </>
       )}
+
+      {!loading && tab === "analytics" && line !== "tu" && <>
+        <section className={styles.analyticsControls}>
+          <div className={styles.sectionHeading}>
+            <div><span className={styles.eyebrow}>Shared Analysis</span><h2>Financial and Production Analytics</h2></div>
+            <div className={styles.headerActions}><strong>{analyticsJobs.length} of {jobs.length} jobs</strong>{Object.values(analyticsFilters).some(Boolean) && <button type="button" onClick={() => setAnalyticsFilters({})}>Clear Slicers</button>}</div>
+          </div>
+          <div className={styles.analyticsFilters}>
+            <label><span>Year / Month</span><select value={analyticsFilters.month || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, month: event.target.value, quarter: "" }))}><option value="">All months</option>{analyticsOptions.month.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Year / Quarter</span><select value={analyticsFilters.quarter || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, quarter: event.target.value, month: "" }))}><option value="">All quarters</option>{analyticsOptions.quarter.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>State</span><select value={analyticsFilters.state || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, state: event.target.value }))}><option value="">All states</option>{analyticsOptions.state.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>{analyticsQuantityLabel}</span><input value={analyticsFilters.quantity || ""} placeholder=">200 or 100-500" onChange={(event) => setAnalyticsFilters((current) => ({ ...current, quantity: event.target.value }))} /></label>
+            <label><span>{line === "dti" ? "Pipe Size" : "Size"}</span><select value={analyticsFilters.size || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, size: event.target.value }))}><option value="">All sizes</option>{analyticsOptions.size.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Operator</span><select value={analyticsFilters.operator || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, operator: event.target.value }))}><option value="">All operators</option>{analyticsOptions.operator.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Crew Lead</span><select value={analyticsFilters.lead || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, lead: event.target.value }))}><option value="">All leads</option>{analyticsOptions.lead.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Job Category</span><select value={analyticsFilters.category || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, category: event.target.value }))}><option value="">All categories</option>{analyticsOptions.category.map((value) => <option key={value}>{value}</option>)}</select></label>
+          </div>
+          <div className={styles.analyticsPages}>{(["financials", "production", "lead", "trends"] as AnalyticsPage[]).map((item) => <button key={item} type="button" className={analyticsPage === item ? styles.primary : ""} onClick={() => setAnalyticsPage(item)}>{item === "lead" ? "Lead Production" : item[0].toUpperCase() + item.slice(1)}</button>)}</div>
+        </section>
+
+        {analyticsPage === "financials" && <>
+          <section className={styles.metrics}>
+            <div><span>Total Income</span><strong>{money(analyticsTotals.revenue)}</strong></div><div><span>Average / Job</span><strong>{money(analyticsTotals.averageJob)}</strong></div>
+            <div><span>Revenue / Manhour</span><strong>{money(analyticsTotals.revenuePerMh)}</strong></div><div><span>Labor % Revenue</span><strong>{percent(analyticsTotals.laborPercent)}</strong></div>
+            <div><span>Gross Profit Margin</span><strong>{percent(analyticsTotals.margin)}</strong></div><div><span>Jobs</span><strong>{analyticsTotals.jobs.toLocaleString()}</strong></div>
+          </section>
+          <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Monthly Income</span><h2>Invoice Amount by Month</h2></div></div><div className={styles.barChart}>{analyticsMonthly.map((row) => <div className={styles.barRow} key={row.period}><span>{new Date(`${row.period}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "2-digit" })}</span><div><i style={{ width: `${Math.max(1, row.revenue / analyticsBarMax * 100)}%` }} /></div><strong>{money(row.revenue)}</strong></div>)}{!analyticsMonthly.length && <div className={styles.emptyState}>No jobs match these slicers.</div>}</div></section>
+        </>}
+
+        {(analyticsPage === "production" || analyticsPage === "lead") && (() => {
+          const rows = analyticsPage === "production" ? analyticsOperators : analyticsLeads;
+          const label = analyticsPage === "production" ? "Operator" : "Crew Lead";
+          return <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Production Comparison</span><h2>{label} Performance</h2></div><span>Ranked by revenue</span></div><div className={styles.tableWrap}><table><thead><tr><th>{label}</th><th>Jobs</th><th>Revenue</th><th>Manhours</th>{line !== "all" && <th>{analyticsQuantityLabel}</th>}{line !== "all" && <th>{analyticsQuantityLabel} / MH</th>}<th>Revenue / MH</th><th>Labor %</th><th>Margin</th></tr></thead><tbody>{rows.map((row) => <tr key={row.name}><td>{row.name}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{row.manhours.toLocaleString()}</td>{line !== "all" && <td>{row.quantity.toLocaleString()}</td>}{line !== "all" && <td>{row.quantityPerMh.toFixed(2)}</td>}<td>{money(row.revenuePerMh)}</td><td>{percent(row.laborPercent)}</td><td>{percent(row.margin)}</td></tr>)}{!rows.length && <tr><td colSpan={line === "all" ? 7 : 9}>No jobs match these slicers.</td></tr>}</tbody></table></div></section>;
+        })()}
+
+        {analyticsPage === "trends" && <>
+          <section className={styles.metrics}>
+            <div><span>Selected Jobs</span><strong>{analyticsTotals.jobs.toLocaleString()}</strong></div><div><span>Total Income</span><strong>{money(analyticsTotals.revenue)}</strong></div>
+            <div><span>Profit</span><strong>{money(analyticsTotals.profit)}</strong></div><div><span>Margin</span><strong>{percent(analyticsTotals.margin)}</strong></div>
+            <div><span>Revenue / Manhour</span><strong>{money(analyticsTotals.revenuePerMh)}</strong></div><div><span>Reporting Quarters</span><strong>{analyticsQuarterly.length}</strong></div>
+          </section>
+          <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Quarterly Trend</span><h2>Financial and Production Movement</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Quarter</th><th>Jobs</th><th>Revenue</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / MH</th>{line !== "all" && <th>{analyticsQuantityLabel} / MH</th>}</tr></thead><tbody>{analyticsQuarterly.map((row) => <tr key={row.period}><td>{row.period}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td>{line !== "all" && <td>{row.quantityPerMh.toFixed(2)}</td>}</tr>)}{!analyticsQuarterly.length && <tr><td colSpan={line === "all" ? 7 : 8}>No jobs match these slicers.</td></tr>}</tbody></table></div></section>
+        </>}
+      </>}
+
+      {!loading && tab === "analytics" && line === "tu" && <div className={styles.emptyState}>Tubing uses weekly production and monthly revenue rather than job-cost analytics. Its complete analysis remains on Overview and Trackers.</div>}
 
       {!loading && tab === "trackers" && line !== "tu" && <section className={styles.tableSection}>
         <div className={styles.sectionHeading}>
