@@ -310,6 +310,30 @@
 .reviewComparison { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid #344052; border-top: 0; background: #0e141b; }
 .reviewComparison span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .reviewComparison strong { color: #c9d3df; font-size: 11px; }
+.reviewSections { display: grid; margin-top: 14px; border-top: 1px solid #344052; }
+.reviewSection { padding: 11px 0; border-bottom: 1px solid #2c3542; }
+.reviewSectionHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.reviewSectionHead > div:first-child { display: grid; gap: 2px; }
+.reviewSectionHead span,
+.reviewMetricCompare span,
+.reviewManual span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.reviewSectionHead strong { font-size: 13px; }
+.reviewSection > p { margin: 8px 0 0; color: #c3ccd8; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.reviewSectionHead .rowActions { flex-wrap: wrap; justify-content: flex-end; }
+.reviewSectionHead .rowActions button { min-height: 27px; }
+.reviewMetricCompare { display: grid; grid-template-columns: 1fr 1fr; margin-top: 9px; border: 1px solid #344052; }
+.reviewMetricCompare > div { padding: 9px; border-right: 1px solid #344052; }
+.reviewMetricCompare > div:last-child { border-right: 0; }
+.reviewMetricCompare strong,
+.reviewManual strong { display: block; margin-top: 3px; font-size: 18px; }
+.reviewManual { margin-top: 9px; }
+.reviewChart { display: grid; gap: 7px; margin-top: 10px; }
+.reviewChart > div { display: grid; grid-template-columns: minmax(90px, 130px) 1fr minmax(75px, auto); align-items: center; gap: 8px; }
+.reviewChart span { overflow: hidden; color: #aeb8c6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.reviewChart i { height: 14px; border: 1px solid #344052; background: #0b0f14; }
+.reviewChart b { display: block; height: 100%; background: #ff7417; }
+.reviewChart strong { text-align: right; font-size: 10px; }
+.addSectionButton { justify-self: start; margin-top: 10px; }
 .reviewActions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .reviewActions span { margin-left: auto; color: #8998aa; font-size: 10px; }
 
@@ -353,6 +377,9 @@
   .reviewMetrics { grid-template-columns: 1fr 1fr; }
   .reviewMetrics > div:nth-child(2) { border-right: 0; }
   .reviewNarratives { grid-template-columns: 1fr; }
+  .reviewSectionHead { display: grid; }
+  .reviewSectionHead .rowActions { justify-content: flex-start; }
+  .reviewChart > div { grid-template-columns: 78px minmax(80px, 1fr) 72px; }
   .barRow { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
   .barRow strong { font-size: 11px; }
   .marketShareRow { grid-template-columns: 1fr; gap: 8px; }

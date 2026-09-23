@@ -52,6 +52,17 @@ type FinancialReview = {
   snapshot: Record<string, unknown> | null;
   finalized_at: string | null;
 };
+type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric";
+type FinancialReviewSection = {
+  id: string;
+  review_id: string;
+  position: number;
+  kind: ReviewSectionKind;
+  title: string | null;
+  config: Record<string, unknown>;
+  body: string | null;
+  snapshot: Record<string, unknown> | null;
+};
 type MarketKind = "pf" | "shared" | "comp" | "unknown" | "na";
 type MarketService = { id: string; service_key: string; name: string; sort_order: number };
 type MarketRig = { id: string; rig_name: string; operator: string; segment: string };
@@ -247,6 +258,12 @@ function formatTargetValue(value: unknown, unit: string) {
   return numberValue(value).toLocaleString();
 }
 
+function formatReviewMetric(metricKey: string, value: unknown) {
+  if (["revenue", "cost", "profit", "revenue_per_manhour"].includes(metricKey)) return money(value);
+  if (["margin", "labor_percent"].includes(metricKey)) return percent(value);
+  return numberValue(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
 function quarterForDate(date: Date) {
   return `${date.getFullYear()}-Q${Math.floor(date.getMonth() / 3) + 1}`;
 }
@@ -260,6 +277,14 @@ const targetMetrics = [
   { key: "labor_pct", label: "Labor % Revenue", unit: "percent" },
   { key: "rev_per_mh", label: "Revenue / Manhour", unit: "currency" },
   { key: "margin", label: "Profit Margin", unit: "percent" },
+] as const;
+const reviewMetrics = [
+  { key: "revenue", label: "Revenue" }, { key: "jobs", label: "Jobs" }, { key: "profit", label: "Profit" },
+  { key: "margin", label: "Profit Margin" }, { key: "cost", label: "Total Cost" }, { key: "manhours", label: "Manhours" },
+  { key: "revenue_per_manhour", label: "Revenue / Manhour" }, { key: "labor_percent", label: "Labor % Revenue" },
+] as const;
+const reviewChartGroups = [
+  { key: "month", label: "Month" }, { key: "operator", label: "Operator" }, { key: "lead", label: "Crew Lead" }, { key: "category", label: "Job Category" },
 ] as const;
 
 function csvValue(value: unknown) {
@@ -294,6 +319,8 @@ export default function FinancialsPage() {
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
   const [reviews, setReviews] = useState<FinancialReview[]>([]);
+  const [reviewSections, setReviewSections] = useState<FinancialReviewSection[]>([]);
+  const [reviewComposerSetupRequired, setReviewComposerSetupRequired] = useState(false);
   const [market, setMarket] = useState<MarketData>(emptyMarket);
   const [marketAsOf, setMarketAsOf] = useState("");
   const [marketFilters, setMarketFilters] = useState({ operator: "", segment: "" });
@@ -326,6 +353,15 @@ export default function FinancialsPage() {
   const [reviewRangeStart, setReviewRangeStart] = useState(yearStart);
   const [reviewRangeEnd, setReviewRangeEnd] = useState(today);
   const [reviewCompareMode, setReviewCompareMode] = useState<"prior" | "year">("prior");
+  const [sectionEditorReviewId, setSectionEditorReviewId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [sectionKind, setSectionKind] = useState<ReviewSectionKind>("metric");
+  const [sectionTitle, setSectionTitle] = useState("");
+  const [sectionMetric, setSectionMetric] = useState("revenue");
+  const [sectionGroup, setSectionGroup] = useState("month");
+  const [sectionBody, setSectionBody] = useState("");
+  const [sectionManualLabel, setSectionManualLabel] = useState("");
+  const [sectionManualValue, setSectionManualValue] = useState("");
   const [reviewHighlights, setReviewHighlights] = useState("");
   const [reviewLowlights, setReviewLowlights] = useState("");
   const [reviewGoals, setReviewGoals] = useState("");
@@ -404,6 +440,8 @@ export default function FinancialsPage() {
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
     setReviews(result.reviews || []);
+    setReviewSections(result.reviewComposer?.sections || []);
+    setReviewComposerSetupRequired(Boolean(result.reviewComposer?.setupRequired));
     setMarket(result.market || emptyMarket);
     setPermissions(result.permissions || emptyPermissions);
     setLoading(false);
@@ -649,6 +687,18 @@ export default function FinancialsPage() {
     setShowReviewForm(true);
   }
 
+  function openReviewSection(reviewId: string, section?: FinancialReviewSection) {
+    setSectionEditorReviewId(reviewId);
+    setSectionId(section?.id || "");
+    setSectionKind(section?.kind || "metric");
+    setSectionTitle(section?.title || "");
+    setSectionMetric(String(section?.config?.metric_key || "revenue"));
+    setSectionGroup(String(section?.config?.group_by || "month"));
+    setSectionBody(section?.body || "");
+    setSectionManualLabel(String(section?.config?.label || ""));
+    setSectionManualValue(String(section?.config?.value || ""));
+  }
+
   function openBaseRate(rate: Rate) {
     setRateEditorType("base");
     setRateLine(rate.service_line);
@@ -834,6 +884,58 @@ export default function FinancialsPage() {
     setReviewId("");
     setMessage("Financial review saved as open.");
     await loadFinancials();
+  }
+
+  async function saveReviewSection() {
+    setSaving(true);
+    setMessage("");
+    const config = sectionKind === "manual_metric"
+      ? { label: sectionManualLabel.trim(), value: sectionManualValue.trim() }
+      : sectionKind === "chart"
+        ? { metric_key: sectionMetric, group_by: sectionGroup }
+        : sectionKind === "metric" ? { metric_key: sectionMetric } : {};
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save_review_section", yardId, reviewId: sectionEditorReviewId, sectionId, kind: sectionKind, title: sectionTitle, body: sectionBody, config }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The review section could not be saved.");
+      return;
+    }
+    setSectionEditorReviewId("");
+    setMessage("Review section saved.");
+    await loadFinancials();
+  }
+
+  async function deactivateReviewSection(section: FinancialReviewSection) {
+    if (!window.confirm(`Remove ${section.title || "this section"} from the open review?`)) return;
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "deactivate_review_section", yardId, sectionId: section.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Review section removed." : result.error || "The review section could not be removed.");
+    if (response.ok) await loadFinancials();
+  }
+
+  async function moveReviewSection(reviewId: string, sectionIdToMove: string, direction: -1 | 1) {
+    const ordered = reviewSections.filter((section) => section.review_id === reviewId).sort((a, b) => a.position - b.position);
+    const index = ordered.findIndex((section) => section.id === sectionIdToMove);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reorder_review_sections", yardId, reviewId, sectionIds: ordered.map((section) => section.id) }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Review sections reordered." : result.error || "The review sections could not be reordered.");
+    if (response.ok) await loadFinancials();
   }
 
   async function finalizeReview(review: FinancialReview) {
@@ -1077,6 +1179,22 @@ export default function FinancialsPage() {
         </section>
       )}
 
+      {sectionEditorReviewId && (
+        <section className={styles.jobForm}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Review Composer</span><h2>{sectionId ? "Edit Review Section" : "Add Review Section"}</h2></div><button type="button" onClick={() => setSectionEditorReviewId("")}>Close</button></div>
+          <div className={styles.formGrid}>
+            <label><span>Section Type</span><select value={sectionKind} disabled={Boolean(sectionId)} onChange={(event) => setSectionKind(event.target.value as ReviewSectionKind)}><option value="metric">Metric Comparison</option><option value="chart">Chart</option><option value="narrative">Narrative</option><option value="manual_metric">Manual Value</option></select></label>
+            <label><span>Section Title</span><input value={sectionTitle} onChange={(event) => setSectionTitle(event.target.value)} placeholder="Optional heading" /></label>
+            {(sectionKind === "metric" || sectionKind === "chart") && <label><span>Metric</span><select value={sectionMetric} onChange={(event) => setSectionMetric(event.target.value)}>{reviewMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></label>}
+            {sectionKind === "chart" && <label><span>Group By</span><select value={sectionGroup} onChange={(event) => setSectionGroup(event.target.value)}>{reviewChartGroups.map((group) => <option key={group.key} value={group.key}>{group.label}</option>)}</select></label>}
+            {sectionKind === "narrative" && <label className={styles.reviewNarrative}><span>Narrative</span><textarea value={sectionBody} onChange={(event) => setSectionBody(event.target.value)} placeholder="Review commentary" /></label>}
+            {sectionKind === "manual_metric" && <><label><span>Label</span><input value={sectionManualLabel} onChange={(event) => setSectionManualLabel(event.target.value)} placeholder="Headcount, downtime, delivered joints..." /></label><label><span>Value</span><input value={sectionManualValue} onChange={(event) => setSectionManualValue(event.target.value)} /></label></>}
+          </div>
+          <div className={styles.rateWarning}>Computed sections use the review window and comparison setting. Their values freeze when the review is finalized.</div>
+          <div className={styles.formActions}><button type="button" disabled={saving || (sectionKind === "narrative" && !sectionBody.trim()) || (sectionKind === "manual_metric" && !sectionManualLabel.trim())} className={styles.primary} onClick={() => void saveReviewSection()}>{saving ? "Saving..." : "Save Section"}</button></div>
+        </section>
+      )}
+
       {rateEditorType && (
         <section className={styles.jobForm}>
           <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Cost Basis</span><h2>{rateEditorType === "base" ? "Edit Everyday Rate" : "Add Scheduled Rate"}</h2></div><button type="button" onClick={() => setRateEditorType("")}>Close</button></div>
@@ -1295,11 +1413,25 @@ export default function FinancialsPage() {
 
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
         <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Review</span><h2>Financial Reviews</h2></div><span>Quarterly or custom windows. Final reviews retain their captured KPI values.</span></div>
+        {reviewComposerSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_sections.sql</strong> to enable configurable review sections.</div>}
         {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => <article key={review.id} className={styles.reviewCard} data-status={review.status}>
           <div className={styles.reviewCardHead}><div><span>{financialLineNames[review.service_line]} · {review.compare_mode === "year" ? "vs last year" : "vs prior period"}</span><h3>{review.quarter || `${new Date(`${review.range_start.slice(0, 10)}T00:00:00`).toLocaleDateString()} - ${new Date(`${review.range_end.slice(0, 10)}T00:00:00`).toLocaleDateString()}`}</h3></div><b>{review.status}</b></div>
           {review.status === "final" && review.snapshot ? <div className={styles.reviewMetrics}><div><span>Jobs</span><strong>{numberValue(review.snapshot.jobs).toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(review.snapshot.revenue)}</strong></div><div><span>Profit</span><strong>{money(review.snapshot.profit)}</strong></div><div><span>Margin</span><strong>{percent(review.snapshot.margin)}</strong></div></div> : <p className={styles.openReviewNote}>Open review. KPI values will be captured when it is finalized.</p>}
           {review.status === "final" && Boolean(review.snapshot?.comparison) && <div className={styles.reviewComparison}><span>Comparison</span><strong>{numberValue((review.snapshot?.comparison as Record<string, unknown>).jobs).toLocaleString()} jobs · {money((review.snapshot?.comparison as Record<string, unknown>).revenue)} revenue · {percent((review.snapshot?.comparison as Record<string, unknown>).margin)} margin</strong></div>}
           <div className={styles.reviewNarratives}><div><span>Highlights</span><p>{review.highlights || "-"}</p></div><div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div><div><span>Goals</span><p>{review.goals || "-"}</p></div></div>
+          {!reviewComposerSetupRequired && <div className={styles.reviewSections}>{reviewSections.filter((section) => section.review_id === review.id).sort((a, b) => a.position - b.position).map((section, index, ordered) => {
+            const snapshot = section.snapshot || {};
+            const metricKey = String(snapshot.metric_key || section.config.metric_key || "revenue");
+            const chartRows = Array.isArray(snapshot.current) ? snapshot.current as Array<{ label: string; value: number }> : [];
+            const chartMax = Math.max(1, ...chartRows.map((row) => Math.abs(numberValue(row.value))));
+            return <section key={section.id} className={styles.reviewSection}>
+              <div className={styles.reviewSectionHead}><div><span>{section.kind.replaceAll("_", " ")}</span><strong>{section.title || (section.kind === "narrative" ? "Narrative" : reviewMetrics.find((metric) => metric.key === metricKey)?.label || "Review Section")}</strong></div>{review.status === "open" && permissions.edit && <div className={styles.rowActions}><button type="button" disabled={index === 0} onClick={() => void moveReviewSection(review.id, section.id, -1)}>Move Up</button><button type="button" disabled={index === ordered.length - 1} onClick={() => void moveReviewSection(review.id, section.id, 1)}>Move Down</button><button type="button" onClick={() => openReviewSection(review.id, section)}>Edit</button><button type="button" onClick={() => void deactivateReviewSection(section)}>Remove</button></div>}</div>
+              {section.kind === "narrative" && <p>{section.body}</p>}
+              {section.kind === "manual_metric" && <div className={styles.reviewManual}><span>{String(section.config.label || section.title || "Value")}</span><strong>{String(section.config.value || "-")}</strong></div>}
+              {section.kind === "metric" && (section.snapshot ? <div className={styles.reviewMetricCompare}><div><span>Review Window</span><strong>{formatReviewMetric(metricKey, snapshot.current)}</strong></div><div><span>{review.compare_mode === "year" ? "Last Year" : "Prior Period"}</span><strong>{formatReviewMetric(metricKey, snapshot.comparison)}</strong></div></div> : <p className={styles.openReviewNote}>This comparison will calculate and freeze when the review is finalized.</p>)}
+              {section.kind === "chart" && (chartRows.length ? <div className={styles.reviewChart}>{chartRows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / chartMax * 100}%` }} /></i><strong>{formatReviewMetric(metricKey, row.value)}</strong></div>)}</div> : <p className={styles.openReviewNote}>This chart will calculate and freeze when the review is finalized.</p>)}
+            </section>;
+          })}{review.status === "open" && permissions.edit && <button type="button" className={styles.addSectionButton} onClick={() => openReviewSection(review.id)}>Add Section</button>}</div>}
           <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
         </article>)}</div> : <div className={styles.emptyState}>No financial reviews have been started for this selection.</div>}
       </section>}

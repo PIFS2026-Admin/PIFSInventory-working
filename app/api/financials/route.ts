@@ -46,6 +46,11 @@ function isMissingMarketSchema(error: { message?: string } | null | undefined) {
   return message.includes("titan_financial_market_") && (message.includes("does not exist") || message.includes("schema cache"));
 }
 
+function isMissingReviewComposerSchema(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("titan_financial_review_sections") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error || "Unknown error");
 }
@@ -230,6 +235,41 @@ function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string 
   };
 }
 
+const reviewMetricKeys = new Set(["jobs", "revenue", "cost", "profit", "margin", "manhours", "revenue_per_manhour", "labor_percent"]);
+const reviewChartGroups = new Set(["month", "operator", "lead", "category"]);
+const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric"]);
+
+function reviewMetricValue(summary: ReturnType<typeof summarizeReviewJobs>, metricKey: string) {
+  return Number(summary[metricKey as keyof typeof summary] || 0);
+}
+
+function reviewChartSeries(rows: Array<Record<string, unknown>>, groupBy: string, metricKey: string) {
+  const grouped = new Map<string, Array<Record<string, unknown>>>();
+  rows.forEach((row) => {
+    const key = groupBy === "month" ? String(row.job_date || "").slice(0, 7)
+      : groupBy === "category" ? String(row.category_code || "standard")
+        : String(row[groupBy] || "Unassigned");
+    grouped.set(key || "Unassigned", [...(grouped.get(key || "Unassigned") || []), row]);
+  });
+  return Array.from(grouped, ([label, jobs]) => ({
+    label,
+    value: reviewMetricValue(summarizeReviewJobs(jobs as Parameters<typeof summarizeReviewJobs>[0]), metricKey),
+  })).sort((a, b) => groupBy === "month" ? a.label.localeCompare(b.label) : b.value - a.value);
+}
+
+function reviewSectionSnapshot(section: { kind: string; title: string | null; body: string | null; config: Record<string, unknown> }, currentRows: Array<Record<string, unknown>>, comparisonRows: Array<Record<string, unknown>>) {
+  const metricKey = String(section.config?.metric_key || "revenue");
+  if (section.kind === "narrative") return { kind: section.kind, title: section.title, body: section.body };
+  if (section.kind === "manual_metric") return { kind: section.kind, title: section.title, label: section.config?.label || section.title, value: section.config?.value || "" };
+  if (section.kind === "chart") {
+    const groupBy = String(section.config?.group_by || "month");
+    return { kind: section.kind, title: section.title, metric_key: metricKey, group_by: groupBy, current: reviewChartSeries(currentRows, groupBy, metricKey), comparison: reviewChartSeries(comparisonRows, groupBy, metricKey) };
+  }
+  const current = summarizeReviewJobs(currentRows as Parameters<typeof summarizeReviewJobs>[0]);
+  const comparison = summarizeReviewJobs(comparisonRows as Parameters<typeof summarizeReviewJobs>[0]);
+  return { kind: "metric", title: section.title, metric_key: metricKey, current: reviewMetricValue(current, metricKey), comparison: reviewMetricValue(comparison, metricKey) };
+}
+
 function reviewText(value: unknown) {
   return String(value || "").trim() || null;
 }
@@ -297,6 +337,15 @@ export async function GET(request: Request) {
             competitors: marketCompetitors.data || [],
             trend: marketTrend.data || [],
           };
+    const reviewRows = reviews.data || [];
+    const reviewSectionsResult = reviewRows.length
+      ? await context.admin.from("titan_financial_review_sections").select("*").in("review_id", reviewRows.map((review) => review.id)).eq("is_active", true).order("position").order("created_at")
+      : await context.admin.from("titan_financial_review_sections").select("id").limit(0);
+    const reviewComposer = reviewSectionsResult.error && isMissingReviewComposerSchema(reviewSectionsResult.error)
+      ? { setupRequired: true, sections: [] }
+      : reviewSectionsResult.error
+        ? (() => { throw reviewSectionsResult.error; })()
+        : { setupRequired: false, sections: reviewSectionsResult.data || [] };
     return Response.json({
       jobs: jobs.data || [],
       categories: categories.data || [],
@@ -310,6 +359,7 @@ export async function GET(request: Request) {
         revenue: tubingRevenue.data || [],
       },
       reviews: reviews.data || [],
+      reviewComposer,
       market,
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
@@ -576,6 +626,71 @@ export async function POST(request: Request) {
       return Response.json({ review: saved.data });
     }
 
+    if (action === "save_review_section") {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const reviewId = String(body.reviewId || "");
+      const sectionId = String(body.sectionId || "");
+      const review = await context.admin.from("titan_financial_reviews").select("id,status").eq("id", reviewId).eq("yard_id", yardId).single();
+      if (review.error || !review.data) throw new Error("Financial review not found.");
+      if (review.data.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+      const kind = String(body.kind || "");
+      if (!reviewSectionKinds.has(kind)) throw new Error("Select a valid review section type.");
+      const config = body.config && typeof body.config === "object" && !Array.isArray(body.config) ? body.config as Record<string, unknown> : {};
+      if ((kind === "metric" || kind === "chart") && !reviewMetricKeys.has(String(config.metric_key || ""))) throw new Error("Select a valid section metric.");
+      if (kind === "chart" && !reviewChartGroups.has(String(config.group_by || ""))) throw new Error("Select a valid chart grouping.");
+      const title = reviewText(body.title);
+      const values = {
+        kind, title, config, body: kind === "narrative" ? reviewText(body.body) : null,
+        updated_at: new Date().toISOString(), updated_by: context.user.id,
+      };
+      const existing = sectionId
+        ? await context.admin.from("titan_financial_review_sections").select("*").eq("id", sectionId).eq("review_id", reviewId).eq("is_active", true).maybeSingle()
+        : { data: null, error: null };
+      if (existing.error) throw existing.error;
+      let nextPosition = 10;
+      if (!sectionId) {
+        const lastPosition = await context.admin.from("titan_financial_review_sections").select("position").eq("review_id", reviewId).eq("is_active", true).order("position", { ascending: false }).limit(1).maybeSingle();
+        if (lastPosition.error) throw lastPosition.error;
+        nextPosition = Number(lastPosition.data?.position || 0) + 10;
+      }
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_review_sections").update(values).eq("id", sectionId).select("*").single()
+        : await context.admin.from("titan_financial_review_sections").insert({ review_id: reviewId, position: nextPosition, ...values, created_by: context.user.id }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_review_section", entity_id: saved.data.id, action: existing.data ? "update" : "create", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
+      return Response.json({ section: saved.data });
+    }
+
+    if (action === "deactivate_review_section") {
+      if (!permissions.edit) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const sectionId = String(body.sectionId || "");
+      const existing = await context.admin.from("titan_financial_review_sections").select("*,titan_financial_reviews!inner(yard_id,status)").eq("id", sectionId).eq("is_active", true).single();
+      const parent = existing.data?.titan_financial_reviews as unknown as { yard_id: string; status: string } | undefined;
+      if (existing.error || !existing.data || parent?.yard_id !== yardId) throw new Error("Review section not found.");
+      if (parent.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+      const saved = await context.admin.from("titan_financial_review_sections").update({ is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("id", sectionId).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_review_section", entity_id: sectionId, action: "deactivate", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
+      return Response.json({ section: saved.data });
+    }
+
+    if (action === "reorder_review_sections") {
+      if (!permissions.edit) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const reviewId = String(body.reviewId || "");
+      const sectionIds: string[] = Array.isArray(body.sectionIds) ? body.sectionIds.map(String) : [];
+      const review = await context.admin.from("titan_financial_reviews").select("id,status").eq("id", reviewId).eq("yard_id", yardId).single();
+      if (review.error || !review.data) throw new Error("Financial review not found.");
+      if (review.data.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+      const sections = await context.admin.from("titan_financial_review_sections").select("id").eq("review_id", reviewId).eq("is_active", true);
+      if (sections.error) throw sections.error;
+      const expected = new Set((sections.data || []).map((section) => section.id));
+      if (sectionIds.length !== expected.size || sectionIds.some((id) => !expected.has(id))) throw new Error("The review section order is incomplete.");
+      const updates = await Promise.all(sectionIds.map((id, index) => context.admin.from("titan_financial_review_sections").update({ position: (index + 1) * 10, updated_at: new Date().toISOString(), updated_by: context.user.id }).eq("id", id)));
+      const updateError = updates.find((result) => result.error)?.error;
+      if (updateError) throw updateError;
+      return Response.json({ ok: true });
+    }
+
     if (action === "finalize_review") {
       if (!permissions.approve) return Response.json({ error: "You cannot finalize financial reviews." }, { status: 403 });
       const id = String(body.id || "");
@@ -588,19 +703,32 @@ export async function POST(request: Request) {
         : quarterBounds(review.data.quarter);
       const compareMode = (review.data.compare_mode || "prior") as "prior" | "year";
       const comparisonBounds = reviewComparisonBounds(bounds.start, bounds.end, compareMode);
-      const [source, comparisonSource] = await Promise.all([
-        context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", bounds.start).lte("job_date", bounds.end),
-        context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", comparisonBounds.start).lte("job_date", comparisonBounds.end),
+      const [source, comparisonSource, sectionSource] = await Promise.all([
+        context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", bounds.start).lte("job_date", bounds.end),
+        context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", comparisonBounds.start).lte("job_date", comparisonBounds.end),
+        context.admin.from("titan_financial_review_sections").select("*").eq("review_id", id).eq("is_active", true).order("position"),
       ]);
       if (source.error) throw source.error;
       if (comparisonSource.error) throw comparisonSource.error;
+      if (sectionSource.error && !isMissingReviewComposerSchema(sectionSource.error)) throw sectionSource.error;
       const current = summarizeReviewJobs(source.data || []);
       const comparison = summarizeReviewJobs(comparisonSource.data || []);
       const finalizedAt = new Date().toISOString();
+      const sectionSnapshots = (sectionSource.data || []).map((section) => ({
+        id: section.id,
+        snapshot: reviewSectionSnapshot(
+          { ...section, config: (section.config || {}) as Record<string, unknown> },
+          source.data as unknown as Array<Record<string, unknown>>,
+          comparisonSource.data as unknown as Array<Record<string, unknown>>,
+        ),
+      }));
+      const sectionUpdates = await Promise.all(sectionSnapshots.map((section) => context.admin.from("titan_financial_review_sections").update({ snapshot: section.snapshot, updated_at: finalizedAt, updated_by: context.user.id }).eq("id", section.id)));
+      const sectionUpdateError = sectionUpdates.find((result) => result.error)?.error;
+      if (sectionUpdateError) throw sectionUpdateError;
       const snapshot = {
         quarter: review.data.quarter, service_line: line, period_start: bounds.start, period_end: bounds.end,
         compare_mode: compareMode, comparison_start: comparisonBounds.start, comparison_end: comparisonBounds.end,
-        ...current, comparison, generated_at: finalizedAt,
+        ...current, comparison, section_snapshots: sectionSnapshots, generated_at: finalizedAt,
       };
       const finalized = await context.admin.from("titan_financial_reviews").update({
         status: "final", snapshot, finalized_by: context.user.id, finalized_at: finalizedAt,
