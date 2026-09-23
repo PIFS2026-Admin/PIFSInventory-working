@@ -26,7 +26,8 @@ function option(name, fallback = "") {
 }
 
 function sourceKey(row) {
-  return crypto.createHash("sha256").update(String(row.rig || "").trim().toLowerCase()).digest("hex").slice(0, 24);
+  const identity = [row.rig, row.operator].map((value) => String(value || "").trim().toLowerCase()).join("|");
+  return crypto.createHash("sha256").update(identity).digest("hex").slice(0, 24);
 }
 
 function normalizeKind(cell) {

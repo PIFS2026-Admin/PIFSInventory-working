@@ -41,7 +41,10 @@ type FinancialReview = {
   id: string;
   yard_id: string;
   service_line: FinancialLine;
-  quarter: string;
+  quarter: string | null;
+  range_start: string;
+  range_end: string;
+  compare_mode: "prior" | "year";
   status: "open" | "final";
   highlights: string | null;
   lowlights: string | null;
@@ -319,6 +322,10 @@ export default function FinancialsPage() {
   const [reviewId, setReviewId] = useState("");
   const [reviewLine, setReviewLine] = useState<FinancialLine>("dti");
   const [reviewQuarter, setReviewQuarter] = useState(quarterOptions[0]);
+  const [reviewPeriodType, setReviewPeriodType] = useState<"quarter" | "custom">("quarter");
+  const [reviewRangeStart, setReviewRangeStart] = useState(yearStart);
+  const [reviewRangeEnd, setReviewRangeEnd] = useState(today);
+  const [reviewCompareMode, setReviewCompareMode] = useState<"prior" | "year">("prior");
   const [reviewHighlights, setReviewHighlights] = useState("");
   const [reviewLowlights, setReviewLowlights] = useState("");
   const [reviewGoals, setReviewGoals] = useState("");
@@ -632,6 +639,10 @@ export default function FinancialsPage() {
     setReviewId(review?.id || "");
     setReviewLine(nextLine);
     setReviewQuarter(review?.quarter || quarterOptions[0]);
+    setReviewPeriodType(review ? (review.quarter ? "quarter" : "custom") : "quarter");
+    setReviewRangeStart(review?.range_start?.slice(0, 10) || yearStart);
+    setReviewRangeEnd(review?.range_end?.slice(0, 10) || today);
+    setReviewCompareMode(review?.compare_mode || "prior");
     setReviewHighlights(review?.highlights || "");
     setReviewLowlights(review?.lowlights || "");
     setReviewGoals(review?.goals || "");
@@ -811,7 +822,7 @@ export default function FinancialsPage() {
     const response = await fetch("/api/financials", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "save_review", yardId, line: reviewLine, quarter: reviewQuarter, highlights: reviewHighlights, lowlights: reviewLowlights, goals: reviewGoals }),
+      body: JSON.stringify({ action: "save_review", yardId, id: reviewId, line: reviewLine, quarter: reviewPeriodType === "quarter" ? reviewQuarter : null, rangeStart: reviewPeriodType === "custom" ? reviewRangeStart : null, rangeEnd: reviewPeriodType === "custom" ? reviewRangeEnd : null, compareMode: reviewCompareMode, highlights: reviewHighlights, lowlights: reviewLowlights, goals: reviewGoals }),
     });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
@@ -826,7 +837,8 @@ export default function FinancialsPage() {
   }
 
   async function finalizeReview(review: FinancialReview) {
-    if (!window.confirm(`Finalize ${review.quarter} for ${financialLineNames[review.service_line]}? The KPI snapshot will be locked.`)) return;
+    const periodLabel = review.quarter || `${review.range_start.slice(0, 10)} to ${review.range_end.slice(0, 10)}`;
+    if (!window.confirm(`Finalize ${periodLabel} for ${financialLineNames[review.service_line]}? The KPI snapshot will be locked.`)) return;
     setSaving(true);
     setMessage("");
     const response = await fetch("/api/financials", {
@@ -836,7 +848,7 @@ export default function FinancialsPage() {
     });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
-    setMessage(response.ok ? `${review.quarter} review finalized with a frozen KPI snapshot.` : result.error || "The review could not be finalized.");
+    setMessage(response.ok ? `${periodLabel} review finalized with a frozen KPI snapshot.` : result.error || "The review could not be finalized.");
     if (response.ok) await loadFinancials();
   }
 
@@ -1051,10 +1063,12 @@ export default function FinancialsPage() {
 
       {showReviewForm && (
         <section className={styles.jobForm}>
-          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>{reviewId ? "Open Review" : "Quarterly Review"}</span><h2>{reviewId ? "Edit Financial Review" : "Start Financial Review"}</h2></div><button type="button" onClick={() => setShowReviewForm(false)}>Close</button></div>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>{reviewId ? "Open Review" : "Review Window"}</span><h2>{reviewId ? "Edit Financial Review" : "Start Financial Review"}</h2></div><button type="button" onClick={() => setShowReviewForm(false)}>Close</button></div>
           <div className={styles.formGrid}>
             <label><span>Service Line</span><select value={reviewLine} disabled={Boolean(reviewId)} onChange={(event) => setReviewLine(event.target.value as FinancialLine)}>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}</select></label>
-            <label><span>Quarter</span><select value={reviewQuarter} disabled={Boolean(reviewId)} onChange={(event) => setReviewQuarter(event.target.value)}>{quarterOptions.map((quarter) => <option key={quarter} value={quarter}>{quarter}</option>)}</select></label>
+            <label><span>Review Period</span><select value={reviewPeriodType} disabled={Boolean(reviewId)} onChange={(event) => setReviewPeriodType(event.target.value as "quarter" | "custom")}><option value="quarter">Standard Quarter</option><option value="custom">Custom Date Window</option></select></label>
+            {reviewPeriodType === "quarter" ? <label><span>Quarter</span><select value={reviewQuarter} disabled={Boolean(reviewId)} onChange={(event) => setReviewQuarter(event.target.value)}>{quarterOptions.map((quarter) => <option key={quarter} value={quarter}>{quarter}</option>)}</select></label> : <><label><span>From</span><input type="date" value={reviewRangeStart} disabled={Boolean(reviewId)} onChange={(event) => setReviewRangeStart(event.target.value)} /></label><label><span>Through</span><input type="date" value={reviewRangeEnd} disabled={Boolean(reviewId)} onChange={(event) => setReviewRangeEnd(event.target.value)} /></label></>}
+            <label><span>Compare Against</span><select value={reviewCompareMode} onChange={(event) => setReviewCompareMode(event.target.value as "prior" | "year")}><option value="prior">Immediately prior period</option><option value="year">Same dates last year</option></select></label>
             <label className={styles.reviewNarrative}><span>Highlights</span><textarea value={reviewHighlights} onChange={(event) => setReviewHighlights(event.target.value)} placeholder="What performed well?" /></label>
             <label className={styles.reviewNarrative}><span>Lowlights</span><textarea value={reviewLowlights} onChange={(event) => setReviewLowlights(event.target.value)} placeholder="What missed expectations?" /></label>
             <label className={styles.reviewNarrative}><span>Goals</span><textarea value={reviewGoals} onChange={(event) => setReviewGoals(event.target.value)} placeholder="What should improve next quarter?" /></label>
@@ -1280,13 +1294,14 @@ export default function FinancialsPage() {
       </>}
 
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
-        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Quarterly Control</span><h2>Financial Reviews</h2></div><span>Final reviews retain the KPI values captured at approval.</span></div>
+        <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Review</span><h2>Financial Reviews</h2></div><span>Quarterly or custom windows. Final reviews retain their captured KPI values.</span></div>
         {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => <article key={review.id} className={styles.reviewCard} data-status={review.status}>
-          <div className={styles.reviewCardHead}><div><span>{financialLineNames[review.service_line]}</span><h3>{review.quarter}</h3></div><b>{review.status}</b></div>
+          <div className={styles.reviewCardHead}><div><span>{financialLineNames[review.service_line]} · {review.compare_mode === "year" ? "vs last year" : "vs prior period"}</span><h3>{review.quarter || `${new Date(`${review.range_start.slice(0, 10)}T00:00:00`).toLocaleDateString()} - ${new Date(`${review.range_end.slice(0, 10)}T00:00:00`).toLocaleDateString()}`}</h3></div><b>{review.status}</b></div>
           {review.status === "final" && review.snapshot ? <div className={styles.reviewMetrics}><div><span>Jobs</span><strong>{numberValue(review.snapshot.jobs).toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(review.snapshot.revenue)}</strong></div><div><span>Profit</span><strong>{money(review.snapshot.profit)}</strong></div><div><span>Margin</span><strong>{percent(review.snapshot.margin)}</strong></div></div> : <p className={styles.openReviewNote}>Open review. KPI values will be captured when it is finalized.</p>}
+          {review.status === "final" && Boolean(review.snapshot?.comparison) && <div className={styles.reviewComparison}><span>Comparison</span><strong>{numberValue((review.snapshot?.comparison as Record<string, unknown>).jobs).toLocaleString()} jobs · {money((review.snapshot?.comparison as Record<string, unknown>).revenue)} revenue · {percent((review.snapshot?.comparison as Record<string, unknown>).margin)} margin</strong></div>}
           <div className={styles.reviewNarratives}><div><span>Highlights</span><p>{review.highlights || "-"}</p></div><div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div><div><span>Goals</span><p>{review.goals || "-"}</p></div></div>
           <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
-        </article>)}</div> : <div className={styles.emptyState}>No quarterly reviews have been started for this selection.</div>}
+        </article>)}</div> : <div className={styles.emptyState}>No financial reviews have been started for this selection.</div>}
       </section>}
 
       {!loading && tab === "reviews" && line === "tu" && <div className={styles.emptyState}>Tubing reviews will be added with its dedicated production targets. Select another service line to manage financial reviews.</div>}

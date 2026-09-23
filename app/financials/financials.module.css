@@ -307,6 +307,9 @@
 .reviewNarratives { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
 .reviewNarratives p, .openReviewNote { margin: 4px 0 0; color: #c3ccd8; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
 .openReviewNote { color: #9eabbc; }
+.reviewComparison { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid #344052; border-top: 0; background: #0e141b; }
+.reviewComparison span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.reviewComparison strong { color: #c9d3df; font-size: 11px; }
 .reviewActions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .reviewActions span { margin-left: auto; color: #8998aa; font-size: 10px; }
 

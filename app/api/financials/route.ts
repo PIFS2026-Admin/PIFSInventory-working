@@ -185,6 +185,51 @@ function quarterBounds(quarter: string) {
   return { start, end };
 }
 
+function dateValue(value: unknown) {
+  const text = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00Z`))) throw new Error("Select a valid review date range.");
+  return text;
+}
+
+function addUtcDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function reviewComparisonBounds(start: string, end: string, mode: "prior" | "year") {
+  if (mode === "year") {
+    const priorStart = new Date(`${start}T00:00:00Z`);
+    const priorEnd = new Date(`${end}T00:00:00Z`);
+    priorStart.setUTCFullYear(priorStart.getUTCFullYear() - 1);
+    priorEnd.setUTCFullYear(priorEnd.getUTCFullYear() - 1);
+    return { start: priorStart.toISOString().slice(0, 10), end: priorEnd.toISOString().slice(0, 10) };
+  }
+  const days = Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86400000) + 1;
+  const priorEnd = addUtcDays(start, -1);
+  return { start: addUtcDays(priorEnd, -(days - 1)), end: priorEnd };
+}
+
+function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string | null; manhours: number | string | null; computed: unknown }>) {
+  const totals = rows.reduce((summary, job) => {
+    const revenue = Number(job.revenue || 0);
+    const computed = (job.computed || {}) as Record<string, unknown>;
+    summary.revenue += revenue;
+    summary.cost += Number(computed.total_cost || 0);
+    summary.profit += Number(computed.profit || 0);
+    summary.manhours += Number(job.manhours || 0);
+    summary.laborDollars += Number(computed.labor_pct || 0) * revenue;
+    return summary;
+  }, { revenue: 0, cost: 0, profit: 0, manhours: 0, laborDollars: 0 });
+  return {
+    jobs: rows.length, revenue: totals.revenue, cost: totals.cost, profit: totals.profit,
+    margin: totals.revenue ? totals.profit / totals.revenue : 0,
+    manhours: totals.manhours, revenue_per_manhour: totals.manhours ? totals.revenue / totals.manhours : 0,
+    labor_percent: totals.revenue ? totals.laborDollars / totals.revenue : 0,
+    source_job_ids: rows.map((job) => job.id),
+  };
+}
+
 function reviewText(value: unknown) {
   return String(value || "").trim() || null;
 }
@@ -496,23 +541,31 @@ export async function POST(request: Request) {
     if (action === "save_review") {
       if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
       const line = lineValue(body.line);
-      const quarter = String(body.quarter || "");
-      quarterBounds(quarter);
-      const existing = await context.admin.from("titan_financial_reviews").select("*")
-        .eq("yard_id", yardId).eq("service_line", line).eq("quarter", quarter).maybeSingle();
+      const id = String(body.id || "");
+      const quarter = body.quarter ? String(body.quarter) : null;
+      const bounds = quarter ? quarterBounds(quarter) : { start: dateValue(body.rangeStart), end: dateValue(body.rangeEnd) };
+      if (bounds.end < bounds.start) throw new Error("The review end date cannot be before its start date.");
+      const compareMode = String(body.compareMode || "prior") as "prior" | "year";
+      if (!new Set(["prior", "year"]).has(compareMode)) throw new Error("Select a valid comparison period.");
+      const existing = id
+        ? await context.admin.from("titan_financial_reviews").select("*").eq("id", id).eq("yard_id", yardId).maybeSingle()
+        : quarter
+          ? await context.admin.from("titan_financial_reviews").select("*").eq("yard_id", yardId).eq("service_line", line).eq("quarter", quarter).maybeSingle()
+          : await context.admin.from("titan_financial_reviews").select("*").eq("yard_id", yardId).eq("service_line", line).is("quarter", null).eq("range_start", bounds.start).eq("range_end", bounds.end).maybeSingle();
       if (existing.error) throw existing.error;
       if (existing.data?.status === "final") throw new Error("A finalized review cannot be changed.");
       const values = {
         highlights: reviewText(body.highlights),
         lowlights: reviewText(body.lowlights),
         goals: reviewText(body.goals),
+        compare_mode: compareMode,
         updated_at: new Date().toISOString(),
         updated_by: context.user.id,
       };
       const saved = existing.data
         ? await context.admin.from("titan_financial_reviews").update(values).eq("id", existing.data.id).select("*").single()
         : await context.admin.from("titan_financial_reviews").insert({
-          yard_id: yardId, service_line: line, quarter, ...values, created_by: context.user.id,
+          yard_id: yardId, service_line: line, quarter, range_start: bounds.start, range_end: bounds.end, ...values, created_by: context.user.id,
         }).select("*").single();
       if (saved.error) throw saved.error;
       await context.admin.from("titan_financial_audit_log").insert({
@@ -530,30 +583,24 @@ export async function POST(request: Request) {
       if (review.error || !review.data || review.data.yard_id !== yardId) throw new Error("Financial review not found.");
       if (review.data.status === "final") throw new Error("This review is already final.");
       const line = lineValue(review.data.service_line);
-      const bounds = quarterBounds(review.data.quarter);
-      const source = await context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed")
-        .eq("yard_id", yardId).eq("service_line", line).eq("status", "active")
-        .gte("job_date", bounds.start).lte("job_date", bounds.end);
+      const bounds = review.data.range_start && review.data.range_end
+        ? { start: String(review.data.range_start).slice(0, 10), end: String(review.data.range_end).slice(0, 10) }
+        : quarterBounds(review.data.quarter);
+      const compareMode = (review.data.compare_mode || "prior") as "prior" | "year";
+      const comparisonBounds = reviewComparisonBounds(bounds.start, bounds.end, compareMode);
+      const [source, comparisonSource] = await Promise.all([
+        context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", bounds.start).lte("job_date", bounds.end),
+        context.admin.from("titan_financial_jobs").select("id,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", comparisonBounds.start).lte("job_date", comparisonBounds.end),
+      ]);
       if (source.error) throw source.error;
-      const sourceJobs = source.data || [];
-      const totals = sourceJobs.reduce((summary, job) => {
-        const revenue = Number(job.revenue || 0);
-        const computed = (job.computed || {}) as Record<string, unknown>;
-        summary.revenue += revenue;
-        summary.cost += Number(computed.total_cost || 0);
-        summary.profit += Number(computed.profit || 0);
-        summary.manhours += Number(job.manhours || 0);
-        summary.laborDollars += Number(computed.labor_pct || 0) * revenue;
-        return summary;
-      }, { revenue: 0, cost: 0, profit: 0, manhours: 0, laborDollars: 0 });
+      if (comparisonSource.error) throw comparisonSource.error;
+      const current = summarizeReviewJobs(source.data || []);
+      const comparison = summarizeReviewJobs(comparisonSource.data || []);
       const finalizedAt = new Date().toISOString();
       const snapshot = {
         quarter: review.data.quarter, service_line: line, period_start: bounds.start, period_end: bounds.end,
-        jobs: sourceJobs.length, revenue: totals.revenue, cost: totals.cost, profit: totals.profit,
-        margin: totals.revenue ? totals.profit / totals.revenue : 0,
-        manhours: totals.manhours, revenue_per_manhour: totals.manhours ? totals.revenue / totals.manhours : 0,
-        labor_percent: totals.revenue ? totals.laborDollars / totals.revenue : 0,
-        source_job_ids: sourceJobs.map((job) => job.id), generated_at: finalizedAt,
+        compare_mode: compareMode, comparison_start: comparisonBounds.start, comparison_end: comparisonBounds.end,
+        ...current, comparison, generated_at: finalizedAt,
       };
       const finalized = await context.admin.from("titan_financial_reviews").update({
         status: "final", snapshot, finalized_by: context.user.id, finalized_at: finalizedAt,
