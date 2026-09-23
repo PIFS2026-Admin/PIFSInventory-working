@@ -318,6 +318,72 @@ export async function POST(request: Request) {
       return Response.json({ ratePeriod: saved.data });
     }
 
+    if (action === "save_target") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial KPI targets." }, { status: 403 });
+      const line = lineValue(body.line);
+      const categoryCode = String(body.categoryCode || "standard");
+      await validateCategory(context.admin, line, categoryCode);
+      const metricKey = String(body.metricKey || "");
+      const metricUnits: Record<string, string> = { labor_pct: "percent", rev_per_mh: "currency", margin: "percent" };
+      const unit = metricUnits[metricKey];
+      if (!unit) throw new Error("Select a valid KPI metric.");
+      const direction = String(body.direction || "");
+      if (direction !== "above" && direction !== "below") throw new Error("Select a valid target direction.");
+      const targetValue = Number(body.targetValue);
+      if (!Number.isFinite(targetValue) || targetValue < 0 || (unit === "percent" && targetValue > 1)) throw new Error("Enter a valid target value.");
+      const label = String(body.label || "Target").trim() || "Target";
+      const scopeYardId = body.scope === "default" ? null : yardId;
+      const id = String(body.id || "");
+      let existing;
+      if (id) {
+        existing = await context.admin.from("titan_financial_targets").select("*").eq("id", id).single();
+        if (existing.error || !existing.data) throw new Error("KPI target not found.");
+        const scopeMatches = existing.data.yard_id === scopeYardId;
+        if (!scopeMatches || existing.data.service_line !== line || existing.data.category_code !== categoryCode || existing.data.metric_key !== metricKey) {
+          throw new Error("The target scope and metric cannot be changed after creation.");
+        }
+      } else {
+        let query = context.admin.from("titan_financial_targets").select("*")
+          .eq("service_line", line).eq("category_code", categoryCode).eq("metric_key", metricKey);
+        query = scopeYardId === null ? query.is("yard_id", null) : query.eq("yard_id", scopeYardId);
+        existing = await query.maybeSingle();
+        if (existing.error) throw existing.error;
+      }
+      const values = {
+        direction, target_value: targetValue, unit, label, is_active: true,
+        updated_at: new Date().toISOString(), updated_by: context.user.id,
+      };
+      const saved = existing.data
+        ? await context.admin.from("titan_financial_targets").update(values).eq("id", existing.data.id).select("*").single()
+        : await context.admin.from("titan_financial_targets").insert({
+          service_line: line, yard_id: scopeYardId, category_code: categoryCode, metric_key: metricKey,
+          ...values, created_by: context.user.id,
+        }).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_target", entity_id: saved.data.id,
+        action: existing.data ? "update" : "create", before_value: existing.data,
+        after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ target: saved.data });
+    }
+
+    if (action === "deactivate_target") {
+      if (!permissions.manageSettings) return Response.json({ error: "You cannot manage financial KPI targets." }, { status: 403 });
+      const id = String(body.id || "");
+      const existing = await context.admin.from("titan_financial_targets").select("*").eq("id", id).single();
+      if (existing.error || !existing.data || (existing.data.yard_id && existing.data.yard_id !== yardId)) throw new Error("KPI target not found.");
+      const saved = await context.admin.from("titan_financial_targets").update({
+        is_active: false, updated_at: new Date().toISOString(), updated_by: context.user.id,
+      }).eq("id", id).select("*").single();
+      if (saved.error) throw saved.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId, entity_type: "financial_target", entity_id: id, action: "deactivate",
+        before_value: existing.data, after_value: saved.data, actor_id: context.user.id,
+      });
+      return Response.json({ target: saved.data });
+    }
+
     if (action === "save_review") {
       if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
       const line = lineValue(body.line);

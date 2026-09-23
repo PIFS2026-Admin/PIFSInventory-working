@@ -177,6 +177,11 @@ const quarterOptions = Array.from({ length: 12 }, (_, index) => {
   date.setMonth(date.getMonth() - index * 3);
   return quarterForDate(date);
 });
+const targetMetrics = [
+  { key: "labor_pct", label: "Labor % Revenue", unit: "percent" },
+  { key: "rev_per_mh", label: "Revenue / Manhour", unit: "currency" },
+  { key: "margin", label: "Profit Margin", unit: "percent" },
+] as const;
 
 function csvValue(value: unknown) {
   const text = String(value ?? "");
@@ -238,6 +243,15 @@ export default function FinancialsPage() {
   const [rateValue, setRateValue] = useState("");
   const [rateEffectiveFrom, setRateEffectiveFrom] = useState(today);
   const [rateMinimumQuantity, setRateMinimumQuantity] = useState("0");
+  const [showTargetForm, setShowTargetForm] = useState(false);
+  const [targetId, setTargetId] = useState("");
+  const [targetLine, setTargetLine] = useState<FinancialLine>("dti");
+  const [targetCategory, setTargetCategory] = useState("standard");
+  const [targetMetric, setTargetMetric] = useState("margin");
+  const [targetDirection, setTargetDirection] = useState<"above" | "below">("above");
+  const [targetValue, setTargetValue] = useState("");
+  const [targetLabel, setTargetLabel] = useState("Goal");
+  const [targetScope, setTargetScope] = useState<"yard" | "default">("yard");
 
   useEffect(() => {
     void initialize();
@@ -510,6 +524,58 @@ export default function FinancialsPage() {
     if (response.ok) await loadFinancials();
   }
 
+  function openTarget(target?: Target) {
+    const nextLine = target?.service_line || (line === "all" || line === "tu" ? "dti" : line);
+    const unit = targetMetrics.find((metric) => metric.key === target?.metric_key)?.unit;
+    setTargetId(target?.id || "");
+    setTargetLine(nextLine);
+    setTargetCategory(target?.category_code || categories.find((category) => category.service_line === nextLine)?.code || "standard");
+    setTargetMetric(target?.metric_key || "margin");
+    setTargetDirection(target?.direction || "above");
+    setTargetValue(target ? String(unit === "percent" ? numberValue(target.target_value) * 100 : target.target_value) : "");
+    setTargetLabel(target?.label || "Goal");
+    setTargetScope(target?.yard_id ? "yard" : target ? "default" : "yard");
+    setShowTargetForm(true);
+  }
+
+  function changeTargetLine(nextLine: FinancialLine) {
+    setTargetLine(nextLine);
+    setTargetCategory(categories.find((category) => category.service_line === nextLine)?.code || "standard");
+  }
+
+  async function saveTarget() {
+    setSaving(true);
+    setMessage("");
+    const unit = targetMetrics.find((metric) => metric.key === targetMetric)?.unit;
+    const storedValue = unit === "percent" ? Number(targetValue) / 100 : Number(targetValue);
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save_target", id: targetId || undefined, yardId, line: targetLine, categoryCode: targetCategory, metricKey: targetMetric, direction: targetDirection, targetValue: storedValue, label: targetLabel, scope: targetScope }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The KPI target could not be saved.");
+      return;
+    }
+    setShowTargetForm(false);
+    setMessage(targetScope === "yard" ? "Yard KPI target saved." : "Company-default KPI target saved.");
+    await loadFinancials();
+  }
+
+  async function deactivateTarget(target: Target) {
+    if (!window.confirm(`Deactivate the ${target.metric_key.replaceAll("_", " ")} target for ${financialLineNames[target.service_line]}?`)) return;
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "deactivate_target", yardId, id: target.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "KPI target deactivated." : result.error || "The KPI target could not be deactivated.");
+    if (response.ok) await loadFinancials();
+  }
+
   async function saveReview() {
     setSaving(true);
     setMessage("");
@@ -760,6 +826,23 @@ export default function FinancialsPage() {
         </section>
       )}
 
+      {showTargetForm && (
+        <section className={styles.jobForm}>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled KPI</span><h2>{targetId ? "Edit KPI Target" : "Add KPI Target"}</h2></div><button type="button" onClick={() => setShowTargetForm(false)}>Close</button></div>
+          <div className={styles.formGrid}>
+            <label><span>Service Line</span><select value={targetLine} disabled={Boolean(targetId)} onChange={(event) => changeTargetLine(event.target.value as FinancialLine)}>{lines.map((item) => <option key={item} value={item}>{financialLineNames[item]}</option>)}</select></label>
+            <label><span>Category</span><select value={targetCategory} disabled={Boolean(targetId)} onChange={(event) => setTargetCategory(event.target.value)}>{categories.filter((category) => category.service_line === targetLine).map((category) => <option key={category.id} value={category.code}>{category.label}</option>)}</select></label>
+            <label><span>Metric</span><select value={targetMetric} disabled={Boolean(targetId)} onChange={(event) => setTargetMetric(event.target.value)}>{targetMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></label>
+            <label><span>Direction</span><select value={targetDirection} onChange={(event) => setTargetDirection(event.target.value as "above" | "below")}><option value="above">At or above</option><option value="below">At or below</option></select></label>
+            <label><span>{targetMetrics.find((metric) => metric.key === targetMetric)?.unit === "percent" ? "Target Percent" : "Target Value"}</span><input type="number" min="0" step="any" value={targetValue} onChange={(event) => setTargetValue(event.target.value)} /></label>
+            <label><span>Label</span><input type="text" value={targetLabel} onChange={(event) => setTargetLabel(event.target.value)} /></label>
+            <label><span>Scope</span><select value={targetScope} disabled={Boolean(targetId)} onChange={(event) => setTargetScope(event.target.value as "yard" | "default")}><option value="yard">This yard</option><option value="default">Company default</option></select></label>
+          </div>
+          <div className={styles.rateWarning}>{targetScope === "yard" ? "This target overrides the company default for the selected yard." : "This target becomes the default for every yard that does not have its own override."}</div>
+          <div className={styles.formActions}><button type="button" disabled={saving || targetValue === ""} className={styles.primary} onClick={() => void saveTarget()}>{saving ? "Saving..." : "Save Target"}</button></div>
+        </section>
+      )}
+
       {loading ? <div className={styles.loading}>Loading financial records...</div> : null}
 
       {!loading && tab === "overview" && line !== "tu" && (
@@ -836,7 +919,7 @@ export default function FinancialsPage() {
           </article>)}</div> : <div className={styles.emptyState}>No controlled targets are configured for this selection. Actual KPIs and monthly performance remain available.</div>}
         </section>
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={8}>No jobs match this period.</td></tr>}</tbody></table></div></section>
-        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th></tr></thead><tbody>{evaluatedTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td></tr>)}{!evaluatedTargets.length && <tr><td colSpan={6}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openTarget()}>Add Target</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th><th></th></tr></thead><tbody>{evaluatedTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openTarget(target)}>Edit</button><button type="button" onClick={() => void deactivateTarget(target)}>Deactivate</button></div> : null}</td></tr>)}{!evaluatedTargets.length && <tr><td colSpan={7}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
       </>}
 
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>
