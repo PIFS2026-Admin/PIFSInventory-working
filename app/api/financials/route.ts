@@ -294,7 +294,24 @@ export async function GET(request: Request) {
     const dateFrom = url.searchParams.get("from") || `${new Date().getFullYear()}-01-01`;
     const dateTo = url.searchParams.get("to") || new Date().toISOString().slice(0, 10);
     const includeVoid = url.searchParams.get("includeVoid") === "true";
+    const reviewId = url.searchParams.get("reviewId") || "";
     await assertYardAccess(context, yardId);
+
+    if (reviewId) {
+      if (!permissions.export) return Response.json({ error: "You cannot export financial reviews." }, { status: 403 });
+      const [review, sections, snapshots, yard] = await Promise.all([
+        context.admin.from("titan_financial_reviews").select("*").eq("id", reviewId).eq("yard_id", yardId).single(),
+        context.admin.from("titan_financial_review_sections").select("*").eq("review_id", reviewId).eq("is_active", true).order("position").order("created_at"),
+        context.admin.from("titan_financial_review_snapshots").select("*").eq("review_id", reviewId).order("finalized_at", { ascending: false }),
+        context.admin.from("yards").select("id,name,code").eq("id", yardId).single(),
+      ]);
+      if (review.error || !review.data) throw new Error("Financial review not found.");
+      if (review.data.status !== "final" || !review.data.snapshot) throw new Error("Only finalized reviews can be printed.");
+      if (sections.error) throw sections.error;
+      if (snapshots.error) throw snapshots.error;
+      if (yard.error) throw yard.error;
+      return Response.json({ review: review.data, sections: sections.data || [], snapshots: snapshots.data || [], yard: yard.data });
+    }
 
     let jobsQuery = context.admin
       .from("titan_financial_jobs")

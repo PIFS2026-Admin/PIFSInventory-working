@@ -1,0 +1,57 @@
+.shell { min-height: 100vh; padding: 24px; background: #0b0f14; color: #111827; font-family: Arial, sans-serif; }
+.actions { display: flex; justify-content: flex-end; gap: 8px; width: min(980px, 100%); margin: 0 auto 12px; }
+.actions button { min-height: 38px; border: 1px solid #475569; background: #151b23; color: #f8fafc; padding: 0 14px; font-weight: 800; cursor: pointer; }
+.actions .primary { border-color: #ff7417; background: #ff7417; color: #111; }
+.sheet { width: min(980px, 100%); min-height: 1100px; margin: 0 auto; padding: 34px 38px; background: #fff; box-shadow: 0 12px 36px rgba(0,0,0,.35); }
+.header { display: flex; align-items: center; justify-content: space-between; gap: 28px; border-bottom: 4px solid #111827; padding-bottom: 14px; }
+.header img { width: 210px; height: 68px; object-fit: contain; object-position: left center; }
+.header > div { text-align: right; }
+.header span, .meta span, .metrics span, .comparison span, .narratives span, .sectionTitle span, .manual span, .metricCompare span { display: block; color: #64748b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.header h1 { margin: 3px 0; font-size: 25px; }
+.header p { margin: 0; color: #334155; font-size: 12px; font-weight: 700; }
+.meta { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 16px; border: 1px solid #94a3b8; }
+.meta > div { min-width: 0; padding: 8px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.meta strong { display: block; margin-top: 3px; font-size: 11px; overflow-wrap: anywhere; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 16px; border: 1px solid #111827; }
+.metrics > div { padding: 10px; border-right: 1px solid #94a3b8; border-bottom: 1px solid #94a3b8; }
+.metrics strong { display: block; margin-top: 3px; font-size: 19px; }
+.comparison { display: grid; gap: 3px; border: 1px solid #94a3b8; border-top: 0; padding: 9px 10px; background: #f8fafc; }
+.comparison strong { font-size: 11px; }
+.narratives { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; border-top: 2px solid #111827; border-bottom: 1px solid #94a3b8; }
+.narratives > div { padding: 10px; border-right: 1px solid #cbd5e1; }
+.narratives p, .body { margin: 5px 0 0; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.section { margin-top: 20px; break-inside: avoid; }
+.sectionTitle { border-bottom: 2px solid #111827; padding-bottom: 5px; }
+.sectionTitle h2 { margin: 2px 0 0; font-size: 16px; }
+.manual { padding: 12px 0; }
+.manual strong { display: block; margin-top: 3px; font-size: 22px; }
+.metricCompare { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #94a3b8; }
+.metricCompare > div { padding: 11px; border-right: 1px solid #cbd5e1; }
+.metricCompare strong { display: block; margin-top: 3px; font-size: 19px; }
+.chart { display: grid; gap: 7px; margin-top: 10px; }
+.chart > div { display: grid; grid-template-columns: 135px 1fr 100px; align-items: center; gap: 9px; }
+.chart span { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.chart i { height: 15px; border: 1px solid #94a3b8; background: #f8fafc; }
+.chart b { display: block; height: 100%; background: #ff7417; print-color-adjust: exact; }
+.chart strong { font-size: 10px; text-align: right; }
+.sheet footer { display: grid; gap: 3px; margin-top: 30px; border-top: 2px solid #111827; padding-top: 9px; color: #475569; font-size: 9px; }
+.sheet footer strong { color: #111827; }
+
+@page { size: letter portrait; margin: .42in; }
+@media print {
+  .shell { min-height: 0; padding: 0; background: #fff; }
+  .actions { display: none; }
+  .sheet { width: 100%; min-height: 0; padding: 0; box-shadow: none; }
+}
+
+@media (max-width: 680px) {
+  .shell { padding: 8px; }
+  .sheet { padding: 20px 16px; }
+  .header { align-items: flex-start; }
+  .header img { width: 130px; height: 48px; }
+  .header h1 { font-size: 18px; }
+  .meta, .metrics { grid-template-columns: 1fr 1fr; }
+  .narratives { grid-template-columns: 1fr; }
+  .narratives > div { border-right: 0; border-bottom: 1px solid #cbd5e1; }
+  .chart > div { grid-template-columns: 80px minmax(80px, 1fr) 76px; }
+}
