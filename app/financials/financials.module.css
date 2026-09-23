@@ -333,7 +333,7 @@
 .reviewChart i { height: 14px; border: 1px solid #344052; background: #0b0f14; }
 .reviewChart b { display: block; height: 100%; background: #ff7417; }
 .reviewChart strong { text-align: right; font-size: 10px; }
-.addSectionButton { justify-self: start; margin-top: 10px; }
+.reviewComposerActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .reviewActions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .reviewActions span { margin-left: auto; color: #8998aa; font-size: 10px; }
 

@@ -238,6 +238,15 @@ function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string 
 const reviewMetricKeys = new Set(["jobs", "revenue", "cost", "profit", "margin", "manhours", "revenue_per_manhour", "labor_percent"]);
 const reviewChartGroups = new Set(["month", "operator", "lead", "category"]);
 const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric"]);
+const standardReviewTemplate = [
+  { kind: "narrative", title: "Executive Summary", config: {}, body: null },
+  { kind: "metric", title: "Revenue", config: { metric_key: "revenue" }, body: null },
+  { kind: "metric", title: "Profit", config: { metric_key: "profit" }, body: null },
+  { kind: "metric", title: "Profit Margin", config: { metric_key: "margin" }, body: null },
+  { kind: "metric", title: "Revenue per Manhour", config: { metric_key: "revenue_per_manhour" }, body: null },
+  { kind: "chart", title: "Revenue by Operator", config: { metric_key: "revenue", group_by: "operator" }, body: null },
+  { kind: "narrative", title: "Moving Forward", config: {}, body: null },
+] as const;
 
 function reviewMetricValue(summary: ReturnType<typeof summarizeReviewJobs>, metricKey: string) {
   return Number(summary[metricKey as keyof typeof summary] || 0);
@@ -659,6 +668,37 @@ export async function POST(request: Request) {
       if (saved.error) throw saved.error;
       await context.admin.from("titan_financial_audit_log").insert({ yard_id: yardId, entity_type: "financial_review_section", entity_id: saved.data.id, action: existing.data ? "update" : "create", before_value: existing.data, after_value: saved.data, actor_id: context.user.id });
       return Response.json({ section: saved.data });
+    }
+
+    if (action === "apply_review_template") {
+      if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change financial reviews." }, { status: 403 });
+      const reviewId = String(body.reviewId || "");
+      const review = await context.admin.from("titan_financial_reviews").select("id,status").eq("id", reviewId).eq("yard_id", yardId).single();
+      if (review.error || !review.data) throw new Error("Financial review not found.");
+      if (review.data.status !== "open") throw new Error("Finalized reviews cannot be changed.");
+      const existing = await context.admin.from("titan_financial_review_sections").select("id").eq("review_id", reviewId).eq("is_active", true).limit(1);
+      if (existing.error) throw existing.error;
+      if (existing.data?.length) throw new Error("The standard template can only be applied to an empty review.");
+      const now = new Date().toISOString();
+      const created = await context.admin.from("titan_financial_review_sections").insert(standardReviewTemplate.map((section, index) => ({
+        review_id: reviewId,
+        position: (index + 1) * 10,
+        ...section,
+        created_by: context.user.id,
+        updated_at: now,
+        updated_by: context.user.id,
+      }))).select("*");
+      if (created.error) throw created.error;
+      await context.admin.from("titan_financial_audit_log").insert({
+        yard_id: yardId,
+        entity_type: "financial_review",
+        entity_id: reviewId,
+        action: "apply_standard_template",
+        before_value: { section_count: 0 },
+        after_value: { section_count: created.data.length, section_ids: created.data.map((section) => section.id) },
+        actor_id: context.user.id,
+      });
+      return Response.json({ sections: created.data });
     }
 
     if (action === "deactivate_review_section") {

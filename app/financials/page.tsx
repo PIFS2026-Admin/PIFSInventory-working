@@ -922,6 +922,24 @@ export default function FinancialsPage() {
     if (response.ok) await loadFinancials();
   }
 
+  async function applyReviewTemplate(review: FinancialReview) {
+    setSaving(true);
+    setMessage("");
+    const response = await fetch("/api/financials", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "apply_review_template", yardId, reviewId: review.id }),
+    });
+    const result = await response.json().catch(() => ({}));
+    setSaving(false);
+    if (!response.ok) {
+      setMessage(result.error || "The standard review template could not be added.");
+      return;
+    }
+    setMessage("Standard management review template added. Every section remains editable.");
+    await loadFinancials();
+  }
+
   async function moveReviewSection(reviewId: string, sectionIdToMove: string, direction: -1 | 1) {
     const ordered = reviewSections.filter((section) => section.review_id === reviewId).sort((a, b) => a.position - b.position);
     const index = ordered.findIndex((section) => section.id === sectionIdToMove);
@@ -1431,7 +1449,7 @@ export default function FinancialsPage() {
               {section.kind === "metric" && (section.snapshot ? <div className={styles.reviewMetricCompare}><div><span>Review Window</span><strong>{formatReviewMetric(metricKey, snapshot.current)}</strong></div><div><span>{review.compare_mode === "year" ? "Last Year" : "Prior Period"}</span><strong>{formatReviewMetric(metricKey, snapshot.comparison)}</strong></div></div> : <p className={styles.openReviewNote}>This comparison will calculate and freeze when the review is finalized.</p>)}
               {section.kind === "chart" && (chartRows.length ? <div className={styles.reviewChart}>{chartRows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / chartMax * 100}%` }} /></i><strong>{formatReviewMetric(metricKey, row.value)}</strong></div>)}</div> : <p className={styles.openReviewNote}>This chart will calculate and freeze when the review is finalized.</p>)}
             </section>;
-          })}{review.status === "open" && permissions.edit && <button type="button" className={styles.addSectionButton} onClick={() => openReviewSection(review.id)}>Add Section</button>}</div>}
+          })}{review.status === "open" && permissions.edit && <div className={styles.reviewComposerActions}><button type="button" onClick={() => openReviewSection(review.id)}>Add Section</button>{!reviewSections.some((section) => section.review_id === review.id) && <button type="button" className={styles.primary} disabled={saving} onClick={() => void applyReviewTemplate(review)}>Use Standard Template</button>}</div>}</div>}
           <div className={styles.reviewActions}>{review.status === "open" && permissions.edit ? <button type="button" onClick={() => openReview(review)}>Edit</button> : null}{review.status === "open" && permissions.approve ? <button type="button" className={styles.primary} disabled={saving} onClick={() => void finalizeReview(review)}>Finalize Snapshot</button> : null}{review.finalized_at ? <span>Finalized {new Date(review.finalized_at).toLocaleDateString()}</span> : null}</div>
         </article>)}</div> : <div className={styles.emptyState}>No financial reviews have been started for this selection.</div>}
       </section>}
