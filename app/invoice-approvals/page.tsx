@@ -2,8 +2,8 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowLeft, Check, Download, Eye, FilePlus2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, Download, ExternalLink, Eye, FilePlus2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
 import { supabase } from "../../lib/supabase";
 import styles from "./invoice-approvals.module.css";
@@ -94,6 +94,11 @@ export default function InvoiceApprovalsPage() {
   const [duplicateMatches, setDuplicateMatches] = useState<Invoice[]>([]);
   const [editDuplicateMatches, setEditDuplicateMatches] = useState<Invoice[]>([]);
   const [editForm, setEditForm] = useState({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: "", dueDate: "", totalAmount: "", yardId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
+  const [previewFileId, setPreviewFileId] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewCollapsed, setPreviewCollapsed] = useState(false);
+  const previewRequestId = useRef(0);
 
   const load = async (keepNotice = false) => {
     setLoading(true);
@@ -117,6 +122,7 @@ export default function InvoiceApprovalsPage() {
 
   const selected = data.invoices.find((invoice) => invoice.id === selectedId) || null;
   const selectedFiles = data.files.filter((file) => file.invoice_id === selectedId);
+  const previewFile = selectedFiles.find((file) => file.id === previewFileId) || null;
   const selectedApproval = data.approvals.find((approval) => approval.invoice_id === selectedId);
   const selectedActivity = data.activity.filter((item) => item.invoice_id === selectedId);
   const currentUserId = data.actor?.id || "";
@@ -140,6 +146,44 @@ export default function InvoiceApprovalsPage() {
     setEditDuplicateMatches([]);
     setEditForm({ vendorId: selected.vendor_id || "", vendorName: selected.vendor_name, invoiceNumber: selected.invoice_number, invoiceDate: selected.invoice_date, dueDate: selected.due_date || "", totalAmount: String(selected.total_amount), yardId: selected.yard_id || "", notes: selected.notes || "", duplicateAcknowledged: false, duplicateNote: "" });
   }, [selectedId, data.codingLines.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedId) {
+      setPreviewFileId("");
+      setPreviewUrl("");
+      return;
+    }
+    const files = data.files.filter((file) => file.invoice_id === selectedId);
+    const preferred = files.find((file) => file.is_current) || files[0];
+    setPreviewFileId(preferred?.id || "");
+    setPreviewUrl("");
+    setPreviewCollapsed(false);
+  }, [selectedId, data.files]);
+
+  const loadPreview = async (fileId: string) => {
+    const requestId = ++previewRequestId.current;
+    if (!fileId) {
+      setPreviewUrl("");
+      setPreviewLoading(false);
+      return;
+    }
+    setPreviewLoading(true);
+    try {
+      const response = await fetch(`/api/invoice-approvals?fileId=${encodeURIComponent(fileId)}`, { headers: await authHeaders(false), cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Invoice preview could not be loaded.");
+      if (previewRequestId.current === requestId) setPreviewUrl(payload.url || "");
+    } catch (error) {
+      if (previewRequestId.current === requestId) {
+        setPreviewUrl("");
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+    } finally {
+      if (previewRequestId.current === requestId) setPreviewLoading(false);
+    }
+  };
+
+  useEffect(() => { void loadPreview(previewFileId); }, [previewFileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => ({
     mine: data.invoices.filter((invoice) => invoice.status === "awaiting_approval" && invoice.assigned_approver_id === currentUserId).length,
@@ -318,8 +362,9 @@ export default function InvoiceApprovalsPage() {
       {notice && <div className={styles.notice}>{notice}</div>}
       <section className={styles.detailGrid}>
         <div className={styles.documentPanel}>
-          <div className={styles.sectionHeading}><div><span>ORIGINAL DOCUMENT</span><h2>Invoice files</h2></div></div>
-          <div className={styles.fileList}>{selectedFiles.map((file) => <button key={file.id} type="button" onClick={() => viewFile(file)}><Eye size={18} /><span><strong>{file.original_file_name}</strong><small>Version {file.version_number} · {file.is_current ? "Current" : "Preserved original"} · {dateText(file.uploaded_at, true)}</small></span></button>)}</div>
+          <div className={styles.sectionHeading}><div><span>ORIGINAL DOCUMENT</span><h2>Invoice preview</h2></div><div className={styles.previewActions}><button type="button" title="Refresh preview" aria-label="Refresh preview" onClick={() => loadPreview(previewFileId)} disabled={!previewFileId || previewLoading}><RefreshCw className={previewLoading ? styles.spinning : ""} size={16} /></button>{previewFile && <button type="button" onClick={() => viewFile(previewFile)}><ExternalLink size={16} /> Open</button>}<button type="button" onClick={() => setPreviewCollapsed((value) => !value)}>{previewCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}{previewCollapsed ? "Show" : "Hide"}</button></div></div>
+          {!previewCollapsed && <div className={styles.invoicePreview}>{previewLoading ? <div className={styles.previewState}><RefreshCw className={styles.spinning} size={22} /><span>Loading protected preview...</span></div> : !previewFile || !previewUrl ? <div className={styles.previewState}><Eye size={22} /><span>No invoice preview is available.</span></div> : previewFile.mime_type.startsWith("image/") ? <img src={previewUrl} alt={`Invoice ${selected.invoice_number}`} /> : <iframe src={previewUrl} title={`${previewFile.original_file_name} preview`} />}</div>}
+          <div className={styles.fileList}>{selectedFiles.map((file) => <button className={file.id === previewFileId ? styles.selectedFile : ""} key={file.id} type="button" onClick={() => setPreviewFileId(file.id)}><Eye size={18} /><span><strong>{file.original_file_name}</strong><small>Version {file.version_number} · {file.is_current ? "Current" : "Preserved original"} · {dateText(file.uploaded_at, true)}</small></span></button>)}</div>
           {data.permissions?.isAp && selected.status !== "approved" && <label className={styles.replaceFile}><Upload size={16} /><span>Upload corrected invoice</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void run(async () => { const form = new FormData(); form.set("action", "replace_file"); form.set("invoiceId", selected.id); form.set("file", file); const response = await fetch("/api/invoice-approvals", { method: "POST", headers: await authHeaders(false), body: form }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error); }, "Corrected invoice preserved as the current version."); }} /></label>}
         </div>
         <div className={styles.summaryPanel}>

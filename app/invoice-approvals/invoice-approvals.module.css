@@ -70,6 +70,13 @@
 .fileList button { justify-content: flex-start; min-height: 64px; border-width: 0 0 1px; border-radius: 0; background: transparent; text-align: left; }
 .fileList button span { display: grid; gap: 3px; }
 .fileList small { color: #8998aa; }
+.fileList .selectedFile { border-left: 3px solid #ff7417; background: #171e27; }
+.previewActions { display: flex; align-items: center; gap: 7px; }
+.previewActions button { min-height: 34px; }
+.invoicePreview { display: grid; min-height: 520px; place-items: stretch; border-bottom: 1px solid #344052; background: #080b0f; }
+.invoicePreview iframe { width: 100%; height: 640px; border: 0; background: #fff; }
+.invoicePreview img { display: block; width: 100%; max-height: 720px; object-fit: contain; }
+.previewState { display: flex; min-height: 360px; align-items: center; justify-content: center; gap: 9px; color: #8fa0b6; }
 .replaceFile { margin: 12px; }
 .statusRow { display: flex; align-items: center; justify-content: space-between; padding: 14px; border-bottom: 1px solid #344052; }
 .statusRow > strong { font-size: 24px; }
@@ -127,6 +134,8 @@
   .metrics div:last-child { grid-column: span 2; }
   .formGrid { grid-template-columns: 1fr 1fr; }
   .detailGrid { grid-template-columns: 1fr; }
+  .invoicePreview { min-height: 420px; }
+  .invoicePreview iframe { height: 520px; }
   .actionPanel { grid-template-columns: 1fr; }
   .actionPanel > div:last-child { justify-content: flex-start; }
   .filters { grid-template-columns: 1fr 1fr; }
@@ -164,6 +173,10 @@
   .metrics strong { font-size: 18px; }
   .totals { justify-content: flex-start; }
   .sectionHeading { align-items: flex-start; flex-direction: column; }
+  .previewActions { width: 100%; }
+  .previewActions button:not(:first-child) { flex: 1; }
+  .invoicePreview { min-height: 360px; }
+  .invoicePreview iframe { height: 460px; }
   .reassign { grid-template-columns: 1fr; }
   .page .invoiceRow { grid-template-columns: 1fr; }
   .invoiceDates, .invoiceAmount { grid-column: 1; grid-row: auto; }
