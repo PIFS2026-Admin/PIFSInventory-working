@@ -34,6 +34,13 @@
 .confirm { display: flex !important; align-items: flex-start; gap: 9px !important; }
 .confirm input { flex: 0 0 auto; width: 18px; min-height: 18px; accent-color: #ff7417; }
 .confirm span { color: #dce3eb !important; font-size: 11px !important; font-weight: 600 !important; line-height: 1.4; text-transform: none !important; }
+.extractionReview { grid-column: 1 / -1; display: flex; gap: 11px; padding: 12px; border: 1px solid #3d6c62; background: #10221d; }
+.extractionReview > svg { flex: 0 0 auto; color: #78dfb5; }
+.extractionReview p { margin: 4px 0 8px; color: #b6c9c1; font-size: 12px; }
+.extractionReview > div > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.extractionReview span { padding: 4px 7px; border: 1px solid #35584f; border-radius: 10px; color: #aee4d0; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.spinning { animation: invoiceSpin 1s linear infinite; }
+@keyframes invoiceSpin { to { transform: rotate(360deg); } }
 .tabs { display: flex; margin-top: 14px; overflow-x: auto; border-bottom: 1px solid #344052; }
 .tabs button { flex: 0 0 auto; min-height: 45px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; white-space: nowrap; }
 .tabs button b { min-width: 22px; padding: 3px 6px; border-radius: 10px; background: #222c39; font-size: 10px; }

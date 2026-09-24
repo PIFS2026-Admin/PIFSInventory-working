@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ArrowLeft, Check, Download, Eye, FilePlus2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
+import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
 import { supabase } from "../../lib/supabase";
 import styles from "./invoice-approvals.module.css";
 
@@ -83,6 +84,9 @@ export default function InvoiceApprovalsPage() {
   const [codeForm, setCodeForm] = useState({ id: "", code: "", description: "", active: true });
   const [uploadForm, setUploadForm] = useState({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionMessage, setExtractionMessage] = useState("");
+  const [extraction, setExtraction] = useState<InvoiceExtraction | null>(null);
   const [duplicateMatches, setDuplicateMatches] = useState<Invoice[]>([]);
   const [editDuplicateMatches, setEditDuplicateMatches] = useState<Invoice[]>([]);
   const [editForm, setEditForm] = useState({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: "", dueDate: "", totalAmount: "", yardId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
@@ -184,6 +188,8 @@ export default function InvoiceApprovalsPage() {
       setShowUpload(false);
       setDuplicateMatches([]);
       setUploadFile(null);
+      setExtraction(null);
+      setExtractionMessage("");
       setUploadForm({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
       setSelectedId(payload.invoiceId);
       setNotice("Invoice uploaded and assigned.");
@@ -192,6 +198,35 @@ export default function InvoiceApprovalsPage() {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const selectInvoiceFile = async (file: File | null) => {
+    setUploadFile(file);
+    setExtraction(null);
+    setExtractionMessage("");
+    setDuplicateMatches([]);
+    if (!file) return;
+    setExtracting(true);
+    try {
+      const result = await readInvoiceDocument(file, data.vendors, setExtractionMessage);
+      setExtraction(result);
+      setUploadForm((form) => ({
+        ...form,
+        vendorId: result.vendorId || form.vendorId,
+        vendorName: result.vendorName || form.vendorName,
+        invoiceNumber: result.invoiceNumber || form.invoiceNumber,
+        invoiceDate: result.invoiceDate || form.invoiceDate,
+        dueDate: result.dueDate || form.dueDate,
+        totalAmount: result.totalAmount || form.totalAmount,
+        duplicateAcknowledged: false,
+      }));
+      const found = [result.vendorName, result.invoiceNumber, result.invoiceDate, result.dueDate, result.totalAmount].filter(Boolean).length;
+      setExtractionMessage(found ? `TITAN found ${found} of 5 invoice fields. Review the values before uploading.` : "TITAN could not confidently identify invoice fields. Enter them manually before uploading.");
+    } catch (error) {
+      setExtractionMessage(error instanceof Error ? `${error.message} Enter the invoice details manually.` : "Invoice reading failed. Enter the details manually.");
+    } finally {
+      setExtracting(false);
     }
   };
 
@@ -340,9 +375,13 @@ export default function InvoiceApprovalsPage() {
       <label><span>Location (optional)</span><select value={uploadForm.yardId} onChange={(event) => setUploadForm((form) => ({ ...form, yardId: event.target.value }))}><option value="">Company-wide</option>{data.yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
       <label><span>Approver</span><select value={uploadForm.approverId} onChange={(event) => setUploadForm((form) => ({ ...form, approverId: event.target.value }))}><option value="">Select approver</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select></label>
       <label className={styles.wide}><span>AP notes</span><textarea value={uploadForm.notes} onChange={(event) => setUploadForm((form) => ({ ...form, notes: event.target.value }))} /></label>
-      <label className={styles.fileField}><Upload size={18} /><span>{uploadFile?.name || "Select PDF, JPG, or PNG"}</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} /></label>
+      <label className={styles.fileField}><Upload size={18} /><span>{uploadFile?.name || "Select PDF, JPG, or PNG"}</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => void selectInvoiceFile(event.target.files?.[0] || null)} /></label>
+      {(extracting || extractionMessage) && <div className={styles.extractionReview}>
+        <RefreshCw className={extracting ? styles.spinning : ""} size={20} />
+        <div><strong>{extracting ? "Reading invoice" : "Review extracted data"}</strong><p>{extractionMessage}</p>{extraction && <div><span>{extraction.source === "pdf-text" ? "Digital PDF" : "OCR"}</span>{extraction.confidence !== null && <span>{Math.round(extraction.confidence)}% text confidence</span>}<span>{extraction.vendorName ? "Vendor found" : "Vendor needed"}</span><span>{extraction.invoiceNumber ? "Invoice number found" : "Invoice number needed"}</span><span>{extraction.totalAmount ? "Total found" : "Total needed"}</span></div>}</div>
+      </div>}
       {duplicateMatches.length > 0 && <div className={styles.duplicate}><AlertTriangle size={20} /><div><strong>Possible duplicate</strong>{duplicateMatches.map((item) => <p key={item.id}>{item.vendor_name} · {item.invoice_number} · {dollars(item.total_amount)} · {statusLabel(item.status)}</p>)}<label><span>Review note</span><input value={uploadForm.duplicateNote} onChange={(event) => setUploadForm((form) => ({ ...form, duplicateNote: event.target.value }))} /></label><label className={styles.confirm}><input type="checkbox" checked={uploadForm.duplicateAcknowledged} onChange={(event) => setUploadForm((form) => ({ ...form, duplicateAcknowledged: event.target.checked }))} /><span>I reviewed this warning and want to continue.</span></label></div></div>}
-    </div><div className={styles.formActions}><button onClick={() => setShowUpload(false)}>Cancel</button><button className={styles.primary} onClick={submitUpload} disabled={busy || (duplicateMatches.length > 0 && !uploadForm.duplicateAcknowledged)}><Upload size={16} /> Upload and Assign</button></div></section>}
+    </div><div className={styles.formActions}><button onClick={() => setShowUpload(false)}>Cancel</button><button className={styles.primary} onClick={submitUpload} disabled={busy || extracting || (duplicateMatches.length > 0 && !uploadForm.duplicateAcknowledged)}><Upload size={16} /> Upload and Assign</button></div></section>}
 
     <nav className={styles.tabs}>{tabs.map((item) => <button key={item.key} className={tab === item.key ? styles.activeTab : ""} onClick={() => setTab(item.key)}>{item.label}{item.count !== undefined && <b>{item.count}</b>}</button>)}</nav>
 
