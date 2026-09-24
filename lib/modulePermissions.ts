@@ -437,6 +437,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
     allow(permissions, ["dti", "cdt", "hardbanding", "tubing", "daily_summaries", "work_orders"], ["view", "edit", "approve", "close", "export", "receive_notifications"]);
     allow(permissions, ["consumable_inventory", "purchase_orders", "issue_tickets"], ["view", "create", "approve", "export", "receive_notifications"]);
     allow(permissions, ["financials"], ["view", "create", "edit", "approve", "export", "manage_settings"]);
+    allow(permissions, ["invoice_approvals"], ["view", "approve", "export", "receive_notifications"]);
   }
 
   if (role === "dti_superintendent") {
@@ -473,6 +474,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "export",
       "receive_notifications",
     ]);
+    allow(permissions, ["invoice_approvals"], ["view", "approve", "export", "receive_notifications"]);
   }
 
   if (role === "yard_hand") {
@@ -492,6 +494,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "receive_notifications",
     ]);
     if (role === "inventory_manager") allow(permissions, ["purchase_orders", "issue_tickets"], ["delete"]);
+    if (role === "inventory_manager") allow(permissions, ["invoice_approvals"], ["view", "approve", "export", "receive_notifications"]);
   }
 
   if (role === "warehouse_employee") {
@@ -513,7 +516,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "receive_notifications",
     ]);
     allow(permissions, ["financials"], ["view", "create", "edit", "export"]);
-    allow(permissions, ["invoice_approvals"], ["view", "create", "edit", "approve", "export", "receive_notifications"]);
+    allow(permissions, ["invoice_approvals"], ["view", "create", "edit", "export", "receive_notifications"]);
   }
 
   if (role === "cdt_lead" || role === "hardband_lead" || role === "tubing_lead") {
@@ -528,6 +531,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
 
   if (role === "maintenance_manager" || role === "mechanic_manager" || role === "maintenance_lead") {
     allow(permissions, ["dashboard", "work_orders", "consumable_inventory", "issue_tickets", "reports", "exports"], ["view", "create", "edit", "approve", "close", "export", "receive_notifications"]);
+    if (role === "maintenance_manager" || role === "mechanic_manager") allow(permissions, ["invoice_approvals"], ["view", "approve", "export", "receive_notifications"]);
   }
 
   if (role === "maintenance_hand" || role === "mechanic" || role === "repair_tech") {
