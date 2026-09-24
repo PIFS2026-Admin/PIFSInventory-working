@@ -11,7 +11,8 @@
 .metrics,
 .tableSection,
 .jobForm,
-.analyticsControls {
+.analyticsControls,
+.divisionControl {
   max-width: 1680px;
   margin-inline: auto;
 }
@@ -202,6 +203,13 @@
 .barRow i { display: block; height: 100%; background: #ff7417; }
 .barRow strong { text-align: right; font-size: 12px; }
 .laborChart .barRow i { background: #2ea97a; }
+.divisionControl { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 14px; padding: 11px 13px; border: 1px solid #344052; background: #11161d; }
+.divisionControl > div { min-width: 0; }
+.divisionControl > div > strong { display: block; margin-top: 2px; font-size: 15px; }
+.divisionControl p { margin: 3px 0 0; color: #9eabbc; font-size: 10px; line-height: 1.4; }
+.divisionControl label { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-width: 118px; min-height: 38px; padding: 0 10px; border: 1px solid #465365; background: #151b23; cursor: pointer; }
+.divisionControl input { width: 17px; height: 17px; accent-color: #ff7417; }
+.divisionControl label span { font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .overviewLineGrid { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); }
 .overviewLineGrid > button { display: grid; min-width: 0; min-height: 142px; padding: 13px; border-width: 0 1px 1px 0; text-align: left; }
 .overviewLineGrid > button > span { color: #ff8a3c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -451,6 +459,8 @@
   .header { display: grid; }
   .headerActions { width: 100%; }
   .headerActions button { flex: 1; }
+  .divisionControl { align-items: stretch; flex-direction: column; }
+  .divisionControl label { justify-content: center; width: 100%; }
   .filters { grid-template-columns: 1fr 1fr; }
   .metrics { grid-template-columns: 1fr 1fr; }
   .metrics strong { font-size: 18px; }

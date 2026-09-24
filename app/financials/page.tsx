@@ -474,6 +474,7 @@ export default function FinancialsPage() {
   const [analyticsPage, setAnalyticsPage] = useState<AnalyticsPage>("financials");
   const [analyticsFilters, setAnalyticsFilters] = useState<Record<string, string>>({});
   const [kpiComparison, setKpiComparison] = useState<"slice" | "standard">("slice");
+  const [includeTubingInDti, setIncludeTubingInDti] = useState(false);
   const [settingsEditor, setSettingsEditor] = useState<"category" | "pick-list" | "">("");
   const [settingsId, setSettingsId] = useState("");
   const [settingsLine, setSettingsLine] = useState<ConfigurationLine>("dti");
@@ -601,8 +602,6 @@ export default function FinancialsPage() {
       return { ...field, rows, maximum: Math.max(1, ...rows.map((row) => row.revenue)) };
     });
   }, [jobs, line]);
-  const overviewRevenueMaximum = Math.max(1, ...overviewMonthly.map((row) => row.revenue));
-  const overviewLaborMaximum = Math.max(0.01, ...overviewMonthly.map((row) => row.laborPercent));
 
   const activeTargets = useMemo(() => targets.filter((target) => line === "all" || target.service_line === line), [line, targets]);
   const selectedCategories = categories.filter((category) => category.service_line === formLine);
@@ -738,6 +737,31 @@ export default function FinancialsPage() {
     const revenue = tubingRevenue.reduce((sum, row) => sum + numberValue(row.amount), 0);
     return { joints, jobs, trucksIn, trucksOut, manhours, revenue, jointsPerMh: manhours ? joints / manhours : 0 };
   }, [tubingEntries, tubingWeeks, tubingRevenue]);
+  const showDtiTubing = line === "dti" && includeTubingInDti && (tubingWeeks.length > 0 || tubingRevenue.length > 0);
+  const overviewDisplayMonthly = useMemo(() => {
+    if (!showDtiTubing) return overviewMonthly;
+    const grouped = new Map(overviewMonthly.map((row) => [row.month, { ...row }]));
+    const rowFor = (month: string) => grouped.get(month) || { month, ...summarizeJobs([]) };
+    tubingRevenue.forEach((row) => {
+      const month = row.revenue_month.slice(0, 7);
+      const current = rowFor(month);
+      grouped.set(month, { ...current, revenue: current.revenue + numberValue(row.amount) });
+    });
+    tubingWeeks.forEach((week) => {
+      const month = week.week_start.slice(0, 7);
+      const current = rowFor(month);
+      grouped.set(month, { ...current, manhours: current.manhours + numberValue(week.manhours) });
+    });
+    return Array.from(grouped.values()).map((row) => ({
+      ...row,
+      averageJob: row.jobs ? row.revenue / row.jobs : 0,
+      revenuePerMh: row.manhours ? row.revenue / row.manhours : 0,
+    })).sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  }, [overviewMonthly, showDtiTubing, tubingRevenue, tubingWeeks]);
+  const overviewRevenueMaximum = Math.max(1, ...overviewDisplayMonthly.map((row) => row.revenue));
+  const overviewLaborMaximum = Math.max(0.01, ...overviewDisplayMonthly.map((row) => row.laborPercent));
+  const overviewRevenue = showDtiTubing ? totals.revenue + tubingTotals.revenue : totals.revenue;
+  const overviewManhours = showDtiTubing ? totals.manhours + tubingTotals.manhours : totals.manhours;
   const tubingCustomerRows = useMemo(() => tubingCustomers.map((customer) => {
     const rows = tubingEntries.filter((entry) => entry.customer === customer);
     return {
@@ -1501,10 +1525,14 @@ export default function FinancialsPage() {
 
       {!loading && tab === "overview" && line !== "tu" && (
         <>
+          {line === "dti" && (tubingWeeks.length > 0 || tubingRevenue.length > 0) && <section className={styles.divisionControl}>
+            <div><span className={styles.eyebrow}>Division View</span><strong>DTI + Tubing</strong><p>Combine revenue and manhours. DTI cost, profit, margin, labor percentage, and job count remain unchanged.</p></div>
+            <label><input type="checkbox" checked={includeTubingInDti} onChange={(event) => setIncludeTubingInDti(event.target.checked)} /><span>{includeTubingInDti ? "Combined" : "DTI only"}</span></label>
+          </section>}
           <section className={styles.metrics}>
-            <div><span>Jobs</span><strong>{totals.jobs.toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(totals.revenue)}</strong></div>
-            <div><span>Total Cost</span><strong>{money(totals.cost)}</strong></div><div><span>Profit</span><strong>{money(totals.profit)}</strong></div>
-            <div><span>Gross Margin</span><strong>{percent(totals.margin)}</strong></div><div><span>Revenue / Manhour</span><strong>{money(totals.revenuePerMh)}</strong></div>
+            <div><span>{showDtiTubing ? "DTI Jobs" : "Jobs"}</span><strong>{totals.jobs.toLocaleString()}</strong></div><div><span>{showDtiTubing ? "DTI + Tubing Revenue" : "Revenue"}</span><strong>{money(overviewRevenue)}</strong></div>
+            <div><span>{showDtiTubing ? "DTI Cost" : "Total Cost"}</span><strong>{money(totals.cost)}</strong></div><div><span>{showDtiTubing ? "DTI Profit" : "Profit"}</span><strong>{money(totals.profit)}</strong></div>
+            <div><span>{showDtiTubing ? "DTI Margin" : "Gross Margin"}</span><strong>{percent(totals.margin)}</strong></div><div><span>{showDtiTubing ? "Combined Revenue / MH" : "Revenue / Manhour"}</span><strong>{money(overviewManhours ? overviewRevenue / overviewManhours : 0)}</strong></div>
           </section>
           {line === "all" && <section className={styles.tableSection}>
             <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Service-Line Drilldown</span><h2>Financial Performance by Operation</h2></div><span>Select a line to open its operating detail.</span></div>
@@ -1516,11 +1544,11 @@ export default function FinancialsPage() {
           <section className={styles.twoColumn}>
             <div className={styles.tableSection}>
               <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>12-Month Movement</span><h2>Revenue by Month</h2></div></div>
-              <div className={styles.barChart}>{overviewMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.revenue / overviewRevenueMaximum * 100)}%` }} /></div><strong>{money(row.revenue)}</strong></div>)}{!overviewMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
+              <div className={styles.barChart}>{overviewDisplayMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.revenue / overviewRevenueMaximum * 100)}%` }} /></div><strong>{money(row.revenue)}</strong></div>)}{!overviewDisplayMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
             </div>
             <div className={styles.tableSection}>
               <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Cost Control</span><h2>Labor % of Revenue</h2></div><span>Lower is better</span></div>
-              <div className={`${styles.barChart} ${styles.laborChart}`}>{overviewMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.laborPercent / overviewLaborMaximum * 100)}%` }} /></div><strong>{percent(row.laborPercent)}</strong></div>)}{!overviewMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
+              <div className={`${styles.barChart} ${styles.laborChart}`}>{overviewDisplayMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.laborPercent / overviewLaborMaximum * 100)}%` }} /></div><strong>{percent(row.laborPercent)}</strong></div>)}{!overviewDisplayMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
             </div>
           </section>
           {line !== "all" && overviewBreakdowns.length > 0 && <section className={overviewBreakdowns.length > 1 ? styles.twoColumn : undefined}>{overviewBreakdowns.map((breakdown) => <div className={styles.tableSection} key={breakdown.key}>
