@@ -281,8 +281,16 @@ create table if not exists public.titan_ap_invoice_approvals (
   coding_snapshot jsonb not null,
   original_file_sha256 text not null,
   approval_statement text not null,
-  signature_version text not null default 'titan-auth-v1'
+  signature_version text not null default 'titan-drawn-v1',
+  signature_storage_bucket text,
+  signature_storage_path text,
+  signature_sha256 text
 );
+
+alter table public.titan_ap_invoice_approvals add column if not exists signature_storage_bucket text;
+alter table public.titan_ap_invoice_approvals add column if not exists signature_storage_path text;
+alter table public.titan_ap_invoice_approvals add column if not exists signature_sha256 text;
+alter table public.titan_ap_invoice_approvals alter column signature_version set default 'titan-drawn-v1';
 
 create table if not exists public.titan_ap_invoice_activity (
   id uuid primary key default gen_random_uuid(),
@@ -325,11 +333,16 @@ create trigger titan_ap_coding_lines_updated_at
 before update on public.titan_ap_invoice_coding_lines
 for each row execute function public.titan_ap_set_updated_at();
 
-create or replace function public.titan_ap_approve_invoice(
+drop function if exists public.titan_ap_approve_invoice(uuid, uuid, text, text);
+drop function if exists public.titan_ap_approve_invoice(uuid, uuid, text, text, text, text, text);
+create function public.titan_ap_approve_invoice(
   p_invoice_id uuid,
   p_actor_id uuid,
   p_actor_name text,
-  p_approval_statement text
+  p_approval_statement text,
+  p_signature_bucket text,
+  p_signature_path text,
+  p_signature_sha256 text
 )
 returns uuid
 language plpgsql
@@ -358,6 +371,11 @@ begin
   if exists (select 1 from public.titan_ap_invoice_approvals where invoice_id = p_invoice_id) then
     raise exception 'This invoice has already been approved.';
   end if;
+  if nullif(btrim(p_signature_bucket), '') is null
+     or nullif(btrim(p_signature_path), '') is null
+     or p_signature_sha256 !~ '^[0-9a-f]{64}$' then
+    raise exception 'A valid captured signature is required.';
+  end if;
 
   select coalesce(sum(amount), 0), coalesce(jsonb_agg(to_jsonb(lines) order by line_number), '[]'::jsonb)
   into coding_total, coding_rows
@@ -381,10 +399,12 @@ begin
 
   insert into public.titan_ap_invoice_approvals (
     invoice_id, approver_id, approver_name, approved_total, coding_snapshot,
-    original_file_sha256, approval_statement
+    original_file_sha256, approval_statement, signature_version,
+    signature_storage_bucket, signature_storage_path, signature_sha256
   ) values (
     p_invoice_id, p_actor_id, p_actor_name, invoice_row.total_amount, coding_rows,
-    file_hash, p_approval_statement
+    file_hash, p_approval_statement, 'titan-drawn-v1',
+    btrim(p_signature_bucket), btrim(p_signature_path), p_signature_sha256
   ) returning id into approval_id;
 
   update public.titan_ap_invoices
@@ -398,7 +418,12 @@ begin
   ) values (
     p_invoice_id, 'approved', p_actor_id, p_actor_name,
     'awaiting_approval', 'approved', p_approval_statement,
-    jsonb_build_object('approval_id', approval_id, 'approved_total', invoice_row.total_amount)
+    jsonb_build_object(
+      'approval_id', approval_id,
+      'approved_total', invoice_row.total_amount,
+      'signature_sha256', p_signature_sha256,
+      'signature_version', 'titan-drawn-v1'
+    )
   );
 
   return approval_id;
@@ -482,8 +507,8 @@ begin
 end;
 $$;
 
-revoke all on function public.titan_ap_approve_invoice(uuid, uuid, text, text) from public, authenticated;
-grant execute on function public.titan_ap_approve_invoice(uuid, uuid, text, text) to service_role;
+revoke all on function public.titan_ap_approve_invoice(uuid, uuid, text, text, text, text, text) from public, authenticated;
+grant execute on function public.titan_ap_approve_invoice(uuid, uuid, text, text, text, text, text) to service_role;
 revoke all on function public.titan_ap_replace_coding_lines(uuid, uuid, text, jsonb, text) from public, authenticated;
 grant execute on function public.titan_ap_replace_coding_lines(uuid, uuid, text, jsonb, text) to service_role;
 

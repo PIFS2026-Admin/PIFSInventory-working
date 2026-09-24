@@ -50,9 +50,16 @@ export async function GET(request: Request) {
     if (fileResult.error || !fileResult.data) throw new Error("The original invoice file is missing.");
     const approval = approvalResult.data;
     const storedFile = fileResult.data;
-    const downloaded = await context.admin.storage.from(storedFile.storage_bucket).download(storedFile.storage_path);
+    const [downloaded, signatureDownload] = await Promise.all([
+      context.admin.storage.from(storedFile.storage_bucket).download(storedFile.storage_path),
+      approval.signature_storage_path
+        ? context.admin.storage.from(approval.signature_storage_bucket || storedFile.storage_bucket).download(approval.signature_storage_path)
+        : Promise.resolve({ data: null, error: null }),
+    ]);
     if (downloaded.error || !downloaded.data) throw downloaded.error || new Error("The invoice file could not be downloaded.");
+    if (signatureDownload.error) throw signatureDownload.error;
     const sourceBytes = new Uint8Array(await downloaded.data.arrayBuffer());
+    const signatureBytes = signatureDownload.data ? new Uint8Array(await signatureDownload.data.arrayBuffer()) : null;
 
     const packet = await PDFDocument.create();
     const regular = await packet.embedFont(StandardFonts.Helvetica);
@@ -112,7 +119,7 @@ export async function GET(request: Request) {
     page.drawText(`CODING TOTAL  ${money(approval.approved_total)}`, { x: 385, y: y - 5, size: 10, font: bold, color: dark });
 
     y -= 54;
-    if (y < 155) {
+    if (y < (signatureBytes ? 280 : 155)) {
       page = packet.addPage([612, 792]);
       y = 748;
     }
@@ -123,6 +130,12 @@ export async function GET(request: Request) {
       y -= 12;
     });
     y -= 8;
+    if (signatureBytes) {
+      const signatureImage = await packet.embedPng(signatureBytes);
+      const dimensions = signatureImage.scaleToFit(240, 72);
+      page.drawImage(signatureImage, { x: 44, y: y - dimensions.height, width: dimensions.width, height: dimensions.height });
+      y -= dimensions.height + 12;
+    }
     write(`Approved and signed by: ${approval.approver_name}`, 44, 10, bold);
     y -= 16;
     write(`TITAN user ID: ${approval.approver_id}`, 44, 8, regular, muted);
@@ -131,6 +144,10 @@ export async function GET(request: Request) {
     y -= 14;
     write(`Signature method: ${approval.signature_version}`, 44, 8, regular, muted);
     y -= 14;
+    if (approval.signature_sha256) {
+      write(`Signature SHA-256: ${approval.signature_sha256}`, 44, 7, regular, muted);
+      y -= 12;
+    }
     write(`Original file SHA-256: ${approval.original_file_sha256}`, 44, 7, regular, muted);
 
     if (storedFile.mime_type === "application/pdf") {

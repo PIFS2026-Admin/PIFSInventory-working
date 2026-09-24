@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, Download, ExternalLink, Eye, FilePlus2, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
 import { supabase } from "../../lib/supabase";
+import SignaturePad from "./SignaturePad";
 import styles from "./invoice-approvals.module.css";
 
 type InvoiceStatus = "awaiting_approval" | "returned_to_ap" | "disputed" | "approved";
@@ -21,7 +22,7 @@ type Person = { id: string; full_name: string | null; email: string | null; role
 type Vendor = { id: string; vendor_name: string; yard_id: string | null };
 type Yard = { id: string; name: string; code: string };
 type StoredFile = { id: string; invoice_id: string; file_kind: string; version_number: number; is_current: boolean; original_file_name: string; mime_type: string; file_size: number; uploaded_by_name: string; uploaded_at: string };
-type Approval = { id: string; invoice_id: string; approver_name: string; approver_id: string; approved_at: string; approved_total: number; approval_statement: string; signature_version: string };
+type Approval = { id: string; invoice_id: string; approver_name: string; approver_id: string; approved_at: string; approved_total: number; approval_statement: string; signature_version: string; signature_storage_path?: string | null };
 type Activity = { id: string; invoice_id: string; action: string; actor_name: string; note: string | null; created_at: string };
 type Permissions = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean; isAp: boolean; isAdmin: boolean };
 type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; approvalStatement: string };
@@ -84,6 +85,8 @@ export default function InvoiceApprovalsPage() {
   const [approverNotes, setApproverNotes] = useState("");
   const [reason, setReason] = useState("");
   const [signatureConfirmed, setSignatureConfirmed] = useState(false);
+  const [signatureData, setSignatureData] = useState("");
+  const [approvalSignatureUrl, setApprovalSignatureUrl] = useState("");
   const [newApprover, setNewApprover] = useState("");
   const [codeForm, setCodeForm] = useState({ id: "", code: "", description: "", active: true });
   const [uploadForm, setUploadForm] = useState({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
@@ -143,6 +146,7 @@ export default function InvoiceApprovalsPage() {
     setNewApprover(selected.assigned_approver_id);
     setReason("");
     setSignatureConfirmed(false);
+    setSignatureData("");
     setEditDuplicateMatches([]);
     setEditForm({ vendorId: selected.vendor_id || "", vendorName: selected.vendor_name, invoiceNumber: selected.invoice_number, invoiceDate: selected.invoice_date, dueDate: selected.due_date || "", totalAmount: String(selected.total_amount), yardId: selected.yard_id || "", notes: selected.notes || "", duplicateAcknowledged: false, duplicateNote: "" });
   }, [selectedId, data.codingLines.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -184,6 +188,23 @@ export default function InvoiceApprovalsPage() {
   };
 
   useEffect(() => { void loadPreview(previewFileId); }, [previewFileId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setApprovalSignatureUrl("");
+    if (!selectedApproval?.signature_storage_path) return;
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/invoice-approvals?signatureApprovalId=${encodeURIComponent(selectedApproval.id)}`, { headers: await authHeaders(false), cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Approval signature could not be loaded.");
+        if (active) setApprovalSignatureUrl(payload.url || "");
+      } catch (error) {
+        if (active) setNotice(error instanceof Error ? error.message : String(error));
+      }
+    })();
+    return () => { active = false; };
+  }, [selectedApproval?.id, selectedApproval?.signature_storage_path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = useMemo(() => ({
     mine: data.invoices.filter((invoice) => invoice.status === "awaiting_approval" && invoice.assigned_approver_id === currentUserId).length,
@@ -415,12 +436,13 @@ export default function InvoiceApprovalsPage() {
 
       {canAct && <section className={styles.actionPanel}>
         <div><span>APPROVAL ACTION</span><h2>Complete your review</h2></div>
+        <SignaturePad key={selected.id} onChange={setSignatureData} />
         <label className={styles.confirm}><input type="checkbox" checked={signatureConfirmed} onChange={(event) => setSignatureConfirmed(event.target.checked)} /><span>{data.approvalStatement}</span></label>
         <textarea placeholder="Reason required for Dispute or Return to AP" value={reason} onChange={(event) => setReason(event.target.value)} />
-        <div><button type="button" className={styles.danger} onClick={() => run(() => api({ action: "dispute", invoiceId: selected.id, reason }), "Invoice moved to Disputed.")} disabled={busy || !reason.trim()}><AlertTriangle size={16} /> Dispute</button><button type="button" onClick={() => run(() => api({ action: "return", invoiceId: selected.id, reason }), "Invoice returned to AP.")} disabled={busy || !reason.trim()}><RotateCcw size={16} /> Return to AP</button><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "approve", invoiceId: selected.id, confirmed: signatureConfirmed }), "Invoice approved and electronically signed.")} disabled={busy || !signatureConfirmed || Math.abs(codingDifference) >= .005}><Check size={16} /> Approve &amp; Sign</button></div>
+        <div><button type="button" className={styles.danger} onClick={() => run(() => api({ action: "dispute", invoiceId: selected.id, reason }), "Invoice moved to Disputed.")} disabled={busy || !reason.trim()}><AlertTriangle size={16} /> Dispute</button><button type="button" onClick={() => run(() => api({ action: "return", invoiceId: selected.id, reason }), "Invoice returned to AP.")} disabled={busy || !reason.trim()}><RotateCcw size={16} /> Return to AP</button><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "approve", invoiceId: selected.id, confirmed: signatureConfirmed, signatureData }), "Invoice approved and electronically signed.")} disabled={busy || !signatureConfirmed || !signatureData || Math.abs(codingDifference) >= .005}><Check size={16} /> Approve &amp; Sign</button></div>
       </section>}
 
-      {selectedApproval && <section className={styles.signature}><Check size={22} /><div><span>AUTHENTICATED ELECTRONIC APPROVAL</span><strong>{selectedApproval.approver_name}</strong><p>{dateText(selectedApproval.approved_at, true)} · User ID {selectedApproval.approver_id}</p></div></section>}
+      {selectedApproval && <section className={styles.signature}><Check size={22} />{approvalSignatureUrl && <img src={approvalSignatureUrl} alt={`${selectedApproval.approver_name} signature`} />}<div><span>AUTHENTICATED ELECTRONIC APPROVAL</span><strong>{selectedApproval.approver_name}</strong><p>{dateText(selectedApproval.approved_at, true)} · User ID {selectedApproval.approver_id}</p></div></section>}
       <section className={styles.activity}><div className={styles.sectionHeading}><div><span>HISTORY</span><h2>Activity</h2></div></div>{selectedActivity.map((item) => <div key={item.id}><span>{item.action.replaceAll("_", " ")}</span><strong>{item.actor_name}</strong><p>{item.note || ""}</p><time>{dateText(item.created_at, true)}</time></div>)}</section>
     </main>
   );

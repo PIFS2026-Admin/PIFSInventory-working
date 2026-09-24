@@ -102,11 +102,17 @@
 .removeCoding span { display: none; }
 .codingActions { display: grid; grid-template-columns: auto minmax(250px, 1fr) auto; align-items: end; gap: 10px; padding: 12px; }
 .codingActions textarea { min-height: 62px; }
-.actionPanel { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(280px, 1.4fr) minmax(260px, 1fr); gap: 14px; align-items: center; padding: 14px; border-top: 3px solid #ff7417; }
+.actionPanel { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(300px, 1.4fr) minmax(260px, 1fr); gap: 14px; align-items: center; padding: 14px; border-top: 3px solid #ff7417; }
 .actionPanel h2 { margin: 4px 0 0; font-size: 18px; }
 .actionPanel > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.signaturePad { grid-column: 2 / -1; display: grid; gap: 7px; }
+.signaturePadHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.signaturePadHeading > span { color: #ff8a3c; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+.signaturePadHeading button { min-height: 32px; }
+.signaturePad canvas { display: block; width: 100%; height: auto; aspect-ratio: 10 / 3; border: 1px solid #627086; border-radius: 3px; background: #fff; cursor: crosshair; touch-action: none; }
 .signature { display: flex; align-items: center; gap: 13px; margin-top: 14px; padding: 16px; border: 1px solid #2c8c68; background: #10251d; }
 .signature svg { color: #78dfb5; }
+.signature img { width: 180px; max-height: 70px; object-fit: contain; border: 1px solid #527565; background: #fff; }
 .signature div { display: grid; gap: 3px; }
 .signature p { margin: 0; color: #9dbbad; font-size: 11px; }
 .activity > div:not(.sectionHeading) { display: grid; grid-template-columns: 160px 180px 1fr auto; gap: 12px; align-items: center; min-height: 48px; padding: 8px 12px; border-bottom: 1px solid #28313d; }
@@ -137,6 +143,7 @@
   .invoicePreview { min-height: 420px; }
   .invoicePreview iframe { height: 520px; }
   .actionPanel { grid-template-columns: 1fr; }
+  .signaturePad { grid-column: 1; }
   .actionPanel > div:last-child { justify-content: flex-start; }
   .filters { grid-template-columns: 1fr 1fr; }
   .filters label:first-child { grid-column: 1 / -1; }
@@ -178,6 +185,8 @@
   .invoicePreview { min-height: 360px; }
   .invoicePreview iframe { height: 460px; }
   .reassign { grid-template-columns: 1fr; }
+  .signature { align-items: flex-start; flex-wrap: wrap; }
+  .signature img { order: 3; width: 100%; max-height: 100px; }
   .page .invoiceRow { grid-template-columns: 1fr; }
   .invoiceDates, .invoiceAmount { grid-column: 1; grid-row: auto; }
   .invoiceAmount { align-self: stretch; }

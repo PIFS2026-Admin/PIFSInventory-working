@@ -42,6 +42,19 @@ function safeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "invoice";
 }
 
+function capturedSignature(value: unknown) {
+  const match = text(value).match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) throw new Error("Draw your signature before approving this invoice.");
+  const bytes = Buffer.from(match[1], "base64");
+  if (bytes.length < 500 || bytes.length > 500_000) throw new Error("The captured signature is invalid or too large.");
+  const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (!bytes.subarray(0, 8).equals(pngHeader) || bytes.length < 24) throw new Error("The captured signature must be a PNG image.");
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (width < 100 || height < 40 || width > 2_000 || height > 1_000) throw new Error("The captured signature dimensions are invalid.");
+  return { bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
 async function ensureBucket(context: InvoiceRequestContext) {
   const current = await context.admin.storage.getBucket(bucket);
   if (!current.error) return;
@@ -175,6 +188,16 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const invoiceId = text(url.searchParams.get("invoiceId"));
     const fileId = text(url.searchParams.get("fileId"));
+    const signatureApprovalId = text(url.searchParams.get("signatureApprovalId"));
+
+    if (signatureApprovalId) {
+      const approvalResult = await context.admin.from("titan_ap_invoice_approvals").select("id,invoice_id,signature_storage_bucket,signature_storage_path").eq("id", signatureApprovalId).single();
+      if (approvalResult.error || !approvalResult.data?.signature_storage_path) throw new Error("Approval signature not found.");
+      await getInvoice(context, approvalResult.data.invoice_id);
+      const signed = await context.admin.storage.from(approvalResult.data.signature_storage_bucket || bucket).createSignedUrl(approvalResult.data.signature_storage_path, 300);
+      if (signed.error) throw signed.error;
+      return Response.json({ url: signed.data.signedUrl });
+    }
 
     if (fileId) {
       const fileResult = await context.admin.from("titan_ap_invoice_files").select("*").eq("id", fileId).single();
@@ -341,13 +364,24 @@ export async function POST(request: Request) {
     if (action === "approve") {
       if (!context.invoicePermissions.approve) throw new Error("You do not have permission to approve invoices.");
       if (body.confirmed !== true) throw new Error("Confirm the electronic approval statement before approving.");
+      const signature = capturedSignature(body.signatureData);
+      await ensureBucket(context);
+      const signaturePath = `${invoiceId}/signatures/${randomUUID()}.png`;
+      const uploaded = await context.admin.storage.from(bucket).upload(signaturePath, signature.bytes, { contentType: "image/png", upsert: false });
+      if (uploaded.error) throw uploaded.error;
       const result = await context.admin.rpc("titan_ap_approve_invoice", {
         p_invoice_id: invoiceId,
         p_actor_id: context.actor.id,
         p_actor_name: context.actor.fullName,
         p_approval_statement: approvalStatement,
+        p_signature_bucket: bucket,
+        p_signature_path: signaturePath,
+        p_signature_sha256: signature.sha256,
       });
-      if (result.error) throw result.error;
+      if (result.error) {
+        await context.admin.storage.from(bucket).remove([signaturePath]);
+        throw result.error;
+      }
       const notificationWarning = await workflowNotificationWarning(context, invoice, "approved");
       return Response.json({ ok: true, approvalId: result.data, notificationWarning: notificationWarning || undefined });
     }
