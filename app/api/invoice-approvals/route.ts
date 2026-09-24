@@ -13,6 +13,7 @@ import {
   invoiceSchemaMissing,
   InvoiceRequestContext,
 } from "../../../lib/serverInvoiceApprovals";
+import { notifyInvoiceWorkflow } from "../../../lib/invoiceApprovalNotifications";
 
 export const runtime = "nodejs";
 
@@ -101,6 +102,28 @@ async function activity(context: InvoiceRequestContext, invoiceId: string, actio
     details: details || {},
   });
   if (result.error) throw result.error;
+}
+
+async function workflowNotificationWarning(
+  context: InvoiceRequestContext,
+  invoice: Record<string, unknown> & { id: string },
+  kind: "assigned" | "reassigned" | "returned" | "disputed" | "approved",
+  reason = "",
+) {
+  try {
+    const result = await notifyInvoiceWorkflow({
+      admin: context.admin,
+      invoice,
+      kind,
+      actorId: context.actor.id,
+      actorName: context.actor.fullName,
+      reason,
+    });
+    return result.warnings.join(" ");
+  } catch (error) {
+    console.error(`Invoice ${kind} notification failed`, error);
+    return "The invoice was saved, but one or more notifications could not be delivered.";
+  }
 }
 
 async function duplicateMatches(context: InvoiceRequestContext, vendorName: string, invoiceNumber: string, excludeId = "") {
@@ -258,7 +281,8 @@ async function createInvoice(request: Request, context: InvoiceRequestContext, f
     await context.admin.from("titan_ap_invoices").delete().eq("id", inserted.data.id);
     throw error;
   }
-  return Response.json({ ok: true, invoiceId: inserted.data.id });
+  const notificationWarning = await workflowNotificationWarning(context, inserted.data, "assigned");
+  return Response.json({ ok: true, invoiceId: inserted.data.id, notificationWarning: notificationWarning || undefined });
 }
 
 async function replaceFile(context: InvoiceRequestContext, form: FormData) {
@@ -324,7 +348,8 @@ export async function POST(request: Request) {
         p_approval_statement: approvalStatement,
       });
       if (result.error) throw result.error;
-      return Response.json({ ok: true, approvalId: result.data });
+      const notificationWarning = await workflowNotificationWarning(context, invoice, "approved");
+      return Response.json({ ok: true, approvalId: result.data, notificationWarning: notificationWarning || undefined });
     }
 
     if (action === "dispute" || action === "return") {
@@ -341,7 +366,8 @@ export async function POST(request: Request) {
       if (update.error) throw update.error;
       if (!update.data) throw new Error("This invoice changed before the action completed. Refresh and try again.");
       await activity(context, invoiceId, action === "dispute" ? "disputed" : "returned_to_ap", "awaiting_approval", nextStatus, reason);
-      return Response.json({ ok: true });
+      const notificationWarning = await workflowNotificationWarning(context, invoice, action === "dispute" ? "disputed" : "returned", reason);
+      return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
 
     if (action === "reassign") {
@@ -361,7 +387,8 @@ export async function POST(request: Request) {
       if (updated.error) throw updated.error;
       if (!updated.data) throw new Error("This invoice was approved before reassignment completed.");
       await activity(context, invoiceId, "reassigned", invoice.status, "awaiting_approval", text(body.note), { previous_approver_id: invoice.assigned_approver_id, approver_id: approverId });
-      return Response.json({ ok: true });
+      const notificationWarning = await workflowNotificationWarning(context, { ...invoice, assigned_approver_id: approverId }, "reassigned");
+      return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
 
     if (action === "update_invoice") {

@@ -100,6 +100,8 @@ export default function InvoiceApprovalsPage() {
       if (!response.ok && !payload.setupRequired) throw new Error(payload.error || "Invoice Approvals could not be loaded.");
       setData({ ...emptyData, ...payload });
       if (payload.permissions?.isAp && tab === "mine") setTab("awaiting");
+      const linkedInvoiceId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invoice") || "" : "";
+      if (linkedInvoiceId && (payload.invoices || []).some((invoice: Invoice) => invoice.id === linkedInvoiceId)) setSelectedId(linkedInvoiceId);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -158,8 +160,8 @@ export default function InvoiceApprovalsPage() {
     setBusy(true);
     setNotice("");
     try {
-      await work();
-      setNotice(success);
+      const result = await work() as { notificationWarning?: string } | undefined;
+      setNotice([success, result?.notificationWarning].filter(Boolean).join(" "));
       await load(true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -192,7 +194,7 @@ export default function InvoiceApprovalsPage() {
       setExtractionMessage("");
       setUploadForm({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
       setSelectedId(payload.invoiceId);
-      setNotice("Invoice uploaded and assigned.");
+      setNotice(["Invoice uploaded and assigned.", payload.notificationWarning].filter(Boolean).join(" "));
       await load(true);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
