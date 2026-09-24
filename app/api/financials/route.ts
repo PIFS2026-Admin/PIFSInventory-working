@@ -13,12 +13,14 @@ import {
 import {
   computeFinancialJob,
   financialHeadline,
+  financialLineNames,
   financialLineRateKeys,
   financialTierQuantity,
   FinancialInputs,
   FinancialLine,
   FinancialRates,
 } from "../../../lib/financialKpi";
+import { buildFinancialTrackerWorkbook } from "../../../lib/financialTrackerWorkbook";
 
 const financialLines = new Set<FinancialLine>(["dti", "cdt", "hb", "trs", "wash"]);
 const configurationLines = new Set(["dti", "cdt", "hb", "trs", "wash", "tu"]);
@@ -549,6 +551,38 @@ export async function POST(request: Request) {
     const action = String(body.action || "");
     const yardId = String(body.yardId || "");
     await assertYardAccess(context, yardId);
+
+    if (action === "export_tracker") {
+      if (!permissions.export) return Response.json({ error: "You cannot export financial records." }, { status: 403 });
+      const requestedJobIds: unknown[] = Array.isArray(body.jobIds) ? body.jobIds : [];
+      const jobIds = Array.from(new Set(requestedJobIds.map(String).filter((id: string) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 5000);
+      if (!jobIds.length) throw new Error("No visible tracker rows are available to export.");
+      const [jobs, categories, yard] = await Promise.all([
+        context.admin.from("titan_financial_jobs").select("id,service_line,job_date,category_code,invoice,operator,rig,lead,revenue,manhours,computed,source,status").eq("yard_id", yardId).eq("status", "active").in("id", jobIds).order("job_date", { ascending: false }),
+        context.admin.from("titan_financial_categories").select("service_line,code,label"),
+        context.admin.from("yards").select("name,code").eq("id", yardId).single(),
+      ]);
+      if (jobs.error) throw jobs.error;
+      if (categories.error) throw categories.error;
+      if (yard.error) throw yard.error;
+      const categoryLabels = Object.fromEntries((categories.data || []).map((category) => [`${category.service_line}:${category.code}`, category.label]));
+      const requestedOrder = new Map(jobIds.map((id, index) => [id, index]));
+      const orderedJobs = (jobs.data || []).sort((a, b) => (requestedOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (requestedOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+      const requestedLine = String(body.line || "all");
+      const lineLabel = requestedLine === "all" ? "All Service Lines" : financialLines.has(requestedLine as FinancialLine) ? financialLineNames[requestedLine as FinancialLine] : "Financial Jobs";
+      const output = await buildFinancialTrackerWorkbook({
+        yardName: String(yard.data.name || yard.data.code || "TITAN Yard"),
+        dateFrom: String(body.dateFrom || "").slice(0, 10),
+        dateTo: String(body.dateTo || "").slice(0, 10),
+        lineLabel,
+        filterSummary: String(body.filterSummary || "").slice(0, 1000),
+        jobs: orderedJobs as Parameters<typeof buildFinancialTrackerWorkbook>[0]["jobs"],
+        categoryLabels,
+      });
+      const safeLine = requestedLine === "all" ? "all-lines" : requestedLine.replace(/[^a-z0-9_-]+/gi, "-");
+      const filename = `titan-financial-tracker-${safeLine}-${String(body.dateFrom || "start").slice(0, 10)}-${String(body.dateTo || "end").slice(0, 10)}.xlsx`;
+      return new Response(Uint8Array.from(output).buffer, { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="${filename}"`, "Cache-Control": "no-store" } });
+    }
 
     if (action === "save_base_rate") {
       if (!permissions.manageSettings) return Response.json({ error: "You cannot manage the financial cost basis." }, { status: 403 });

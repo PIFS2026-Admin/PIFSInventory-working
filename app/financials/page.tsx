@@ -405,6 +405,7 @@ export default function FinancialsPage() {
   const [inputs, setInputs] = useState<Record<string, string>>(initialInputs("dti"));
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [showTubingWeekForm, setShowTubingWeekForm] = useState(false);
   const [tubingWeekStart, setTubingWeekStart] = useState("");
   const [tubingManhours, setTubingManhours] = useState("");
@@ -1234,7 +1235,7 @@ export default function FinancialsPage() {
     await loadFinancials();
   }
 
-  function exportJobs() {
+  async function exportJobs() {
     if (tab === "market") {
       const headers = ["As Of", "Operator", "Rig", "Standing", ...market.services.map((service) => service.name)];
       const rows = visibleMarketRigs.map((rig) => [selectedMarketDate, rig.operator, rig.rig_name, rig.segment, ...market.services.map((service) => {
@@ -1263,14 +1264,41 @@ export default function FinancialsPage() {
       URL.revokeObjectURL(link.href);
       return;
     }
-    const headers = ["Date", "Service Line", "Category", "Invoice", "Operator", "Rig / Yard", "Lead", "Revenue", "Total Cost", "Profit", "Margin", "Manhours", "Source"];
-    const rows = filteredJobs.map((job) => [job.job_date, financialLineNames[job.service_line], job.category_code, job.invoice, job.operator, job.rig, job.lead, job.revenue, job.computed.total_cost, job.computed.profit, job.computed.margin, job.manhours, job.source]);
-    const csv = [headers, ...rows].map((row) => row.map(csvValue).join(",")).join("\n");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `titan-financials-${dateFrom}-${dateTo}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    if (!filteredJobs.length) {
+      setMessage("No visible tracker rows are available to export.");
+      return;
+    }
+    setExporting(true);
+    setMessage("");
+    const filterLabels: Record<string, string> = { category: "Category", invoice: "Invoice", operator: "Operator", rig: "Rig / Yard", lead: "Lead", revenue: "Revenue", cost: "Cost", profit: "Profit", margin: "Margin", manhours: "Manhours", source: "Source" };
+    const filterSummary = Object.entries(jobFilters).filter(([, value]) => value.trim()).map(([key, value]) => `${filterLabels[key] || key}: ${value}`).join(" | ");
+    try {
+      const response = await fetch("/api/financials", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "export_tracker", yardId, line, dateFrom, dateTo, jobIds: filteredJobs.map((job) => job.id), filterSummary }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || "The tracker workbook could not be created.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] || `titan-financial-tracker-${dateFrom}-${dateTo}.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(`${filteredJobs.length} filtered tracker row${filteredJobs.length === 1 ? "" : "s"} exported to Excel.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The tracker workbook could not be created.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -1278,7 +1306,7 @@ export default function FinancialsPage() {
       <header className={styles.header}>
         <div><span className={styles.eyebrow}>KPI / Financial</span><h1>Financial Performance</h1><p>Controlled job-cost reporting with frozen historical calculations.</p></div>
         <div className={styles.headerActions}>
-          {permissions.export && <button type="button" onClick={exportJobs}>Export CSV</button>}
+          {permissions.export && <button type="button" disabled={exporting} onClick={() => void exportJobs()}>{exporting ? "Exporting..." : tab === "market" || line === "tu" ? "Export CSV" : "Export Excel"}</button>}
           {permissions.create && line === "tu" && tab !== "market" && <button type="button" className={styles.primary} onClick={() => { setTab("trackers"); openTubingWeek(); }}>Add Week</button>}
           {permissions.create && line !== "tu" && tab === "reviews" && <button type="button" className={styles.primary} onClick={() => openReview()}>New Review</button>}
           {permissions.create && line !== "tu" && ["overview", "trackers"].includes(tab) && <button type="button" className={styles.primary} onClick={() => { resetForm(line === "all" ? "dti" : line); setShowJobForm(true); }}>Add Job</button>}
