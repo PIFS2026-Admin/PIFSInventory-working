@@ -19,7 +19,8 @@
     "import:compass-financial-lists:dry": "node scripts/import-compass-financial-lists.mjs",
     "import:compass-financial-lists": "node scripts/import-compass-financial-lists.mjs --live",
     "import:compass-financial-market:dry": "node scripts/import-compass-financial-market.mjs",
-    "import:compass-financial-market": "node scripts/import-compass-financial-market.mjs --live"
+    "import:compass-financial-market": "node scripts/import-compass-financial-market.mjs --live",
+    "preload:invoice-accounting-codes": "node scripts/preload-titan-ap-accounting-codes.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
