@@ -356,6 +356,13 @@ const targetMetrics = [
   { key: "rev_per_mh", label: "Revenue / Manhour", unit: "currency" },
   { key: "margin", label: "Profit Margin", unit: "percent" },
 ] as const;
+const overviewBreakdownFields: Record<FinancialLine, { key: string; label: string }[]> = {
+  dti: [{ key: "insp_type", label: "Inspection Type" }, { key: "connection", label: "Connection" }],
+  cdt: [{ key: "casing_size", label: "Casing Size" }],
+  hb: [{ key: "connection", label: "Connection" }, { key: "size", label: "Size" }],
+  trs: [{ key: "casing_size", label: "Casing Size" }, { key: "job_type", label: "Job Type" }],
+  wash: [{ key: "items", label: "Items Washed" }],
+};
 const reviewMetrics = [
   { key: "revenue", label: "Revenue" }, { key: "jobs", label: "Jobs" }, { key: "profit", label: "Profit" },
   { key: "margin", label: "Profit Margin" }, { key: "cost", label: "Total Cost" }, { key: "manhours", label: "Manhours" },
@@ -567,6 +574,35 @@ export default function FinancialsPage() {
     return Array.from(grouped, ([operator, row]) => ({ operator, ...row, margin: row.revenue ? row.profit / row.revenue : 0 }))
       .sort((a, b) => b.revenue - a.revenue).slice(0, 12);
   }, [jobs]);
+
+  const overviewLineRows = useMemo(() => lines.map((serviceLine) => {
+    const lineJobs = jobs.filter((job) => job.service_line === serviceLine);
+    return { serviceLine, ...summarizeJobs(lineJobs) };
+  }).filter((row) => row.jobs > 0).sort((a, b) => b.revenue - a.revenue), [jobs]);
+  const overviewMonthly = useMemo(() => {
+    const grouped = new Map<string, FinancialJob[]>();
+    jobs.forEach((job) => {
+      const month = job.job_date.slice(0, 7);
+      grouped.set(month, [...(grouped.get(month) || []), job]);
+    });
+    return Array.from(grouped, ([month, rows]) => ({ month, ...summarizeJobs(rows) }))
+      .sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  }, [jobs]);
+  const overviewBreakdowns = useMemo(() => {
+    if (line === "all" || line === "tu") return [];
+    return overviewBreakdownFields[line].map((field) => {
+      const grouped = new Map<string, FinancialJob[]>();
+      jobs.forEach((job) => {
+        const value = String(job.inputs[field.key] || "Unassigned");
+        grouped.set(value, [...(grouped.get(value) || []), job]);
+      });
+      const rows = Array.from(grouped, ([name, groupedJobs]) => ({ name, ...summarizeJobs(groupedJobs) }))
+        .sort((a, b) => b.revenue - a.revenue).slice(0, 12);
+      return { ...field, rows, maximum: Math.max(1, ...rows.map((row) => row.revenue)) };
+    });
+  }, [jobs, line]);
+  const overviewRevenueMaximum = Math.max(1, ...overviewMonthly.map((row) => row.revenue));
+  const overviewLaborMaximum = Math.max(0.01, ...overviewMonthly.map((row) => row.laborPercent));
 
   const activeTargets = useMemo(() => targets.filter((target) => line === "all" || target.service_line === line), [line, targets]);
   const selectedCategories = categories.filter((category) => category.service_line === formLine);
@@ -1470,6 +1506,27 @@ export default function FinancialsPage() {
             <div><span>Total Cost</span><strong>{money(totals.cost)}</strong></div><div><span>Profit</span><strong>{money(totals.profit)}</strong></div>
             <div><span>Gross Margin</span><strong>{percent(totals.margin)}</strong></div><div><span>Revenue / Manhour</span><strong>{money(totals.revenuePerMh)}</strong></div>
           </section>
+          {line === "all" && <section className={styles.tableSection}>
+            <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Service-Line Drilldown</span><h2>Financial Performance by Operation</h2></div><span>Select a line to open its operating detail.</span></div>
+            <div className={styles.overviewLineGrid}>{overviewLineRows.map((row) => <button key={row.serviceLine} type="button" onClick={() => setLine(row.serviceLine)}>
+              <span>{financialLineNames[row.serviceLine]}</span><strong>{money(row.revenue)}</strong><small>{row.jobs} jobs</small>
+              <dl><div><dt>Margin</dt><dd>{percent(row.margin)}</dd></div><div><dt>Labor</dt><dd>{percent(row.laborPercent)}</dd></div><div><dt>Revenue / MH</dt><dd>{money(row.revenuePerMh)}</dd></div></dl>
+            </button>)}{!overviewLineRows.length && <div className={styles.emptyState}>No service-line activity matches this period.</div>}</div>
+          </section>}
+          <section className={styles.twoColumn}>
+            <div className={styles.tableSection}>
+              <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>12-Month Movement</span><h2>Revenue by Month</h2></div></div>
+              <div className={styles.barChart}>{overviewMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.revenue / overviewRevenueMaximum * 100)}%` }} /></div><strong>{money(row.revenue)}</strong></div>)}{!overviewMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
+            </div>
+            <div className={styles.tableSection}>
+              <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Cost Control</span><h2>Labor % of Revenue</h2></div><span>Lower is better</span></div>
+              <div className={`${styles.barChart} ${styles.laborChart}`}>{overviewMonthly.map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.laborPercent / overviewLaborMaximum * 100)}%` }} /></div><strong>{percent(row.laborPercent)}</strong></div>)}{!overviewMonthly.length && <div className={styles.emptyState}>No monthly data in this period.</div>}</div>
+            </div>
+          </section>
+          {line !== "all" && overviewBreakdowns.length > 0 && <section className={overviewBreakdowns.length > 1 ? styles.twoColumn : undefined}>{overviewBreakdowns.map((breakdown) => <div className={styles.tableSection} key={breakdown.key}>
+            <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Revenue Mix</span><h2>Revenue by {breakdown.label}</h2></div></div>
+            <div className={styles.breakdownList}>{breakdown.rows.map((row) => <div key={row.name}><div><span>{row.name}</span><small>{row.jobs} jobs</small></div><i><b style={{ width: `${Math.max(1, row.revenue / breakdown.maximum * 100)}%` }} /></i><strong>{money(row.revenue)}</strong></div>)}{!breakdown.rows.length && <div className={styles.emptyState}>No {breakdown.label.toLowerCase()} data in this period.</div>}</div>
+          </div>)}</section>}
           <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Customer Performance</span><h2>Revenue and Margin by Operator</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Operator</th><th>Jobs</th><th>Revenue</th><th>Profit</th><th>Margin</th></tr></thead><tbody>{operatorRows.map((row) => <tr key={row.operator}><td>{row.operator}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td></tr>)}{!operatorRows.length && <tr><td colSpan={5}>No jobs match this period.</td></tr>}</tbody></table></div></section>
         </>
       )}

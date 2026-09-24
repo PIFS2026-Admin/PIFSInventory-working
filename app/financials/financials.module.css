@@ -201,6 +201,25 @@
 .barRow > div { height: 18px; overflow: hidden; border: 1px solid #2d3744; background: #0d1218; }
 .barRow i { display: block; height: 100%; background: #ff7417; }
 .barRow strong { text-align: right; font-size: 12px; }
+.laborChart .barRow i { background: #2ea97a; }
+.overviewLineGrid { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); }
+.overviewLineGrid > button { display: grid; min-width: 0; min-height: 142px; padding: 13px; border-width: 0 1px 1px 0; text-align: left; }
+.overviewLineGrid > button > span { color: #ff8a3c; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.overviewLineGrid > button > strong { margin-top: 5px; font-size: 22px; overflow-wrap: anywhere; }
+.overviewLineGrid > button > small { margin-top: 2px; color: #8fa0b6; }
+.overviewLineGrid dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 13px 0 0; padding-top: 9px; border-top: 1px solid #2c3542; }
+.overviewLineGrid dl div { min-width: 0; }
+.overviewLineGrid dt { color: #7f8da0; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.overviewLineGrid dd { margin: 3px 0 0; color: #dce3eb; font-size: 11px; overflow-wrap: anywhere; }
+.breakdownList { display: grid; padding: 8px 12px 12px; }
+.breakdownList > div { display: grid; grid-template-columns: minmax(110px, .8fr) minmax(120px, 1.5fr) 95px; align-items: center; gap: 10px; min-height: 42px; border-bottom: 1px solid #252e3a; }
+.breakdownList > div:last-child { border-bottom: 0; }
+.breakdownList > div > div { display: grid; min-width: 0; gap: 2px; }
+.breakdownList span { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.breakdownList small { color: #7f8da0; font-size: 9px; }
+.breakdownList i { display: block; height: 13px; overflow: hidden; border: 1px solid #2d3744; background: #0d1218; }
+.breakdownList i b { display: block; height: 100%; background: #ff7417; }
+.breakdownList > div > strong { text-align: right; font-size: 11px; }
 
 .marketShareList { display: grid; }
 .marketShareRow {
@@ -420,6 +439,7 @@
   .metrics { grid-template-columns: repeat(3, 1fr); }
   .formGrid, .rateGrid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .analyticsFilters { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+  .overviewLineGrid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
   .kpiGrid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
   .reviewGrid { grid-template-columns: 1fr; }
   .reviewFactsEditor > div:nth-child(2) { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
@@ -439,6 +459,9 @@
   .preview { grid-template-columns: 1fr 1fr; }
   .preview > div:nth-child(2) { border-right: 0; }
   .rateGrid { grid-template-columns: 1fr 1fr; }
+  .overviewLineGrid { grid-template-columns: 1fr; }
+  .overviewLineGrid > button { min-height: 132px; border-right: 0; }
+  .breakdownList > div { grid-template-columns: minmax(82px, .8fr) minmax(80px, 1.2fr) 78px; gap: 7px; }
   .kpiGrid { grid-template-columns: 1fr; }
   .reviewNarrative { grid-column: span 2; }
   .reviewFactsEditor { grid-column: span 2; }
