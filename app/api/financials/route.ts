@@ -57,6 +57,11 @@ function isMissingReviewPhotoSchema(error: { message?: string } | null | undefin
   return (message.includes("titan_financial_review_photos") || message.includes("bucket not found")) && (message.includes("does not exist") || message.includes("schema cache") || message.includes("bucket not found"));
 }
 
+function isMissingReviewRigMovementSchema(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("titan_financial_features") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
 function safePhotoName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "review-photo.jpg";
 }
@@ -253,7 +258,7 @@ function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string 
 
 const reviewMetricKeys = new Set(["jobs", "revenue", "cost", "profit", "margin", "manhours", "revenue_per_manhour", "labor_percent"]);
 const reviewChartGroups = new Set(["month", "operator", "lead", "category"]);
-const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric", "photo"]);
+const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric", "photo", "rig_movement"]);
 const reviewFactKeys = new Set(["writeups", "mocs", "suspensions", "downtime", "downtime_jobs", "dvir", "headcount", "shop_hours", "other"]);
 const standardReviewTemplate = [
   { kind: "narrative", title: "Executive Summary", config: {}, body: null },
@@ -295,6 +300,35 @@ function reviewSectionSnapshot(section: { kind: string; title: string | null; bo
   const current = summarizeReviewJobs(currentRows as Parameters<typeof summarizeReviewJobs>[0]);
   const comparison = summarizeReviewJobs(comparisonRows as Parameters<typeof summarizeReviewJobs>[0]);
   return { kind: "metric", title: section.title, metric_key: metricKey, current: reviewMetricValue(current, metricKey), comparison: reviewMetricValue(comparison, metricKey) };
+}
+
+function rigMovementSnapshot(
+  cells: Array<{ rig_id: string; service_id: string; kind: string; effective_date: string }>,
+  rigs: Array<{ id: string; rig_name: string; operator: string }>,
+  start: string,
+  end: string,
+) {
+  const heldAt = (asOf: string) => {
+    const latest = new Map<string, { rig_id: string; kind: string; effective_date: string }>();
+    cells.forEach((cell) => {
+      const date = String(cell.effective_date).slice(0, 10);
+      if (date > asOf) return;
+      const key = `${cell.rig_id}:${cell.service_id}`;
+      const existing = latest.get(key);
+      if (!existing || String(existing.effective_date).slice(0, 10) < date) latest.set(key, { ...cell, effective_date: date });
+    });
+    const held = new Set<string>();
+    latest.forEach((cell) => { if (cell.kind === "pf" || cell.kind === "shared") held.add(cell.rig_id); });
+    return held;
+  };
+  const before = heldAt(start);
+  const after = heldAt(addUtcDays(end, 1));
+  const changes = rigs.flatMap((rig) => {
+    if (!before.has(rig.id) && after.has(rig.id)) return [{ rig_name: rig.rig_name, operator: rig.operator, change: "gained" }];
+    if (before.has(rig.id) && !after.has(rig.id)) return [{ rig_name: rig.rig_name, operator: rig.operator, change: "lost" }];
+    return [];
+  }).sort((a, b) => a.change.localeCompare(b.change) || a.operator.localeCompare(b.operator) || a.rig_name.localeCompare(b.rig_name));
+  return { kind: "rig_movement", period_start: start, period_end: end, changes };
 }
 
 function reviewText(value: unknown) {
@@ -420,6 +454,9 @@ export async function GET(request: Request) {
       : reviewPhotosResult.error
         ? (() => { throw reviewPhotosResult.error; })()
         : { setupRequired: false, photos: await Promise.all((reviewPhotosResult.data || []).map((photo) => financialReviewPhotoView(context.admin, photo))) };
+    const rigMovementFeature = await context.admin.from("titan_financial_features").select("feature_key").eq("feature_key", "review_rig_movement").maybeSingle();
+    if (rigMovementFeature.error && !isMissingReviewRigMovementSchema(rigMovementFeature.error)) throw rigMovementFeature.error;
+    const reviewRigMovement = { setupRequired: Boolean(rigMovementFeature.error || !rigMovementFeature.data) };
     return Response.json({
       jobs: jobs.data || [],
       categories: categories.data || [],
@@ -436,6 +473,7 @@ export async function GET(request: Request) {
       reviewSnapshots: reviewSnapshotsResult.data || [],
       reviewComposer,
       reviewPhotos,
+      reviewRigMovement,
       market,
       permissions,
       profile: { fullName: context.profile.full_name, role: context.role },
@@ -739,6 +777,10 @@ export async function POST(request: Request) {
       if (review.data.status !== "open") throw new Error("Finalized reviews cannot be changed.");
       const kind = String(body.kind || "");
       if (!reviewSectionKinds.has(kind)) throw new Error("Select a valid review section type.");
+      if (kind === "rig_movement") {
+        const feature = await context.admin.from("titan_financial_features").select("feature_key").eq("feature_key", "review_rig_movement").maybeSingle();
+        if (feature.error || !feature.data) throw new Error("Run supabase/titan_financial_review_rig_movement.sql before adding rig movement to a review.");
+      }
       const config = body.config && typeof body.config === "object" && !Array.isArray(body.config) ? body.config as Record<string, unknown> : {};
       if ((kind === "metric" || kind === "chart") && !reviewMetricKeys.has(String(config.metric_key || ""))) throw new Error("Select a valid section metric.");
       if (kind === "chart" && !reviewChartGroups.has(String(config.group_by || ""))) throw new Error("Select a valid chart grouping.");
@@ -838,24 +880,31 @@ export async function POST(request: Request) {
         : quarterBounds(review.data.quarter);
       const compareMode = (review.data.compare_mode || "prior") as "prior" | "year";
       const comparisonBounds = reviewComparisonBounds(bounds.start, bounds.end, compareMode);
-      const [source, comparisonSource, sectionSource] = await Promise.all([
+      const [source, comparisonSource, sectionSource, movementCells, movementRigs] = await Promise.all([
         context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", bounds.start).lte("job_date", bounds.end),
         context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", line).eq("status", "active").gte("job_date", comparisonBounds.start).lte("job_date", comparisonBounds.end),
         context.admin.from("titan_financial_review_sections").select("*").eq("review_id", id).eq("is_active", true).order("position"),
+        context.admin.from("titan_financial_market_cells").select("rig_id,service_id,kind,effective_date").eq("yard_id", yardId).lte("effective_date", addUtcDays(bounds.end, 1)).order("effective_date"),
+        context.admin.from("titan_financial_market_rigs").select("id,rig_name,operator").eq("yard_id", yardId),
       ]);
       if (source.error) throw source.error;
       if (comparisonSource.error) throw comparisonSource.error;
       if (sectionSource.error && !isMissingReviewComposerSchema(sectionSource.error)) throw sectionSource.error;
+      const hasRigMovement = (sectionSource.data || []).some((section) => section.kind === "rig_movement");
+      if (hasRigMovement && movementCells.error) throw movementCells.error;
+      if (hasRigMovement && movementRigs.error) throw movementRigs.error;
       const current = summarizeReviewJobs(source.data || []);
       const comparison = summarizeReviewJobs(comparisonSource.data || []);
       const finalizedAt = new Date().toISOString();
       const sectionSnapshots = (sectionSource.data || []).map((section) => ({
         id: section.id,
-        snapshot: reviewSectionSnapshot(
-          { ...section, config: (section.config || {}) as Record<string, unknown> },
-          source.data as unknown as Array<Record<string, unknown>>,
-          comparisonSource.data as unknown as Array<Record<string, unknown>>,
-        ),
+        snapshot: section.kind === "rig_movement"
+          ? rigMovementSnapshot(movementCells.data || [], movementRigs.data || [], bounds.start, bounds.end)
+          : reviewSectionSnapshot(
+              { ...section, config: (section.config || {}) as Record<string, unknown> },
+              source.data as unknown as Array<Record<string, unknown>>,
+              comparisonSource.data as unknown as Array<Record<string, unknown>>,
+            ),
       }));
       const sectionUpdates = await Promise.all(sectionSnapshots.map((section) => context.admin.from("titan_financial_review_sections").update({ snapshot: section.snapshot, updated_at: finalizedAt, updated_by: context.user.id }).eq("id", section.id)));
       const sectionUpdateError = sectionUpdates.find((result) => result.error)?.error;

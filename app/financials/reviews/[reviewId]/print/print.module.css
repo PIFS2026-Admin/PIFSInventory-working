@@ -45,6 +45,13 @@
 .photos figure { margin: 0; border: 1px solid #94a3b8; break-inside: avoid; }
 .photos img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
 .photos figcaption { padding: 6px; color: #475569; font-size: 9px; line-height: 1.35; }
+.rigMovement { border: 1px solid #94a3b8; }
+.rigMovement > div { display: grid; grid-template-columns: 1fr 1fr 70px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid #cbd5e1; }
+.rigMovement > div:last-child { border-bottom: 0; }
+.rigMovement strong, .rigMovement span, .rigMovement b { font-size: 10px; }
+.rigMovement span { color: #475569; }
+.rigMovement b { color: #18794e; text-align: right; text-transform: uppercase; }
+.rigMovement b[data-change="lost"] { color: #9b3f49; }
 .sheet footer { display: grid; gap: 3px; margin-top: 30px; border-top: 2px solid #111827; padding-top: 9px; color: #475569; font-size: 9px; }
 .sheet footer strong { color: #111827; }
 

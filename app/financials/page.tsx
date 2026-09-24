@@ -61,7 +61,7 @@ type FinancialReviewSnapshot = {
   snapshot: Record<string, unknown>;
   finalized_at: string;
 };
-type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric" | "photo";
+type ReviewSectionKind = "metric" | "chart" | "narrative" | "manual_metric" | "photo" | "rig_movement";
 type FinancialReviewSection = {
   id: string;
   review_id: string;
@@ -85,6 +85,7 @@ type MarketRig = { id: string; rig_name: string; operator: string; segment: stri
 type MarketCell = { id: string; rig_id: string; service_id: string; kind: MarketKind; holder_name: string | null; effective_date: string };
 type MarketCompetitor = { id: string; canonical_name: string; is_pathfinder: boolean };
 type MarketTrend = { id: string; service_key: string; quarter: string; won_pct: number | string; shared_pct: number | string | null };
+type RigMovement = { rig_name: string; operator: string; change: "gained" | "lost" };
 type MarketData = {
   setupRequired: boolean;
   services: MarketService[];
@@ -185,6 +186,31 @@ const lineFields: Record<FinancialLine, Field[]> = {
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reviewRigMovement(review: FinancialReview, market: MarketData): RigMovement[] {
+  const heldAt = (asOf: string) => {
+    const latest = new Map<string, MarketCell>();
+    market.cells.forEach((cell) => {
+      const date = cell.effective_date.slice(0, 10);
+      if (date > asOf) return;
+      const key = `${cell.rig_id}:${cell.service_id}`;
+      const existing = latest.get(key);
+      if (!existing || existing.effective_date.slice(0, 10) < date) latest.set(key, cell);
+    });
+    const held = new Set<string>();
+    latest.forEach((cell) => { if (cell.kind === "pf" || cell.kind === "shared") held.add(cell.rig_id); });
+    return held;
+  };
+  const endDate = new Date(`${review.range_end.slice(0, 10)}T00:00:00Z`);
+  endDate.setUTCDate(endDate.getUTCDate() + 1);
+  const before = heldAt(review.range_start.slice(0, 10));
+  const after = heldAt(endDate.toISOString().slice(0, 10));
+  return market.rigs.flatMap((rig): RigMovement[] => {
+    if (!before.has(rig.id) && after.has(rig.id)) return [{ rig_name: rig.rig_name, operator: rig.operator, change: "gained" }];
+    if (before.has(rig.id) && !after.has(rig.id)) return [{ rig_name: rig.rig_name, operator: rig.operator, change: "lost" }];
+    return [];
+  }).sort((a, b) => a.change.localeCompare(b.change) || a.operator.localeCompare(b.operator) || a.rig_name.localeCompare(b.rig_name));
 }
 
 function money(value: unknown) {
@@ -350,6 +376,7 @@ export default function FinancialsPage() {
   const [reviewComposerSetupRequired, setReviewComposerSetupRequired] = useState(false);
   const [reviewPhotos, setReviewPhotos] = useState<FinancialReviewPhoto[]>([]);
   const [reviewPhotosSetupRequired, setReviewPhotosSetupRequired] = useState(false);
+  const [reviewRigMovementSetupRequired, setReviewRigMovementSetupRequired] = useState(false);
   const [market, setMarket] = useState<MarketData>(emptyMarket);
   const [marketAsOf, setMarketAsOf] = useState("");
   const [marketFilters, setMarketFilters] = useState({ operator: "", segment: "" });
@@ -475,6 +502,7 @@ export default function FinancialsPage() {
     setReviewComposerSetupRequired(Boolean(result.reviewComposer?.setupRequired));
     setReviewPhotos(result.reviewPhotos?.photos || []);
     setReviewPhotosSetupRequired(Boolean(result.reviewPhotos?.setupRequired));
+    setReviewRigMovementSetupRequired(Boolean(result.reviewRigMovement?.setupRequired));
     setMarket(result.market || emptyMarket);
     setPermissions(result.permissions || emptyPermissions);
     setLoading(false);
@@ -1288,7 +1316,7 @@ export default function FinancialsPage() {
         <section className={styles.jobForm}>
           <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Review Composer</span><h2>{sectionId ? "Edit Review Section" : "Add Review Section"}</h2></div><button type="button" onClick={() => setSectionEditorReviewId("")}>Close</button></div>
           <div className={styles.formGrid}>
-            <label><span>Section Type</span><select value={sectionKind} disabled={Boolean(sectionId)} onChange={(event) => setSectionKind(event.target.value as ReviewSectionKind)}><option value="metric">Metric Comparison</option><option value="chart">Chart</option><option value="narrative">Narrative</option><option value="manual_metric">Manual Value</option><option value="photo" disabled={reviewPhotosSetupRequired}>Photo Gallery</option></select></label>
+            <label><span>Section Type</span><select value={sectionKind} disabled={Boolean(sectionId)} onChange={(event) => setSectionKind(event.target.value as ReviewSectionKind)}><option value="metric">Metric Comparison</option><option value="chart">Chart</option><option value="rig_movement" disabled={reviewRigMovementSetupRequired}>Rigs Gained / Lost</option><option value="narrative">Narrative</option><option value="manual_metric">Manual Value</option><option value="photo" disabled={reviewPhotosSetupRequired}>Photo Gallery</option></select></label>
             <label><span>Section Title</span><input value={sectionTitle} onChange={(event) => setSectionTitle(event.target.value)} placeholder="Optional heading" /></label>
             {(sectionKind === "metric" || sectionKind === "chart") && <label><span>Metric</span><select value={sectionMetric} onChange={(event) => setSectionMetric(event.target.value)}>{reviewMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label}</option>)}</select></label>}
             {sectionKind === "chart" && <label><span>Group By</span><select value={sectionGroup} onChange={(event) => setSectionGroup(event.target.value)}>{reviewChartGroups.map((group) => <option key={group.key} value={group.key}>{group.label}</option>)}</select></label>}
@@ -1521,6 +1549,7 @@ export default function FinancialsPage() {
         <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Review</span><h2>Financial Reviews</h2></div><span>Quarterly or custom windows. Final reviews retain their captured KPI values.</span></div>
         {reviewComposerSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_sections.sql</strong> to enable configurable review sections.</div>}
         {reviewPhotosSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_photos.sql</strong> to enable secure review photo galleries.</div>}
+        {reviewRigMovementSetupRequired && <div className={styles.rateWarning}>Run <strong>supabase/titan_financial_review_rig_movement.sql</strong> to enable dated rigs gained and lost sections.</div>}
         {visibleReviews.length ? <div className={styles.reviewGrid}>{visibleReviews.map((review) => {
           const savedSnapshots = reviewSnapshots.filter((item) => item.review_id === review.id).sort((a, b) => b.finalized_at.localeCompare(a.finalized_at));
           return <article key={review.id} className={styles.reviewCard} data-status={review.status}>
@@ -1535,11 +1564,15 @@ export default function FinancialsPage() {
             const metricKey = String(snapshot.metric_key || section.config.metric_key || "revenue");
             const chartRows = Array.isArray(snapshot.current) ? snapshot.current as Array<{ label: string; value: number }> : [];
             const chartMax = Math.max(1, ...chartRows.map((row) => Math.abs(numberValue(row.value))));
+            const movementRows = section.kind === "rig_movement"
+              ? (Array.isArray(snapshot.changes) ? snapshot.changes as RigMovement[] : reviewRigMovement(review, market))
+              : [];
             return <section key={section.id} className={styles.reviewSection}>
-              <div className={styles.reviewSectionHead}><div><span>{section.kind.replaceAll("_", " ")}</span><strong>{section.title || (section.kind === "narrative" ? "Narrative" : reviewMetrics.find((metric) => metric.key === metricKey)?.label || "Review Section")}</strong></div>{review.status === "open" && permissions.edit && <div className={styles.rowActions}><button type="button" disabled={index === 0} onClick={() => void moveReviewSection(review.id, section.id, -1)}>Move Up</button><button type="button" disabled={index === ordered.length - 1} onClick={() => void moveReviewSection(review.id, section.id, 1)}>Move Down</button><button type="button" onClick={() => openReviewSection(review.id, section)}>Edit</button><button type="button" onClick={() => void deactivateReviewSection(section)}>Remove</button></div>}</div>
+              <div className={styles.reviewSectionHead}><div><span>{section.kind.replaceAll("_", " ")}</span><strong>{section.title || (section.kind === "rig_movement" ? "Rigs Gained / Lost" : section.kind === "narrative" ? "Narrative" : reviewMetrics.find((metric) => metric.key === metricKey)?.label || "Review Section")}</strong></div>{review.status === "open" && permissions.edit && <div className={styles.rowActions}><button type="button" disabled={index === 0} onClick={() => void moveReviewSection(review.id, section.id, -1)}>Move Up</button><button type="button" disabled={index === ordered.length - 1} onClick={() => void moveReviewSection(review.id, section.id, 1)}>Move Down</button><button type="button" onClick={() => openReviewSection(review.id, section)}>Edit</button><button type="button" onClick={() => void deactivateReviewSection(section)}>Remove</button></div>}</div>
               {section.kind === "narrative" && <p>{section.body}</p>}
               {section.kind === "manual_metric" && <div className={styles.reviewManual}><span>{String(section.config.label || section.title || "Value")}</span><strong>{String(section.config.value || "-")}</strong></div>}
               {section.kind === "photo" && <><p>{section.body || "Photo evidence"}</p><div className={styles.reviewPhotoGrid}>{reviewPhotos.filter((photo) => photo.section_id === section.id).map((photo) => <figure key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={photo.caption || photo.file_name} /></a><figcaption>{photo.caption || photo.file_name}</figcaption>{review.status === "open" && permissions.edit && <button type="button" onClick={() => void removeReviewPhoto(photo)}>Remove</button>}</figure>)}</div>{review.status === "open" && permissions.edit && !reviewPhotosSetupRequired && <label className={styles.photoUploadButton}>Add Photo<input type="file" accept="image/*" capture="environment" disabled={saving} onChange={(event) => { const file = event.target.files?.[0] || null; event.target.value = ""; void uploadReviewPhoto(section, file); }} /></label>}</>}
+              {section.kind === "rig_movement" && (movementRows.length ? <div className={styles.rigMovementList}>{movementRows.map((row) => <div key={`${row.rig_name}:${row.operator}:${row.change}`} data-change={row.change}><div><strong>{row.rig_name || "Unnamed Rig"}</strong><span>{row.operator || "Operator not recorded"}</span></div><b>{row.change === "gained" ? "Gained" : "Lost"}</b></div>)}</div> : <p className={styles.openReviewNote}>No rigs changed Pathfinder-held status during this review window.</p>)}
               {section.kind === "metric" && (section.snapshot ? <div className={styles.reviewMetricCompare}><div><span>Review Window</span><strong>{formatReviewMetric(metricKey, snapshot.current)}</strong></div><div><span>{review.compare_mode === "year" ? "Last Year" : "Prior Period"}</span><strong>{formatReviewMetric(metricKey, snapshot.comparison)}</strong></div></div> : <p className={styles.openReviewNote}>This comparison will calculate and freeze when the review is finalized.</p>)}
               {section.kind === "chart" && (chartRows.length ? <div className={styles.reviewChart}>{chartRows.map((row) => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.abs(numberValue(row.value)) / chartMax * 100}%` }} /></i><strong>{formatReviewMetric(metricKey, row.value)}</strong></div>)}</div> : <p className={styles.openReviewNote}>This chart will calculate and freeze when the review is finalized.</p>)}
             </section>;

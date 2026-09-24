@@ -12,7 +12,7 @@ alter table public.titan_financial_review_sections
   drop constraint if exists titan_financial_review_sections_kind_check;
 alter table public.titan_financial_review_sections
   add constraint titan_financial_review_sections_kind_check
-  check (kind in ('metric', 'chart', 'narrative', 'manual_metric', 'photo'));
+  check (kind in ('metric', 'chart', 'narrative', 'manual_metric', 'photo', 'rig_movement'));
 
 create table if not exists public.titan_financial_review_photos (
   id uuid primary key default gen_random_uuid(),
