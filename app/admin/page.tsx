@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { MapPin, Pencil, Search, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import ChangePasswordModal from "../../components/ChangePasswordModal";
 import PoApprovalMatrixManager from "../../components/PoApprovalMatrixManager";
@@ -36,9 +37,11 @@ type Company = {
 type Profile = {
   id: string;
   fullName: string;
+  email: string;
   role: UserRole;
   companyId: string;
   companyName: string;
+  isDisabled: boolean;
 };
 
 type Yard = {
@@ -545,6 +548,10 @@ export default function AdminPage() {
   const [optionForm, setOptionForm] = useState(emptyOptionForm);
   const [equipmentAssetForm, setEquipmentAssetForm] = useState<EquipmentAssetForm>(emptyEquipmentAssetForm);
   const [equipmentAssetSearch, setEquipmentAssetSearch] = useState("");
+  const [userSearch, setUserSearch] = useState("");
+  const [userRoleFilter, setUserRoleFilter] = useState("");
+  const [showRemovedUsers, setShowRemovedUsers] = useState(false);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<Profile | null>(null);
   const [equipmentAssetSetupRequired, setEquipmentAssetSetupRequired] = useState(false);
   const [selectedRackIds, setSelectedRackIds] = useState<string[]>([]);
   const [yardAccessUserId, setYardAccessUserId] = useState("");
@@ -569,6 +576,7 @@ export default function AdminPage() {
   const [currentUserName, setCurrentUserName] = useState("User");
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [currentUserRole, setCurrentUserRole] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
 
   const activeCompanies = useMemo(
     () => companies.filter((company) => company.isActive),
@@ -593,7 +601,7 @@ export default function AdminPage() {
 
   const yardAccessUsers = useMemo(
     () =>
-      profiles.filter((profile) =>
+      profiles.filter((profile) => !profile.isDisabled &&
         canAssignInventoryYards(profile.role)
       ),
     [profiles]
@@ -605,9 +613,21 @@ export default function AdminPage() {
   );
 
   const moduleAccessUsers = useMemo(
-    () => profiles.filter((profile) => profile.role !== "customer"),
+    () => profiles.filter((profile) => !profile.isDisabled && profile.role !== "customer"),
     [profiles]
   );
+
+  const filteredUsers = useMemo(() => {
+    const search = userSearch.trim().toLowerCase();
+    return profiles.filter((profile) => {
+      if (!showRemovedUsers && profile.isDisabled) return false;
+      if (userRoleFilter && profile.role !== userRoleFilter) return false;
+      if (!search) return true;
+      return `${profile.fullName} ${profile.email} ${profile.companyName} ${profile.role}`
+        .toLowerCase()
+        .includes(search);
+    });
+  }, [profiles, showRemovedUsers, userRoleFilter, userSearch]);
 
   const selectedModuleAccessUser = useMemo(
     () => moduleAccessUsers.find((profile) => profile.id === moduleAccessUserId) || null,
@@ -734,6 +754,7 @@ export default function AdminPage() {
     setCurrentUserName(profile.full_name || user.email || "User");
     setCurrentUserEmail(user.email || "");
     setCurrentUserRole(profile.role || "");
+    setCurrentUserId(user.id);
     await Promise.all([
       loadCompanies(),
       loadProfiles(),
@@ -773,7 +794,7 @@ export default function AdminPage() {
   async function loadProfiles() {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, role, company_id, companies(name)")
+      .select("id, full_name, email, role, company_id, is_disabled, companies(name)")
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -785,9 +806,11 @@ export default function AdminPage() {
       (data ?? []).map((profile: any) => ({
         id: profile.id,
         fullName: profile.full_name ?? "",
+        email: profile.email ?? "",
         role: profile.role ?? "customer",
         companyId: profile.company_id ?? "",
         companyName: getCompanyName(profile.companies),
+        isDisabled: profile.is_disabled === true,
       }))
     );
   }
@@ -1718,10 +1741,19 @@ export default function AdminPage() {
 
     setLoading(true);
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Sign in again before creating a user.");
+      setLoading(false);
+      return;
+    }
+
     const response = await fetch("/api/admin-users", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         ...userForm,
@@ -1781,6 +1813,52 @@ export default function AdminPage() {
 
     await loadProfiles();
     setMessage("User profile updated.");
+    setLoading(false);
+  }
+
+  async function deleteUser(profile: Profile) {
+    setLoading(true);
+    setMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Sign in again before deleting a user.");
+      setLoading(false);
+      return;
+    }
+
+    const response = await fetch("/api/admin-users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: "delete-user", userId: profile.id }),
+    }).catch(() => null);
+
+    if (!response) {
+      setMessage("TITAN could not reach the user-management service.");
+      setLoading(false);
+      return;
+    }
+
+    const result = await response.json();
+    if (!response.ok || result.error) {
+      setMessage(result.error || "TITAN could not delete this user.");
+      setLoading(false);
+      return;
+    }
+
+    setDeleteUserTarget(null);
+    if (yardAccessUserId === profile.id) setYardAccessUserId("");
+    if (moduleAccessUserId === profile.id) setModuleAccessUserId("");
+    await Promise.all([
+      loadProfiles(),
+      loadInventoryUserYards(),
+      loadModulePermissions(),
+      loadEmailNotifications(),
+    ]);
+    setMessage(`${result.name || profile.fullName} was deleted from TITAN. Historical records were retained.`);
     setLoading(false);
   }
 
@@ -2997,73 +3075,147 @@ export default function AdminPage() {
           <span>Open / close</span>
         </summary>
         <div className="admin-collapsible-body">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Company</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {profiles.map((profile) => (
-                <tr key={profile.id}>
-                  <td>{profile.fullName}</td>
-                  <td>{profile.role}</td>
-                  <td>{profile.companyName || "-"}</td>
-                  <td>
-                    <button
-                      className="button"
-                      onClick={() => {
-                        const fullName = window.prompt("Full name", profile.fullName);
-                        if (fullName) updateProfile(profile, { fullName: fullName.trim() });
-                      }}
-                    >
-                      Rename
-                    </button>
+          <div className="user-directory-toolbar">
+            <label className="user-search-field">
+              <span>Find a user</span>
+              <div>
+                <Search size={17} aria-hidden="true" />
+                <input
+                  value={userSearch}
+                  onChange={(event) => setUserSearch(event.target.value)}
+                  placeholder="Name, email, company, or role"
+                />
+              </div>
+            </label>
+            <label className="user-filter-field">
+              <span>Role</span>
+              <select value={userRoleFilter} onChange={(event) => setUserRoleFilter(event.target.value)}>
+                <option value="">All roles</option>
+                {allRoleOptions.map((role) => (
+                  <option key={role.key} value={role.key}>{role.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="user-removed-filter">
+              <input
+                type="checkbox"
+                checked={showRemovedUsers}
+                onChange={(event) => setShowRemovedUsers(event.target.checked)}
+              />
+              <span>Show removed users</span>
+            </label>
+            <div className="user-count">
+              <strong>{filteredUsers.length}</strong>
+              <span>shown / {profiles.filter((profile) => !profile.isDisabled).length} active</span>
+            </div>
+          </div>
+
+          <div className="user-directory">
+            <div className="user-directory-head" aria-hidden="true">
+              <span>Person</span>
+              <span>Role</span>
+              <span>Company</span>
+              <span>Access & actions</span>
+            </div>
+            {filteredUsers.map((profile) => (
+              <article
+                key={profile.id}
+                className={`user-directory-row${profile.isDisabled ? " is-removed" : ""}`}
+              >
+                <div className="user-identity">
+                  <span className="user-avatar"><UserRound size={18} aria-hidden="true" /></span>
+                  <div>
+                    <strong>{profile.fullName || "Unnamed user"}</strong>
+                    <small>{profile.email || "No email address"}</small>
+                  </div>
+                  <em>{profile.isDisabled ? "Removed" : "Active"}</em>
+                </div>
+
+                <label className="user-row-field">
+                  <span>Role</span>
+                  <select
+                    value={profile.role}
+                    disabled={loading || profile.isDisabled}
+                    onChange={(event) =>
+                      updateProfile(profile, { role: event.target.value as Profile["role"] })
+                    }
+                  >
+                    {allRoleOptions.map((role) => (
+                      <option key={role.key} value={role.key}>{role.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="user-row-field">
+                  <span>Company</span>
+                  {profile.role === "customer" ? (
                     <select
-                      value={profile.role}
-                      onChange={(event) =>
-                        updateProfile(profile, { role: event.target.value as Profile["role"] })
-                      }
+                      value={profile.companyId}
+                      disabled={loading || profile.isDisabled}
+                      onChange={(event) => updateProfile(profile, { companyId: event.target.value })}
                     >
-                      {allRoleOptions.map((role) => (
-                        <option key={role.key} value={role.key}>
-                          {role.label}
-                        </option>
+                      <option value="">No company</option>
+                      {activeCompanies.map((company) => (
+                        <option key={company.id} value={company.id}>{company.name}</option>
                       ))}
                     </select>
-                    {profile.role === "customer" && (
-                      <select
-                        value={profile.companyId}
-                        onChange={(event) => updateProfile(profile, { companyId: event.target.value })}
-                      >
-                        <option value="">No company</option>
-                        {activeCompanies.map((company) => (
-                          <option key={company.id} value={company.id}>
-                            {company.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {canAssignInventoryYards(profile.role) && (
-                      <button className="button" type="button" onClick={() => openYardAccess(profile.id, true)}>
-                        Yards
-                      </button>
-                    )}
-                    {profile.role !== "customer" && (
-                      <button className="button" type="button" onClick={() => openModuleAccess(profile.id, true)}>
-                        Permissions
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  ) : (
+                    <strong>{profile.companyName || "Internal user"}</strong>
+                  )}
+                </div>
+
+                <div className="user-row-actions">
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={loading || profile.isDisabled}
+                    onClick={() => {
+                      const fullName = window.prompt("Full name", profile.fullName);
+                      if (fullName?.trim()) updateProfile(profile, { fullName: fullName.trim() });
+                    }}
+                  >
+                    <Pencil size={15} aria-hidden="true" /> Rename
+                  </button>
+                  {canAssignInventoryYards(profile.role) && (
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={loading || profile.isDisabled}
+                      onClick={() => openYardAccess(profile.id, true)}
+                    >
+                      <MapPin size={15} aria-hidden="true" /> Yards
+                    </button>
+                  )}
+                  {profile.role !== "customer" && (
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={loading || profile.isDisabled}
+                      onClick={() => openModuleAccess(profile.id, true)}
+                    >
+                      <ShieldCheck size={15} aria-hidden="true" /> Permissions
+                    </button>
+                  )}
+                  {!profile.isDisabled &&
+                    profile.id !== currentUserId &&
+                    (currentUserRole === "owner" || !["admin", "owner"].includes(profile.role)) && (
+                    <button
+                      className="button danger user-delete-button"
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setDeleteUserTarget(profile)}
+                    >
+                      <Trash2 size={15} aria-hidden="true" /> Delete
+                    </button>
+                  )}
+                  {profile.id === currentUserId && <small className="current-user-note">Current account</small>}
+                </div>
+              </article>
+            ))}
+            {filteredUsers.length === 0 && (
+              <div className="user-directory-empty">No users match these filters.</div>
+            )}
+          </div>
         </div>
       </details>
 
@@ -3691,6 +3843,37 @@ export default function AdminPage() {
         </div>
         </div>
       </details>
+
+      {deleteUserTarget && (
+        <div
+          className="user-delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !loading) setDeleteUserTarget(null);
+          }}
+        >
+          <section className="user-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-user-title">
+            <span className="user-delete-eyebrow">Remove TITAN access</span>
+            <h2 id="delete-user-title">Delete {deleteUserTarget.fullName || "this user"}?</h2>
+            <p>
+              This immediately removes their sign-in and all assigned yard and module access.
+              Their completed work and activity history will stay in TITAN.
+            </p>
+            <dl>
+              <div><dt>User</dt><dd>{deleteUserTarget.email || deleteUserTarget.fullName}</dd></div>
+              <div><dt>Role</dt><dd>{allRoleOptions.find((role) => role.key === deleteUserTarget.role)?.label || deleteUserTarget.role}</dd></div>
+            </dl>
+            <div className="user-delete-actions">
+              <button className="button" type="button" disabled={loading} onClick={() => setDeleteUserTarget(null)}>
+                Cancel
+              </button>
+              <button className="button danger" type="button" disabled={loading} onClick={() => void deleteUser(deleteUserTarget)}>
+                <Trash2 size={16} aria-hidden="true" /> {loading ? "Deleting..." : "Delete User"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <ChangePasswordModal open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </main>

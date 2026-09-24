@@ -154,7 +154,6 @@
   width: 92px;
 }
 
-.scope[data-active-control="users"] :global(td:last-child),
 .scope[data-active-control="companies"] :global(td:last-child),
 .scope[data-active-control="equipment-assets"] :global(td:last-child),
 .scope[data-active-control="yard-setup"] :global(td:last-child) {
@@ -246,6 +245,310 @@
   padding: 16px;
 }
 
+.scope :global(.user-directory-toolbar) {
+  align-items: end;
+  border-bottom: 1px solid var(--admin-border);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(260px, 1fr) minmax(170px, 220px) auto auto;
+  padding: 14px 16px;
+}
+
+.scope :global(.user-directory-toolbar label),
+.scope :global(.user-row-field) {
+  padding: 0;
+}
+
+.scope :global(.user-directory-toolbar label > span),
+.scope :global(.user-row-field > span) {
+  color: #94a3b8;
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.scope :global(.user-search-field > div) {
+  align-items: center;
+  display: flex;
+  position: relative;
+}
+
+.scope :global(.user-search-field svg) {
+  color: #94a3b8;
+  left: 11px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.scope :global(.user-search-field input) {
+  padding-left: 38px;
+}
+
+.scope :global(.user-removed-filter) {
+  align-items: center;
+  color: #dbeafe;
+  display: flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.scope :global(.user-removed-filter input) {
+  height: 17px;
+  margin: 0;
+  width: 17px;
+}
+
+.scope :global(.user-removed-filter span) {
+  color: inherit;
+  font-size: inherit;
+  margin: 0;
+  text-transform: none;
+}
+
+.scope :global(.user-count) {
+  align-items: baseline;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 128px;
+  padding-bottom: 9px;
+  white-space: nowrap;
+}
+
+.scope :global(.user-count strong) {
+  color: #fb923c;
+  font-size: 18px;
+}
+
+.scope :global(.user-count span) {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.scope :global(.user-directory-head),
+.scope :global(.user-directory-row) {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(230px, 1.2fr) minmax(180px, 0.9fr) minmax(160px, 0.75fr) minmax(330px, 1.4fr);
+}
+
+.scope :global(.user-directory-head) {
+  background: #111821;
+  border-bottom: 1px solid var(--admin-border);
+  color: #93a4b8;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 10px 16px;
+  text-transform: uppercase;
+}
+
+.scope :global(.user-directory-row) {
+  align-items: center;
+  border-bottom: 1px solid var(--admin-border);
+  min-height: 78px;
+  padding: 12px 16px;
+}
+
+.scope :global(.user-directory-row:last-child) {
+  border-bottom: 0;
+}
+
+.scope :global(.user-directory-row.is-removed) {
+  opacity: 0.58;
+}
+
+.scope :global(.user-identity) {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scope :global(.user-avatar) {
+  align-items: center;
+  background: #19222d;
+  border: 1px solid #344152;
+  border-radius: 6px;
+  color: #fb923c;
+  display: flex;
+  flex: 0 0 36px;
+  height: 36px;
+  justify-content: center;
+}
+
+.scope :global(.user-identity > div) {
+  display: grid;
+  min-width: 0;
+}
+
+.scope :global(.user-identity strong),
+.scope :global(.user-identity small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope :global(.user-identity small) {
+  color: #94a3b8;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.scope :global(.user-identity em) {
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 999px;
+  color: #86efac;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  margin-left: auto;
+  padding: 4px 7px;
+  text-transform: uppercase;
+}
+
+.scope :global(.is-removed .user-identity em) {
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fca5a5;
+}
+
+.scope :global(.user-row-field strong) {
+  color: #dbeafe;
+  display: block;
+  font-size: 12px;
+  padding: 10px 0;
+}
+
+.scope :global(.user-row-actions) {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.scope :global(.user-row-actions .button),
+.scope :global(.user-delete-actions .button) {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.scope :global(.user-delete-button) {
+  margin-left: auto;
+}
+
+.scope :global(.current-user-note) {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+  margin-left: auto;
+  text-transform: uppercase;
+}
+
+.scope :global(.user-directory-empty) {
+  color: #94a3b8;
+  padding: 30px 16px;
+  text-align: center;
+}
+
+.scope :global(.user-delete-backdrop) {
+  align-items: center;
+  background: rgba(2, 6, 12, 0.82);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 1000;
+}
+
+.scope :global(.user-delete-dialog) {
+  background: #111820;
+  border: 1px solid #425063;
+  border-radius: 8px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+  max-width: 520px;
+  padding: 22px;
+  width: 100%;
+}
+
+.scope :global(.user-delete-eyebrow) {
+  color: #fb923c;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.scope :global(.user-delete-dialog h2) {
+  font-size: 22px;
+  margin: 7px 0 8px;
+}
+
+.scope :global(.user-delete-dialog p) {
+  color: #b8c3d1;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+
+.scope :global(.user-delete-dialog dl) {
+  background: #0b1118;
+  border: 1px solid #2e3948;
+  border-radius: 6px;
+  margin: 0 0 18px;
+  padding: 6px 14px;
+}
+
+.scope :global(.user-delete-dialog dl div) {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 9px 0;
+}
+
+.scope :global(.user-delete-dialog dt) {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.scope :global(.user-delete-dialog dd) {
+  color: #f8fafc;
+  font-weight: 800;
+  margin: 0;
+  text-align: right;
+}
+
+.scope :global(.user-delete-actions) {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1120px) {
+  .scope :global(.user-directory-toolbar) {
+    grid-template-columns: minmax(240px, 1fr) minmax(170px, 220px);
+  }
+
+  .scope :global(.user-count) {
+    justify-content: flex-start;
+    padding-bottom: 0;
+  }
+
+  .scope :global(.user-directory-head) {
+    display: none;
+  }
+
+  .scope :global(.user-directory-row) {
+    grid-template-columns: minmax(260px, 1fr) minmax(230px, 1fr);
+  }
+}
+
 @media (max-width: 760px) {
   .scope :global(.admin-active-control-bar) {
     align-items: stretch;
@@ -263,5 +566,23 @@
   .scope :global(.email-notification-summary) {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .scope :global(.user-directory-toolbar),
+  .scope :global(.user-directory-row) {
+    grid-template-columns: 1fr;
+  }
+
+  .scope :global(.user-directory-row) {
+    gap: 12px;
+  }
+
+  .scope :global(.user-delete-button),
+  .scope :global(.current-user-note) {
+    margin-left: 0;
+  }
+
+  .scope :global(.user-row-actions .button) {
+    justify-content: center;
   }
 }

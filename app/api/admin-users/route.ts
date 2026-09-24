@@ -20,6 +20,41 @@ function configuredAdminSupabase() {
   return createClient(supabaseUrl, serviceRoleKey);
 }
 
+async function requireUserAdministrator(
+  request: Request,
+  adminSupabase: ReturnType<typeof configuredAdminSupabase>,
+) {
+  const token = (request.headers.get("authorization") ?? "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+  if (!token) throw new Error("Administrator sign-in is required.");
+
+  const { data: authData, error: authError } =
+    await adminSupabase.auth.getUser(token);
+  if (authError || !authData.user) {
+    throw new Error("Your TITAN session could not be verified.");
+  }
+
+  const { data: profile, error: profileError } = await adminSupabase
+    .from("profiles")
+    .select("role,is_disabled")
+    .eq("id", authData.user.id)
+    .maybeSingle();
+  if (
+    profileError ||
+    !profile ||
+    profile.is_disabled ||
+    !["admin", "owner"].includes(String(profile.role ?? "").toLowerCase())
+  ) {
+    throw new Error("Admin or owner access is required to delete users.");
+  }
+
+  return {
+    id: authData.user.id,
+    role: String(profile.role ?? "").toLowerCase(),
+  };
+}
+
 function getErrorMessage(error: any) {
   if (!error) return "Unknown error.";
   if (typeof error === "string") return error;
@@ -195,6 +230,88 @@ export async function POST(request: Request) {
   try {
     const adminSupabase = configuredAdminSupabase();
     const body = await request.json();
+    let actor: Awaited<ReturnType<typeof requireUserAdministrator>>;
+    try {
+      actor = await requireUserAdministrator(request, adminSupabase);
+    } catch (error) {
+      return Response.json({ error: getErrorMessage(error) }, { status: 403 });
+    }
+
+    if (String(body.action ?? "") === "delete-user") {
+      const userId = String(body.userId ?? "").trim();
+      if (!userId) {
+        return Response.json({ error: "Select a user to delete." }, { status: 400 });
+      }
+      if (userId === actor.id) {
+        return Response.json(
+          { error: "You cannot delete your own TITAN account." },
+          { status: 400 },
+        );
+      }
+
+      const { data: target, error: targetError } = await adminSupabase
+        .from("profiles")
+        .select("id,full_name,email,role,is_disabled")
+        .eq("id", userId)
+        .maybeSingle();
+      if (targetError) throw targetError;
+      if (!target) {
+        return Response.json({ error: "That user no longer exists." }, { status: 404 });
+      }
+      const targetRole = String(target.role ?? "").toLowerCase();
+      if (actor.role !== "owner" && ["admin", "owner"].includes(targetRole)) {
+        return Response.json(
+          { error: "Only an owner can delete an admin or owner account." },
+          { status: 403 },
+        );
+      }
+
+      const { error: deleteError } = await adminSupabase.auth.admin.deleteUser(
+        userId,
+        true,
+      );
+      if (deleteError) throw deleteError;
+
+      const now = new Date().toISOString();
+      const { error: disableProfileError } = await adminSupabase
+        .from("profiles")
+        .update({ is_disabled: true })
+        .eq("id", userId);
+      if (disableProfileError) throw disableProfileError;
+
+      const accessUpdates = await Promise.all([
+        adminSupabase
+          .from("inventory_user_yards")
+          .update({ can_access: false, active: false, updated_by: actor.id, updated_at: now })
+          .eq("user_id", userId),
+        adminSupabase
+          .from("user_module_permissions")
+          .update({ can_access: false, active: false, updated_by: actor.id, updated_at: now })
+          .eq("user_id", userId),
+        adminSupabase
+          .from("user_permission_overrides")
+          .update({ is_allowed: false, active: false, updated_by: actor.id, updated_at: now })
+          .eq("user_id", userId),
+      ]);
+      const accessUpdateError = accessUpdates.find((result) => result.error)?.error;
+      if (accessUpdateError) throw accessUpdateError;
+
+      const { error: auditError } = await adminSupabase.from("titan_access_events").insert({
+        target_user_id: userId,
+        event_type: "User Deleted",
+        summary: `${String(target.full_name || target.email || "User")} was deleted from TITAN. Historical records were retained.`,
+        before_value: target,
+        after_value: { is_disabled: true, deleted_at: now },
+        actor_id: actor.id,
+      });
+      if (auditError) throw auditError;
+
+      return Response.json({
+        ok: true,
+        userId,
+        name: String(target.full_name || target.email || "User"),
+      });
+    }
 
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
