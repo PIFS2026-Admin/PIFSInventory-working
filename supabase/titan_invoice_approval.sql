@@ -5,6 +5,36 @@ begin;
 
 create extension if not exists pgcrypto;
 
+-- The legacy module-access table uses a fixed allow-list. Extend the complete
+-- current list before assigning Invoice Approvals to Office Admin users.
+do $$
+begin
+  if to_regclass('public.user_module_permissions') is not null then
+    alter table public.user_module_permissions
+      drop constraint if exists user_module_permissions_module_key_check;
+
+    alter table public.user_module_permissions
+      add constraint user_module_permissions_module_key_check check (
+        module_key in (
+          'yard_view',
+          'inventory',
+          'purchase_orders',
+          'work_orders',
+          'dti',
+          'dti_summary',
+          'hardband',
+          'crm',
+          'communications',
+          'financials',
+          'invoice_approvals',
+          'admin',
+          'reports',
+          'dashboard'
+        )
+      );
+  end if;
+end $$;
+
 create table if not exists public.titan_ap_accounting_codes (
   id uuid primary key default gen_random_uuid(),
   code text not null,
