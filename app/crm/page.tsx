@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, type CSSProperties, type DragEvent, useCallback, useEffect, useMemo, useState } from "react";
 import NotificationCenter from "../../components/NotificationCenter";
+import { goBackOrFallback } from "../../lib/navigation";
 import { serviceLineOptions } from "../../lib/serviceLines";
 import { supabase } from "../../lib/supabase";
 import { mondayAutomationBoards, mondayCrmBoards, mondayCrmTotals, type MondayCrmBoard } from "./mondayExportBlueprint";
@@ -2174,8 +2175,8 @@ export default function CrmPage() {
           <span className={styles.eyebrow}>CRM</span>
           <h1>CRM Access Needed</h1>
           <p>{access.message}</p>
-          <button className="button" type="button" onClick={() => (window.location.href = "/home")}>
-            Back to Home
+          <button className="button" type="button" onClick={() => goBackOrFallback("/home")}>
+            Back
           </button>
         </section>
       </main>

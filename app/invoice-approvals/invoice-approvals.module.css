@@ -51,9 +51,9 @@
 .filters label:first-child input { padding-left: 34px; }
 .filters label span { flex: 0 0 auto; color: #8998aa; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .invoiceList { border: 1px solid #344052; background: #11161d; overflow-x: auto; }
-.listHeader, .invoiceRow { display: grid; min-width: 940px; grid-template-columns: 1.7fr 1.1fr 1.2fr 1fr .8fr 34px; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; }
+.listHeader, .invoiceRow { display: grid; min-width: 940px; grid-template-columns: minmax(240px, 1.7fr) minmax(170px, 1.1fr) minmax(170px, 1.2fr) minmax(150px, 1fr) minmax(110px, .8fr) 34px; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; }
 .listHeader { color: #8fa0b6; background: #171e27; font-size: 9px; font-weight: 800; text-transform: uppercase; }
-.invoiceRow { width: 100%; min-height: 62px !important; border-width: 0 0 1px !important; border-radius: 0 !important; background: transparent !important; font-weight: 500 !important; }
+.page .invoiceRow { display: grid; width: 100%; min-height: 62px !important; justify-content: stretch; border-width: 0 0 1px !important; border-radius: 0 !important; background: transparent !important; font-weight: 500 !important; }
 .invoiceRow:last-child { border-bottom: 0 !important; }
 .invoiceRow > span { display: grid; min-width: 0; gap: 4px; }
 .invoiceRow strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
