@@ -190,6 +190,7 @@ create table if not exists public.titan_financial_tubing_revenue (
   yard_id uuid not null references public.yards(id) on delete restrict,
   revenue_month date not null,
   customer text,
+  category_code text not null default 'standard',
   amount numeric not null,
   source text not null default 'entered',
   is_active boolean not null default true,
@@ -200,7 +201,7 @@ create table if not exists public.titan_financial_tubing_revenue (
 );
 
 create unique index if not exists titan_financial_tubing_revenue_uq
-  on public.titan_financial_tubing_revenue(yard_id, revenue_month, coalesce(customer,'(total)'));
+  on public.titan_financial_tubing_revenue(yard_id, revenue_month, coalesce(customer,'(total)'), category_code);
 
 create table if not exists public.titan_financial_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -288,6 +289,13 @@ select yard.id, defaults.service_line, defaults.rate_key, defaults.label, defaul
 from public.yards yard cross join defaults
 where yard.is_active
 on conflict (yard_id, service_line, rate_key) do nothing;
+
+insert into public.titan_financial_pick_list_values(yard_id, service_line, list_key, list_value, sort_order)
+select yard.id, 'tu', 'revenue_category', category.list_value, category.sort_order
+from public.yards yard
+cross join (values ('Standard', 0), ('Junk', 10)) category(list_value, sort_order)
+where yard.is_active
+on conflict (yard_id, service_line, list_key, list_value) do nothing;
 
 do $$
 begin

@@ -228,6 +228,22 @@
 .breakdownList i { display: block; height: 13px; overflow: hidden; border: 1px solid #2d3744; background: #0d1218; }
 .breakdownList i b { display: block; height: 100%; background: #ff7417; }
 .breakdownList > div > strong { text-align: right; font-size: 11px; }
+.tubingRevenueChart { display: grid; gap: 8px; padding: 14px; }
+.tubingRevenueChart > div { display: grid; grid-template-columns: 76px minmax(120px, 1fr) 110px; align-items: center; gap: 10px; }
+.tubingRevenueChart > div > span { color: #9eabbc; font-size: 11px; }
+.tubingRevenueChart > div > i { display: flex; height: 18px; overflow: hidden; border: 1px solid #2d3744; background: #0d1218; }
+.tubingRevenueChart > div > i b,
+.tubingRevenueChart > div > i em,
+.tubingRevenueChart > div > i small { display: block; height: 100%; }
+.tubingRevenueChart > div > i b { background: #ff7417; }
+.tubingRevenueChart > div > i em { background: #d6a12f; }
+.tubingRevenueChart > div > i small { background: #64748b; }
+.tubingRevenueChart > div > strong { text-align: right; font-size: 12px; }
+.tubingRevenueChart footer { display: flex; justify-content: flex-end; gap: 12px; color: #8fa0b6; font-size: 9px; text-transform: uppercase; }
+.tubingRevenueChart footer span::before { display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: #ff7417; content: ""; }
+.tubingRevenueChart footer span:nth-child(2)::before { background: #d6a12f; }
+.tubingRevenueChart footer span:nth-child(3)::before { background: #64748b; }
+.junkChart .barRow i { background: #d6a12f; }
 
 .marketShareList { display: grid; }
 .marketShareRow {
@@ -484,6 +500,8 @@
   .reviewChart > div { grid-template-columns: 78px minmax(80px, 1fr) 72px; }
   .barRow { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
   .barRow strong { font-size: 11px; }
+  .tubingRevenueChart > div { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
+  .tubingRevenueChart > div > strong { font-size: 11px; }
   .kpiCompare { grid-template-columns: 1fr; }
   .kpiCompare > div button { flex: 1; }
   .marketShareRow { grid-template-columns: 1fr; gap: 8px; }

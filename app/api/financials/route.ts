@@ -24,7 +24,7 @@ import { buildFinancialTrackerWorkbook } from "../../../lib/financialTrackerWork
 
 const financialLines = new Set<FinancialLine>(["dti", "cdt", "hb", "trs", "wash"]);
 const configurationLines = new Set(["dti", "cdt", "hb", "trs", "wash", "tu"]);
-const financialPickListKeys = new Set(["operator", "state", "size", "connection", "casing_section", "job_type", "items", "customer", "lead", "band", "insp_type", "reface_type"]);
+const financialPickListKeys = new Set(["operator", "state", "size", "connection", "casing_section", "job_type", "items", "customer", "revenue_category", "lead", "band", "insp_type", "reface_type"]);
 const financialReviewPhotoBucket = "titan-financial-review-photos";
 
 function adminClient() {
@@ -62,6 +62,15 @@ function isMissingReviewPhotoSchema(error: { message?: string } | null | undefin
 function isMissingReviewRigMovementSchema(error: { message?: string } | null | undefined) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("titan_financial_features") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
+function isMissingTubingRevenueCategory(error: { message?: string } | null | undefined) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("category_code") && (message.includes("does not exist") || message.includes("schema cache"));
+}
+
+function categoryCode(value: unknown) {
+  return String(value || "standard").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "standard";
 }
 
 function safePhotoName(value: string) {
@@ -411,6 +420,9 @@ export async function GET(request: Request) {
       }
       throw firstError;
     }
+    const tubingRevenueCategoryProbe = await context.admin.from("titan_financial_tubing_revenue").select("category_code").limit(1);
+    if (tubingRevenueCategoryProbe.error && !isMissingTubingRevenueCategory(tubingRevenueCategoryProbe.error)) throw tubingRevenueCategoryProbe.error;
+    const tubingRevenueCategoriesSetupRequired = Boolean(tubingRevenueCategoryProbe.error);
     const [marketServices, marketRigs, marketCells, marketCompetitors, marketTrend] = await Promise.all([
       context.admin.from("titan_financial_market_services").select("*").eq("yard_id", yardId).eq("is_active", true).eq("is_visible", true).order("sort_order"),
       context.admin.from("titan_financial_market_rigs").select("*").eq("yard_id", yardId).eq("is_active", true).order("operator").order("rig_name"),
@@ -500,6 +512,7 @@ export async function GET(request: Request) {
         weeks: tubingWeeks.data || [],
         entries: tubingEntries.data || [],
         revenue: tubingRevenue.data || [],
+        revenueCategoriesSetupRequired: tubingRevenueCategoriesSetupRequired,
       },
       reviews: reviews.data || [],
       reviewSnapshots: reviewSnapshotsResult.data || [],
@@ -1074,18 +1087,31 @@ export async function POST(request: Request) {
     if (action === "save_tubing_revenue") {
       if (!permissions.edit && !permissions.create) return Response.json({ error: "You cannot change Tubing financial records." }, { status: 403 });
       const revenueMonth = String(body.revenueMonth || "");
+      const revenueId = String(body.revenueId || "");
       if (!/^\d{4}-\d{2}-01$/.test(revenueMonth)) throw new Error("Select a valid revenue month.");
       const customer = String(body.customer || "").trim() || null;
+      const requestedCategory = categoryCode(body.revenueCategory);
       const amount = Number(body.amount);
       if (!Number.isFinite(amount)) throw new Error("Enter a valid revenue amount.");
-      let existingQuery = context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId).eq("revenue_month", revenueMonth);
-      existingQuery = customer === null ? existingQuery.is("customer", null) : existingQuery.eq("customer", customer);
+      const categoryProbe = await context.admin.from("titan_financial_tubing_revenue").select("category_code").limit(1);
+      if (categoryProbe.error && isMissingTubingRevenueCategory(categoryProbe.error)) throw new Error("Run supabase/titan_financial_tubing_revenue_categories.sql before classifying Tubing revenue.");
+      if (categoryProbe.error) throw categoryProbe.error;
+      const configuredCategories = await context.admin.from("titan_financial_pick_list_values").select("list_value").eq("yard_id", yardId).eq("service_line", "tu").eq("list_key", "revenue_category").eq("is_active", true);
+      if (configuredCategories.error) throw configuredCategories.error;
+      if (!(configuredCategories.data || []).some((item) => categoryCode(item.list_value) === requestedCategory)) throw new Error("Select an active Tubing revenue category.");
+      let existingQuery = context.admin.from("titan_financial_tubing_revenue").select("*").eq("yard_id", yardId);
+      if (revenueId) existingQuery = existingQuery.eq("id", revenueId);
+      else {
+        existingQuery = existingQuery.eq("revenue_month", revenueMonth).eq("category_code", requestedCategory);
+        existingQuery = customer === null ? existingQuery.is("customer", null) : existingQuery.eq("customer", customer);
+      }
       const existing = await existingQuery.maybeSingle();
       if (existing.error) throw existing.error;
-      const values = { amount, source: "entered", is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
+      if (revenueId && !existing.data) throw new Error("Tubing revenue record not found.");
+      const values = { revenue_month: revenueMonth, customer, category_code: requestedCategory, amount, source: "entered", is_active: true, updated_at: new Date().toISOString(), updated_by: context.user.id };
       const saved = existing.data
         ? await context.admin.from("titan_financial_tubing_revenue").update(values).eq("id", existing.data.id).select("*").single()
-        : await context.admin.from("titan_financial_tubing_revenue").insert({ yard_id: yardId, revenue_month: revenueMonth, customer, ...values, created_by: context.user.id }).select("*").single();
+        : await context.admin.from("titan_financial_tubing_revenue").insert({ yard_id: yardId, ...values, created_by: context.user.id }).select("*").single();
       if (saved.error) throw saved.error;
       await context.admin.from("titan_financial_audit_log").insert({
         yard_id: yardId, entity_type: "financial_tubing_revenue", entity_id: saved.data.id,

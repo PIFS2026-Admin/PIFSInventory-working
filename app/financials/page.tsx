@@ -38,7 +38,7 @@ type Target = { id: string; service_line: FinancialLine; yard_id: string | null;
 type PickListValue = { id: string; service_line: ConfigurationLine; list_key: string; list_value: string };
 type TubingWeek = { id: string; week_start: string; manhours: number | string | null };
 type TubingEntry = { id: string; week_start: string; customer: string; joints: number | null; jobs: number | null; trucks_in: number | null; trucks_out: number | null };
-type TubingRevenue = { id: string; revenue_month: string; customer: string | null; amount: number | string; source: string };
+type TubingRevenue = { id: string; revenue_month: string; customer: string | null; category_code?: string | null; amount: number | string; source: string };
 type FinancialReview = {
   id: string;
   yard_id: string;
@@ -103,7 +103,7 @@ const configurationLineNames: Record<ConfigurationLine, string> = { ...financial
 const pickListLabels: Record<string, string> = {
   operator: "Operators", state: "States", size: "Pipe Sizes", connection: "Connections",
   casing_section: "Casing Sections", job_type: "Job Types", items: "Items Washed",
-  customer: "Customers", lead: "Crew Leads", band: "Band Thicknesses",
+  customer: "Customers", revenue_category: "Revenue Categories", lead: "Crew Leads", band: "Band Thicknesses",
   insp_type: "Inspection Types", reface_type: "Reface Types",
 };
 const pickListKeys: Record<ConfigurationLine, string[]> = {
@@ -112,7 +112,7 @@ const pickListKeys: Record<ConfigurationLine, string[]> = {
   hb: ["operator", "lead", "state", "size", "connection", "casing_section", "band"],
   trs: ["operator", "lead", "state", "size", "connection", "casing_section", "job_type"],
   wash: ["operator", "lead", "items"],
-  tu: ["customer"],
+  tu: ["customer", "revenue_category"],
 };
 const today = new Date().toISOString().slice(0, 10);
 const yearStart = `${new Date().getFullYear()}-01-01`;
@@ -244,6 +244,10 @@ function matchesNumberFilter(value: unknown, expression = "", percentValue = fal
 
 function matchesTextFilter(value: unknown, query = "") {
   return !query.trim() || String(value ?? "").toLowerCase().includes(query.trim().toLowerCase());
+}
+
+function configCode(value: unknown) {
+  return String(value || "standard").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "standard";
 }
 
 function financialCategoryLabel(job: FinancialJob, categories: Category[]) {
@@ -403,6 +407,7 @@ export default function FinancialsPage() {
   const [tubingWeeks, setTubingWeeks] = useState<TubingWeek[]>([]);
   const [tubingEntries, setTubingEntries] = useState<TubingEntry[]>([]);
   const [tubingRevenue, setTubingRevenue] = useState<TubingRevenue[]>([]);
+  const [tubingRevenueCategoriesSetupRequired, setTubingRevenueCategoriesSetupRequired] = useState(false);
   const [reviews, setReviews] = useState<FinancialReview[]>([]);
   const [reviewSnapshots, setReviewSnapshots] = useState<FinancialReviewSnapshot[]>([]);
   const [reviewSections, setReviewSections] = useState<FinancialReviewSection[]>([]);
@@ -431,8 +436,10 @@ export default function FinancialsPage() {
   const [tubingWeekValues, setTubingWeekValues] = useState<Record<string, Record<string, string>>>({});
   const [newTubingCustomer, setNewTubingCustomer] = useState("");
   const [showTubingRevenueForm, setShowTubingRevenueForm] = useState(false);
+  const [tubingRevenueId, setTubingRevenueId] = useState("");
   const [tubingRevenueMonth, setTubingRevenueMonth] = useState(today.slice(0, 7));
   const [tubingRevenueCustomer, setTubingRevenueCustomer] = useState("");
+  const [tubingRevenueCategory, setTubingRevenueCategory] = useState("standard");
   const [tubingRevenueAmount, setTubingRevenueAmount] = useState("");
   const [jobFilters, setJobFilters] = useState<Record<string, string>>({});
   const [showReviewForm, setShowReviewForm] = useState(false);
@@ -532,6 +539,7 @@ export default function FinancialsPage() {
     setTubingWeeks(result.tubing?.weeks || []);
     setTubingEntries(result.tubing?.entries || []);
     setTubingRevenue(result.tubing?.revenue || []);
+    setTubingRevenueCategoriesSetupRequired(Boolean(result.tubing?.revenueCategoriesSetupRequired));
     setReviews(result.reviews || []);
     setReviewSnapshots(result.reviewSnapshots || []);
     setReviewSections(result.reviewComposer?.sections || []);
@@ -737,6 +745,29 @@ export default function FinancialsPage() {
     const revenue = tubingRevenue.reduce((sum, row) => sum + numberValue(row.amount), 0);
     return { joints, jobs, trucksIn, trucksOut, manhours, revenue, jointsPerMh: manhours ? joints / manhours : 0 };
   }, [tubingEntries, tubingWeeks, tubingRevenue]);
+  const tubingRevenueCategoryOptions = useMemo(() => {
+    const configured = pickLists
+      .filter((value) => value.service_line === "tu" && value.list_key === "revenue_category")
+      .map((value) => ({ code: configCode(value.list_value), label: value.list_value }));
+    return configured.length ? configured : [{ code: "standard", label: "Standard" }, { code: "junk", label: "Junk" }];
+  }, [pickLists]);
+  const tubingRevenueMonthly = useMemo(() => {
+    const grouped = new Map<string, { month: string; standard: number; junk: number; other: number; total: number }>();
+    tubingRevenue.forEach((row) => {
+      const month = row.revenue_month.slice(0, 7);
+      const current = grouped.get(month) || { month, standard: 0, junk: 0, other: 0, total: 0 };
+      const amount = numberValue(row.amount);
+      const category = row.category_code || "standard";
+      if (category === "junk") current.junk += amount;
+      else if (category === "standard") current.standard += amount;
+      else current.other += amount;
+      current.total += amount;
+      grouped.set(month, current);
+    });
+    return Array.from(grouped.values()).sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+  }, [tubingRevenue]);
+  const tubingRevenueMaximum = Math.max(1, ...tubingRevenueMonthly.map((row) => row.total));
+  const tubingJunkMaximum = Math.max(1, ...tubingRevenueMonthly.map((row) => row.junk));
   const showDtiTubing = line === "dti" && includeTubingInDti && (tubingWeeks.length > 0 || tubingRevenue.length > 0);
   const overviewDisplayMonthly = useMemo(() => {
     if (!showDtiTubing) return overviewMonthly;
@@ -1313,7 +1344,7 @@ export default function FinancialsPage() {
     const response = await fetch("/api/financials", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "save_tubing_revenue", yardId, revenueMonth: `${tubingRevenueMonth}-01`, customer: tubingRevenueCustomer, amount: tubingRevenueAmount }),
+      body: JSON.stringify({ action: "save_tubing_revenue", yardId, revenueId: tubingRevenueId, revenueMonth: `${tubingRevenueMonth}-01`, customer: tubingRevenueCustomer, revenueCategory: tubingRevenueCategory, amount: tubingRevenueAmount }),
     });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
@@ -1322,7 +1353,9 @@ export default function FinancialsPage() {
       return;
     }
     setShowTubingRevenueForm(false);
+    setTubingRevenueId("");
     setTubingRevenueAmount("");
+    setTubingRevenueCategory("standard");
     setMessage("Tubing revenue saved.");
     await loadFinancials();
   }
@@ -1345,9 +1378,9 @@ export default function FinancialsPage() {
       return;
     }
     if (line === "tu") {
-      const headers = ["Record Type", "Period", "Customer", "Joints", "Jobs", "Trucks In", "Trucks Out", "Manhours", "Revenue", "Source"];
-      const weeklyRows = tubingEntries.map((entry) => ["Weekly Activity", entry.week_start, entry.customer, entry.joints, entry.jobs, entry.trucks_in, entry.trucks_out, tubingWeeks.find((week) => week.week_start.slice(0, 10) === entry.week_start.slice(0, 10))?.manhours, "", ""]);
-      const revenueRows = tubingRevenue.map((row) => ["Monthly Revenue", row.revenue_month, row.customer || "(whole month)", "", "", "", "", "", row.amount, row.source]);
+      const headers = ["Record Type", "Period", "Customer", "Revenue Category", "Joints", "Jobs", "Trucks In", "Trucks Out", "Manhours", "Revenue", "Source"];
+      const weeklyRows = tubingEntries.map((entry) => ["Weekly Activity", entry.week_start, entry.customer, "", entry.joints, entry.jobs, entry.trucks_in, entry.trucks_out, tubingWeeks.find((week) => week.week_start.slice(0, 10) === entry.week_start.slice(0, 10))?.manhours, "", ""]);
+      const revenueRows = tubingRevenue.map((row) => ["Monthly Revenue", row.revenue_month, row.customer || "(whole month)", tubingRevenueCategoryOptions.find((category) => category.code === (row.category_code || "standard"))?.label || row.category_code || "Standard", "", "", "", "", "", row.amount, row.source]);
       const csv = [headers, ...weeklyRows, ...revenueRows].map((row) => row.map(csvValue).join(",")).join("\n");
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -1561,6 +1594,7 @@ export default function FinancialsPage() {
 
       {!loading && tab === "overview" && line === "tu" && (
         <>
+          {tubingRevenueCategoriesSetupRequired && <div className={styles.notice}>Run <strong>supabase/titan_financial_tubing_revenue_categories.sql</strong> to enable the Standard and Junk revenue breakout. Existing revenue remains classified as Standard.</div>}
           <section className={styles.metrics}>
             <div><span>Joints</span><strong>{tubingTotals.joints.toLocaleString()}</strong></div>
             <div><span>Jobs</span><strong>{tubingTotals.jobs.toLocaleString()}</strong></div>
@@ -1568,6 +1602,10 @@ export default function FinancialsPage() {
             <div><span>Joints / Manhour</span><strong>{tubingTotals.jointsPerMh.toFixed(2)}</strong></div>
             <div><span>Trucks In / Out</span><strong>{tubingTotals.trucksIn.toLocaleString()} / {tubingTotals.trucksOut.toLocaleString()}</strong></div>
             <div><span>Revenue</span><strong>{money(tubingTotals.revenue)}</strong></div>
+          </section>
+          <section className={styles.twoColumn}>
+            <div className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Monthly Revenue</span><h2>Total with Category Breakout</h2></div><span>Junk is included in the total.</span></div><div className={styles.tubingRevenueChart}>{tubingRevenueMonthly.map((row) => <div key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><i><b style={{ width: `${row.standard / tubingRevenueMaximum * 100}%` }} /><em style={{ width: `${row.junk / tubingRevenueMaximum * 100}%` }} /><small style={{ width: `${row.other / tubingRevenueMaximum * 100}%` }} /></i><strong>{money(row.total)}</strong></div>)}{!tubingRevenueMonthly.length && <div className={styles.emptyState}>No Tubing revenue is recorded for this period.</div>}<footer><span>Standard</span><span>Junk</span><span>Other</span></footer></div></div>
+            <div className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Revenue Breakout</span><h2>Junk Revenue by Month</h2></div></div><div className={`${styles.barChart} ${styles.junkChart}`}>{tubingRevenueMonthly.filter((row) => row.junk > 0).map((row) => <div className={styles.barRow} key={row.month}><span>{new Date(`${row.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" })}</span><div><i style={{ width: `${Math.max(1, row.junk / tubingJunkMaximum * 100)}%` }} /></div><strong>{money(row.junk)}</strong></div>)}{!tubingRevenueMonthly.some((row) => row.junk > 0) && <div className={styles.emptyState}>No junk revenue is broken out in this period.</div>}</div></div>
           </section>
           <section className={styles.twoColumn}>
             <div className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Weekly Production</span><h2>Tubing Throughput</h2></div><strong>{tubingWeeklyRows.length} weeks</strong></div><div className={styles.tableWrap}><table><thead><tr><th>Week</th><th>Joints</th><th>Jobs</th><th>Trucks In / Out</th><th>Manhours</th><th>Joints / MH</th></tr></thead><tbody>{tubingWeeklyRows.map((week) => <tr key={week.id}><td>{week.week_start.slice(0, 10)}</td><td>{week.joints.toLocaleString()}</td><td>{week.jobs.toLocaleString()}</td><td>{week.trucksIn} / {week.trucksOut}</td><td>{week.manhours.toLocaleString()}</td><td>{week.jointsPerMh ? week.jointsPerMh.toFixed(2) : "-"}</td></tr>)}{!tubingWeeklyRows.length && <tr><td colSpan={6}>No Tubing weeks match this period.</td></tr>}</tbody></table></div></div>
@@ -1690,10 +1728,11 @@ export default function FinancialsPage() {
       </section>}
 
       {!loading && tab === "trackers" && line === "tu" && <>
+        {tubingRevenueCategoriesSetupRequired && <div className={styles.notice}>Run <strong>supabase/titan_financial_tubing_revenue_categories.sql</strong> to classify Standard and Junk Tubing revenue.</div>}
         {showTubingWeekForm && <section className={styles.jobForm}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Tubing Production</span><h2>{tubingWeeks.some((week) => week.week_start.slice(0, 10) === tubingWeekStart) ? "Change Weekly Activity" : "Add Weekly Activity"}</h2></div><button type="button" onClick={() => setShowTubingWeekForm(false)}>Close</button></div><div className={styles.formGrid}><label><span>Week Starting Sunday</span><input type="date" value={tubingWeekStart} onChange={(event) => setTubingWeekStart(event.target.value)} /></label><label><span>Whole-week Manhours</span><input type="number" min="0" step="any" value={tubingManhours} onChange={(event) => setTubingManhours(event.target.value)} /></label><label><span>Add Customer</span><input value={newTubingCustomer} onChange={(event) => setNewTubingCustomer(event.target.value)} /></label><div className={styles.inlineAction}><button type="button" onClick={addTubingCustomer}>Add Customer</button></div></div><div className={styles.tableWrap}><table><thead><tr><th>Customer</th><th>Joints</th><th>Jobs</th><th>Trucks In</th><th>Trucks Out</th></tr></thead><tbody>{Object.entries(tubingWeekValues).map(([customer, values]) => <tr key={customer}><td><strong>{customer}</strong></td>{(["joints", "jobs", "trucks_in", "trucks_out"] as const).map((field) => <td key={field}><input className={styles.cellInput} type="number" min="0" step="1" value={values[field] || ""} onChange={(event) => setTubingWeekValues((current) => ({ ...current, [customer]: { ...current[customer], [field]: event.target.value } }))} /></td>)}</tr>)}{!Object.keys(tubingWeekValues).length && <tr><td colSpan={5}>Add a customer to begin this week.</td></tr>}</tbody></table></div><div className={styles.formActions}><button type="button" disabled={saving || !tubingWeekStart} className={styles.primary} onClick={() => void saveTubingWeek()}>{saving ? "Saving..." : "Save Week"}</button></div></section>}
-        {showTubingRevenueForm && <section className={styles.jobForm}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Tubing Financials</span><h2>Add or Update Monthly Revenue</h2></div><button type="button" onClick={() => setShowTubingRevenueForm(false)}>Close</button></div><div className={styles.formGrid}><label><span>Month</span><input type="month" value={tubingRevenueMonth} onChange={(event) => setTubingRevenueMonth(event.target.value)} /></label><label><span>Customer</span><input list="tubing-customers" value={tubingRevenueCustomer} onChange={(event) => setTubingRevenueCustomer(event.target.value)} /><datalist id="tubing-customers">{tubingCustomers.map((customer) => <option key={customer} value={customer} />)}</datalist></label><label><span>Revenue</span><input type="number" step="0.01" value={tubingRevenueAmount} onChange={(event) => setTubingRevenueAmount(event.target.value)} /></label></div><div className={styles.formActions}><button type="button" disabled={saving || !tubingRevenueMonth || !tubingRevenueAmount} className={styles.primary} onClick={() => void saveTubingRevenue()}>{saving ? "Saving..." : "Save Revenue"}</button></div></section>}
+        {showTubingRevenueForm && <section className={styles.jobForm}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Tubing Financials</span><h2>Add or Update Monthly Revenue</h2></div><button type="button" onClick={() => setShowTubingRevenueForm(false)}>Close</button></div><div className={styles.formGrid}><label><span>Month</span><input type="month" value={tubingRevenueMonth} onChange={(event) => setTubingRevenueMonth(event.target.value)} /></label><label><span>Customer</span><input list="tubing-customers" value={tubingRevenueCustomer} onChange={(event) => setTubingRevenueCustomer(event.target.value)} /><datalist id="tubing-customers">{tubingCustomers.map((customer) => <option key={customer} value={customer} />)}</datalist></label><label><span>Revenue Category</span><select value={tubingRevenueCategory} onChange={(event) => setTubingRevenueCategory(event.target.value)}>{tubingRevenueCategoryOptions.map((category) => <option key={category.code} value={category.code}>{category.label}{category.code === "junk" ? " (breakout)" : ""}</option>)}</select></label><label><span>Revenue</span><input type="number" step="0.01" value={tubingRevenueAmount} onChange={(event) => setTubingRevenueAmount(event.target.value)} /></label></div><div className={styles.formActions}><button type="button" disabled={saving || tubingRevenueCategoriesSetupRequired || !tubingRevenueMonth || !tubingRevenueAmount} className={styles.primary} onClick={() => void saveTubingRevenue()}>{saving ? "Saving..." : "Save Revenue"}</button></div></section>}
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Source of Truth</span><h2>Tubing Weekly Activity</h2></div><div className={styles.headerActions}>{(permissions.create || permissions.edit) && <button type="button" onClick={() => openTubingWeek()}>Add Week</button>}<strong>{tubingWeeklyRows.length} weeks</strong></div></div><div className={styles.tableWrap}><table><thead><tr><th>Week</th><th>Joints</th><th>Jobs</th><th>Trucks In</th><th>Trucks Out</th><th>Manhours</th><th>Joints / MH</th><th></th></tr></thead><tbody>{tubingWeeklyRows.map((week) => <tr key={week.id}><td>{week.week_start.slice(0, 10)}</td><td>{week.joints.toLocaleString()}</td><td>{week.jobs}</td><td>{week.trucksIn}</td><td>{week.trucksOut}</td><td>{week.manhours.toLocaleString()}</td><td>{week.jointsPerMh ? week.jointsPerMh.toFixed(2) : "-"}</td><td>{permissions.edit && <button type="button" onClick={() => openTubingWeek(week)}>Change</button>}</td></tr>)}{!tubingWeeklyRows.length && <tr><td colSpan={8}>No Tubing weeks match these filters.</td></tr>}</tbody></table></div></section>
-        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Revenue Ledger</span><h2>Tubing Monthly Revenue</h2></div>{(permissions.create || permissions.edit) && <button type="button" onClick={() => setShowTubingRevenueForm(true)}>Add Revenue</button>}</div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Customer</th><th>Amount</th><th>Source</th><th></th></tr></thead><tbody>{tubingRevenue.map((row) => <tr key={row.id}><td>{row.revenue_month.slice(0, 7)}</td><td>{row.customer || "(whole month)"}</td><td>{money(row.amount)}</td><td>{row.source}</td><td>{permissions.edit && <button type="button" onClick={() => { setTubingRevenueMonth(row.revenue_month.slice(0, 7)); setTubingRevenueCustomer(row.customer || ""); setTubingRevenueAmount(String(row.amount)); setShowTubingRevenueForm(true); }}>Change</button>}</td></tr>)}{!tubingRevenue.length && <tr><td colSpan={5}>No Tubing revenue matches these filters.</td></tr>}</tbody></table></div></section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Revenue Ledger</span><h2>Tubing Monthly Revenue</h2></div>{(permissions.create || permissions.edit) && <button type="button" disabled={tubingRevenueCategoriesSetupRequired} onClick={() => { setTubingRevenueId(""); setTubingRevenueCategory("standard"); setTubingRevenueAmount(""); setShowTubingRevenueForm(true); }}>Add Revenue</button>}</div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Customer</th><th>Category</th><th>Amount</th><th>Source</th><th></th></tr></thead><tbody>{tubingRevenue.map((row) => <tr key={row.id}><td>{row.revenue_month.slice(0, 7)}</td><td>{row.customer || "(whole month)"}</td><td>{tubingRevenueCategoryOptions.find((category) => category.code === (row.category_code || "standard"))?.label || row.category_code || "Standard"}</td><td>{money(row.amount)}</td><td>{row.source}</td><td>{permissions.edit && <button type="button" disabled={tubingRevenueCategoriesSetupRequired} onClick={() => { setTubingRevenueId(row.id); setTubingRevenueMonth(row.revenue_month.slice(0, 7)); setTubingRevenueCustomer(row.customer || ""); setTubingRevenueCategory(row.category_code || "standard"); setTubingRevenueAmount(String(row.amount)); setShowTubingRevenueForm(true); }}>Change</button>}</td></tr>)}{!tubingRevenue.length && <tr><td colSpan={6}>No Tubing revenue matches these filters.</td></tr>}</tbody></table></div></section>
       </>}
 
       {!loading && tab === "kpis" && line !== "tu" && <>
