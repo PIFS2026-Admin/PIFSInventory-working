@@ -87,8 +87,12 @@
 .codingHeader, .codingRow { display: grid; min-width: 1300px; grid-template-columns: minmax(230px, 1.4fr) 120px repeat(3, minmax(145px, .8fr)) minmax(220px, 1.2fr) 40px; gap: 7px; align-items: center; padding: 7px 10px; }
 .codingHeader { color: #8fa0b6; background: #171e27; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .codingRow { border-bottom: 1px solid #28313d; }
+.codingField { position: relative; display: grid; min-width: 0; gap: 4px; }
+.codingField > span { display: none; color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.codingField small { color: #ff9fa7; font-size: 9px; line-height: 1.25; }
 .codingRow input, .codingRow select { min-height: 36px; font-size: 12px; }
 .codingRow button { min-height: 36px; padding: 0; }
+.removeCoding span { display: none; }
 .codingActions { display: grid; grid-template-columns: auto minmax(250px, 1fr) auto; align-items: end; gap: 10px; padding: 12px; }
 .codingActions textarea { min-height: 62px; }
 .actionPanel { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(280px, 1.4fr) minmax(260px, 1fr); gap: 14px; align-items: center; padding: 14px; border-top: 3px solid #ff7417; }
@@ -127,6 +131,21 @@
   .actionPanel > div:last-child { justify-content: flex-start; }
   .filters { grid-template-columns: 1fr 1fr; }
   .filters label:first-child { grid-column: 1 / -1; }
+  .invoiceList, .codingTable { overflow-x: visible; }
+  .listHeader, .codingHeader { display: none; }
+  .page .invoiceRow { position: relative; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 18px; padding: 14px 46px 14px 13px; }
+  .invoicePrimary { grid-column: 1 / -1; }
+  .invoiceDates { grid-column: 1; }
+  .invoiceApprover, .invoiceStatus, .invoiceAmount { display: flex !important; align-items: center; justify-content: space-between; gap: 12px !important; }
+  .invoiceApprover, .invoiceStatus { grid-column: 1 / -1; }
+  .invoiceAmount { grid-column: 2; grid-row: 2; align-self: start; }
+  .invoiceApprover::before, .invoiceStatus::before, .invoiceAmount::before { content: attr(data-label); color: #78879a; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+  .invoiceOpen { position: absolute; top: 16px; right: 14px; color: #ff8a3c; }
+  .codingRow { min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 10px; padding: 12px; border: 1px solid #344052; background: #0e141b; }
+  .codingField > span { display: block; }
+  .codeField, .descriptionField { grid-column: 1 / -1; }
+  .removeCoding { grid-column: 1 / -1; justify-self: end; width: auto; padding: 0 12px !important; color: #ffb4ba !important; }
+  .removeCoding span { display: inline; }
   .codingActions { grid-template-columns: 1fr; }
   .codeList { grid-template-columns: 1fr 1fr; }
   .activity > div:not(.sectionHeading) { grid-template-columns: 120px 1fr; }
@@ -146,4 +165,10 @@
   .totals { justify-content: flex-start; }
   .sectionHeading { align-items: flex-start; flex-direction: column; }
   .reassign { grid-template-columns: 1fr; }
+  .page .invoiceRow { grid-template-columns: 1fr; }
+  .invoiceDates, .invoiceAmount { grid-column: 1; grid-row: auto; }
+  .invoiceAmount { align-self: stretch; }
+  .codingRow { grid-template-columns: 1fr; margin: 8px; padding: 10px; }
+  .codeField, .descriptionField, .removeCoding { grid-column: 1; }
+  .removeCoding { justify-self: stretch; }
 }

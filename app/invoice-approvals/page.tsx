@@ -15,7 +15,7 @@ type Invoice = {
   status: InvoiceStatus; assigned_approver_id: string; assigned_approver_name: string; uploaded_by_name: string;
   uploaded_at: string; dispute_reason: string | null; return_reason: string | null;
 };
-type CodingLine = { id?: string; invoice_id?: string; accounting_code_id: string; accounting_code?: string; accounting_code_description?: string; amount: string | number; cost_center: string; department: string; job_number: string; description: string };
+type CodingLine = { id?: string; invoice_id?: string; accounting_code_id: string; accounting_code?: string; accounting_code_description?: string; accounting_code_search?: string; amount: string | number; cost_center: string; department: string; job_number: string; description: string };
 type AccountingCode = { id: string; code: string; description: string; active: boolean };
 type Person = { id: string; full_name: string | null; email: string | null; role: string };
 type Vendor = { id: string; vendor_name: string; yard_id: string | null };
@@ -28,7 +28,7 @@ type Data = { setupRequired: boolean; error?: string; actor?: { id: string; full
 type Tab = "mine" | "awaiting" | "returned" | "disputed" | "approved" | "all" | "codes";
 
 const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], files: [], approvals: [], activity: [], approvalStatement: "" };
-const emptyLine = (): CodingLine => ({ accounting_code_id: "", amount: "", cost_center: "", department: "", job_number: "", description: "" });
+const emptyLine = (): CodingLine => ({ accounting_code_id: "", accounting_code_search: "", amount: "", cost_center: "", department: "", job_number: "", description: "" });
 const today = new Date().toISOString().slice(0, 10);
 
 function dollars(value: unknown) {
@@ -44,6 +44,10 @@ function dateText(value: unknown, time = false) {
 
 function statusLabel(status: InvoiceStatus) {
   return ({ awaiting_approval: "Awaiting Signature", returned_to_ap: "Returned to AP", disputed: "Disputed", approved: "Approved" })[status];
+}
+
+function accountingCodeLabel(code: Pick<AccountingCode, "code" | "description">) {
+  return [code.code, code.description].filter(Boolean).join(" · ");
 }
 
 async function authHeaders(json = true) {
@@ -120,7 +124,14 @@ export default function InvoiceApprovalsPage() {
 
   useEffect(() => {
     if (!selected) return;
-    const existing = data.codingLines.filter((line) => line.invoice_id === selected.id).map((line) => ({ ...line, amount: String(line.amount ?? "") }));
+    const existing = data.codingLines.filter((line) => line.invoice_id === selected.id).map((line) => {
+      const code = data.accountingCodes.find((item) => item.id === line.accounting_code_id);
+      return {
+        ...line,
+        accounting_code_search: code ? accountingCodeLabel(code) : accountingCodeLabel({ code: line.accounting_code || "", description: line.accounting_code_description || "" }),
+        amount: String(line.amount ?? ""),
+      };
+    });
     setCoding(existing.length ? existing : [emptyLine()]);
     setApproverNotes(selected.approver_notes || "");
     setNewApprover(selected.assigned_approver_id);
@@ -155,6 +166,20 @@ export default function InvoiceApprovalsPage() {
 
   const codingTotal = coding.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const codingDifference = selected ? Number(selected.total_amount) - codingTotal : 0;
+  const codingHasUnknownCode = coding.some((line) => !line.accounting_code_id);
+
+  const updateCodingLine = (index: number, updates: Partial<CodingLine>) => {
+    setCoding((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...updates } : row));
+  };
+
+  const updateAccountingCode = (index: number, value: string) => {
+    const normalized = value.trim().toLowerCase();
+    const match = data.accountingCodes.find((code) => {
+      const label = accountingCodeLabel(code).toLowerCase();
+      return code.code.toLowerCase() === normalized || label === normalized;
+    });
+    updateCodingLine(index, { accounting_code_search: value, accounting_code_id: match?.id || "" });
+  };
 
   const run = async (work: () => Promise<unknown>, success: string) => {
     setBusy(true);
@@ -327,19 +352,20 @@ export default function InvoiceApprovalsPage() {
 
       <section className={styles.codingPanel}>
         <div className={styles.sectionHeading}><div><span>ACCOUNTING</span><h2>Coding lines</h2></div><div className={styles.totals}><span>Invoice {dollars(selected.total_amount)}</span><span>Coded {dollars(codingTotal)}</span><strong className={Math.abs(codingDifference) < .005 ? styles.balanced : styles.unbalanced}>Difference {dollars(codingDifference)}</strong></div></div>
+        <datalist id="invoice-accounting-code-options">{data.accountingCodes.filter((code) => code.active).map((code) => <option key={code.id} value={accountingCodeLabel(code)} />)}</datalist>
         <div className={styles.codingTable}>
           <div className={styles.codingHeader}><span>Code</span><span>Amount</span><span>Cost center</span><span>Department</span><span>Job / project</span><span>Description</span><span></span></div>
           {coding.map((line, index) => <div className={styles.codingRow} key={`${line.id || "new"}-${index}`}>
-            <select disabled={!canAct} value={line.accounting_code_id} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, accounting_code_id: event.target.value } : row))}><option value="">Select code</option>{data.accountingCodes.filter((code) => code.active || code.id === line.accounting_code_id).map((code) => <option key={code.id} value={code.id}>{code.code} · {code.description}</option>)}</select>
-            <input disabled={!canAct} inputMode="decimal" value={line.amount} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, amount: event.target.value } : row))} />
-            <input disabled={!canAct} value={line.cost_center || ""} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, cost_center: event.target.value } : row))} />
-            <input disabled={!canAct} value={line.department || ""} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, department: event.target.value } : row))} />
-            <input disabled={!canAct} value={line.job_number || ""} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, job_number: event.target.value } : row))} />
-            <input disabled={!canAct} value={line.description || ""} onChange={(event) => setCoding((rows) => rows.map((row, i) => i === index ? { ...row, description: event.target.value } : row))} />
-            <button title="Remove coding line" aria-label="Remove coding line" disabled={!canAct || coding.length === 1} onClick={() => setCoding((rows) => rows.filter((_, i) => i !== index))}><Trash2 size={15} /></button>
+            <label className={`${styles.codingField} ${styles.codeField}`}><span>Accounting code</span><input disabled={!canAct} list="invoice-accounting-code-options" placeholder="Search code or description" autoComplete="off" value={line.accounting_code_search || ""} onChange={(event) => updateAccountingCode(index, event.target.value)} />{line.accounting_code_search && !line.accounting_code_id && <small>Select an exact code from the results.</small>}</label>
+            <label className={styles.codingField}><span>Amount</span><input disabled={!canAct} inputMode="decimal" placeholder="0.00" value={line.amount} onChange={(event) => updateCodingLine(index, { amount: event.target.value })} /></label>
+            <label className={styles.codingField}><span>Cost center</span><input disabled={!canAct} value={line.cost_center || ""} onChange={(event) => updateCodingLine(index, { cost_center: event.target.value })} /></label>
+            <label className={styles.codingField}><span>Department</span><input disabled={!canAct} value={line.department || ""} onChange={(event) => updateCodingLine(index, { department: event.target.value })} /></label>
+            <label className={styles.codingField}><span>Job / project</span><input disabled={!canAct} value={line.job_number || ""} onChange={(event) => updateCodingLine(index, { job_number: event.target.value })} /></label>
+            <label className={`${styles.codingField} ${styles.descriptionField}`}><span>Description</span><input disabled={!canAct} value={line.description || ""} onChange={(event) => updateCodingLine(index, { description: event.target.value })} /></label>
+            <button type="button" className={styles.removeCoding} title="Remove coding line" aria-label={`Remove coding line ${index + 1}`} disabled={!canAct || coding.length === 1} onClick={() => setCoding((rows) => rows.filter((_, i) => i !== index))}><Trash2 size={15} /><span>Remove</span></button>
           </div>)}
         </div>
-        {canAct && <div className={styles.codingActions}><button type="button" onClick={() => setCoding((rows) => [...rows, emptyLine()])}><Plus size={16} /> Add Line</button><label><span>Approver notes</span><textarea value={approverNotes} onChange={(event) => setApproverNotes(event.target.value)} /></label><button className={styles.primary} type="button" onClick={() => run(() => api({ action: "save_coding", invoiceId: selected.id, lines: coding.map((line) => ({ accountingCodeId: line.accounting_code_id, amount: line.amount, costCenter: line.cost_center, department: line.department, jobNumber: line.job_number, description: line.description })), notes: approverNotes }), "Accounting coding saved.")} disabled={busy}><Save size={16} /> Save Coding</button></div>}
+        {canAct && <div className={styles.codingActions}><button type="button" onClick={() => setCoding((rows) => [...rows, emptyLine()])}><Plus size={16} /> Add Line</button><label><span>Approver notes</span><textarea value={approverNotes} onChange={(event) => setApproverNotes(event.target.value)} /></label><button className={styles.primary} type="button" onClick={() => run(() => api({ action: "save_coding", invoiceId: selected.id, lines: coding.map((line) => ({ accountingCodeId: line.accounting_code_id, amount: line.amount, costCenter: line.cost_center, department: line.department, jobNumber: line.job_number, description: line.description })), notes: approverNotes }), "Accounting coding saved.")} disabled={busy || codingHasUnknownCode}><Save size={16} /> Save Coding</button></div>}
       </section>
 
       {canAct && <section className={styles.actionPanel}>
@@ -389,7 +415,7 @@ export default function InvoiceApprovalsPage() {
 
     {tab === "codes" ? <section className={styles.codesPanel}><div className={styles.sectionHeading}><div><span>CONTROLLED LIST</span><h2>Accounting codes</h2></div></div><div className={styles.codeForm}><input placeholder="Code" value={codeForm.code} onChange={(event) => setCodeForm((form) => ({ ...form, code: event.target.value }))} /><input placeholder="Description" value={codeForm.description} onChange={(event) => setCodeForm((form) => ({ ...form, description: event.target.value }))} /><label className={styles.toggle}><input type="checkbox" checked={codeForm.active} onChange={(event) => setCodeForm((form) => ({ ...form, active: event.target.checked }))} /><span>Active</span></label><button className={styles.primary} onClick={() => run(() => api({ action: "save_code", ...codeForm }), "Accounting code saved.").then(() => setCodeForm({ id: "", code: "", description: "", active: true }))} disabled={busy || !codeForm.code.trim()}><Save size={16} /> Save</button></div><div className={styles.codeList}>{data.accountingCodes.map((code) => <button key={code.id} onClick={() => setCodeForm(code)}><strong>{code.code}</strong><span>{code.description || "No description"}</span><small>{code.active ? "Active" : "Inactive"}</small></button>)}</div></section> : <>
       <section className={styles.filters}><label><Search size={16} /><input placeholder="Vendor, invoice, or approver" value={search} onChange={(event) => setSearch(event.target.value)} /></label><select value={approverFilter} onChange={(event) => setApproverFilter(event.target.value)}><option value="">All approvers</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select><label><span>From</span><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label><span>To</span><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label></section>
-      <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}</small></span><span><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span>{invoice.assigned_approver_name}</span><span><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span><strong>{dollars(invoice.total_amount)}</strong></span><Eye size={17} /></button>)}</section>
+      <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span className={styles.invoicePrimary}><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}</small></span><span className={styles.invoiceDates}><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span className={styles.invoiceApprover} data-label="Approver">{invoice.assigned_approver_name}</span><span className={styles.invoiceStatus} data-label="Status"><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span className={styles.invoiceAmount} data-label="Amount"><strong>{dollars(invoice.total_amount)}</strong></span><Eye className={styles.invoiceOpen} size={17} /></button>)}</section>
     </>}
   </main>;
 }
