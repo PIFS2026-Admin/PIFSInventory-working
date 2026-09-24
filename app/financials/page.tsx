@@ -270,6 +270,19 @@ function jobQuantity(job: FinancialJob) {
     .reduce((sum, key) => sum + numberValue(job.inputs[key]), 0);
 }
 
+function filterSlicedJobs(rows: FinancialJob[], filters: Record<string, string>, categories: Category[], includeCategory = true) {
+  return rows.filter((job) =>
+    (!filters.month || job.job_date.slice(0, 7) === filters.month) &&
+    (!filters.quarter || jobQuarter(job) === filters.quarter) &&
+    matchesTextFilter(jobState(job), filters.state) &&
+    matchesTextFilter(jobSize(job), filters.size) &&
+    matchesTextFilter(job.operator, filters.operator) &&
+    matchesTextFilter(job.lead, filters.lead) &&
+    (!includeCategory || matchesTextFilter(financialCategoryLabel(job, categories), filters.category)) &&
+    matchesNumberFilter(jobQuantity(job), filters.quantity)
+  );
+}
+
 function summarizeJobs(rows: FinancialJob[]) {
   const summary = rows.reduce((values, job) => {
     const revenue = numberValue(job.revenue);
@@ -440,6 +453,7 @@ export default function FinancialsPage() {
   const [targetScope, setTargetScope] = useState<"yard" | "default">("yard");
   const [analyticsPage, setAnalyticsPage] = useState<AnalyticsPage>("financials");
   const [analyticsFilters, setAnalyticsFilters] = useState<Record<string, string>>({});
+  const [kpiComparison, setKpiComparison] = useState<"slice" | "standard">("slice");
   const [settingsEditor, setSettingsEditor] = useState<"category" | "pick-list" | "">("");
   const [settingsId, setSettingsId] = useState("");
   const [settingsLine, setSettingsLine] = useState<ConfigurationLine>("dti");
@@ -544,26 +558,47 @@ export default function FinancialsPage() {
   const activeTargets = useMemo(() => targets.filter((target) => line === "all" || target.service_line === line), [line, targets]);
   const selectedCategories = categories.filter((category) => category.service_line === formLine);
 
-  const evaluatedTargets = useMemo(() => {
+  const effectiveTargets = useMemo(() => {
     const effective = new Map<string, Target>();
     activeTargets.forEach((target) => {
       const key = `${target.service_line}:${target.category_code}:${target.metric_key}`;
       const current = effective.get(key);
       if (!current || target.yard_id) effective.set(key, target);
     });
-    return Array.from(effective.values()).map((target) => {
-      const matchingJobs = jobs.filter((job) => job.service_line === target.service_line && job.category_code === target.category_code);
-      const actual = metricValue(target.metric_key, matchingJobs);
-      const targetValue = numberValue(target.target_value);
-      const variance = actual === null ? null : actual - targetValue;
-      const met = actual === null ? null : target.direction === "above" ? actual >= targetValue : actual <= targetValue;
-      return { ...target, actual, variance, met, jobCount: matchingJobs.length };
-    }).sort((a, b) => financialLineNames[a.service_line].localeCompare(financialLineNames[b.service_line]) || a.metric_key.localeCompare(b.metric_key));
-  }, [activeTargets, jobs]);
+    return Array.from(effective.values()).sort((a, b) => financialLineNames[a.service_line].localeCompare(financialLineNames[b.service_line]) || a.metric_key.localeCompare(b.metric_key));
+  }, [activeTargets]);
+
+  const slicedJobs = useMemo(() => filterSlicedJobs(jobs, analyticsFilters, categories), [jobs, analyticsFilters, categories]);
+  const kpiJobs = useMemo(() => kpiComparison === "standard"
+    ? filterSlicedJobs(jobs, analyticsFilters, categories, false).filter((job) => job.category_code === "standard")
+    : slicedJobs, [jobs, analyticsFilters, categories, kpiComparison, slicedJobs]);
+  const kpiTotals = useMemo(() => summarizeJobs(kpiJobs), [kpiJobs]);
+  const kpiScorecards = useMemo(() => {
+    const scorecardLines = (line === "all"
+      ? lines.filter((serviceLine) => kpiJobs.some((job) => job.service_line === serviceLine))
+      : [line]) as FinancialLine[];
+    const targetByKey = new Map(effectiveTargets.map((target) => [`${target.service_line}:${target.category_code}:${target.metric_key}`, target]));
+    return scorecardLines.flatMap((serviceLine) => {
+      const lineJobs = kpiJobs.filter((job) => job.service_line === serviceLine);
+      const categoryCodes = Array.from(new Set(lineJobs.map((job) => job.category_code)));
+      const targetCategory = kpiComparison === "standard" ? "standard" : categoryCodes.length === 1 ? categoryCodes[0] : null;
+      const categoryLabel = targetCategory
+        ? categories.find((category) => category.service_line === serviceLine && category.code === targetCategory)?.label || targetCategory
+        : "Mixed categories";
+      return targetMetrics.map((metric) => {
+        const target = targetCategory ? targetByKey.get(`${serviceLine}:${targetCategory}:${metric.key}`) || null : null;
+        const actual = metricValue(metric.key, lineJobs);
+        const targetValue = target ? numberValue(target.target_value) : null;
+        const variance = actual === null || targetValue === null ? null : actual - targetValue;
+        const met = actual === null || !target ? null : target.direction === "above" ? actual >= targetValue! : actual <= targetValue!;
+        return { serviceLine, metric, categoryLabel, target, actual, variance, met, jobCount: lineJobs.length };
+      });
+    });
+  }, [categories, effectiveTargets, kpiComparison, kpiJobs, line]);
 
   const monthlyPerformance = useMemo(() => {
     const grouped = new Map<string, { jobs: number; revenue: number; cost: number; profit: number; manhours: number }>();
-    jobs.forEach((job) => {
+    kpiJobs.forEach((job) => {
       const month = job.job_date.slice(0, 7);
       const current = grouped.get(month) || { jobs: 0, revenue: 0, cost: 0, profit: 0, manhours: 0 };
       current.jobs += 1;
@@ -579,7 +614,7 @@ export default function FinancialsPage() {
       margin: values.revenue ? values.profit / values.revenue : 0,
       revenuePerMh: values.manhours ? values.revenue / values.manhours : 0,
     })).sort((a, b) => b.month.localeCompare(a.month));
-  }, [jobs]);
+  }, [kpiJobs]);
 
   const filteredJobs = useMemo(() => jobs.filter((job) =>
     matchesTextFilter(financialCategoryLabel(job, categories), jobFilters.category) &&
@@ -657,16 +692,7 @@ export default function FinancialsPage() {
     category: Array.from(new Set(jobs.map((job) => financialCategoryLabel(job, categories)))).sort(),
   }), [jobs, categories]);
 
-  const analyticsJobs = useMemo(() => jobs.filter((job) =>
-    (!analyticsFilters.month || job.job_date.slice(0, 7) === analyticsFilters.month) &&
-    (!analyticsFilters.quarter || jobQuarter(job) === analyticsFilters.quarter) &&
-    matchesTextFilter(jobState(job), analyticsFilters.state) &&
-    matchesTextFilter(jobSize(job), analyticsFilters.size) &&
-    matchesTextFilter(job.operator, analyticsFilters.operator) &&
-    matchesTextFilter(job.lead, analyticsFilters.lead) &&
-    matchesTextFilter(financialCategoryLabel(job, categories), analyticsFilters.category) &&
-    matchesNumberFilter(jobQuantity(job), analyticsFilters.quantity)
-  ), [jobs, analyticsFilters, categories]);
+  const analyticsJobs = slicedJobs;
 
   const analyticsTotals = useMemo(() => summarizeJobs(analyticsJobs), [analyticsJobs]);
   const analyticsMonthly = useMemo(() => {
@@ -1526,24 +1552,41 @@ export default function FinancialsPage() {
       </>}
 
       {!loading && tab === "kpis" && line !== "tu" && <>
+        <section className={styles.analyticsControls}>
+          <div className={styles.sectionHeading}>
+            <div><span className={styles.eyebrow}>KPI Slice</span><h2>Performance Filters</h2></div>
+            <div className={styles.headerActions}><strong>{kpiJobs.length} of {jobs.length} jobs</strong>{Object.values(analyticsFilters).some(Boolean) && <button type="button" onClick={() => setAnalyticsFilters({})}>Clear Slicers</button>}</div>
+          </div>
+          <div className={styles.analyticsFilters}>
+            <label><span>Year / Month</span><select value={analyticsFilters.month || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, month: event.target.value, quarter: "" }))}><option value="">All months</option>{analyticsOptions.month.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Year / Quarter</span><select value={analyticsFilters.quarter || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, quarter: event.target.value, month: "" }))}><option value="">All quarters</option>{analyticsOptions.quarter.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>State</span><select value={analyticsFilters.state || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, state: event.target.value }))}><option value="">All states</option>{analyticsOptions.state.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>{analyticsQuantityLabel}</span><input value={analyticsFilters.quantity || ""} placeholder=">200 or 100-500" onChange={(event) => setAnalyticsFilters((current) => ({ ...current, quantity: event.target.value }))} /></label>
+            <label><span>{line === "dti" ? "Pipe Size" : "Size"}</span><select value={analyticsFilters.size || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, size: event.target.value }))}><option value="">All sizes</option>{analyticsOptions.size.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Operator</span><select value={analyticsFilters.operator || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, operator: event.target.value }))}><option value="">All operators</option>{analyticsOptions.operator.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Crew Lead</span><select value={analyticsFilters.lead || ""} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, lead: event.target.value }))}><option value="">All leads</option>{analyticsOptions.lead.map((value) => <option key={value}>{value}</option>)}</select></label>
+            <label><span>Job Category</span><select value={analyticsFilters.category || ""} disabled={kpiComparison === "standard"} onChange={(event) => setAnalyticsFilters((current) => ({ ...current, category: event.target.value }))}><option value="">All categories</option>{analyticsOptions.category.map((value) => <option key={value}>{value}</option>)}</select></label>
+          </div>
+          <div className={styles.kpiCompare} aria-label="KPI comparison basis"><span>Compare Against</span><div><button type="button" className={kpiComparison === "slice" ? styles.primary : ""} onClick={() => setKpiComparison("slice")}>This Slice</button><button type="button" className={kpiComparison === "standard" ? styles.primary : ""} onClick={() => setKpiComparison("standard")}>Standard Book</button></div><p>{kpiComparison === "standard" ? "Uses Standard-category jobs under every active slicer except Job Category." : "Uses exactly the jobs selected above. Mixed categories show actuals without a target band."}</p></div>
+        </section>
         <section className={styles.metrics}>
-          <div><span>Labor % Revenue</span><strong>{percent(totals.laborPercent)}</strong></div>
-          <div><span>Revenue / Manhour</span><strong>{money(totals.revenuePerMh)}</strong></div>
-          <div><span>Profit Margin</span><strong>{percent(totals.margin)}</strong></div>
-          <div><span>Jobs Evaluated</span><strong>{totals.jobs.toLocaleString()}</strong></div>
-          <div><span>Targets Met</span><strong>{evaluatedTargets.filter((target) => target.met === true).length} / {evaluatedTargets.filter((target) => target.met !== null).length}</strong></div>
+          <div><span>Labor % Revenue</span><strong>{percent(kpiTotals.laborPercent)}</strong></div>
+          <div><span>Revenue / Manhour</span><strong>{money(kpiTotals.revenuePerMh)}</strong></div>
+          <div><span>Profit Margin</span><strong>{percent(kpiTotals.margin)}</strong></div>
+          <div><span>Jobs Evaluated</span><strong>{kpiTotals.jobs.toLocaleString()}</strong></div>
+          <div><span>Targets Met</span><strong>{kpiScorecards.filter((card) => card.met === true).length} / {kpiScorecards.filter((card) => card.target && card.actual !== null).length}</strong></div>
           <div><span>Reporting Months</span><strong>{monthlyPerformance.length}</strong></div>
         </section>
         <section className={styles.tableSection}>
-          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Live Scorecard</span><h2>Actual Performance vs Target</h2></div><span>Calculated from the selected period</span></div>
-          {evaluatedTargets.length ? <div className={styles.kpiGrid}>{evaluatedTargets.map((target) => <article key={`${target.service_line}:${target.category_code}:${target.metric_key}`} className={styles.kpiCard} data-status={target.met === null ? "no-data" : target.met ? "met" : "missed"}>
-            <div className={styles.kpiCardHead}><div><span>{financialLineNames[target.service_line]}</span><strong>{target.metric_key.replaceAll("_", " ")}</strong></div><b>{target.met === null ? "No data" : target.met ? "Met" : "Missed"}</b></div>
-            <div className={styles.kpiValues}><div><span>Actual</span><strong>{target.actual === null ? "-" : formatTargetValue(target.actual, target.unit)}</strong></div><div><span>Target</span><strong>{target.direction === "above" ? ">= " : "<= "}{formatTargetValue(target.target_value, target.unit)}</strong></div></div>
-            <p>{target.jobCount} jobs · {target.category_code} · {target.yard_id ? "Yard override" : "Line default"}{target.variance === null ? "" : ` · ${target.variance >= 0 ? "+" : ""}${formatTargetValue(target.variance, target.unit)} variance`}</p>
+          <div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Live Scorecard</span><h2>Actual Performance vs Target</h2></div><span>{kpiComparison === "standard" ? "Standard book" : "This slice"}</span></div>
+          {kpiScorecards.length ? <div className={styles.kpiGrid}>{kpiScorecards.map((card) => <article key={`${card.serviceLine}:${card.metric.key}`} className={styles.kpiCard} data-status={!card.target || card.actual === null ? "no-data" : card.met ? "met" : "missed"}>
+            <div className={styles.kpiCardHead}><div><span>{financialLineNames[card.serviceLine]}</span><strong>{card.metric.label}</strong></div><b>{!card.target ? "No target" : card.actual === null ? "No data" : card.met ? "Met" : "Missed"}</b></div>
+            <div className={styles.kpiValues}><div><span>Actual</span><strong>{card.actual === null ? "-" : formatTargetValue(card.actual, card.metric.unit)}</strong></div><div><span>Target</span><strong>{card.target ? `${card.target.direction === "above" ? ">= " : "<= "}${formatTargetValue(card.target.target_value, card.target.unit)}` : "Not applied"}</strong></div></div>
+            <p>{card.jobCount} jobs · {card.categoryLabel}{card.target ? ` · ${card.target.yard_id ? "Yard override" : "Line default"}${card.variance === null ? "" : ` · ${card.variance >= 0 ? "+" : ""}${formatTargetValue(card.variance, card.target.unit)} variance`}` : " · select one category or Standard Book to apply a target"}</p>
           </article>)}</div> : <div className={styles.emptyState}>No controlled targets are configured for this selection. Actual KPIs and monthly performance remain available.</div>}
         </section>
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={8}>No jobs match this period.</td></tr>}</tbody></table></div></section>
-        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openTarget()}>Add Target</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th><th></th></tr></thead><tbody>{evaluatedTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openTarget(target)}>Edit</button><button type="button" onClick={() => void deactivateTarget(target)}>Deactivate</button></div> : null}</td></tr>)}{!evaluatedTargets.length && <tr><td colSpan={7}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openTarget()}>Add Target</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th><th></th></tr></thead><tbody>{effectiveTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openTarget(target)}>Edit</button><button type="button" onClick={() => void deactivateTarget(target)}>Deactivate</button></div> : null}</td></tr>)}{!effectiveTargets.length && <tr><td colSpan={7}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
       </>}
 
       {!loading && tab === "reviews" && line !== "tu" && <section className={styles.tableSection}>

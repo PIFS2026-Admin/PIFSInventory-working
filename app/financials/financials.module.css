@@ -189,6 +189,11 @@
 .analyticsFilters select { width: 100%; min-height: 39px; padding: 8px 10px; }
 .analyticsPages { display: flex; gap: 8px; overflow-x: auto; padding: 0 12px 12px; }
 .analyticsPages button { white-space: nowrap; }
+.kpiCompare { display: grid; grid-template-columns: auto auto minmax(220px, 1fr); align-items: center; gap: 10px; padding: 0 12px 12px; }
+.kpiCompare > span { color: #8fa0b6; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.kpiCompare > div { display: flex; }
+.kpiCompare > div button { min-height: 34px; white-space: nowrap; }
+.kpiCompare p { margin: 0; color: #9eabbc; font-size: 10px; line-height: 1.4; }
 
 .barChart { display: grid; gap: 9px; padding: 14px; }
 .barRow { display: grid; grid-template-columns: 76px minmax(120px, 1fr) 110px; align-items: center; gap: 10px; }
@@ -420,6 +425,8 @@
   .reviewChart > div { grid-template-columns: 78px minmax(80px, 1fr) 72px; }
   .barRow { grid-template-columns: 60px minmax(90px, 1fr) 88px; gap: 7px; }
   .barRow strong { font-size: 11px; }
+  .kpiCompare { grid-template-columns: 1fr; }
+  .kpiCompare > div button { flex: 1; }
   .marketShareRow { grid-template-columns: 1fr; gap: 8px; }
   .marketShareValues { justify-content: flex-start; overflow-x: auto; }
 }
