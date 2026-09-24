@@ -254,6 +254,7 @@ function summarizeReviewJobs(rows: Array<{ id: string; revenue: number | string 
 const reviewMetricKeys = new Set(["jobs", "revenue", "cost", "profit", "margin", "manhours", "revenue_per_manhour", "labor_percent"]);
 const reviewChartGroups = new Set(["month", "operator", "lead", "category"]);
 const reviewSectionKinds = new Set(["metric", "chart", "narrative", "manual_metric", "photo"]);
+const reviewFactKeys = new Set(["writeups", "mocs", "suspensions", "downtime", "downtime_jobs", "dvir", "headcount", "shop_hours", "other"]);
 const standardReviewTemplate = [
   { kind: "narrative", title: "Executive Summary", config: {}, body: null },
   { kind: "metric", title: "Revenue", config: { metric_key: "revenue" }, body: null },
@@ -298,6 +299,14 @@ function reviewSectionSnapshot(section: { kind: string; title: string | null; bo
 
 function reviewText(value: unknown) {
   return String(value || "").trim() || null;
+}
+
+function reviewFacts(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => reviewFactKeys.has(key))
+    .map(([key, raw]) => [key, String(raw ?? "").trim().slice(0, key === "other" ? 2000 : 120)])
+    .filter(([, fact]) => Boolean(fact)));
 }
 
 export async function GET(request: Request) {
@@ -702,6 +711,7 @@ export async function POST(request: Request) {
         highlights: reviewText(body.highlights),
         lowlights: reviewText(body.lowlights),
         goals: reviewText(body.goals),
+        facts: reviewFacts(body.facts),
         compare_mode: compareMode,
         updated_at: new Date().toISOString(),
         updated_by: context.user.id,

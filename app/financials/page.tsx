@@ -51,6 +51,7 @@ type FinancialReview = {
   highlights: string | null;
   lowlights: string | null;
   goals: string | null;
+  facts: Record<string, string>;
   snapshot: Record<string, unknown> | null;
   finalized_at: string | null;
 };
@@ -115,6 +116,16 @@ const today = new Date().toISOString().slice(0, 10);
 const yearStart = `${new Date().getFullYear()}-01-01`;
 const emptyPermissions: PermissionSet = { view: false, create: false, edit: false, approve: false, export: false, manageSettings: false };
 const emptyMarket: MarketData = { setupRequired: false, services: [], rigs: [], cells: [], competitors: [], trend: [] };
+const reviewFactFields = [
+  { key: "writeups", label: "Write-ups", kind: "number" },
+  { key: "mocs", label: "MOCs", kind: "number" },
+  { key: "suspensions", label: "Suspensions", kind: "number" },
+  { key: "downtime", label: "Downtime Hours", kind: "number" },
+  { key: "downtime_jobs", label: "Jobs with Downtime", kind: "number" },
+  { key: "dvir", label: "DVIR Compliance", kind: "text" },
+  { key: "headcount", label: "Headcount", kind: "number" },
+  { key: "shop_hours", label: "Shop Hours", kind: "number" },
+] as const;
 
 const commonIdentityFields: Field[] = [
   { key: "invoice", label: "Invoice" }, { key: "operator", label: "Operator" },
@@ -383,6 +394,7 @@ export default function FinancialsPage() {
   const [reviewHighlights, setReviewHighlights] = useState("");
   const [reviewLowlights, setReviewLowlights] = useState("");
   const [reviewGoals, setReviewGoals] = useState("");
+  const [reviewFacts, setReviewFacts] = useState<Record<string, string>>({});
   const [rateEditorType, setRateEditorType] = useState<"base" | "period" | "">("");
   const [rateLine, setRateLine] = useState<FinancialLine>("dti");
   const [rateKey, setRateKey] = useState(financialLineRateKeys.dti[0]);
@@ -705,6 +717,7 @@ export default function FinancialsPage() {
     setReviewHighlights(review?.highlights || "");
     setReviewLowlights(review?.lowlights || "");
     setReviewGoals(review?.goals || "");
+    setReviewFacts(review?.facts || {});
     setShowReviewForm(true);
   }
 
@@ -893,7 +906,7 @@ export default function FinancialsPage() {
     const response = await fetch("/api/financials", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "save_review", yardId, id: reviewId, line: reviewLine, quarter: reviewPeriodType === "quarter" ? reviewQuarter : null, rangeStart: reviewPeriodType === "custom" ? reviewRangeStart : null, rangeEnd: reviewPeriodType === "custom" ? reviewRangeEnd : null, compareMode: reviewCompareMode, highlights: reviewHighlights, lowlights: reviewLowlights, goals: reviewGoals }),
+      body: JSON.stringify({ action: "save_review", yardId, id: reviewId, line: reviewLine, quarter: reviewPeriodType === "quarter" ? reviewQuarter : null, rangeStart: reviewPeriodType === "custom" ? reviewRangeStart : null, rangeEnd: reviewPeriodType === "custom" ? reviewRangeEnd : null, compareMode: reviewCompareMode, highlights: reviewHighlights, lowlights: reviewLowlights, goals: reviewGoals, facts: reviewFacts }),
     });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
@@ -1261,6 +1274,11 @@ export default function FinancialsPage() {
             <label className={styles.reviewNarrative}><span>Highlights</span><textarea value={reviewHighlights} onChange={(event) => setReviewHighlights(event.target.value)} placeholder="What performed well?" /></label>
             <label className={styles.reviewNarrative}><span>Lowlights</span><textarea value={reviewLowlights} onChange={(event) => setReviewLowlights(event.target.value)} placeholder="What missed expectations?" /></label>
             <label className={styles.reviewNarrative}><span>Goals</span><textarea value={reviewGoals} onChange={(event) => setReviewGoals(event.target.value)} placeholder="What should improve next quarter?" /></label>
+            <div className={styles.reviewFactsEditor}>
+              <div><span className={styles.eyebrow}>Review Facts</span><p>Operational figures not held in the financial tracker.</p></div>
+              <div>{reviewFactFields.map((field) => <label key={field.key}><span>{field.label}</span><input type={field.kind} min={field.kind === "number" ? "0" : undefined} step={field.kind === "number" ? "any" : undefined} value={reviewFacts[field.key] || ""} onChange={(event) => setReviewFacts((current) => ({ ...current, [field.key]: event.target.value }))} /></label>)}</div>
+              <label><span>Other Facts Worth Recording</span><textarea value={reviewFacts.other || ""} onChange={(event) => setReviewFacts((current) => ({ ...current, other: event.target.value }))} placeholder="Optional context for the management record" /></label>
+            </div>
           </div>
           <div className={styles.formActions}><button type="button" disabled={saving} className={styles.primary} onClick={() => void saveReview()}>{saving ? "Saving..." : "Save Open Review"}</button></div>
         </section>
@@ -1510,6 +1528,7 @@ export default function FinancialsPage() {
           {review.status === "final" && review.snapshot ? <div className={styles.reviewMetrics}><div><span>Jobs</span><strong>{numberValue(review.snapshot.jobs).toLocaleString()}</strong></div><div><span>Revenue</span><strong>{money(review.snapshot.revenue)}</strong></div><div><span>Profit</span><strong>{money(review.snapshot.profit)}</strong></div><div><span>Margin</span><strong>{percent(review.snapshot.margin)}</strong></div></div> : <p className={styles.openReviewNote}>Open review. KPI values will be captured when it is finalized.</p>}
           {review.status === "final" && Boolean(review.snapshot?.comparison) && <div className={styles.reviewComparison}><span>Comparison</span><strong>{numberValue((review.snapshot?.comparison as Record<string, unknown>).jobs).toLocaleString()} jobs · {money((review.snapshot?.comparison as Record<string, unknown>).revenue)} revenue · {percent((review.snapshot?.comparison as Record<string, unknown>).margin)} margin</strong></div>}
           <div className={styles.reviewNarratives}><div><span>Highlights</span><p>{review.highlights || "-"}</p></div><div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div><div><span>Goals</span><p>{review.goals || "-"}</p></div></div>
+          {Object.keys(review.facts || {}).length > 0 && <div className={styles.reviewFacts}><span>Review Facts</span><div>{reviewFactFields.filter((field) => review.facts?.[field.key]).map((field) => <div key={field.key}><b>{review.facts[field.key]}</b><small>{field.label}</small></div>)}</div>{review.facts.other && <p>{review.facts.other}</p>}</div>}
           {savedSnapshots.length > 0 && <details className={styles.reviewHistory}><summary>Finalized Snapshot History ({savedSnapshots.length})</summary><div>{savedSnapshots.map((item, index) => <div key={item.id}><span>Version {savedSnapshots.length - index} · {new Date(item.finalized_at).toLocaleString()}</span><strong>{numberValue(item.snapshot.jobs).toLocaleString()} jobs · {money(item.snapshot.revenue)} revenue · {money(item.snapshot.profit)} profit · {percent(item.snapshot.margin)} margin</strong></div>)}</div></details>}
           {!reviewComposerSetupRequired && <div className={styles.reviewSections}>{reviewSections.filter((section) => section.review_id === review.id).sort((a, b) => a.position - b.position).map((section, index, ordered) => {
             const snapshot = section.snapshot || {};

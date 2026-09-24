@@ -20,6 +20,13 @@
 .narratives { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; border-top: 2px solid #111827; border-bottom: 1px solid #94a3b8; }
 .narratives > div { padding: 10px; border-right: 1px solid #cbd5e1; }
 .narratives p, .body { margin: 5px 0 0; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.facts { margin-top: 18px; break-inside: avoid; }
+.facts > div:nth-child(2) { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid #94a3b8; border-top: 0; }
+.facts > div:nth-child(2) > div { padding: 9px; border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; }
+.facts strong, .facts span { display: block; }
+.facts strong { font-size: 17px; }
+.facts span { margin-top: 3px; color: #64748b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.facts p { margin: 0; border: 1px solid #94a3b8; border-top: 0; padding: 9px; font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
 .section { margin-top: 20px; break-inside: avoid; }
 .sectionTitle { border-bottom: 2px solid #111827; padding-bottom: 5px; }
 .sectionTitle h2 { margin: 2px 0 0; font-size: 16px; }
@@ -58,4 +65,5 @@
   .narratives { grid-template-columns: 1fr; }
   .narratives > div { border-right: 0; border-bottom: 1px solid #cbd5e1; }
   .chart > div { grid-template-columns: 80px minmax(80px, 1fr) 76px; }
+  .facts > div:nth-child(2) { grid-template-columns: 1fr 1fr; }
 }

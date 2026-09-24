@@ -291,6 +291,10 @@
 
 .reviewNarrative { grid-column: span 4; }
 .reviewNarrative textarea { min-height: 92px; }
+.reviewFactsEditor { display: grid; grid-column: span 4; gap: 10px; padding-top: 12px; border-top: 1px solid #344052; }
+.reviewFactsEditor > div:first-child p { margin: 3px 0 0; color: #9eabbc; font-size: 11px; }
+.reviewFactsEditor > div:nth-child(2) { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; }
+.reviewFactsEditor > label { display: grid; gap: 5px; }
 .reviewGrid { display: grid; grid-template-columns: repeat(2, minmax(320px, 1fr)); }
 .reviewCard { min-width: 0; padding: 14px; border-right: 1px solid #2c3542; border-bottom: 1px solid #2c3542; background: #121820; }
 .reviewCard[data-status="final"] { border-top: 3px solid #28b878; }
@@ -306,6 +310,14 @@
 .reviewMetrics strong { display: block; margin-top: 3px; overflow-wrap: anywhere; }
 .reviewNarratives { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
 .reviewNarratives p, .openReviewNote { margin: 4px 0 0; color: #c3ccd8; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+.reviewFacts { margin-top: 14px; padding: 10px; border: 1px solid #344052; background: #0e141b; }
+.reviewFacts > span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.reviewFacts > div { display: grid; grid-template-columns: repeat(4, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; }
+.reviewFacts > div > div { min-width: 0; padding-right: 8px; border-right: 1px solid #2c3542; }
+.reviewFacts b, .reviewFacts small { display: block; overflow-wrap: anywhere; }
+.reviewFacts b { font-size: 16px; }
+.reviewFacts small { margin-top: 2px; color: #8fa0b6; font-size: 9px; text-transform: uppercase; }
+.reviewFacts p { margin: 9px 0 0; color: #c3ccd8; font-size: 11px; line-height: 1.45; white-space: pre-wrap; }
 .openReviewNote { color: #9eabbc; }
 .reviewComparison { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid #344052; border-top: 0; background: #0e141b; }
 .reviewComparison span { color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
@@ -370,6 +382,7 @@
   .analyticsFilters { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
   .kpiGrid { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
   .reviewGrid { grid-template-columns: 1fr; }
+  .reviewFactsEditor > div:nth-child(2) { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
   .twoColumn { grid-template-columns: 1fr; }
 }
 
@@ -388,6 +401,8 @@
   .rateGrid { grid-template-columns: 1fr 1fr; }
   .kpiGrid { grid-template-columns: 1fr; }
   .reviewNarrative { grid-column: span 2; }
+  .reviewFactsEditor { grid-column: span 2; }
+  .reviewFactsEditor > div:nth-child(2), .reviewFacts > div { grid-template-columns: 1fr 1fr; }
   .reviewMetrics { grid-template-columns: 1fr 1fr; }
   .reviewMetrics > div:nth-child(2) { border-right: 0; }
   .reviewNarratives { grid-template-columns: 1fr; }

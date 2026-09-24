@@ -18,6 +18,7 @@ type Review = {
   highlights: string | null;
   lowlights: string | null;
   goals: string | null;
+  facts: Record<string, string>;
   snapshot: Record<string, unknown>;
   finalized_at: string;
 };
@@ -48,6 +49,17 @@ const metricLabels: Record<string, string> = {
   manhours: "Manhours",
   revenue_per_manhour: "Revenue / Manhour",
   labor_percent: "Labor % Revenue",
+};
+
+const factLabels: Record<string, string> = {
+  writeups: "Write-ups",
+  mocs: "MOCs",
+  suspensions: "Suspensions",
+  downtime: "Downtime Hours",
+  downtime_jobs: "Jobs with Downtime",
+  dvir: "DVIR Compliance",
+  headcount: "Headcount",
+  shop_hours: "Shop Hours",
 };
 
 function numberValue(value: unknown) {
@@ -144,6 +156,12 @@ function FinancialReviewPrintContent() {
         <div><span>Lowlights</span><p>{review.lowlights || "-"}</p></div>
         <div><span>Goals</span><p>{review.goals || "-"}</p></div>
       </section>
+
+      {Object.keys(review.facts || {}).length > 0 && <section className={styles.facts}>
+        <div className={styles.sectionTitle}><span>Operational Record</span><h2>Review Facts</h2></div>
+        <div>{Object.entries(factLabels).filter(([key]) => review.facts[key]).map(([key, label]) => <div key={key}><strong>{review.facts[key]}</strong><span>{label}</span></div>)}</div>
+        {review.facts.other && <p>{review.facts.other}</p>}
+      </section>}
 
       {sections.map((section) => {
         const frozen = section.snapshot || embeddedSections.find((item) => item.id === section.id)?.snapshot || {};
