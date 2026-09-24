@@ -249,6 +249,15 @@ export async function POST(request: Request) {
         : requestedModuleKeys.length > 0
           ? requestedModuleKeys
           : defaultModulesForRole(role);
+    let effectiveYardIds = yardIds;
+    if (role !== "customer" && effectiveYardIds.length === 0) {
+      const { data: activeYards, error: activeYardsError } = await adminSupabase
+        .from("yards")
+        .select("id")
+        .eq("is_active", true);
+      if (activeYardsError) throw activeYardsError;
+      effectiveYardIds = (activeYards ?? []).map((yard) => yard.id);
+    }
 
     const siteUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ??
@@ -322,11 +331,11 @@ export async function POST(request: Request) {
     let yardAccessWarning = "";
     let moduleAccessWarning = "";
 
-    if (yardIds.length > 0) {
+    if (effectiveYardIds.length > 0) {
       const { error: yardAccessError } = await adminSupabase
         .from("inventory_user_yards")
         .insert(
-          yardIds.map((yardId) => ({
+          effectiveYardIds.map((yardId) => ({
             user_id: userId,
             yard_id: yardId,
           }))

@@ -91,6 +91,7 @@ export default function AccessPage() {
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("Loading people and access...");
   const [saving, setSaving] = useState(false);
+  const [grantingYards, setGrantingYards] = useState(false);
   const load = useCallback(async () => {
     try {
       const { data: session } = await supabase.auth.getSession();
@@ -198,6 +199,63 @@ export default function AccessPage() {
     setModules(defaultModulesForRole(value));
     setExtras([]);
   }
+  const usersMissingYardAccess = useMemo(() => {
+    const assignments = data?.yards ?? [];
+    const activeYards = data?.locations.filter((yard) => yard.is_active) ?? [];
+    return (data?.profiles ?? []).filter((profile) => {
+      if (profile.is_disabled) return false;
+      const allowedYards =
+        profile.role === "customer"
+          ? activeYards.filter(
+              (yard) => yard.owner_company_id === profile.company_id,
+            )
+          : activeYards;
+      if (!allowedYards.length) return false;
+      return !assignments.some(
+        (row) =>
+          row.user_id === profile.id &&
+          row.active &&
+          row.can_access &&
+          allowedYards.some((yard) => yard.id === row.yard_id),
+      );
+    });
+  }, [data]);
+  async function grantAllActiveYards() {
+    if (
+      !window.confirm(
+        "Grant every active internal user access to all active yards, and each customer access to their company's active yards? Existing access will not be removed.",
+      )
+    )
+      return;
+    setGrantingYards(true);
+    setMessage("");
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const request = await fetch("/api/admin-person-access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.session?.access_token || ""}`,
+        },
+        body: JSON.stringify({ action: "grant-all-active-yards" }),
+      });
+      const body = await request.json();
+      if (!request.ok)
+        throw new Error(body.error || "TITAN could not grant yard access.");
+      await load();
+      setMessage(
+        `Yard access updated for ${body.usersUpdated} active users across ${body.assignmentsGranted} user-yard assignments.`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "TITAN could not grant yard access.",
+      );
+    } finally {
+      setGrantingYards(false);
+    }
+  }
   async function save() {
     if (!selected) return;
     const crossingCustomerBoundary =
@@ -270,6 +328,29 @@ export default function AccessPage() {
         </div>
       </header>
       {message ? <div className={styles.message}>{message}</div> : null}
+      <section className={styles.coverage}>
+        <div>
+          <span>Yard access coverage</span>
+          <strong>
+            {!data
+              ? "Checking yard access..."
+              : usersMissingYardAccess.length
+              ? `${usersMissingYardAccess.length} active user${usersMissingYardAccess.length === 1 ? "" : "s"} need yard access`
+              : "All eligible active users have yard access"}
+          </strong>
+          <small>
+            Internal users receive every active yard. Customers receive only
+            active yards owned by their company.
+          </small>
+        </div>
+        <button
+          className={styles.primary}
+          disabled={grantingYards || !(data?.locations ?? []).some((yard) => yard.is_active)}
+          onClick={() => void grantAllActiveYards()}
+        >
+          {grantingYards ? "Granting..." : "Grant All Allowed Yards"}
+        </button>
+      </section>
       <div className={styles.layout}>
         <aside className={styles.people}>
           <label>
@@ -421,6 +502,28 @@ export default function AccessPage() {
                 <div>
                   <h3>Yards</h3>
                   <p>Only selected yards are available to this person.</p>
+                  <div className={styles.inlineActions}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setYardIds(
+                          (data?.locations ?? [])
+                            .filter(
+                              (yard) =>
+                                yard.is_active &&
+                                (!isCustomer ||
+                                  yard.owner_company_id === selected.company_id),
+                            )
+                            .map((yard) => yard.id),
+                        )
+                      }
+                    >
+                      Select All Allowed
+                    </button>
+                    <button type="button" onClick={() => setYardIds([])}>
+                      Clear
+                    </button>
+                  </div>
                 </div>
                 <div className={styles.yards}>
                   {(data?.locations ?? [])

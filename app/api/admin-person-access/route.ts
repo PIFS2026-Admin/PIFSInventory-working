@@ -175,6 +175,86 @@ export async function POST(request: Request) {
     if ("error" in access) return access.error;
     const admin = access.admin;
     const body = (await request.json().catch(() => ({}))) as Body;
+    if (text(body.action) === "grant-all-active-yards") {
+      const [profilesResult, yardsResult] = await Promise.all([
+        admin
+          .from("profiles")
+          .select("id,full_name,role,company_id,is_disabled"),
+        admin
+          .from("yards")
+          .select("id,name,owner_company_id")
+          .eq("is_active", true),
+      ]);
+      if (profilesResult.error) throw profilesResult.error;
+      if (yardsResult.error) throw yardsResult.error;
+
+      const profiles = (profilesResult.data ?? []).filter(
+        (profile) => !profile.is_disabled,
+      );
+      const yards = yardsResult.data ?? [];
+      const assignments = profiles.flatMap((profile) => {
+        const customer = lower(profile.role) === "customer";
+        const companyId = text(profile.company_id);
+        return yards
+          .filter(
+            (yard) =>
+              !customer ||
+              (companyId && text(yard.owner_company_id) === companyId),
+          )
+          .map((yard) => ({
+            user_id: profile.id,
+            yard_id: yard.id,
+            can_access: true,
+            active: true,
+            updated_by: access.userId,
+            updated_at: new Date().toISOString(),
+          }));
+      });
+
+      for (let index = 0; index < assignments.length; index += 500) {
+        const { error } = await admin
+          .from("inventory_user_yards")
+          .upsert(assignments.slice(index, index + 500), {
+            onConflict: "user_id,yard_id",
+          });
+        if (error) throw error;
+      }
+
+      const assignedUserIds = new Set(
+        assignments.map((assignment) => assignment.user_id),
+      );
+      const auditRows = profiles
+        .filter((profile) => assignedUserIds.has(profile.id))
+        .map((profile) => {
+          const yardNames = assignments
+            .filter((assignment) => assignment.user_id === profile.id)
+            .map(
+              (assignment) =>
+                yards.find((yard) => yard.id === assignment.yard_id)?.name ||
+                assignment.yard_id,
+            );
+          return {
+            target_user_id: profile.id,
+            event_type: "Yard Access Granted",
+            summary: `All ${yardNames.length} allowed active yards granted to ${text(profile.full_name) || "User"}.`,
+            after_value: { yard_names: yardNames },
+            actor_id: access.userId,
+          };
+        });
+      if (auditRows.length) {
+        const { error } = await admin
+          .from("titan_access_events")
+          .insert(auditRows);
+        if (error) throw error;
+      }
+
+      return Response.json({
+        ok: true,
+        usersUpdated: assignedUserIds.size,
+        assignmentsGranted: assignments.length,
+        skippedUsers: profiles.length - assignedUserIds.size,
+      });
+    }
     const userId = text(body.userId),
       role = text(body.role),
       serviceLine = text(body.serviceLine) || null;

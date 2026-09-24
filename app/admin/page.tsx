@@ -189,26 +189,6 @@ const emptyCompanyForm = {
 const companyLogoBucket = "company-logos";
 
 const defaultInventoryYardOrder = ["PIFS", "GILLETTE", "CASPER", "DICKINSON"];
-const inventoryYardAssignableRoles: UserRole[] = [
-  "customer",
-  "owner",
-  "admin",
-  "employee",
-  "service_line_manager",
-  "dti_superintendent",
-  "dti_lead",
-  "level_2_inspector",
-  "hardband_lead",
-  "cdt_lead",
-  "maintenance_manager",
-  "mechanic_manager",
-  "maintenance_lead",
-  "maintenance_hand",
-  "mechanic",
-  "repair_tech",
-  "inventory_specialist",
-  "inventory_manager",
-];
 const inventoryYardSetupMessage =
   "Inventory yard access table is missing. Run supabase/fix_inventory_yard_access.sql in Supabase SQL Editor, then refresh this page.";
 const modulePermissionSetupMessage =
@@ -475,7 +455,7 @@ function sortInventoryYards(yards: Yard[]) {
 }
 
 function canAssignInventoryYards(role: AdminUserForm["role"] | Profile["role"]) {
-  return inventoryYardAssignableRoles.includes(role);
+  return allRoleOptions.some((option) => option.key === role);
 }
 
 function canManagePoApprovalMatrix(fullName: string, email: string, role: string) {
@@ -1959,6 +1939,50 @@ export default function AdminPage() {
     setLoading(false);
   }
 
+  async function grantAllAllowedYards() {
+    const confirmed = window.confirm(
+      "Grant every active internal user all active yards, and each customer only the active yards owned by their company? Existing yard access will not be removed.",
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    setMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setMessage("Yard access failed: Sign in again before granting yard access.");
+      setLoading(false);
+      return;
+    }
+
+    const response = await fetch("/api/admin-person-access", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: "grant-all-active-yards" }),
+    }).catch(() => null);
+    if (!response) {
+      setMessage("Yard access failed: Could not reach the access service.");
+      setLoading(false);
+      return;
+    }
+
+    const result = await response.json();
+    if (!response.ok || result.error) {
+      setMessage(result.error || "Yard access could not be granted.");
+      setLoading(false);
+      return;
+    }
+
+    await loadInventoryUserYards();
+    setMessage(
+      `Yard access updated for ${result.usersUpdated} active users across ${result.assignmentsGranted} user-yard assignments.`,
+    );
+    setLoading(false);
+  }
+
   async function runYardAction(payload: Record<string, unknown>) {
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -2339,6 +2363,10 @@ export default function AdminPage() {
                 const nextRole = event.target.value as AdminUserForm["role"];
                 if (!canAssignInventoryYards(nextRole)) {
                   setNewUserYardSelection([]);
+                } else if (nextRole !== "customer") {
+                  setNewUserYardSelection(
+                    yards.filter((yard) => yard.isActive).map((yard) => yard.id),
+                  );
                 }
                 setNewUserModuleSelection(
                   nextRole === "customer" ? [] : defaultModulesForRole(nextRole)
@@ -3048,6 +3076,23 @@ export default function AdminPage() {
           <span>Open / close</span>
         </summary>
         <div className="admin-collapsible-body">
+          <div className="admin-section-title compact-title">
+            <div>
+              <h4>Company-wide Yard Access</h4>
+              <p>
+                Fill every active user&apos;s allowed yard access without removing
+                existing assignments. Customer logins remain company-limited.
+              </p>
+            </div>
+            <button
+              className="button primary"
+              type="button"
+              onClick={grantAllAllowedYards}
+              disabled={loading || yards.every((yard) => !yard.isActive)}
+            >
+              Grant All Allowed Yards
+            </button>
+          </div>
           <label>
             User
             <select
