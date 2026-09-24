@@ -324,6 +324,18 @@ function formatTargetValue(value: unknown, unit: string) {
   return numberValue(value).toLocaleString();
 }
 
+function kpiVerdict(actual: number | null, target: Target | null, met: boolean | null) {
+  if (actual === null) return "No matching job data";
+  if (!target) return "No target applied";
+  const targetValue = numberValue(target.target_value);
+  const gap = Math.abs(actual - targetValue);
+  if (gap < 0.0000001) return "On target";
+  if (met) return `${formatTargetValue(gap, target.unit)} better than target`;
+  return target.direction === "below"
+    ? `${formatTargetValue(gap, target.unit)} over target`
+    : `${formatTargetValue(gap, target.unit)} short of target`;
+}
+
 function formatReviewMetric(metricKey: string, value: unknown) {
   if (["revenue", "cost", "profit", "revenue_per_manhour"].includes(metricKey)) return money(value);
   if (["margin", "labor_percent"].includes(metricKey)) return percent(value);
@@ -590,29 +602,49 @@ export default function FinancialsPage() {
         const target = targetCategory ? targetByKey.get(`${serviceLine}:${targetCategory}:${metric.key}`) || null : null;
         const actual = metricValue(metric.key, lineJobs);
         const targetValue = target ? numberValue(target.target_value) : null;
-        const variance = actual === null || targetValue === null ? null : actual - targetValue;
         const met = actual === null || !target ? null : target.direction === "above" ? actual >= targetValue! : actual <= targetValue!;
-        return { serviceLine, metric, categoryLabel, target, actual, variance, met, jobCount: lineJobs.length };
+        const monthlyJobs = new Map<string, FinancialJob[]>();
+        lineJobs.forEach((job) => {
+          const month = job.job_date.slice(0, 7);
+          monthlyJobs.set(month, [...(monthlyJobs.get(month) || []), job]);
+        });
+        const trend = Array.from(monthlyJobs, ([month, rows]) => {
+          const value = metricValue(metric.key, rows);
+          return {
+            month,
+            value,
+            met: value === null || !target ? null : target.direction === "above" ? value >= targetValue! : value <= targetValue!,
+          };
+        }).sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+        const trendMaximum = Math.max(targetValue || 0, ...trend.map((point) => point.value || 0), 0) * 1.1;
+        const targetHeight = targetValue === null || trendMaximum <= 0 ? null : Math.min(100, Math.max(0, targetValue / trendMaximum * 100));
+        const directionalVariance = actual === null || targetValue === null || targetValue === 0
+          ? null
+          : (actual - targetValue) / Math.abs(targetValue) * (target?.direction === "below" ? -1 : 1);
+        const targetPosition = directionalVariance === null ? null : 50 + Math.min(1, Math.max(-1, directionalVariance / 0.35)) * 50;
+        return { serviceLine, metric, categoryLabel, target, actual, met, jobCount: lineJobs.length, trend, trendMaximum, targetHeight, targetPosition };
       });
     });
   }, [categories, effectiveTargets, kpiComparison, kpiJobs, line]);
 
   const monthlyPerformance = useMemo(() => {
-    const grouped = new Map<string, { jobs: number; revenue: number; cost: number; profit: number; manhours: number }>();
+    const grouped = new Map<string, { jobs: number; revenue: number; cost: number; profit: number; manhours: number; laborDollars: number }>();
     kpiJobs.forEach((job) => {
       const month = job.job_date.slice(0, 7);
-      const current = grouped.get(month) || { jobs: 0, revenue: 0, cost: 0, profit: 0, manhours: 0 };
+      const current = grouped.get(month) || { jobs: 0, revenue: 0, cost: 0, profit: 0, manhours: 0, laborDollars: 0 };
       current.jobs += 1;
       current.revenue += numberValue(job.revenue);
       current.cost += numberValue(job.computed.total_cost);
       current.profit += numberValue(job.computed.profit);
       current.manhours += numberValue(job.manhours);
+      current.laborDollars += numberValue(job.computed.labor_pct) * numberValue(job.revenue);
       grouped.set(month, current);
     });
     return Array.from(grouped, ([month, values]) => ({
       month,
       ...values,
       margin: values.revenue ? values.profit / values.revenue : 0,
+      laborPercent: values.revenue ? values.laborDollars / values.revenue : 0,
       revenuePerMh: values.manhours ? values.revenue / values.manhours : 0,
     })).sort((a, b) => b.month.localeCompare(a.month));
   }, [kpiJobs]);
@@ -1610,10 +1642,28 @@ export default function FinancialsPage() {
           {kpiScorecards.length ? <div className={styles.kpiGrid}>{kpiScorecards.map((card) => <article key={`${card.serviceLine}:${card.metric.key}`} className={styles.kpiCard} data-status={!card.target || card.actual === null ? "no-data" : card.met ? "met" : "missed"}>
             <div className={styles.kpiCardHead}><div><span>{financialLineNames[card.serviceLine]}</span><strong>{card.metric.label}</strong></div><b>{!card.target ? "No target" : card.actual === null ? "No data" : card.met ? "Met" : "Missed"}</b></div>
             <div className={styles.kpiValues}><div><span>Actual</span><strong>{card.actual === null ? "-" : formatTargetValue(card.actual, card.metric.unit)}</strong></div><div><span>Target</span><strong>{card.target ? `${card.target.direction === "above" ? ">= " : "<= "}${formatTargetValue(card.target.target_value, card.target.unit)}` : "Not applied"}</strong></div></div>
-            <p>{card.jobCount} jobs · {card.categoryLabel}{card.target ? ` · ${card.target.yard_id ? "Yard override" : "Line default"}${card.variance === null ? "" : ` · ${card.variance >= 0 ? "+" : ""}${formatTargetValue(card.variance, card.target.unit)} variance`}` : " · select one category or Standard Book to apply a target"}</p>
+            <strong className={styles.kpiVerdict}>{kpiVerdict(card.actual, card.target, card.met)}</strong>
+            <div className={styles.kpiTargetScale} data-enabled={card.targetPosition !== null} role="img" aria-label={card.target ? `${card.target.direction === "below" ? "Lower" : "Higher"} is better. Current result is ${kpiVerdict(card.actual, card.target, card.met)}.` : "No target applied."}>
+              <div><span>Worse</span><span>Target</span><span>Better</span></div>
+              <i><b />{card.targetPosition !== null && <em style={{ left: `${card.targetPosition}%` }} />}</i>
+              <small>{card.target ? `${card.target.direction === "below" ? "Lower" : "Higher"} is better` : "Select one category or Standard Book to apply a target"}</small>
+            </div>
+            <div className={styles.kpiTrend}>
+              <div className={styles.kpiTrendHead}><span>Last 12 Months</span><small>{card.target ? "Dashed line is target" : "No target line"}</small></div>
+              {card.trend.length ? <div className={styles.kpiTrendPlot} role="img" aria-label={`${card.metric.label} monthly trend`}>
+                {card.targetHeight !== null && <i className={styles.kpiTrendTarget} style={{ bottom: `${card.targetHeight}%` }} />}
+                <div className={styles.kpiTrendBars} style={{ gridTemplateColumns: `repeat(${card.trend.length}, minmax(12px, 1fr))` }}>{card.trend.map((point) => {
+                  const height = point.value === null || card.trendMaximum <= 0 ? 0 : point.value / card.trendMaximum * 100;
+                  const monthLabel = new Date(`${point.month}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+                  const valueLabel = point.value === null ? "No data" : formatTargetValue(point.value, card.metric.unit);
+                  return <div key={point.month} className={styles.kpiTrendMonth} data-status={point.met === null ? "neutral" : point.met ? "met" : "missed"} title={`${monthLabel}: ${valueLabel}`}><div><b style={{ height: `${Math.max(height, point.value === null ? 0 : 3)}%` }} /></div><span>{monthLabel}</span></div>;
+                })}</div>
+              </div> : <div className={styles.kpiTrendEmpty}>No monthly data in this period</div>}
+            </div>
+            <p>{card.jobCount} jobs · {card.categoryLabel}{card.target ? ` · ${card.target.yard_id ? "Yard override" : "Line default"}` : ""}</p>
           </article>)}</div> : <div className={styles.emptyState}>No controlled targets are configured for this selection. Actual KPIs and monthly performance remain available.</div>}
         </section>
-        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={8}>No jobs match this period.</td></tr>}</tbody></table></div></section>
+        <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Period Trend</span><h2>Monthly Financial Performance</h2></div></div><div className={styles.tableWrap}><table><thead><tr><th>Month</th><th>Jobs</th><th>Revenue</th><th>Total Cost</th><th>Profit</th><th>Labor %</th><th>Margin</th><th>Manhours</th><th>Revenue / Manhour</th></tr></thead><tbody>{monthlyPerformance.map((row) => <tr key={row.month}><td>{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</td><td>{row.jobs}</td><td>{money(row.revenue)}</td><td>{money(row.cost)}</td><td>{money(row.profit)}</td><td>{percent(row.laborPercent)}</td><td>{percent(row.margin)}</td><td>{row.manhours.toLocaleString()}</td><td>{money(row.revenuePerMh)}</td></tr>)}{!monthlyPerformance.length && <tr><td colSpan={9}>No jobs match this period.</td></tr>}</tbody></table></div></section>
         <section className={styles.tableSection}><div className={styles.sectionHeading}><div><span className={styles.eyebrow}>Controlled Targets</span><h2>Target Definitions</h2></div>{permissions.manageSettings ? <button type="button" className={styles.primary} onClick={() => openTarget()}>Add Target</button> : null}</div><div className={styles.tableWrap}><table><thead><tr><th>Service Line</th><th>Category</th><th>Metric</th><th>Direction</th><th>Target</th><th>Scope</th><th></th></tr></thead><tbody>{effectiveTargets.map((target) => <tr key={target.id}><td>{financialLineNames[target.service_line]}</td><td>{target.category_code}</td><td>{target.metric_key.replaceAll("_", " ")}</td><td>{target.direction === "above" ? "At or above" : "At or below"}</td><td>{formatTargetValue(target.target_value, target.unit)}</td><td>{target.yard_id ? "Yard override" : "Line default"}</td><td>{permissions.manageSettings ? <div className={styles.rowActions}><button type="button" onClick={() => openTarget(target)}>Edit</button><button type="button" onClick={() => void deactivateTarget(target)}>Deactivate</button></div> : null}</td></tr>)}{!effectiveTargets.length && <tr><td colSpan={7}>No targets are configured for this selection.</td></tr>}</tbody></table></div></section>
       </>}
 

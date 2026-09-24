@@ -292,6 +292,32 @@
 .kpiCard[data-status="missed"] .kpiCardHead b { border-color: #924848; color: #ff9a9a; }
 .kpiValues { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
 .kpiValues strong { display: block; margin-top: 3px; font-size: 21px; overflow-wrap: anywhere; }
+.kpiVerdict { display: block; min-height: 18px; margin-top: 10px; color: #c6d0dc; font-size: 11px; }
+.kpiCard[data-status="met"] .kpiVerdict { color: #75d9ac; }
+.kpiCard[data-status="missed"] .kpiVerdict { color: #ff9a9a; }
+.kpiTargetScale { margin-top: 13px; }
+.kpiTargetScale > div { display: grid; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 5px; color: #718096; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.kpiTargetScale > div span:nth-child(2) { text-align: center; }
+.kpiTargetScale > div span:last-child { text-align: right; }
+.kpiTargetScale > i { position: relative; display: block; height: 8px; border: 1px solid #344052; background: linear-gradient(90deg, #5d3338 0 50%, #244c3b 50% 100%); }
+.kpiTargetScale > i b { position: absolute; z-index: 1; top: -4px; bottom: -4px; left: 50%; border-left: 1px dashed #dce4ee; }
+.kpiTargetScale > i em { position: absolute; z-index: 2; top: 50%; width: 7px; height: 14px; border: 2px solid #0d1218; background: #f4f7fa; transform: translate(-50%, -50%); }
+.kpiTargetScale[data-enabled="false"] > i { background: #1a222d; }
+.kpiTargetScale small { display: block; margin-top: 5px; color: #8998aa; font-size: 9px; }
+.kpiTrend { margin-top: 15px; padding-top: 11px; border-top: 1px solid #2c3542; }
+.kpiTrendHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #8fa0b6; text-transform: uppercase; }
+.kpiTrendHead span { font-size: 9px; font-weight: 800; }
+.kpiTrendHead small { font-size: 8px; }
+.kpiTrendPlot { position: relative; height: 112px; margin-top: 8px; }
+.kpiTrendBars { position: absolute; inset: 0; display: grid; align-items: stretch; gap: 4px; }
+.kpiTrendMonth { display: grid; grid-template-rows: 1fr 15px; min-width: 0; gap: 3px; }
+.kpiTrendMonth > div { position: relative; min-height: 0; border-bottom: 1px solid #465365; }
+.kpiTrendMonth > div b { position: absolute; right: 0; bottom: 0; left: 0; min-height: 0; background: #68778b; }
+.kpiTrendMonth[data-status="met"] > div b { background: #28b878; }
+.kpiTrendMonth[data-status="missed"] > div b { background: #d95656; }
+.kpiTrendMonth > span { overflow: hidden; color: #8290a2; font-size: 8px; text-align: center; text-overflow: clip; text-transform: uppercase; }
+.kpiTrendTarget { position: absolute; z-index: 2; right: 0; left: 0; border-top: 1px dashed #f0b36f; pointer-events: none; }
+.kpiTrendEmpty { display: grid; place-items: center; min-height: 112px; margin-top: 8px; border: 1px dashed #344052; color: #8998aa; font-size: 10px; }
 .kpiCard p { margin: 14px 0 0; color: #8998aa; font-size: 10px; line-height: 1.45; }
 
 .reviewNarrative { grid-column: span 4; }
