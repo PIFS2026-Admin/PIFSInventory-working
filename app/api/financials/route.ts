@@ -445,7 +445,37 @@ export async function GET(request: Request) {
       : reviewSectionsResult.error
         ? (() => { throw reviewSectionsResult.error; })()
         : { setupRequired: false, sections: reviewSectionsResult.data || [] };
-    const sectionIds = reviewComposer.sections.map((section) => section.id);
+    const openReviewCalculations = await Promise.all(reviewRows
+      .filter((review) => review.status === "open" && reviewComposer.sections.some((section) => section.review_id === review.id && (section.kind === "metric" || section.kind === "chart")))
+      .map(async (review) => {
+        const bounds = review.range_start && review.range_end
+          ? { start: String(review.range_start).slice(0, 10), end: String(review.range_end).slice(0, 10) }
+          : quarterBounds(review.quarter);
+        const comparisonBounds = reviewComparisonBounds(bounds.start, bounds.end, (review.compare_mode || "prior") as "prior" | "year");
+        const reviewLine = lineValue(review.service_line);
+        const [current, comparison] = await Promise.all([
+          context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", reviewLine).eq("status", "active").gte("job_date", bounds.start).lte("job_date", bounds.end),
+          context.admin.from("titan_financial_jobs").select("id,job_date,category_code,operator,lead,revenue,manhours,computed").eq("yard_id", yardId).eq("service_line", reviewLine).eq("status", "active").gte("job_date", comparisonBounds.start).lte("job_date", comparisonBounds.end),
+        ]);
+        if (current.error) throw current.error;
+        if (comparison.error) throw comparison.error;
+        return reviewComposer.sections
+          .filter((section) => section.review_id === review.id && (section.kind === "metric" || section.kind === "chart"))
+          .map((section) => ({
+            sectionId: section.id,
+            computed: reviewSectionSnapshot(
+              { ...section, config: (section.config || {}) as Record<string, unknown> },
+              current.data as unknown as Array<Record<string, unknown>>,
+              comparison.data as unknown as Array<Record<string, unknown>>,
+            ),
+          }));
+      }));
+    const computedBySectionId = new Map(openReviewCalculations.flat().map((entry) => [entry.sectionId, entry.computed]));
+    const liveReviewComposer = {
+      ...reviewComposer,
+      sections: reviewComposer.sections.map((section) => ({ ...section, computed: computedBySectionId.get(section.id) || null })),
+    };
+    const sectionIds = liveReviewComposer.sections.map((section) => section.id);
     const reviewPhotosResult = sectionIds.length
       ? await context.admin.from("titan_financial_review_photos").select("*").in("section_id", sectionIds).eq("is_active", true).order("created_at")
       : await context.admin.from("titan_financial_review_photos").select("id").limit(0);
@@ -471,7 +501,7 @@ export async function GET(request: Request) {
       },
       reviews: reviews.data || [],
       reviewSnapshots: reviewSnapshotsResult.data || [],
-      reviewComposer,
+      reviewComposer: liveReviewComposer,
       reviewPhotos,
       reviewRigMovement,
       market,
