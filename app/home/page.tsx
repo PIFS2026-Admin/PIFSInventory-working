@@ -230,6 +230,10 @@ const mobileLaunchCards: LaunchCard[] = [
     href: "/purchase-orders",
   },
   {
+    title: "Invoice Approvals",
+    href: "/invoice-approvals",
+  },
+  {
     title: "Equipment Repairs",
     href: "/equipment-repairs",
   },

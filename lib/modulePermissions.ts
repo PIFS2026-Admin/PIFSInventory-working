@@ -28,6 +28,7 @@ export type PermissionModuleKey =
   | "tubing"
   | "lead_scorecards"
   | "financials"
+  | "invoice_approvals"
   | "reports"
   | "exports"
   | "crm"
@@ -102,6 +103,7 @@ export type ModuleKey =
   | "crm"
   | "communications"
   | "financials"
+  | "invoice_approvals"
   | "admin"
   | "reports"
   | "dashboard";
@@ -143,6 +145,7 @@ export const permissionModules: ModulePermissionConfig[] = [
   { key: "tubing", label: "Tubing", description: "Tubing jobs, activity, summaries, and production records." },
   { key: "lead_scorecards", label: "Lead Scorecards", description: "Lead performance and scorecard dashboards." },
   { key: "financials", label: "Financial KPIs", description: "Job-cost trackers, KPI analytics, targets, and the controlled cost basis." },
+  { key: "invoice_approvals", label: "Invoice Approvals", description: "Vendor invoice upload, accounting coding, authenticated approval, and AP history." },
   { key: "reports", label: "Reports", description: "Internal reports, ticket history, and customer reports." },
   { key: "exports", label: "Exports", description: "CSV/PDF exports and printable records." },
   { key: "crm", label: "CRM", description: "Accounts, contacts, opportunities, activities, Monday migration, and customer relationship reporting." },
@@ -314,6 +317,11 @@ export const moduleAccessOptions: ModuleAccessOption[] = [
     description: "Financial KPI dashboards, job-cost trackers, targets, and rates.",
   },
   {
+    key: "invoice_approvals",
+    label: "Invoice Approvals",
+    description: "Vendor invoice upload, coding, approval, disputes, and approved packets.",
+  },
+  {
     key: "reports",
     label: "Reports",
     description: "Pipe inventory reports, ticket searches, and exports.",
@@ -338,6 +346,7 @@ const legacyModuleRequirements: Record<ModuleKey, PermissionModuleKey[]> = {
   crm: ["crm"],
   communications: ["communications"],
   financials: ["financials"],
+  invoice_approvals: ["invoice_approvals"],
   admin: ["user_management", "system_settings", "email_notification_settings"],
   reports: ["reports", "exports"],
   dashboard: ["dashboard"],
@@ -412,7 +421,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
   }
 
   if (role === "employee") {
-    allow(permissions, allPermissionModuleKeys.filter((module) => !["user_management", "system_settings", "crm"].includes(module)), [
+    allow(permissions, allPermissionModuleKeys.filter((module) => !["user_management", "system_settings", "crm", "invoice_approvals"].includes(module)), [
       "view",
       "create",
       "edit",
@@ -504,6 +513,7 @@ export function getDefaultPermissionsForRole(roleValue: unknown): PermissionMap 
       "receive_notifications",
     ]);
     allow(permissions, ["financials"], ["view", "create", "edit", "export"]);
+    allow(permissions, ["invoice_approvals"], ["view", "create", "edit", "approve", "export", "receive_notifications"]);
   }
 
   if (role === "cdt_lead" || role === "hardband_lead" || role === "tubing_lead") {
@@ -642,6 +652,7 @@ export function moduleHrefToKey(href: string): ModuleKey | null {
   if (href === "/crm") return "crm";
   if (href === "/communications") return "communications";
   if (href === "/financials") return "financials";
+  if (href === "/invoice-approvals" || href.startsWith("/invoice-approvals/")) return "invoice_approvals";
   if (href === "/admin") return "admin";
   if (href === "/reports") return "reports";
   if (href.startsWith("/?open=reports")) return "reports";
