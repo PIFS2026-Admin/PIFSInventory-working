@@ -12,7 +12,8 @@ function money(value: unknown) {
 }
 
 function dateTime(value: unknown) {
-  const date = new Date(String(value || ""));
+  const raw = String(value || "");
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 }
 
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
     if (invoiceResult.error || !invoiceResult.data) throw new Error("Invoice not found.");
     const invoice = invoiceResult.data;
     if (!invoiceCanView(context, invoice)) throw new Error("You do not have access to this invoice.");
-    if (invoice.status !== "approved") throw new Error("The approved packet is available after approval.");
+    if (!["approved", "posted", "paid", "archived"].includes(invoice.status)) throw new Error("The approved packet is available after approval.");
 
     const [approvalResult, fileResult, supportingResult] = await Promise.all([
       context.admin.from("titan_ap_invoice_approvals").select("*").eq("invoice_id", invoiceId).single(),
@@ -98,7 +99,7 @@ export async function GET(request: Request) {
     field("Invoice Date", invoice.invoice_date, 44, 610);
     field("Due Date", invoice.due_date || "-", 180, 610);
     field("Invoice Total", money(invoice.total_amount), 320, 610);
-    field("Status", "Approved", 470, 610);
+    field("Status", clean(invoice.status).replaceAll("_", " ").toUpperCase(), 470, 610);
 
     y = 552;
     write("ACCOUNTING CODING", 44, 10, bold, orange);
@@ -156,6 +157,36 @@ export async function GET(request: Request) {
       y -= 12;
     }
     write(`Original file SHA-256: ${approval.original_file_sha256}`, 44, 7, regular, muted);
+
+    if (invoice.posted_at) {
+      y -= 32;
+      if (y < 125) {
+        page = packet.addPage([612, 792]);
+        y = 748;
+      }
+      write("AP CLOSEOUT", 44, 10, bold, orange);
+      y -= 20;
+      write(`Posted: ${dateTime(invoice.posted_at)} by ${invoice.posted_by_name || "TITAN AP"}`, 44, 9, bold);
+      y -= 14;
+      write(`Posting reference: ${invoice.posting_reference || "-"}`, 44, 8, regular, muted);
+      if (invoice.paid_at) {
+        y -= 17;
+        write(`Paid: ${dateTime(invoice.payment_date)} by ${invoice.paid_by_name || "TITAN AP"}`, 44, 9, bold);
+        y -= 14;
+        write(`Payment reference: ${invoice.payment_reference || "-"}`, 44, 8, regular, muted);
+      }
+      if (invoice.archived_at) {
+        y -= 17;
+        write(`Archived: ${dateTime(invoice.archived_at)} by ${invoice.archived_by_name || "TITAN AP"}`, 44, 9, bold);
+        if (invoice.archive_note) {
+          y -= 14;
+          wrap(invoice.archive_note, 85).slice(0, 3).forEach((line) => {
+            write(line, 44, 8, regular, muted);
+            y -= 11;
+          });
+        }
+      }
+    }
 
     if (storedFile.mime_type === "application/pdf") {
       const original = await PDFDocument.load(sourceBytes);

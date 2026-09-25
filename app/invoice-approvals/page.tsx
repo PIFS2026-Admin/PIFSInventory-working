@@ -3,18 +3,19 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, Download, ExternalLink, Eye, FilePlus2, Paperclip, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, Paperclip, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
 import { supabase } from "../../lib/supabase";
 import SignaturePad from "./SignaturePad";
 import styles from "./invoice-approvals.module.css";
 
-type InvoiceStatus = "awaiting_approval" | "returned_to_ap" | "disputed" | "approved" | "voided";
+type InvoiceStatus = "awaiting_approval" | "returned_to_ap" | "disputed" | "approved" | "posted" | "paid" | "archived" | "voided";
 type Invoice = {
   id: string; yard_id: string | null; vendor_id: string | null; vendor_name: string; invoice_number: string;
   invoice_date: string; due_date: string | null; total_amount: number | string; notes: string | null; approver_notes: string | null;
   status: InvoiceStatus; assigned_approver_id: string; assigned_approver_name: string; uploaded_by_name: string;
   uploaded_at: string; dispute_reason: string | null; return_reason: string | null; resolution_note: string | null; resolved_by_name: string | null; resolved_at: string | null; void_reason: string | null; voided_by_name: string | null; voided_at: string | null;
+  posting_reference: string | null; posted_by_name: string | null; posted_at: string | null; payment_reference: string | null; payment_date: string | null; paid_by_name: string | null; paid_at: string | null; archive_note: string | null; archived_by_name: string | null; archived_at: string | null;
 };
 type CodingLine = { id?: string; invoice_id?: string; accounting_code_id: string; accounting_code?: string; accounting_code_description?: string; accounting_code_search?: string; amount: string | number; cost_center: string; department: string; job_number: string; description: string };
 type AccountingCode = { id: string; code: string; description: string; active: boolean };
@@ -26,7 +27,7 @@ type Approval = { id: string; invoice_id: string; approver_name: string; approve
 type Activity = { id: string; invoice_id: string; action: string; actor_name: string; note: string | null; created_at: string };
 type Permissions = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean; isAp: boolean; isAdmin: boolean };
 type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; approvalStatement: string };
-type Tab = "mine" | "awaiting" | "returned" | "disputed" | "approved" | "voided" | "all" | "codes";
+type Tab = "mine" | "awaiting" | "returned" | "disputed" | "approved" | "archived" | "voided" | "all" | "codes";
 
 const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], files: [], approvals: [], activity: [], approvalStatement: "" };
 const emptyLine = (): CodingLine => ({ accounting_code_id: "", accounting_code_search: "", amount: "", cost_center: "", department: "", job_number: "", description: "" });
@@ -38,17 +39,18 @@ function dollars(value: unknown) {
 
 function dateText(value: unknown, time = false) {
   if (!value) return "-";
-  const date = new Date(String(value));
+  const raw = String(value);
+  const date = new Date(!time && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("en-US", time ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" });
 }
 
 function statusLabel(status: InvoiceStatus) {
-  return ({ awaiting_approval: "Awaiting Signature", returned_to_ap: "Returned to AP", disputed: "Disputed", approved: "Approved", voided: "Voided" })[status];
+  return ({ awaiting_approval: "Awaiting Signature", returned_to_ap: "Returned to AP", disputed: "Disputed", approved: "Approved", posted: "Posted", paid: "Paid", archived: "Archived", voided: "Voided" })[status];
 }
 
 function documentTypeLabel(value: string | null | undefined) {
-  return ({ receipt: "Receipt", purchase_order: "Purchase Order", correspondence: "Correspondence", other: "Other Support" } as Record<string, string>)[value || ""] || "Supporting Document";
+  return ({ receipt: "Receipt", purchase_order: "Purchase Order", correspondence: "Correspondence", payment_confirmation: "Payment Confirmation", other: "Other Support" } as Record<string, string>)[value || ""] || "Supporting Document";
 }
 
 function accountingCodeLabel(code: Pick<AccountingCode, "code" | "description">) {
@@ -111,6 +113,11 @@ export default function InvoiceApprovalsPage() {
   const [resolutionNote, setResolutionNote] = useState("");
   const [voidReason, setVoidReason] = useState("");
   const [showVoid, setShowVoid] = useState(false);
+  const [postingReference, setPostingReference] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentDate, setPaymentDate] = useState(today);
+  const [archiveNote, setArchiveNote] = useState("");
+  const [showArchive, setShowArchive] = useState(false);
   const previewRequestId = useRef(0);
 
   const load = async (keepNotice = false) => {
@@ -139,8 +146,9 @@ export default function InvoiceApprovalsPage() {
   const selectedApproval = data.approvals.find((approval) => approval.invoice_id === selectedId);
   const selectedActivity = data.activity.filter((item) => item.invoice_id === selectedId);
   const currentUserId = data.actor?.id || "";
+  const selectedIsApproved = Boolean(selected && ["approved", "posted", "paid", "archived"].includes(selected.status));
   const canAct = Boolean(selected && selected.status === "awaiting_approval" && selected.assigned_approver_id === currentUserId && data.permissions?.approve);
-  const canAttach = Boolean(selected && !["approved", "voided"].includes(selected.status) && (data.permissions?.isAp || (selected.assigned_approver_id === currentUserId && data.permissions?.approve)));
+  const canAttach = Boolean(selected && !["archived", "voided"].includes(selected.status) && (data.permissions?.isAp || (!selectedIsApproved && selected.assigned_approver_id === currentUserId && data.permissions?.approve)));
 
   useEffect(() => {
     if (!selected) return;
@@ -164,9 +172,14 @@ export default function InvoiceApprovalsPage() {
     setResolutionNote("");
     setVoidReason("");
     setShowVoid(false);
+    setPostingReference(selected.posting_reference || "");
+    setPaymentReference(selected.payment_reference || "");
+    setPaymentDate(selected.payment_date || today);
+    setArchiveNote(selected.archive_note || "");
+    setShowArchive(false);
     setEditDuplicateMatches([]);
     setEditForm({ vendorId: selected.vendor_id || "", vendorName: selected.vendor_name, invoiceNumber: selected.invoice_number, invoiceDate: selected.invoice_date, dueDate: selected.due_date || "", totalAmount: String(selected.total_amount), yardId: selected.yard_id || "", notes: selected.notes || "", duplicateAcknowledged: false, duplicateNote: "" });
-  }, [selectedId, data.codingLines.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, data.codingLines.length, selected?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedId) {
@@ -228,7 +241,9 @@ export default function InvoiceApprovalsPage() {
     awaiting: data.invoices.filter((invoice) => invoice.status === "awaiting_approval").length,
     returned: data.invoices.filter((invoice) => invoice.status === "returned_to_ap").length,
     disputed: data.invoices.filter((invoice) => invoice.status === "disputed").length,
-    approved: data.invoices.filter((invoice) => invoice.status === "approved").length,
+    closeout: data.invoices.filter((invoice) => ["approved", "posted", "paid"].includes(invoice.status)).length,
+    approved: data.invoices.filter((invoice) => ["approved", "posted", "paid", "archived"].includes(invoice.status)).length,
+    archived: data.invoices.filter((invoice) => invoice.status === "archived").length,
     voided: data.invoices.filter((invoice) => invoice.status === "voided").length,
     all: data.invoices.length,
   }), [data.invoices, currentUserId]);
@@ -238,7 +253,8 @@ export default function InvoiceApprovalsPage() {
     if (tab === "awaiting" && invoice.status !== "awaiting_approval") return false;
     if (tab === "returned" && invoice.status !== "returned_to_ap") return false;
     if (tab === "disputed" && invoice.status !== "disputed") return false;
-    if (tab === "approved" && invoice.status !== "approved") return false;
+    if (tab === "approved" && !(data.permissions?.isAp ? ["approved", "posted", "paid"] : ["approved", "posted", "paid", "archived"]).includes(invoice.status)) return false;
+    if (tab === "archived" && invoice.status !== "archived") return false;
     if (tab === "voided" && invoice.status !== "voided") return false;
     const haystack = `${invoice.vendor_name} ${invoice.invoice_number} ${invoice.assigned_approver_name}`.toLowerCase();
     if (search && !haystack.includes(search.toLowerCase())) return false;
@@ -246,7 +262,7 @@ export default function InvoiceApprovalsPage() {
     if (fromDate && invoice.invoice_date < fromDate) return false;
     if (toDate && invoice.invoice_date > toDate) return false;
     return true;
-  }), [data.invoices, tab, currentUserId, search, approverFilter, fromDate, toDate]);
+  }), [data.invoices, data.permissions?.isAp, tab, currentUserId, search, approverFilter, fromDate, toDate]);
 
   const codingTotal = coding.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const codingDifference = selected ? Number(selected.total_amount) - codingTotal : 0;
@@ -418,7 +434,7 @@ export default function InvoiceApprovalsPage() {
         <div><span className={styles.eyebrow}>Invoice Approval and Coding</span><h1>{selected.vendor_name}</h1><p>Invoice {selected.invoice_number}</p></div>
         <div className={styles.headerActions}>
           <button type="button" onClick={() => setSelectedId("")}><ArrowLeft size={16} /> Back to Queue</button>
-          {selected.status === "approved" && data.permissions?.export && <button className={styles.primary} type="button" onClick={downloadPacket} disabled={busy}><Download size={16} /> Approved Packet</button>}
+          {selectedIsApproved && data.permissions?.export && <button className={styles.primary} type="button" onClick={downloadPacket} disabled={busy}><Download size={16} /> Approved Packet</button>}
         </div>
       </header>
       {notice && <div className={styles.notice}>{notice}</div>}
@@ -427,8 +443,8 @@ export default function InvoiceApprovalsPage() {
           <div className={styles.sectionHeading}><div><span>ORIGINAL DOCUMENT</span><h2>Invoice preview</h2></div><div className={styles.previewActions}><button type="button" title="Refresh preview" aria-label="Refresh preview" onClick={() => loadPreview(previewFileId)} disabled={!previewFileId || previewLoading}><RefreshCw className={previewLoading ? styles.spinning : ""} size={16} /></button>{previewFile && <button type="button" onClick={() => viewFile(previewFile)}><ExternalLink size={16} /> Open</button>}<button type="button" onClick={() => setPreviewCollapsed((value) => !value)}>{previewCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}{previewCollapsed ? "Show" : "Hide"}</button></div></div>
           {!previewCollapsed && <div className={styles.invoicePreview}>{previewLoading ? <div className={styles.previewState}><RefreshCw className={styles.spinning} size={22} /><span>Loading protected preview...</span></div> : !previewFile || !previewUrl ? <div className={styles.previewState}><Eye size={22} /><span>No invoice preview is available.</span></div> : previewFile.mime_type.startsWith("image/") ? <img src={previewUrl} alt={`Invoice ${selected.invoice_number}`} /> : <iframe src={previewUrl} title={`${previewFile.original_file_name} preview`} />}</div>}
           <div className={styles.fileList}>{selectedFiles.map((file) => <button className={file.id === previewFileId ? styles.selectedFile : ""} key={file.id} type="button" onClick={() => setPreviewFileId(file.id)}><Eye size={18} /><span><strong>{file.original_file_name}</strong><small>{file.file_kind === "supporting" ? documentTypeLabel(file.document_type) : `Version ${file.version_number} · ${file.is_current ? "Current" : "Preserved original"}`} · {dateText(file.uploaded_at, true)}</small></span></button>)}</div>
-          {data.permissions?.isAp && !["approved", "voided"].includes(selected.status) && <label className={styles.replaceFile}><Upload size={16} /><span>Upload corrected invoice</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void run(async () => { const form = new FormData(); form.set("action", "replace_file"); form.set("invoiceId", selected.id); form.set("file", file); const response = await fetch("/api/invoice-approvals", { method: "POST", headers: await authHeaders(false), body: form }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error); }, "Corrected invoice preserved as the current version."); }} /></label>}
-          {canAttach && <div className={styles.supportingUpload}><div><Paperclip size={17} /><strong>Attach supporting document</strong></div><select value={supportingType} onChange={(event) => setSupportingType(event.target.value)}><option value="purchase_order">Purchase Order</option><option value="receipt">Receipt</option><option value="correspondence">Correspondence</option><option value="other">Other Support</option></select><input placeholder="Document note (optional)" value={supportingNote} onChange={(event) => setSupportingNote(event.target.value)} /><label className={styles.fileField}><Paperclip size={16} /><span>{supportingFile?.name || "Select PDF, JPG, or PNG"}</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setSupportingFile(event.target.files?.[0] || null)} /></label><button type="button" className={styles.primary} onClick={uploadSupportingDocument} disabled={busy || !supportingFile}><Upload size={16} /> Attach</button></div>}
+          {data.permissions?.isAp && !selectedIsApproved && selected.status !== "voided" && <label className={styles.replaceFile}><Upload size={16} /><span>Upload corrected invoice</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; void run(async () => { const form = new FormData(); form.set("action", "replace_file"); form.set("invoiceId", selected.id); form.set("file", file); const response = await fetch("/api/invoice-approvals", { method: "POST", headers: await authHeaders(false), body: form }); const payload = await response.json(); if (!response.ok) throw new Error(payload.error); }, "Corrected invoice preserved as the current version."); }} /></label>}
+          {canAttach && <div className={styles.supportingUpload}><div><Paperclip size={17} /><strong>Attach supporting document</strong></div><select value={supportingType} onChange={(event) => setSupportingType(event.target.value)}><option value="purchase_order">Purchase Order</option><option value="receipt">Receipt</option><option value="correspondence">Correspondence</option>{selectedIsApproved && <option value="payment_confirmation">Payment Confirmation</option>}<option value="other">Other Support</option></select><input placeholder="Document note (optional)" value={supportingNote} onChange={(event) => setSupportingNote(event.target.value)} /><label className={styles.fileField}><Paperclip size={16} /><span>{supportingFile?.name || "Select PDF, JPG, or PNG"}</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => setSupportingFile(event.target.files?.[0] || null)} /></label><button type="button" className={styles.primary} onClick={uploadSupportingDocument} disabled={busy || !supportingFile}><Upload size={16} /> Attach</button></div>}
         </div>
         <div className={styles.summaryPanel}>
           <div className={styles.statusRow}><span className={`${styles.status} ${styles[selected.status]}`}>{statusLabel(selected.status)}</span><strong>{dollars(selected.total_amount)}</strong></div>
@@ -441,13 +457,19 @@ export default function InvoiceApprovalsPage() {
           {selected.return_reason && <div className={styles.reasonBox}><RotateCcw size={18} /><div><strong>Return reason</strong><p>{selected.return_reason}</p></div></div>}
           {selected.resolution_note && <div className={`${styles.reasonBox} ${styles.resolvedBox}`}><Check size={18} /><div><strong>AP resolution · {selected.resolved_by_name}</strong><p>{selected.resolution_note}</p><small>{dateText(selected.resolved_at, true)}</small></div></div>}
           {selected.void_reason && <div className={`${styles.reasonBox} ${styles.voidBox}`}><Ban size={18} /><div><strong>Voided by {selected.voided_by_name}</strong><p>{selected.void_reason}</p><small>{dateText(selected.voided_at, true)}</small></div></div>}
-          {data.permissions?.isAp && !["approved", "voided", "disputed"].includes(selected.status) && <div className={styles.reassign}><label><span>Assign or reassign</span><select value={newApprover} onChange={(event) => setNewApprover(event.target.value)}>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select></label><button type="button" onClick={() => run(() => api({ action: "reassign", invoiceId: selected.id, approverId: newApprover }), "Invoice assigned and returned to the approval queue.")} disabled={busy || !newApprover}><RotateCcw size={15} /> Assign</button></div>}
+          {selected.posted_at && <div className={`${styles.reasonBox} ${styles.closeoutBox}`}><ClipboardCheck size={18} /><div><strong>Posted by {selected.posted_by_name}</strong><p>Reference: {selected.posting_reference}</p><small>{dateText(selected.posted_at, true)}</small></div></div>}
+          {selected.paid_at && <div className={`${styles.reasonBox} ${styles.closeoutBox}`}><CircleDollarSign size={18} /><div><strong>Payment recorded by {selected.paid_by_name}</strong><p>{dateText(selected.payment_date)} · {selected.payment_reference}</p><small>{dateText(selected.paid_at, true)}</small></div></div>}
+          {selected.archived_at && <div className={`${styles.reasonBox} ${styles.archiveBox}`}><Archive size={18} /><div><strong>Archived by {selected.archived_by_name}</strong><p>{selected.archive_note || "Paid invoice archived."}</p><small>{dateText(selected.archived_at, true)}</small></div></div>}
+          {data.permissions?.isAp && !selectedIsApproved && !["voided", "disputed"].includes(selected.status) && <div className={styles.reassign}><label><span>Assign or reassign</span><select value={newApprover} onChange={(event) => setNewApprover(event.target.value)}>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select></label><button type="button" onClick={() => run(() => api({ action: "reassign", invoiceId: selected.id, approverId: newApprover }), "Invoice assigned and returned to the approval queue.")} disabled={busy || !newApprover}><RotateCcw size={15} /> Assign</button></div>}
           {data.permissions?.isAp && selected.status === "disputed" && <div className={styles.resolveDispute}><label><span>Resolution note</span><textarea value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} /></label><label><span>Return to approver</span><select value={newApprover} onChange={(event) => setNewApprover(event.target.value)}>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select></label><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "resolve_dispute", invoiceId: selected.id, approverId: newApprover, note: resolutionNote }), "Dispute resolved and returned for approval.")} disabled={busy || !resolutionNote.trim() || !newApprover}><Check size={16} /> Resolve &amp; Resend</button></div>}
-          {data.permissions?.isAp && !["approved", "voided"].includes(selected.status) && <div className={styles.voidControls}>{!showVoid ? <button type="button" className={styles.danger} onClick={() => setShowVoid(true)}><Ban size={16} /> Void Invoice</button> : <><label><span>Void reason</span><textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} /></label><div><button type="button" onClick={() => { setShowVoid(false); setVoidReason(""); }}>Cancel</button><button type="button" className={styles.danger} onClick={() => run(() => api({ action: "void", invoiceId: selected.id, reason: voidReason }), "Invoice voided and removed from active workflow.")} disabled={busy || !voidReason.trim()}><Ban size={16} /> Confirm Void</button></div></>}</div>}
+          {data.permissions?.isAp && !selectedIsApproved && selected.status !== "voided" && <div className={styles.voidControls}>{!showVoid ? <button type="button" className={styles.danger} onClick={() => setShowVoid(true)}><Ban size={16} /> Void Invoice</button> : <><label><span>Void reason</span><textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} /></label><div><button type="button" onClick={() => { setShowVoid(false); setVoidReason(""); }}>Cancel</button><button type="button" className={styles.danger} onClick={() => run(() => api({ action: "void", invoiceId: selected.id, reason: voidReason }), "Invoice voided and removed from active workflow.")} disabled={busy || !voidReason.trim()}><Ban size={16} /> Confirm Void</button></div></>}</div>}
+          {data.permissions?.isAp && selected.status === "approved" && <div className={styles.closeoutControls}><div><span>AP CLOSEOUT</span><strong>Post to accounting</strong></div><label><span>Posting reference</span><input placeholder="Batch or voucher number" value={postingReference} onChange={(event) => setPostingReference(event.target.value)} /></label><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "posted", postingReference }), "Invoice marked as posted.")} disabled={busy || !postingReference.trim()}><ClipboardCheck size={16} /> Mark Posted</button></div>}
+          {data.permissions?.isAp && selected.status === "posted" && <div className={styles.closeoutControls}><div><span>AP CLOSEOUT</span><strong>Record payment</strong></div><label><span>Payment date</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label><span>Payment reference</span><input placeholder="Check, ACH, or wire reference" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></label><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "paid", paymentDate, paymentReference }), "Invoice marked as paid.")} disabled={busy || !paymentDate || !paymentReference.trim()}><CircleDollarSign size={16} /> Mark Paid</button></div>}
+          {data.permissions?.isAp && selected.status === "paid" && <div className={styles.closeoutControls}>{!showArchive ? <button type="button" onClick={() => setShowArchive(true)}><Archive size={16} /> Archive Paid Invoice</button> : <><div><span>FINAL CLOSEOUT</span><strong>Archive this paid invoice</strong></div><label><span>Archive note (optional)</span><textarea value={archiveNote} onChange={(event) => setArchiveNote(event.target.value)} /></label><div className={styles.closeoutActions}><button type="button" onClick={() => setShowArchive(false)}>Cancel</button><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "archived", archiveNote }), "Invoice archived. The full record remains searchable.")} disabled={busy}><Archive size={16} /> Confirm Archive</button></div></>}</div>}
         </div>
       </section>
 
-      {data.permissions?.isAp && !["approved", "voided"].includes(selected.status) && <section className={styles.editPanel}>
+      {data.permissions?.isAp && !selectedIsApproved && selected.status !== "voided" && <section className={styles.editPanel}>
         <div className={styles.sectionHeading}><div><span>AP CORRECTION</span><h2>Edit invoice details</h2></div></div>
         <div className={styles.formGrid}>
           <label><span>Existing vendor</span><select value={editForm.vendorId} onChange={(event) => { const vendor = data.vendors.find((item) => item.id === event.target.value); setEditForm((form) => ({ ...form, vendorId: event.target.value, vendorName: vendor?.vendor_name || form.vendorName, duplicateAcknowledged: false })); }}><option value="">Manual vendor</option>{data.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>)}</select></label>
@@ -497,15 +519,15 @@ export default function InvoiceApprovalsPage() {
   const tabs: Array<{ key: Tab; label: string; count?: number }> = [
     { key: "mine", label: "Awaiting My Approval", count: counts.mine },
     ...(data.permissions?.isAp ? [{ key: "awaiting" as Tab, label: "Awaiting Signature", count: counts.awaiting }, { key: "returned" as Tab, label: "Returned to AP", count: counts.returned }, { key: "disputed" as Tab, label: "Disputed", count: counts.disputed }] : []),
-    { key: "approved", label: "Approved", count: counts.approved },
-    ...(data.permissions?.isAp ? [{ key: "voided" as Tab, label: "Voided", count: counts.voided }, { key: "all" as Tab, label: "All", count: counts.all }] : []),
+    { key: "approved", label: data.permissions?.isAp ? "AP Closeout" : "Approved", count: data.permissions?.isAp ? counts.closeout : counts.approved },
+    ...(data.permissions?.isAp ? [{ key: "archived" as Tab, label: "Archive", count: counts.archived }, { key: "voided" as Tab, label: "Voided", count: counts.voided }, { key: "all" as Tab, label: "All", count: counts.all }] : []),
     ...(data.permissions?.manageSettings ? [{ key: "codes" as Tab, label: "Accounting Codes" }] : []),
   ];
 
   return <main className={styles.page}>
     <header className={styles.header}><div><span className={styles.eyebrow}>Accounts Payable</span><h1>Invoice Approval and Coding</h1><p>Upload once, code, approve, and preserve the complete record.</p></div><div className={styles.headerActions}><button title="Refresh" aria-label="Refresh" onClick={() => load()} disabled={loading}><RefreshCw size={17} /></button>{data.permissions?.isAp && <button className={styles.primary} onClick={() => setShowUpload((value) => !value)}><FilePlus2 size={17} /> New Invoice</button>}</div></header>
     {notice && <div className={styles.notice}>{notice}</div>}
-    <section className={styles.metrics}><div><span>Awaiting Signature</span><strong>{counts.awaiting}</strong></div><div><span>My Approvals</span><strong>{counts.mine}</strong></div><div><span>Returned to AP</span><strong>{counts.returned}</strong></div><div><span>Disputed</span><strong>{counts.disputed}</strong></div><div><span>Approved</span><strong>{counts.approved}</strong></div><div><span>Voided</span><strong>{counts.voided}</strong></div></section>
+    <section className={styles.metrics}><div><span>Awaiting Signature</span><strong>{counts.awaiting}</strong></div><div><span>My Approvals</span><strong>{counts.mine}</strong></div><div><span>Returned to AP</span><strong>{counts.returned}</strong></div><div><span>Disputed</span><strong>{counts.disputed}</strong></div><div><span>AP Closeout</span><strong>{counts.closeout}</strong></div><div><span>Archived</span><strong>{counts.archived}</strong></div></section>
 
     {showUpload && <section className={styles.uploadPanel}><div className={styles.sectionHeading}><div><span>NEW INVOICE</span><h2>Upload and assign</h2></div></div><div className={styles.formGrid}>
       <label><span>Existing vendor</span><select value={uploadForm.vendorId} onChange={(event) => { const vendor = data.vendors.find((item) => item.id === event.target.value); setUploadForm((form) => ({ ...form, vendorId: event.target.value, vendorName: vendor?.vendor_name || form.vendorName })); }}><option value="">Enter vendor manually</option>{data.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>)}</select></label>

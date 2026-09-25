@@ -19,6 +19,7 @@ export const runtime = "nodejs";
 
 const bucket = "titan-ap-invoices";
 const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+const approvedStatuses = new Set(["approved", "posted", "paid", "archived"]);
 const approvalStatement = "I approve this invoice and its accounting coding and electronically sign it using my authenticated TITAN account.";
 
 function text(value: unknown) {
@@ -315,7 +316,7 @@ async function replaceFile(context: InvoiceRequestContext, form: FormData) {
   if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can replace invoice files.");
   const invoiceId = text(form.get("invoiceId"));
   const invoice = await getInvoice(context, invoiceId);
-  if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoice files are locked.");
+  if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoice files are locked.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select the corrected invoice file.");
   const stored = await uploadFile(context, invoiceId, file, "corrected");
@@ -327,10 +328,11 @@ async function uploadSupportingFile(context: InvoiceRequestContext, form: FormDa
   const invoiceId = text(form.get("invoiceId"));
   const invoice = await getInvoice(context, invoiceId);
   const isAssignedApprover = invoice.assigned_approver_id === context.actor.id && context.invoicePermissions.approve;
-  if (!(context.isAp && context.invoicePermissions.edit) && !isAssignedApprover) throw new Error("Only AP or the assigned approver can attach supporting documents.");
-  if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices are locked.");
+  const mayAttach = (context.isAp && context.invoicePermissions.edit) || (!approvedStatuses.has(invoice.status) && isAssignedApprover);
+  if (!mayAttach) throw new Error("Only AP or the assigned approver can attach supporting documents.");
+  if (["archived", "voided"].includes(invoice.status)) throw new Error("Archived and voided invoices are locked.");
   const documentType = text(form.get("documentType"));
-  if (!["receipt", "purchase_order", "correspondence", "other"].includes(documentType)) throw new Error("Select a supporting document type.");
+  if (!["receipt", "purchase_order", "correspondence", "payment_confirmation", "other"].includes(documentType)) throw new Error("Select a supporting document type.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select a supporting PDF or image.");
   const stored = await uploadFile(context, invoiceId, file, "supporting", documentType);
@@ -452,7 +454,7 @@ export async function POST(request: Request) {
 
     if (action === "void") {
       if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can void invoices.");
-      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved or already voided invoices cannot be voided.");
+      if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, or already voided invoices cannot be voided.");
       const reason = text(body.reason);
       if (!reason) throw new Error("Enter a reason for voiding this invoice.");
       const updated = await context.admin.from("titan_ap_invoices").update({
@@ -462,7 +464,7 @@ export async function POST(request: Request) {
         voided_by_name: context.actor.fullName,
         voided_at: new Date().toISOString(),
         row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").select("id").maybeSingle();
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").select("id").maybeSingle();
       if (updated.error) throw updated.error;
       if (!updated.data) throw new Error("This invoice changed before it could be voided. Refresh and try again.");
       await activity(context, invoiceId, "voided", invoice.status, "voided", reason);
@@ -470,9 +472,59 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
 
+    if (action === "closeout") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can complete invoice closeout.");
+      const nextStatus = text(body.nextStatus);
+      const transitions: Record<string, string> = { approved: "posted", posted: "paid", paid: "archived" };
+      if (transitions[invoice.status] !== nextStatus) throw new Error("This closeout step is not available for the invoice's current status.");
+
+      const now = new Date().toISOString();
+      const payload: Record<string, unknown> = {
+        status: nextStatus,
+        row_version: Number(invoice.row_version || 0) + 1,
+      };
+      let note = "";
+      let details: Record<string, unknown> = {};
+
+      if (nextStatus === "posted") {
+        const postingReference = text(body.postingReference);
+        if (!postingReference) throw new Error("Enter the accounting posting reference.");
+        payload.posting_reference = postingReference;
+        payload.posted_by = context.actor.id;
+        payload.posted_by_name = context.actor.fullName;
+        payload.posted_at = now;
+        note = `Posted to accounting as ${postingReference}.`;
+        details = { posting_reference: postingReference };
+      } else if (nextStatus === "paid") {
+        const paymentReference = text(body.paymentReference);
+        const paymentDate = text(body.paymentDate);
+        if (!paymentReference || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) throw new Error("Enter the payment date and payment reference.");
+        payload.payment_reference = paymentReference;
+        payload.payment_date = paymentDate;
+        payload.paid_by = context.actor.id;
+        payload.paid_by_name = context.actor.fullName;
+        payload.paid_at = now;
+        note = `Payment recorded as ${paymentReference}.`;
+        details = { payment_reference: paymentReference, payment_date: paymentDate };
+      } else {
+        const archiveNote = text(body.archiveNote);
+        payload.archive_note = archiveNote || null;
+        payload.archived_by = context.actor.id;
+        payload.archived_by_name = context.actor.fullName;
+        payload.archived_at = now;
+        note = archiveNote || "Paid invoice archived by AP.";
+      }
+
+      const updated = await context.admin.from("titan_ap_invoices").update(payload).eq("id", invoiceId).eq("status", invoice.status).select("id").maybeSingle();
+      if (updated.error) throw updated.error;
+      if (!updated.data) throw new Error("This invoice changed before closeout completed. Refresh and try again.");
+      await activity(context, invoiceId, nextStatus, invoice.status, nextStatus, note, details);
+      return Response.json({ ok: true });
+    }
+
     if (action === "reassign") {
       if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can assign invoices.");
-      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices cannot be reassigned.");
+      if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoices cannot be reassigned.");
       if (invoice.status === "disputed") throw new Error("Resolve the dispute with an AP resolution note before reassignment.");
       const approverId = text(body.approverId);
       await assertApprover(context, approverId);
@@ -484,7 +536,7 @@ export async function POST(request: Request) {
         dispute_reason: null,
         return_reason: null,
         row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").neq("status", "disputed").select("id").maybeSingle();
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").neq("status", "disputed").select("id").maybeSingle();
       if (updated.error) throw updated.error;
       if (!updated.data) throw new Error("This invoice was approved before reassignment completed.");
       await activity(context, invoiceId, "reassigned", invoice.status, "awaiting_approval", text(body.note), { previous_approver_id: invoice.assigned_approver_id, approver_id: approverId });
@@ -494,7 +546,7 @@ export async function POST(request: Request) {
 
     if (action === "update_invoice") {
       if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can edit invoice details.");
-      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices are locked.");
+      if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoices are locked.");
       const vendorName = text(body.vendorName) || invoice.vendor_name;
       const invoiceNumber = text(body.invoiceNumber) || invoice.invoice_number;
       const totalAmount = money(body.totalAmount);
@@ -514,7 +566,7 @@ export async function POST(request: Request) {
         duplicate_acknowledged_at: matches.length ? new Date().toISOString() : invoice.duplicate_acknowledged_at,
         duplicate_acknowledgment_note: matches.length ? text(body.duplicateNote) || "AP reviewed the possible duplicate warning." : invoice.duplicate_acknowledgment_note,
         row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").select("id").maybeSingle();
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").select("id").maybeSingle();
       if (update.error) throw update.error;
       if (!update.data) throw new Error("This invoice was approved before the edit completed.");
       await activity(context, invoiceId, "invoice_updated", invoice.status, invoice.status, text(body.notes), { invoice_number: invoiceNumber, total_amount: totalAmount });

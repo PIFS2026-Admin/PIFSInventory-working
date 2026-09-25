@@ -198,7 +198,7 @@ create table if not exists public.titan_ap_invoices (
   notes text,
   approver_notes text,
   status text not null default 'awaiting_approval'
-    check (status in ('awaiting_approval', 'returned_to_ap', 'disputed', 'approved', 'voided')),
+    check (status in ('awaiting_approval', 'returned_to_ap', 'disputed', 'approved', 'posted', 'paid', 'archived', 'voided')),
   assigned_approver_id uuid not null references auth.users(id) on delete restrict,
   assigned_by uuid not null references auth.users(id) on delete restrict,
   assigned_at timestamptz not null default now(),
@@ -218,6 +218,19 @@ create table if not exists public.titan_ap_invoices (
   voided_by uuid references auth.users(id) on delete set null,
   voided_by_name text,
   voided_at timestamptz,
+  posting_reference text,
+  posted_by uuid references auth.users(id) on delete set null,
+  posted_by_name text,
+  posted_at timestamptz,
+  payment_reference text,
+  payment_date date,
+  paid_by uuid references auth.users(id) on delete set null,
+  paid_by_name text,
+  paid_at timestamptz,
+  archive_note text,
+  archived_by uuid references auth.users(id) on delete set null,
+  archived_by_name text,
+  archived_at timestamptz,
   row_version integer not null default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -232,10 +245,23 @@ alter table public.titan_ap_invoices add column if not exists void_reason text;
 alter table public.titan_ap_invoices add column if not exists voided_by uuid references auth.users(id) on delete set null;
 alter table public.titan_ap_invoices add column if not exists voided_by_name text;
 alter table public.titan_ap_invoices add column if not exists voided_at timestamptz;
+alter table public.titan_ap_invoices add column if not exists posting_reference text;
+alter table public.titan_ap_invoices add column if not exists posted_by uuid references auth.users(id) on delete set null;
+alter table public.titan_ap_invoices add column if not exists posted_by_name text;
+alter table public.titan_ap_invoices add column if not exists posted_at timestamptz;
+alter table public.titan_ap_invoices add column if not exists payment_reference text;
+alter table public.titan_ap_invoices add column if not exists payment_date date;
+alter table public.titan_ap_invoices add column if not exists paid_by uuid references auth.users(id) on delete set null;
+alter table public.titan_ap_invoices add column if not exists paid_by_name text;
+alter table public.titan_ap_invoices add column if not exists paid_at timestamptz;
+alter table public.titan_ap_invoices add column if not exists archive_note text;
+alter table public.titan_ap_invoices add column if not exists archived_by uuid references auth.users(id) on delete set null;
+alter table public.titan_ap_invoices add column if not exists archived_by_name text;
+alter table public.titan_ap_invoices add column if not exists archived_at timestamptz;
 alter table public.titan_ap_invoices drop constraint if exists titan_ap_invoices_status_check;
 alter table public.titan_ap_invoices
   add constraint titan_ap_invoices_status_check
-  check (status in ('awaiting_approval', 'returned_to_ap', 'disputed', 'approved', 'voided'));
+  check (status in ('awaiting_approval', 'returned_to_ap', 'disputed', 'approved', 'posted', 'paid', 'archived', 'voided'));
 
 create index if not exists titan_ap_invoices_status_assignee_idx
 on public.titan_ap_invoices (status, assigned_approver_id, due_date);
@@ -272,7 +298,7 @@ create table if not exists public.titan_ap_invoice_files (
   id uuid primary key default gen_random_uuid(),
   invoice_id uuid not null references public.titan_ap_invoices(id) on delete restrict,
   file_kind text not null default 'original' check (file_kind in ('original', 'corrected', 'supporting')),
-  document_type text check (document_type is null or document_type in ('receipt', 'purchase_order', 'correspondence', 'other')),
+  document_type text check (document_type is null or document_type in ('receipt', 'purchase_order', 'correspondence', 'payment_confirmation', 'other')),
   version_number integer not null check (version_number > 0),
   is_current boolean not null default true,
   storage_bucket text not null,
@@ -292,7 +318,7 @@ alter table public.titan_ap_invoice_files add column if not exists document_type
 alter table public.titan_ap_invoice_files drop constraint if exists titan_ap_invoice_files_document_type_check;
 alter table public.titan_ap_invoice_files
   add constraint titan_ap_invoice_files_document_type_check
-  check (document_type is null or document_type in ('receipt', 'purchase_order', 'correspondence', 'other'));
+  check (document_type is null or document_type in ('receipt', 'purchase_order', 'correspondence', 'payment_confirmation', 'other'));
 
 create unique index if not exists titan_ap_invoice_files_current_uidx
 on public.titan_ap_invoice_files (invoice_id)
