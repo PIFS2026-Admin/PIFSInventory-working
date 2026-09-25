@@ -127,7 +127,7 @@ export async function buildInvoiceApprovalWorkbook(report: InvoiceReport) {
   const total = report.rows.reduce((sum, row) => sum + row.amount, 0);
   const headerRow = 6;
   const firstDataRow = 7;
-  const lastDataRow = Math.max(firstDataRow, firstDataRow + report.rows.length - 1);
+  const lastDataRow = report.rows.length ? firstDataRow + report.rows.length - 1 : headerRow;
   const totalRow = firstDataRow + report.rows.length;
   const rows = [
     rowXml(1, [{ value: report.title, style: 1 }], 30),
@@ -144,7 +144,7 @@ export async function buildInvoiceApprovalWorkbook(report: InvoiceReport) {
   ].join("");
   const widths = [18, 24, 18, 14, 14, 17, 22, 18, 15, 15, 55, 21, 21, 21, 21, 30, 30, 35, 20, 21, 14, 20, 21];
   const cols = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("");
-  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>${cols}</cols><sheetData>${rows}</sheetData><mergeCells count="4"><mergeCell ref="A1:W1"/><mergeCell ref="A2:W2"/><mergeCell ref="A3:W3"/><mergeCell ref="A4:W4"/></mergeCells><autoFilter ref="A${headerRow}:W${lastDataRow}"/><pageMargins left="0.2" right="0.2" top="0.35" bottom="0.35" header="0.15" footer="0.15"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0" paperSize="9"/></worksheet>`;
+  const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>${cols}</cols><sheetData>${rows}</sheetData><autoFilter ref="A${headerRow}:W${lastDataRow}"/><mergeCells count="4"><mergeCell ref="A1:W1"/><mergeCell ref="A2:W2"/><mergeCell ref="A3:W3"/><mergeCell ref="A4:W4"/></mergeCells><pageMargins left="0.2" right="0.2" top="0.35" bottom="0.35" header="0.15" footer="0.15"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0" paperSize="9"/></worksheet>`;
 
   const zip = new JSZip();
   zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
