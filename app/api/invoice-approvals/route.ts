@@ -139,7 +139,7 @@ async function applyInvoiceAction(context: InvoiceRequestContext, invoiceId: str
 async function workflowNotificationWarning(
   context: InvoiceRequestContext,
   invoice: Record<string, unknown> & { id: string },
-  kind: "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved",
+  kind: "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved" | "posted" | "paid" | "archived",
   reason = "",
 ) {
   try {
@@ -497,7 +497,12 @@ export async function POST(request: Request) {
         const archiveNote = text(body.archiveNote);
         await applyInvoiceAction(context, invoiceId, "closeout_archived", { archive_note: archiveNote });
       }
-      return Response.json({ ok: true });
+      const notificationWarning = await workflowNotificationWarning(
+        context,
+        invoice,
+        nextStatus as "posted" | "paid" | "archived",
+      );
+      return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
 
     if (action === "correct_closeout" || action === "reverse_closeout") {

@@ -359,7 +359,7 @@ const adminControls: AdminControlCard[] = [
   {
     key: "email-notifications",
     title: "Email Notification Settings",
-    description: "Choose recipients for automatic operational emails.",
+    description: "Choose recipients for automatic invoice and operational notifications.",
     group: "Security",
   },
   {
@@ -3467,7 +3467,7 @@ export default function AdminPage() {
         <summary>
           <div>
             <h3>Email Notification Settings</h3>
-            <p>Choose who receives automatic emails from release requests, consumable orders, POs, reports, and alerts.</p>
+            <p>Choose who receives automatic notifications for invoices, release requests, consumable orders, POs, reports, and alerts.</p>
           </div>
           <span>Open / close</span>
         </summary>

@@ -85,6 +85,7 @@ async function listSettings(adminSupabase: ReturnType<typeof configuredSupabase>
   const { data: profiles, error: profileError } = await adminSupabase
     .from("profiles")
     .select("id, full_name, role")
+    .eq("is_disabled", false)
     .order("full_name", { ascending: true });
 
   if (profileError) throw profileError;

@@ -11,7 +11,7 @@ import {
 } from "./modulePermissions";
 
 type AdminClient = SupabaseClient;
-type WorkflowKind = "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved";
+type WorkflowKind = "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved" | "posted" | "paid" | "archived";
 type InvoiceRow = Record<string, unknown> & {
   id: string;
   vendor_name?: string;
@@ -31,6 +31,12 @@ type DeliveryResult = { delivered: number; warnings: string[] };
 type ChannelDelivery = { userId: string; status: string; error?: string };
 
 const defaultVapidSubject = "mailto:notifications@pifstitan.com";
+
+function missingRecipientSettings(error: { message?: string } | null | undefined) {
+  const message = text(error?.message).toLowerCase();
+  return (message.includes("email_notification_types") || message.includes("email_notification_recipients"))
+    && (message.includes("does not exist") || message.includes("schema cache") || message.includes("could not find"));
+}
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -144,6 +150,31 @@ async function eligibleRecipients(admin: AdminClient, userIds: string[], require
   return recipients;
 }
 
+async function configuredRecipientIds(admin: AdminClient, notificationKey: string) {
+  const typeResult = await admin
+    .from("email_notification_types")
+    .select("id")
+    .eq("notification_key", notificationKey)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (typeResult.error) {
+    if (missingRecipientSettings(typeResult.error)) return null;
+    throw typeResult.error;
+  }
+  if (!typeResult.data) return null;
+
+  const recipientResult = await admin
+    .from("email_notification_recipients")
+    .select("user_id")
+    .eq("notification_type_id", typeResult.data.id)
+    .eq("enabled", true);
+  if (recipientResult.error) {
+    if (missingRecipientSettings(recipientResult.error)) return null;
+    throw recipientResult.error;
+  }
+  return (recipientResult.data || []).map((row) => text(row.user_id)).filter(Boolean);
+}
+
 async function sendEmails(recipients: Recipient[], notice: Notice, actionUrl: string) {
   const from = text(process.env.MICROSOFT_MAIL_FROM);
   const recipientsWithEmail = recipients.filter((recipient) => recipient.email.includes("@"));
@@ -230,7 +261,7 @@ async function sendPush(admin: AdminClient, recipients: Recipient[], notice: Not
 
 async function deliver(admin: AdminClient, recipients: Recipient[], invoice: InvoiceRow, notice: Notice, actorId: string | null, existingKeys?: Set<string>) {
   const uniqueRecipients = Array.from(new Map(recipients.map((recipient) => [recipient.id, recipient])).values());
-  if (!uniqueRecipients.length) return { delivered: 0, warnings: ["No eligible invoice notification recipients were found."] };
+  if (!uniqueRecipients.length) return { delivered: 0, warnings: [] };
   const path = invoicePath(invoice.id);
   const actionUrl = `${siteUrl()}${path}`;
   const filteredRecipients = uniqueRecipients.filter((recipient) => !existingKeys?.has(`${recipient.id}|${notice.title}|${actionUrl}`));
@@ -313,6 +344,12 @@ function workflowNotice(kind: WorkflowKind, invoice: InvoiceRow, actorName: stri
     priority: "normal",
     category: "invoice_approved",
   };
+  if (kind === "posted" || kind === "paid" || kind === "archived") return {
+    title: `Invoice ${kind}: ${vendor} ${number}`,
+    body: `${actorName} marked ${vendor} invoice ${number} for ${amount} as ${kind}.`,
+    priority: "normal",
+    category: "invoice_closeout",
+  };
   return {
     title: `${kind === "disputed" ? "Invoice disputed" : "Invoice returned to AP"}: ${vendor} ${number}`,
     body: `${actorName} ${kind === "disputed" ? "disputed" : "returned"} ${vendor} invoice ${number} for ${amount}. Reason: ${reason}`,
@@ -330,10 +367,25 @@ export async function notifyInvoiceWorkflow(options: {
   reason?: string;
 }): Promise<DeliveryResult> {
   const { admin, invoice, kind, actorId, actorName, reason } = options;
-  const recipients = kind === "assigned" || kind === "reassigned" || kind === "resolved" || kind === "voided"
-    ? await eligibleRecipients(admin, [text(invoice.assigned_approver_id)])
-    : (await eligibleRecipients(admin, [], true)).filter((recipient) => recipient.id !== actorId);
-  return deliver(admin, recipients, invoice, workflowNotice(kind, invoice, actorName, reason), actorId);
+  const notice = workflowNotice(kind, invoice, actorName, reason);
+  const selectedIds = await configuredRecipientIds(admin, notice.category);
+  const isDirectApproverNotice = kind === "assigned" || kind === "reassigned" || kind === "resolved" || kind === "voided";
+  let recipients: Recipient[];
+
+  if (selectedIds === null) {
+    recipients = kind === "posted" || kind === "paid" || kind === "archived"
+      ? []
+      : isDirectApproverNotice
+      ? await eligibleRecipients(admin, [text(invoice.assigned_approver_id)])
+      : (await eligibleRecipients(admin, [], true)).filter((recipient) => recipient.id !== actorId);
+  } else if (isDirectApproverNotice) {
+    const approverId = text(invoice.assigned_approver_id);
+    recipients = selectedIds.includes(approverId) ? await eligibleRecipients(admin, [approverId]) : [];
+  } else {
+    recipients = (await eligibleRecipients(admin, selectedIds)).filter((recipient) => recipient.id !== actorId);
+  }
+
+  return deliver(admin, recipients, invoice, notice, actorId);
 }
 
 function centralDateKey(date = new Date()) {
@@ -371,13 +423,21 @@ export async function sendInvoiceDueReminders(admin: AdminClient) {
   const existingResult = await admin.from("notifications").select("recipient_user_id,title,action_url").eq("category", "invoice_due").gte("created_at", new Date(Date.now() - 120 * 86_400_000).toISOString());
   if (existingResult.error) throw existingResult.error;
   const existingKeys = new Set((existingResult.data || []).map((row) => `${row.recipient_user_id}|${row.title}|${row.action_url}`));
-  const apRecipients = await eligibleRecipients(admin, [], true);
+  const selectedIds = await configuredRecipientIds(admin, "invoice_due");
+  const apRecipients = selectedIds === null
+    ? await eligibleRecipients(admin, [], true)
+    : await eligibleRecipients(admin, selectedIds);
   let notifications = 0;
   const warnings: string[] = [];
 
   for (const { invoice, days } of actionable) {
     const status = text(invoice.status);
-    const recipients = status === "awaiting_approval" ? await eligibleRecipients(admin, [text(invoice.assigned_approver_id)]) : apRecipients;
+    const approverId = text(invoice.assigned_approver_id);
+    const recipients = status === "awaiting_approval"
+      ? selectedIds === null || selectedIds.includes(approverId)
+        ? await eligibleRecipients(admin, [approverId])
+        : []
+      : apRecipients;
     const result = await deliver(admin, recipients, invoice, reminderNotice(invoice, days), null, existingKeys);
     notifications += result.delivered;
     warnings.push(...result.warnings);
