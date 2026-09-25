@@ -51,6 +51,7 @@
 .filters { display: grid; grid-template-columns: minmax(250px, 2fr) minmax(180px, 1fr) 150px 150px; gap: 9px; padding: 13px 0; }
 .filters > * { min-width: 0; }
 .filters label { position: relative; display: flex; align-items: center; gap: 7px; }
+.filters .dateFilter { display: grid; grid-template-columns: auto minmax(0, 1fr); }
 .filters label > svg { position: absolute; left: 10px; color: #8290a2; }
 .filters label:first-child input { padding-left: 34px; }
 .filters label span { flex: 0 0 auto; color: #8998aa; font-size: 10px; font-weight: 800; text-transform: uppercase; }

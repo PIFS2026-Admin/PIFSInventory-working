@@ -5,7 +5,10 @@ export const runtime = "nodejs";
 
 function authorized(request: Request) {
   const secret = process.env.INVOICE_REMINDER_SECRET || process.env.CRON_SECRET || "";
-  if (!secret) return process.env.NODE_ENV !== "production";
+  if (!secret) {
+    return process.env.NODE_ENV !== "production"
+      || (process.env.VERCEL === "1" && request.headers.get("user-agent") === "vercel-cron/1.0");
+  }
   const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
   return bearer === secret || request.headers.get("x-cron-secret") === secret;
 }

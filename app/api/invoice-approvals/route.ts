@@ -292,7 +292,7 @@ export async function GET(request: Request) {
       notificationConfiguration: {
         emailConfigured: Boolean(process.env.MICROSOFT_TENANT_ID && process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET && process.env.MICROSOFT_MAIL_FROM),
         pushConfigured: Boolean((process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY) && process.env.VAPID_PRIVATE_KEY),
-        reminderConfigured: process.env.NODE_ENV !== "production" || Boolean(process.env.INVOICE_REMINDER_SECRET || process.env.CRON_SECRET),
+        reminderConfigured: process.env.NODE_ENV !== "production" || process.env.VERCEL === "1" || Boolean(process.env.INVOICE_REMINDER_SECRET || process.env.CRON_SECRET),
       },
     });
   } catch (error) {
