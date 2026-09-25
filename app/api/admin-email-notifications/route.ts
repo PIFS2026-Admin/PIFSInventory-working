@@ -71,6 +71,7 @@ async function listSettings(adminSupabase: ReturnType<typeof configuredSupabase>
   const { data: notificationTypes, error: typeError } = await adminSupabase
     .from("email_notification_types")
     .select("id, notification_key, name, description, is_active, sort_order")
+    .neq("notification_key", "invoice_assignment")
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 

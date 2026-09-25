@@ -107,7 +107,7 @@ function emailHtml(notice: Notice, actionUrl: string) {
   return `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111827"><h2 style="margin:0 0 6px">${escapeHtml(notice.title)}</h2><p style="margin:0 0 18px;color:#f97316;font-weight:700">TITAN Invoice Approval</p><p>${escapeHtml(notice.body).replaceAll("\n", "<br />")}</p><p><a href="${escapeHtml(actionUrl)}" style="display:inline-block;background:#f97316;color:#111827;text-decoration:none;font-weight:700;padding:12px 16px;border-radius:6px">Open Invoice</a></p><div style="margin-top:22px;padding-top:14px;border-top:1px solid #d1d5db;color:#374151;font-size:13px"><strong>Pathfinder Inspections &amp; Field Services</strong><br />7501 Groening St.<br />Odessa, TX 79765<br />(432) 233-3600</div></div>`;
 }
 
-async function eligibleRecipients(admin: AdminClient, userIds: string[], requireAp = false) {
+async function eligibleRecipients(admin: AdminClient, userIds: string[], requireAp = false, requireNotificationPermission = true) {
   const ids = Array.from(new Set(userIds.filter(Boolean)));
   if (!ids.length && !requireAp) return [];
 
@@ -140,7 +140,7 @@ async function eligibleRecipients(admin: AdminClient, userIds: string[], require
     const isAdmin = role === "admin" || role === "owner";
     const hasModule = isAdmin || moduleAccess.get(profile.id) === true || canView(permissions, "invoice_approvals");
     const isAp = isAdmin || (role === "office_admin" && canCreate(permissions, "invoice_approvals") && canEdit(permissions, "invoice_approvals"));
-    if (!hasModule || !canReceiveNotifications(permissions, "invoice_approvals") || (requireAp && !isAp)) return [];
+    if (!hasModule || (requireNotificationPermission && !canReceiveNotifications(permissions, "invoice_approvals")) || (requireAp && !isAp)) return [];
     return [{ id: profile.id, name: text(profile.full_name || profile.email || "TITAN user"), email: text(profile.email) }];
   });
   await Promise.all(recipients.filter((recipient) => !recipient.email.includes("@")).map(async (recipient) => {
@@ -368,11 +368,14 @@ export async function notifyInvoiceWorkflow(options: {
 }): Promise<DeliveryResult> {
   const { admin, invoice, kind, actorId, actorName, reason } = options;
   const notice = workflowNotice(kind, invoice, actorName, reason);
-  const selectedIds = await configuredRecipientIds(admin, notice.category);
+  const isAssignmentNotice = kind === "assigned" || kind === "reassigned";
+  const selectedIds = isAssignmentNotice ? null : await configuredRecipientIds(admin, notice.category);
   const isDirectApproverNotice = kind === "assigned" || kind === "reassigned" || kind === "resolved" || kind === "voided";
   let recipients: Recipient[];
 
-  if (selectedIds === null) {
+  if (isAssignmentNotice) {
+    recipients = await eligibleRecipients(admin, [text(invoice.assigned_approver_id)], false, false);
+  } else if (selectedIds === null) {
     recipients = kind === "posted" || kind === "paid" || kind === "archived"
       ? []
       : isDirectApproverNotice

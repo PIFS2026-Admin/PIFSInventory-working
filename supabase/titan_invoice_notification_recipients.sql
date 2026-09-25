@@ -16,7 +16,6 @@ insert into public.email_notification_types (
   is_active
 )
 values
-  ('invoice_assignment', 'Invoice Assigned', 'The assigned approver is notified when an invoice is assigned or reassigned. Only the selected approver receives the notice.', 200, true),
   ('invoice_approved', 'Invoice Approved', 'Selected recipients are notified after an invoice is approved and electronically signed.', 210, true),
   ('invoice_returned', 'Invoice Returned to AP', 'Selected recipients are notified when an approver returns an invoice to Accounts Payable.', 220, true),
   ('invoice_disputed', 'Invoice Disputed', 'Selected recipients are notified when an approver disputes an invoice.', 230, true),
@@ -29,5 +28,8 @@ set name = excluded.name,
     description = excluded.description,
     sort_order = excluded.sort_order,
     is_active = excluded.is_active;
+
+delete from public.email_notification_types
+where notification_key = 'invoice_assignment';
 
 commit;
