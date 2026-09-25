@@ -42,6 +42,13 @@
 .extractionReview p { margin: 4px 0 8px; color: #b6c9c1; font-size: 12px; }
 .extractionReview > div > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .extractionReview span { padding: 4px 7px; border: 1px solid #35584f; border-radius: 10px; color: #aee4d0; font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.poPreview { grid-column: span 2; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid #344052; background: #344052; }
+.poPreview div { display: grid; gap: 4px; padding: 9px; background: #101922; }
+.poPreview span { color: #8998aa; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.poPreview strong { font-size: 12px; }
+.poSetup { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid #805127; background: #21170f; color: #ffd2b4; font-size: 12px; }
+.poSetup svg { flex: 0 0 auto; }
+.poSetup code { color: #fff; }
 .spinning { animation: invoiceSpin 1s linear infinite; }
 @keyframes invoiceSpin { to { transform: rotate(360deg); } }
 .tabs { display: flex; margin-top: 14px; overflow-x: auto; border-bottom: 1px solid #344052; }
@@ -108,6 +115,23 @@
 .summaryGrid div { min-width: 0; padding: 12px; border-right: 1px solid #2d3744; border-bottom: 1px solid #2d3744; }
 .summaryGrid dt { color: #8998aa; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .summaryGrid dd { margin: 5px 0 0; overflow-wrap: anywhere; }
+.poMatchCard { margin: 12px; border: 1px solid #3d6c62; background: #0e1c19; }
+.poMatchHeading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px; border-bottom: 1px solid #31534b; }
+.poMatchHeading > div { display: grid; gap: 3px; }
+.poMatchHeading span, .poLinkControl span { color: #ff8a3c; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+.poMatchHeading i { padding: 4px 7px; border: 1px solid #2c8c68; border-radius: 10px; color: #aaf0d3; font-size: 9px; font-style: normal; font-weight: 800; text-transform: uppercase; }
+.poMatchHeading i[data-status="pending_receipt"] { border-color: #9b6a27; color: #ffd49e; }
+.poMatchHeading i[data-status="variance"] { border-color: #a03d47; color: #ffc8ce; }
+.poMatchCard dl { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+.poMatchCard dl div { padding: 10px; border-right: 1px solid #28443e; border-bottom: 1px solid #28443e; }
+.poMatchCard dt { color: #8998aa; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.poMatchCard dd { margin: 4px 0 0; }
+.poMatchCard > p { margin: 0; padding: 10px; color: #ffd2b4; font-size: 12px; }
+.poMatchActions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px; }
+.poMatchActions a { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 11px; border: 1px solid #344052; border-radius: 3px; color: #f5f7fa; font-weight: 750; text-decoration: none; }
+.poLinkControl { display: grid; grid-template-columns: minmax(145px, .7fr) minmax(190px, 1fr) auto; gap: 8px; align-items: end; padding: 12px; border-top: 1px solid #344052; background: #0d1319; }
+.poLinkControl > div { display: grid; gap: 3px; }
+.poLinkControl small { color: #8998aa; }
 .reasonBox { display: flex; gap: 10px; margin: 12px; padding: 11px; border-left: 3px solid #ff7417; background: #221812; }
 .reasonBox p { margin: 4px 0 0; color: #d7c1b0; }
 .reasonBox small { display: block; margin-top: 5px; color: #8190a3; }
@@ -203,6 +227,7 @@
   .supportingUpload > div { grid-column: 1 / -1; }
   .supportingUpload .fileField { min-width: 0; }
   .resolveDispute { grid-template-columns: 1fr; }
+  .poLinkControl { grid-template-columns: 1fr; }
   .closeoutControls { grid-template-columns: 1fr; }
   .deliveryPanel { overflow-x: visible; }
   .deliveryHeader { display: none; }
@@ -240,7 +265,7 @@
   .header { display: grid; padding-right: 52px; }
   .headerActions { width: 100%; }
   .headerActions .primary { flex: 1; }
-  .formGrid, .filters, .summaryGrid, .codeForm, .codeList { grid-template-columns: 1fr; }
+  .formGrid, .filters, .summaryGrid, .codeForm, .codeList, .poPreview, .poMatchCard dl { grid-template-columns: 1fr; }
   .wide { grid-column: auto; }
   .filters label:first-child { grid-column: auto; }
   .filters label { width: 100%; }

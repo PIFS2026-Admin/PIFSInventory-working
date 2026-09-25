@@ -586,7 +586,10 @@ export default function PurchaseOrdersPage() {
       cancelledReason: row.cancelled_reason || "",
     }));
     setOrders(mapped);
-    if (!selectedPoId && mapped.length) setSelectedPoId(mapped[0].id);
+    if (!selectedPoId && mapped.length) {
+      const requestedPoId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("po") || "" : "";
+      setSelectedPoId(mapped.some((order) => order.id === requestedPoId) ? requestedPoId : mapped[0].id);
+    }
   }
 
   async function loadLines(yardId = selectedYardId, yardList = yards) {
@@ -1226,18 +1229,25 @@ export default function PurchaseOrdersPage() {
             <div className="form-grid">
               <label>PO
                 <select value={invoiceForm.poId} onChange={(event) => setInvoiceForm({ ...invoiceForm, poId: event.target.value })}>
-                  <option value="">Select fully received PO</option>
-                  {orders.filter((order) => ["Fully Received", "Invoiced"].includes(normalizePoStatus(order.status))).map((order) => (
+                  <option value="">Select purchase order</option>
+                  {orders.filter((order) => !["Draft", "Submitted", "Rejected", "Cancelled", "Closed"].includes(normalizePoStatus(order.status))).map((order) => (
                     <option key={order.id} value={order.id}>{order.poNumber} - {order.vendorName} - {formatPoMoney(order.totalAmount)}</option>
                   ))}
                 </select>
               </label>
-              <label>Vendor Invoice #<input value={invoiceForm.vendorInvoiceNumber} onChange={(event) => setInvoiceForm({ ...invoiceForm, vendorInvoiceNumber: event.target.value })} /></label>
-              <label>Invoice Amount<input type="number" value={invoiceForm.amount} onChange={(event) => setInvoiceForm({ ...invoiceForm, amount: event.target.value })} /></label>
-              <label>Tolerance %<input type="number" value={invoiceForm.tolerancePercent} onChange={(event) => setInvoiceForm({ ...invoiceForm, tolerancePercent: event.target.value })} /></label>
             </div>
-            <button className="button primary" onClick={createInvoice} disabled={saving || !canMatchPo}>Record Invoice</button>
-            <InvoicePreview invoiceForm={invoiceForm} orders={orders} lines={lines} />
+            <a className="button primary" href={invoiceForm.poId ? `/invoice-approvals?po=${encodeURIComponent(invoiceForm.poId)}` : "/invoice-approvals"}>Create Invoice in AP</a>
+            <p className="muted-text">The PO is optional in Invoice Approvals. Selecting one here carries its vendor, location, amount, receiving status, and match details into AP.</p>
+            <details>
+              <summary>Legacy invoice match entry</summary>
+              <div className="form-grid">
+                <label>Vendor Invoice #<input value={invoiceForm.vendorInvoiceNumber} onChange={(event) => setInvoiceForm({ ...invoiceForm, vendorInvoiceNumber: event.target.value })} /></label>
+                <label>Invoice Amount<input type="number" value={invoiceForm.amount} onChange={(event) => setInvoiceForm({ ...invoiceForm, amount: event.target.value })} /></label>
+                <label>Tolerance %<input type="number" value={invoiceForm.tolerancePercent} onChange={(event) => setInvoiceForm({ ...invoiceForm, tolerancePercent: event.target.value })} /></label>
+              </div>
+              <button className="button" onClick={createInvoice} disabled={saving || !canMatchPo}>Record Legacy Match</button>
+              <InvoicePreview invoiceForm={invoiceForm} orders={orders} lines={lines} />
+            </details>
           </article>
           <article className="ticket-card">
             <h3>Exceptions Queue</h3>

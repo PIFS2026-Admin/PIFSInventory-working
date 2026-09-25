@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, FileSpreadsheet, Paperclip, Plus, Printer, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, FileSpreadsheet, Link2, Paperclip, Plus, Printer, RefreshCw, RotateCcw, Save, Search, Trash2, Unlink, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
 import { buildInvoiceApprovalWorkbook, buildQuickBooksBillIif, invoiceApprovalPrintHtml, type InvoiceReport, type QuickBooksIifOptions } from "../../lib/invoiceApprovalReport";
 import { supabase } from "../../lib/supabase";
@@ -23,16 +23,18 @@ type AccountingCode = { id: string; code: string; description: string; active: b
 type Person = { id: string; full_name: string | null; email: string | null; role: string };
 type Vendor = { id: string; vendor_name: string; yard_id: string | null };
 type Yard = { id: string; name: string; code: string };
+type PurchaseOrder = { id: string; po_number: string; vendor_id: string | null; vendor_name: string; yard_id: string | null; status: string; order_date: string; total_amount: number; received_amount: number; invoiced_amount: number; remaining_amount: number; eligible_for_invoice: boolean };
+type PoMatch = { id: string; invoice_id: string; purchase_order_id: string; matched_amount: number | string; match_status: "pending_receipt" | "matched" | "variance" | "overridden"; authorized_remaining: number | string; received_remaining: number | string; variance_amount: number | string; exception_reason: string | null };
 type StoredFile = { id: string; invoice_id: string; file_kind: string; document_type?: string | null; version_number: number; is_current: boolean; original_file_name: string; mime_type: string; file_size: number; uploaded_by_name: string; uploaded_at: string };
 type Approval = { id: string; invoice_id: string; approver_name: string; approver_id: string; approved_at: string; approved_total: number; approval_statement: string; signature_version: string; signature_storage_path?: string | null };
 type Activity = { id: string; invoice_id: string; action: string; actor_name: string; note: string | null; created_at: string };
 type NotificationDelivery = { id: string; invoice_id: string; event_title: string; recipient_name: string; recipient_email: string | null; email_status: string; email_error: string | null; push_status: string; push_error: string | null; created_at: string };
 type Permissions = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean; isAp: boolean; isAdmin: boolean };
 type NotificationConfiguration = { emailConfigured: boolean; pushConfigured: boolean; reminderConfigured: boolean };
-type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; notificationDeliveries: NotificationDelivery[]; approvalStatement: string; notificationConfiguration?: NotificationConfiguration };
+type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; purchaseOrders: PurchaseOrder[]; poMatches: PoMatch[]; poIntegrationReady: boolean; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; notificationDeliveries: NotificationDelivery[]; approvalStatement: string; notificationConfiguration?: NotificationConfiguration };
 type Tab = "mine" | "awaiting" | "returned" | "disputed" | "approved" | "archived" | "voided" | "all" | "codes";
 
-const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], files: [], approvals: [], activity: [], notificationDeliveries: [], approvalStatement: "" };
+const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], purchaseOrders: [], poMatches: [], poIntegrationReady: false, files: [], approvals: [], activity: [], notificationDeliveries: [], approvalStatement: "" };
 const emptyLine = (): CodingLine => ({ accounting_code_id: "", accounting_code_search: "", amount: "", cost_center: "", department: "", job_number: "", description: "" });
 const today = new Date().toISOString().slice(0, 10);
 
@@ -112,7 +114,7 @@ export default function InvoiceApprovalsPage() {
   const [approvalSignatureUrl, setApprovalSignatureUrl] = useState("");
   const [newApprover, setNewApprover] = useState("");
   const [codeForm, setCodeForm] = useState({ id: "", code: "", description: "", active: true });
-  const [uploadForm, setUploadForm] = useState({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
+  const [uploadForm, setUploadForm] = useState({ purchaseOrderId: "", vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractionMessage, setExtractionMessage] = useState("");
@@ -137,6 +139,7 @@ export default function InvoiceApprovalsPage() {
   const [showArchive, setShowArchive] = useState(false);
   const [showCloseoutCorrection, setShowCloseoutCorrection] = useState(false);
   const [closeoutCorrectionReason, setCloseoutCorrectionReason] = useState("");
+  const [poLinkId, setPoLinkId] = useState("");
   const previewRequestId = useRef(0);
 
   const load = async (keepNotice = false) => {
@@ -150,6 +153,12 @@ export default function InvoiceApprovalsPage() {
       if (payload.permissions?.isAp && tab === "mine") setTab("awaiting");
       const linkedInvoiceId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invoice") || "" : "";
       if (linkedInvoiceId && (payload.invoices || []).some((invoice: Invoice) => invoice.id === linkedInvoiceId)) setSelectedId(linkedInvoiceId);
+      const requestedPoId = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("po") || "" : "";
+      const requestedPo = (payload.purchaseOrders || []).find((order: PurchaseOrder) => order.id === requestedPoId && order.eligible_for_invoice);
+      if (payload.permissions?.isAp && requestedPo) {
+        setShowUpload(true);
+        setUploadForm((form) => ({ ...form, purchaseOrderId: requestedPo.id, vendorId: requestedPo.vendor_id || "", vendorName: requestedPo.vendor_name || "", yardId: requestedPo.yard_id || form.yardId, totalAmount: requestedPo.remaining_amount > 0 ? String(requestedPo.remaining_amount) : form.totalAmount }));
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -160,11 +169,14 @@ export default function InvoiceApprovalsPage() {
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = data.invoices.find((invoice) => invoice.id === selectedId) || null;
+  const selectedUploadPo = data.purchaseOrders.find((order) => order.id === uploadForm.purchaseOrderId) || null;
   const selectedFiles = data.files.filter((file) => file.invoice_id === selectedId);
   const previewFile = selectedFiles.find((file) => file.id === previewFileId) || null;
   const selectedApproval = data.approvals.find((approval) => approval.invoice_id === selectedId);
   const selectedActivity = data.activity.filter((item) => item.invoice_id === selectedId);
   const selectedDeliveries = data.notificationDeliveries.filter((item) => item.invoice_id === selectedId);
+  const selectedPoMatch = data.poMatches.find((match) => match.invoice_id === selectedId) || null;
+  const selectedPurchaseOrder = data.purchaseOrders.find((order) => order.id === selectedPoMatch?.purchase_order_id) || null;
   const currentUserId = data.actor?.id || "";
   const selectedIsApproved = Boolean(selected && ["approved", "posted", "paid", "archived"].includes(selected.status));
   const canAct = Boolean(selected && selected.status === "awaiting_approval" && selected.assigned_approver_id === currentUserId && data.permissions?.approve);
@@ -199,9 +211,10 @@ export default function InvoiceApprovalsPage() {
     setShowArchive(false);
     setShowCloseoutCorrection(false);
     setCloseoutCorrectionReason("");
+    setPoLinkId(selectedPoMatch?.purchase_order_id || "");
     setEditDuplicateMatches([]);
     setEditForm({ vendorId: selected.vendor_id || "", vendorName: selected.vendor_name, invoiceNumber: selected.invoice_number, invoiceDate: selected.invoice_date, dueDate: selected.due_date || "", totalAmount: String(selected.total_amount), yardId: selected.yard_id || "", notes: selected.notes || "", duplicateAcknowledged: false, duplicateNote: "" });
-  }, [selectedId, data.codingLines.length, selected?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId, data.codingLines.length, selected?.status, selectedPoMatch?.purchase_order_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedId) {
@@ -454,7 +467,7 @@ export default function InvoiceApprovalsPage() {
       setUploadFile(null);
       setExtraction(null);
       setExtractionMessage("");
-      setUploadForm({ vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
+      setUploadForm({ purchaseOrderId: "", vendorId: "", vendorName: "", invoiceNumber: "", invoiceDate: today, dueDate: "", totalAmount: "", yardId: "", approverId: "", notes: "", duplicateAcknowledged: false, duplicateNote: "" });
       setSelectedId(payload.invoiceId);
       setNotice(["Invoice uploaded and assigned.", payload.notificationWarning].filter(Boolean).join(" "));
       await load(true);
@@ -588,6 +601,15 @@ export default function InvoiceApprovalsPage() {
             <div><dt>Approver</dt><dd>{selected.assigned_approver_name}</dd></div><div><dt>Uploaded by</dt><dd>{selected.uploaded_by_name}</dd></div>
             <div><dt>AP notes</dt><dd>{selected.notes || "-"}</dd></div><div><dt>Approver notes</dt><dd>{selected.approver_notes || "-"}</dd></div>
           </dl>
+          {selectedPoMatch && selectedPurchaseOrder ? <div className={styles.poMatchCard}>
+            <div className={styles.poMatchHeading}><div><span>PURCHASE ORDER</span><strong>{selectedPurchaseOrder.po_number}</strong></div><i data-status={selectedPoMatch.match_status}>{selectedPoMatch.match_status.replaceAll("_", " ")}</i></div>
+            <dl><div><dt>PO status</dt><dd>{selectedPurchaseOrder.status}</dd></div><div><dt>PO total</dt><dd>{dollars(selectedPurchaseOrder.total_amount)}</dd></div><div><dt>Received value</dt><dd>{dollars(selectedPurchaseOrder.received_amount)}</dd></div><div><dt>PO remaining</dt><dd>{dollars(selectedPurchaseOrder.remaining_amount)}</dd></div></dl>
+            {selectedPoMatch.exception_reason && <p>{selectedPoMatch.exception_reason}</p>}
+            <div className={styles.poMatchActions}><a href={`/purchase-orders?tab=invoices&po=${encodeURIComponent(selectedPurchaseOrder.id)}`}><ExternalLink size={15} /> Open PO</a>{data.permissions?.isAp && !selectedIsApproved && selected.status !== "voided" && <button type="button" onClick={() => run(() => api({ action: "unlink_po", invoiceId: selected.id }), "Purchase order unlinked. The invoice remains in the AP workflow.")} disabled={busy}><Unlink size={15} /> Unlink</button>}</div>
+          </div> : data.permissions?.isAp && !selectedIsApproved && selected.status !== "voided" && <div className={styles.poLinkControl}>
+            <div><span>PURCHASE ORDER</span><strong>No PO linked</strong><small>This invoice can remain standalone.</small></div>
+            {data.poIntegrationReady ? <><select value={poLinkId} onChange={(event) => setPoLinkId(event.target.value)}><option value="">Select an optional PO</option>{data.purchaseOrders.filter((order) => order.eligible_for_invoice || order.id === poLinkId).map((order) => <option key={order.id} value={order.id}>{order.po_number} · {order.vendor_name} · {dollars(order.remaining_amount)} remaining</option>)}</select><button type="button" onClick={() => run(() => api({ action: "link_po", invoiceId: selected.id, purchaseOrderId: poLinkId }), "Purchase order linked and match status calculated.")} disabled={busy || !poLinkId}><Link2 size={15} /> Link PO</button></> : <small>Run the PO integration migration to enable linking.</small>}
+          </div>}
           {selected.dispute_reason && <div className={styles.reasonBox}><AlertTriangle size={18} /><div><strong>Dispute reason</strong><p>{selected.dispute_reason}</p></div></div>}
           {selected.return_reason && <div className={styles.reasonBox}><RotateCcw size={18} /><div><strong>Return reason</strong><p>{selected.return_reason}</p></div></div>}
           {selected.resolution_note && <div className={`${styles.reasonBox} ${styles.resolvedBox}`}><Check size={18} /><div><strong>AP resolution · {selected.resolved_by_name}</strong><p>{selected.resolution_note}</p><small>{dateText(selected.resolved_at, true)}</small></div></div>}
@@ -671,13 +693,16 @@ export default function InvoiceApprovalsPage() {
     <section className={styles.metrics}><div><span>Awaiting Signature</span><strong>{counts.awaiting}</strong></div><div><span>My Approvals</span><strong>{counts.mine}</strong></div><div><span>Returned to AP</span><strong>{counts.returned}</strong></div><div><span>Disputed</span><strong>{counts.disputed}</strong></div><div><span>AP Closeout</span><strong>{counts.closeout}</strong></div><div><span>Archived</span><strong>{counts.archived}</strong></div></section>
 
     {showUpload && <section className={styles.uploadPanel}><div className={styles.sectionHeading}><div><span>NEW INVOICE</span><h2>Upload and assign</h2></div></div><div className={styles.formGrid}>
-      <label><span>Existing vendor</span><select value={uploadForm.vendorId} onChange={(event) => { const vendor = data.vendors.find((item) => item.id === event.target.value); setUploadForm((form) => ({ ...form, vendorId: event.target.value, vendorName: vendor?.vendor_name || form.vendorName })); }}><option value="">Enter vendor manually</option>{data.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>)}</select></label>
-      <label><span>Vendor</span><input required value={uploadForm.vendorName} onChange={(event) => setUploadForm((form) => ({ ...form, vendorName: event.target.value, vendorId: "" }))} /></label>
+      <label className={styles.wide}><span>Purchase order (optional)</span><select value={uploadForm.purchaseOrderId} disabled={!data.poIntegrationReady} onChange={(event) => { const order = data.purchaseOrders.find((item) => item.id === event.target.value); setUploadForm((form) => order ? ({ ...form, purchaseOrderId: order.id, vendorId: order.vendor_id || "", vendorName: order.vendor_name || "", yardId: order.yard_id || form.yardId, totalAmount: order.remaining_amount > 0 ? String(order.remaining_amount) : form.totalAmount }) : ({ ...form, purchaseOrderId: "" })); }}><option value="">No PO - standalone invoice</option>{data.purchaseOrders.filter((order) => order.eligible_for_invoice).map((order) => <option key={order.id} value={order.id}>{order.po_number} · {order.vendor_name} · {dollars(order.remaining_amount)} remaining</option>)}</select></label>
+      {selectedUploadPo && <div className={styles.poPreview}><div><span>PO status</span><strong>{selectedUploadPo.status}</strong></div><div><span>PO total</span><strong>{dollars(selectedUploadPo.total_amount)}</strong></div><div><span>Received</span><strong>{dollars(selectedUploadPo.received_amount)}</strong></div><div><span>Previously invoiced</span><strong>{dollars(selectedUploadPo.invoiced_amount)}</strong></div></div>}
+      {!data.poIntegrationReady && <div className={styles.poSetup}><AlertTriangle size={17} /><span>PO linking is not enabled yet. Standalone invoices still work. Run <code>supabase/titan_invoice_po_integration.sql</code> to enable it.</span></div>}
+      <label><span>Existing vendor</span><select disabled={Boolean(selectedUploadPo)} value={uploadForm.vendorId} onChange={(event) => { const vendor = data.vendors.find((item) => item.id === event.target.value); setUploadForm((form) => ({ ...form, vendorId: event.target.value, vendorName: vendor?.vendor_name || form.vendorName })); }}><option value="">Enter vendor manually</option>{data.vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.vendor_name}</option>)}</select></label>
+      <label><span>Vendor</span><input required disabled={Boolean(selectedUploadPo)} value={uploadForm.vendorName} onChange={(event) => setUploadForm((form) => ({ ...form, vendorName: event.target.value, vendorId: "" }))} /></label>
       <label><span>Invoice number</span><input required value={uploadForm.invoiceNumber} onChange={(event) => setUploadForm((form) => ({ ...form, invoiceNumber: event.target.value, duplicateAcknowledged: false }))} /></label>
       <label><span>Amount</span><input required inputMode="decimal" value={uploadForm.totalAmount} onChange={(event) => setUploadForm((form) => ({ ...form, totalAmount: event.target.value }))} /></label>
       <label><span>Invoice date</span><input type="date" value={uploadForm.invoiceDate} onChange={(event) => setUploadForm((form) => ({ ...form, invoiceDate: event.target.value }))} /></label>
       <label><span>Due date</span><input type="date" value={uploadForm.dueDate} onChange={(event) => setUploadForm((form) => ({ ...form, dueDate: event.target.value }))} /></label>
-      <label><span>Location (optional)</span><select value={uploadForm.yardId} onChange={(event) => setUploadForm((form) => ({ ...form, yardId: event.target.value }))}><option value="">Company-wide</option>{data.yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
+      <label><span>Location (optional)</span><select disabled={Boolean(selectedUploadPo?.yard_id)} value={uploadForm.yardId} onChange={(event) => setUploadForm((form) => ({ ...form, yardId: event.target.value }))}><option value="">Company-wide</option>{data.yards.map((yard) => <option key={yard.id} value={yard.id}>{yard.name}</option>)}</select></label>
       <label><span>Approver</span><select value={uploadForm.approverId} onChange={(event) => setUploadForm((form) => ({ ...form, approverId: event.target.value }))}><option value="">Select approver</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select></label>
       <label className={styles.wide}><span>AP notes</span><textarea value={uploadForm.notes} onChange={(event) => setUploadForm((form) => ({ ...form, notes: event.target.value }))} /></label>
       <label className={styles.fileField}><Upload size={18} /><span>{uploadFile?.name || "Select PDF, JPG, or PNG"}</span><input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(event) => void selectInvoiceFile(event.target.files?.[0] || null)} /></label>
@@ -694,7 +719,7 @@ export default function InvoiceApprovalsPage() {
       <section className={styles.filters}><label><Search size={16} /><input placeholder="Vendor, invoice, or approver" value={search} onChange={(event) => setSearch(event.target.value)} /></label><select value={approverFilter} onChange={(event) => setApproverFilter(event.target.value)}><option value="">All approvers</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select><label className={styles.dateFilter}><span>From</span><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label className={styles.dateFilter}><span>To</span><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label></section>
       {data.permissions?.export && <section className={styles.reportBar}><div><span>{reportTitle} Report</span><strong>{filtered.length} invoice{filtered.length === 1 ? "" : "s"} · {dollars(filtered.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0))}</strong></div><div><button type="button" onClick={printReport} disabled={loading || filtered.length === 0}><Printer size={16} /> Print / PDF</button><button type="button" onClick={() => setShowQuickBooksExport((value) => !value)} disabled={loading || !filtered.some((invoice) => ["approved", "posted", "paid", "archived"].includes(invoice.status))}><Download size={16} /> QuickBooks IIF</button><button type="button" className={styles.primary} onClick={() => void exportReportExcel()} disabled={loading || exportingReport || filtered.length === 0}><FileSpreadsheet size={16} /> {exportingReport ? "Exporting" : "Export Excel"}</button></div></section>}
       {showQuickBooksExport && <section className={styles.quickBooksPanel}><div><span>QUICKBOOKS DESKTOP</span><strong>Bill transaction export</strong></div><label><span>A/P account</span><input value={quickBooksOptions.accountsPayableAccount} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, accountsPayableAccount: event.target.value }))} /></label><label><span>Expense account field</span><select value={quickBooksOptions.expenseAccountSource} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, expenseAccountSource: event.target.value as QuickBooksIifOptions["expenseAccountSource"] }))}><option value="code">Accounting code</option><option value="description">Accounting description</option></select></label><label className={styles.quickBooksToggle}><input type="checkbox" checked={quickBooksOptions.includeLocationAsClass} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, includeLocationAsClass: event.target.checked }))} /><span>Use TITAN location as QuickBooks class</span></label><div><button type="button" onClick={() => setShowQuickBooksExport(false)}>Cancel</button><button type="button" className={styles.primary} onClick={exportQuickBooksIif}><Download size={16} /> Export IIF</button></div></section>}
-      <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span className={styles.invoicePrimary}><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}</small></span><span className={styles.invoiceDates}><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span className={styles.invoiceApprover} data-label="Approver">{invoice.assigned_approver_name}</span><span className={styles.invoiceStatus} data-label="Status"><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span className={styles.invoiceAmount} data-label="Amount"><strong>{dollars(invoice.total_amount)}</strong></span><Eye className={styles.invoiceOpen} size={17} /></button>)}</section>
+      <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => { const poMatch = data.poMatches.find((match) => match.invoice_id === invoice.id); const po = data.purchaseOrders.find((order) => order.id === poMatch?.purchase_order_id); return <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span className={styles.invoicePrimary}><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}{po ? ` · ${po.po_number}` : " · No PO"}</small></span><span className={styles.invoiceDates}><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span className={styles.invoiceApprover} data-label="Approver">{invoice.assigned_approver_name}</span><span className={styles.invoiceStatus} data-label="Status"><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span className={styles.invoiceAmount} data-label="Amount"><strong>{dollars(invoice.total_amount)}</strong></span><Eye className={styles.invoiceOpen} size={17} /></button>; })}</section>
     </>}
   </main>;
 }

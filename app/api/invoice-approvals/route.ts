@@ -41,6 +41,9 @@ function normalizedVendor(value: unknown) {
 
 function schemaSetupMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message || error || "");
+  if (/titan_ap_invoice_po_matches|titan_ap_invoice_po_line_matches/i.test(message)) {
+    return "Run supabase/titan_invoice_po_integration.sql to connect Invoice Approvals to Purchase Orders.";
+  }
   return /notification_deliveries|register_invoice_file|apply_invoice_action/i.test(message)
     ? "Run supabase/titan_invoice_rollout_hardening.sql to finish Invoice Approvals setup."
     : "Run supabase/titan_invoice_approval.sql to enable Invoice Approvals.";
@@ -168,6 +171,97 @@ async function duplicateMatches(context: InvoiceRequestContext, vendorName: stri
   return (result.data || []).filter((row) => row.id !== excludeId && row.status !== "voided" && normalizedVendor(row.vendor_name) === normalizedVendor(vendorName) && normalizedInvoice(row.invoice_number) === normalizedInvoice(invoiceNumber));
 }
 
+async function purchaseOrderDetails(context: InvoiceRequestContext, purchaseOrderId: string) {
+  const orderResult = await context.admin.from("purchase_orders").select("*").eq("id", purchaseOrderId).single();
+  if (orderResult.error || !orderResult.data) throw new Error(orderResult.error?.message || "Purchase order not found.");
+  if (["Draft", "Submitted", "Rejected", "Cancelled", "Closed"].includes(orderResult.data.status)) {
+    throw new Error("Select an approved, sent, received, or invoiced purchase order.");
+  }
+  return orderResult.data;
+}
+
+async function buildPoMatch(context: InvoiceRequestContext, invoiceId: string, purchaseOrderId: string, amount: number) {
+  const order = await purchaseOrderDetails(context, purchaseOrderId);
+  const [linesResult, priorResult] = await Promise.all([
+    context.admin.from("purchase_order_lines").select("quantity_ordered,quantity_received,unit_price,unit_cost,line_total").eq("purchase_order_id", purchaseOrderId),
+    context.admin.from("titan_ap_invoice_po_matches").select("invoice_id,matched_amount").eq("purchase_order_id", purchaseOrderId),
+  ]);
+  if (linesResult.error) throw linesResult.error;
+  if (priorResult.error) throw priorResult.error;
+
+  const poTotal = Number(order.total_amount ?? order.total_value ?? 0);
+  const receivedValue = (linesResult.data || []).reduce((sum, line) => {
+    const ordered = Number(line.quantity_ordered || 0);
+    const received = Math.min(Number(line.quantity_received || 0), ordered);
+    const unitPrice = Number(line.unit_price ?? line.unit_cost ?? (ordered ? Number(line.line_total || 0) / ordered : 0));
+    return sum + received * unitPrice;
+  }, 0);
+  const priorMatched = (priorResult.data || []).reduce((sum, match) => match.invoice_id === invoiceId ? sum : sum + Number(match.matched_amount || 0), 0);
+  const authorizedRemaining = Math.max(0, poTotal - priorMatched);
+  const receivedRemaining = Math.max(0, receivedValue - priorMatched);
+  const tolerancePercent = 5;
+  const toleranceAmount = poTotal * tolerancePercent / 100;
+  let matchStatus = "matched";
+  let exceptionReason: string | null = null;
+  let varianceAmount = 0;
+
+  if (amount - authorizedRemaining > toleranceAmount + 0.005) {
+    matchStatus = "variance";
+    varianceAmount = amount - authorizedRemaining;
+    exceptionReason = `Invoice exceeds the remaining PO amount by ${varianceAmount.toFixed(2)}.`;
+  } else if (amount - receivedRemaining > 0.005) {
+    matchStatus = "pending_receipt";
+    varianceAmount = amount - receivedRemaining;
+    exceptionReason = `Receipt value is ${varianceAmount.toFixed(2)} short of this invoice.`;
+  }
+
+  return {
+    order,
+    row: {
+      invoice_id: invoiceId,
+      purchase_order_id: purchaseOrderId,
+      matched_amount: amount,
+      match_status: matchStatus,
+      tolerance_percent: tolerancePercent,
+      authorized_remaining: authorizedRemaining,
+      received_remaining: receivedRemaining,
+      variance_amount: Math.max(0, varianceAmount),
+      exception_reason: exceptionReason,
+      created_by: context.actor.id,
+      created_by_name: context.actor.fullName,
+    },
+  };
+}
+
+type LinkableInvoice = Record<string, unknown> & {
+  id: string;
+  status: string;
+  total_amount: unknown;
+  vendor_id?: unknown;
+  vendor_name?: unknown;
+};
+
+async function linkPurchaseOrder(context: InvoiceRequestContext, invoice: LinkableInvoice, purchaseOrderId: string) {
+  const built = await buildPoMatch(context, invoice.id, purchaseOrderId, Number(invoice.total_amount || 0));
+  const orderVendorId = text(built.order.vendor_id);
+  const invoiceVendorId = text(invoice.vendor_id);
+  const vendorMismatch = orderVendorId && invoiceVendorId
+    ? orderVendorId !== invoiceVendorId
+    : normalizedVendor(built.order.vendor_name) !== normalizedVendor(invoice.vendor_name);
+  if (vendorMismatch) throw new Error("The invoice vendor does not match the selected purchase order vendor.");
+
+  const removed = await context.admin.from("titan_ap_invoice_po_matches").delete().eq("invoice_id", invoice.id);
+  if (removed.error) throw removed.error;
+  const inserted = await context.admin.from("titan_ap_invoice_po_matches").insert(built.row).select("*").single();
+  if (inserted.error) throw inserted.error;
+  await activity(context, invoice.id, "po_linked", invoice.status, invoice.status, undefined, {
+    purchase_order_id: purchaseOrderId,
+    po_number: built.order.po_number,
+    match_status: built.row.match_status,
+  });
+  return inserted.data;
+}
+
 async function uploadFile(context: InvoiceRequestContext, invoiceId: string, file: File, kind: "original" | "corrected" | "supporting", documentType = "", note = "") {
   if (!allowedTypes.has(file.type)) throw new Error("Upload a PDF, JPG, or PNG invoice.");
   if (file.size <= 0 || file.size > 25 * 1024 * 1024) throw new Error("Invoice files must be between 1 byte and 25 MB.");
@@ -217,6 +311,7 @@ async function cleanupFailedInvoice(context: InvoiceRequestContext, invoiceId: s
   await context.admin.from("titan_ap_invoice_notification_deliveries").delete().eq("invoice_id", invoiceId);
   await context.admin.from("titan_ap_invoice_activity").delete().eq("invoice_id", invoiceId);
   await context.admin.from("titan_ap_invoice_files").delete().eq("invoice_id", invoiceId);
+  await context.admin.from("titan_ap_invoice_po_matches").delete().eq("invoice_id", invoiceId);
   await context.admin.from("titan_ap_invoices").delete().eq("id", invoiceId);
 }
 
@@ -262,6 +357,43 @@ export async function GET(request: Request) {
 
     const invoices = invoiceResult.data || [];
     const ids = invoices.map((row) => row.id);
+    const [poResult, poLineResult, allPoMatchResult] = await Promise.all([
+      context.admin.from("purchase_orders").select("*").order("created_at", { ascending: false }),
+      context.admin.from("purchase_order_lines").select("purchase_order_id,quantity_ordered,quantity_received,unit_price,unit_cost,line_total"),
+      context.admin.from("titan_ap_invoice_po_matches").select("*"),
+    ]);
+    const poIntegrationReady = !poResult.error && !poLineResult.error && !allPoMatchResult.error;
+    const poLines = poIntegrationReady ? poLineResult.data || [] : [];
+    const allPoMatches = poIntegrationReady ? allPoMatchResult.data || [] : [];
+    const purchaseOrders = poIntegrationReady ? (poResult.data || []).map((order) => {
+        const lines = poLines.filter((line) => line.purchase_order_id === order.id);
+        const receivedAmount = lines.reduce((sum, line) => {
+          const ordered = Number(line.quantity_ordered || 0);
+          const received = Math.min(Number(line.quantity_received || 0), ordered);
+          const unitPrice = Number(line.unit_price ?? line.unit_cost ?? (ordered ? Number(line.line_total || 0) / ordered : 0));
+          return sum + received * unitPrice;
+        }, 0);
+        const invoicedAmount = allPoMatches.filter((match) => match.purchase_order_id === order.id).reduce((sum, match) => sum + Number(match.matched_amount || 0), 0);
+        const totalAmount = Number(order.total_amount ?? order.total_value ?? 0);
+        return {
+          id: order.id,
+          po_number: order.po_number,
+          vendor_id: order.vendor_id,
+          vendor_name: order.vendor_name,
+          yard_id: order.yard_id,
+          status: order.status,
+          order_date: order.order_date,
+          total_amount: totalAmount,
+          received_amount: receivedAmount,
+          invoiced_amount: invoicedAmount,
+          remaining_amount: Math.max(0, totalAmount - invoicedAmount),
+          eligible_for_invoice: !["Draft", "Submitted", "Rejected", "Cancelled", "Closed"].includes(order.status),
+        };
+      }) : [];
+    const visibleInvoiceIds = new Set(ids);
+    const accessiblePurchaseOrders = context.isAp || context.isAdmin
+      ? purchaseOrders
+      : purchaseOrders.filter((order) => allPoMatches.some((match) => match.purchase_order_id === order.id && visibleInvoiceIds.has(match.invoice_id)));
     const profileIds = Array.from(new Set(invoices.flatMap((row) => [row.assigned_approver_id, row.uploaded_by]).filter(Boolean)));
     const [coding, files, approvals, activityRows, deliveries, profiles] = ids.length ? await Promise.all([
       context.admin.from("titan_ap_invoice_coding_lines").select("*").in("invoice_id", ids).order("line_number"),
@@ -284,6 +416,9 @@ export async function GET(request: Request) {
       approvals: approvals.data || [],
       activity: activityRows.data || [],
       notificationDeliveries: deliveries.data || [],
+      purchaseOrders: accessiblePurchaseOrders,
+      poMatches: allPoMatches.filter((match) => ids.includes(match.invoice_id)),
+      poIntegrationReady,
       vendors: vendorResult.data || [],
       yards: yardResult.data || [],
       accountingCodes: codeResult.data || [],
@@ -305,8 +440,16 @@ async function createInvoice(request: Request, context: InvoiceRequestContext, f
   if (!context.isAp || !context.invoicePermissions.create) throw new Error("Only AP can upload invoices.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select the invoice PDF or image.");
-  const vendorId = text(form.get("vendorId"));
+  const purchaseOrderId = text(form.get("purchaseOrderId"));
+  let vendorId = text(form.get("vendorId"));
   let vendorName = text(form.get("vendorName"));
+  let yardId = text(form.get("yardId"));
+  if (purchaseOrderId) {
+    const order = await purchaseOrderDetails(context, purchaseOrderId);
+    vendorId = text(order.vendor_id);
+    vendorName = text(order.vendor_name);
+    yardId = text(order.yard_id) || yardId;
+  }
   if (vendorId) {
     const vendor = await context.admin.from("inventory_vendors").select("vendor_name").eq("id", vendorId).single();
     if (vendor.error || !vendor.data) throw new Error("Select a valid vendor.");
@@ -323,7 +466,7 @@ async function createInvoice(request: Request, context: InvoiceRequestContext, f
   if (matches.length && !acknowledged) return Response.json({ duplicateWarning: true, matches }, { status: 409 });
 
   const inserted = await context.admin.from("titan_ap_invoices").insert({
-    yard_id: text(form.get("yardId")) || null,
+    yard_id: yardId || null,
     vendor_id: vendorId || null,
     vendor_name: vendorName,
     invoice_number: invoiceNumber,
@@ -344,6 +487,7 @@ async function createInvoice(request: Request, context: InvoiceRequestContext, f
     await uploadFile(context, inserted.data.id, file, "original");
     await activity(context, inserted.data.id, "uploaded", null, "awaiting_approval", text(form.get("notes")), { invoice_number: invoiceNumber, vendor_name: vendorName, total_amount: totalAmount });
     await activity(context, inserted.data.id, "assigned", "awaiting_approval", "awaiting_approval", undefined, { approver_id: approverId });
+    if (purchaseOrderId) await linkPurchaseOrder(context, inserted.data, purchaseOrderId);
     if (matches.length) await activity(context, inserted.data.id, "duplicate_acknowledged", "awaiting_approval", "awaiting_approval", text(form.get("duplicateNote")), { matching_invoice_ids: matches.map((row) => row.id) });
   } catch (error) {
     await cleanupFailedInvoice(context, inserted.data.id);
@@ -409,6 +553,26 @@ export async function POST(request: Request) {
 
     if (!invoiceId) throw new Error("Invoice is required.");
     const invoice = await getInvoice(context, invoiceId);
+
+    if (action === "link_po") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can link purchase orders.");
+      if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoices are locked.");
+      const purchaseOrderId = text(body.purchaseOrderId);
+      if (!purchaseOrderId) throw new Error("Select a purchase order.");
+      const match = await linkPurchaseOrder(context, invoice, purchaseOrderId);
+      return Response.json({ ok: true, match });
+    }
+
+    if (action === "unlink_po") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can unlink purchase orders.");
+      if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoices are locked.");
+      const current = await context.admin.from("titan_ap_invoice_po_matches").select("purchase_order_id").eq("invoice_id", invoiceId);
+      if (current.error) throw current.error;
+      const removed = await context.admin.from("titan_ap_invoice_po_matches").delete().eq("invoice_id", invoiceId);
+      if (removed.error) throw removed.error;
+      await activity(context, invoiceId, "po_unlinked", invoice.status, invoice.status, undefined, { purchase_order_ids: (current.data || []).map((row) => row.purchase_order_id) });
+      return Response.json({ ok: true });
+    }
 
     if (action === "save_coding") {
       if (!context.invoicePermissions.approve) throw new Error("You do not have permission to code invoices.");
@@ -539,12 +703,28 @@ export async function POST(request: Request) {
       if (!vendorName || !invoiceNumber || !text(body.invoiceDate) || !Number.isFinite(totalAmount) || totalAmount < 0) throw new Error("Vendor, invoice number, invoice date, and amount are required.");
       const matches = await duplicateMatches(context, vendorName, invoiceNumber, invoiceId);
       if (matches.length && body.duplicateAcknowledged !== true) return Response.json({ duplicateWarning: true, matches }, { status: 409 });
+      const poMatchResult = await context.admin.from("titan_ap_invoice_po_matches").select("purchase_order_id").eq("invoice_id", invoiceId).limit(1);
+      if (poMatchResult.error) throw poMatchResult.error;
+      const linkedPoId = text(poMatchResult.data?.[0]?.purchase_order_id);
+      if (linkedPoId) {
+        const order = await purchaseOrderDetails(context, linkedPoId);
+        const requestedVendorId = text(body.vendorId);
+        if ((requestedVendorId && text(order.vendor_id) && requestedVendorId !== text(order.vendor_id)) || (!requestedVendorId && normalizedVendor(vendorName) !== normalizedVendor(order.vendor_name))) {
+          throw new Error("Unlink the purchase order before changing this invoice to a different vendor.");
+        }
+      }
       await applyInvoiceAction(context, invoiceId, "update_invoice", {
         yard_id: text(body.yardId), vendor_id: text(body.vendorId), vendor_name: vendorName,
         invoice_number: invoiceNumber, invoice_date: text(body.invoiceDate), due_date: text(body.dueDate),
         total_amount: totalAmount, notes: text(body.notes), duplicate_acknowledged: matches.length > 0,
         duplicate_note: matches.length ? text(body.duplicateNote) || "AP reviewed the possible duplicate warning." : "",
       });
+      if (linkedPoId) await linkPurchaseOrder(context, {
+        ...invoice,
+        vendor_id: text(body.vendorId),
+        vendor_name: vendorName,
+        total_amount: totalAmount,
+      }, linkedPoId);
       return Response.json({ ok: true });
     }
 
