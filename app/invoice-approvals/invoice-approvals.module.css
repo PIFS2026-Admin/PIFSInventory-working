@@ -5,7 +5,7 @@
 .page button:disabled { cursor: not-allowed; opacity: .5; }
 .page input, .page select, .page textarea { width: 100%; min-height: 40px; padding: 8px 10px; }
 .page textarea { min-height: 76px; resize: vertical; }
-.header, .metrics, .uploadPanel, .tabs, .filters, .invoiceList, .codesPanel, .detailGrid, .editPanel, .codingPanel, .actionPanel, .signature, .activity, .notice, .setup { max-width: 1680px; margin-inline: auto; }
+.header, .metrics, .uploadPanel, .tabs, .filters, .invoiceList, .codesPanel, .detailGrid, .editPanel, .codingPanel, .actionPanel, .signature, .deliveryPanel, .activity, .notice, .configurationAlert, .setup { max-width: 1680px; margin-inline: auto; }
 .header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 18px; border-bottom: 2px solid #ff7417; }
 .header h1 { margin: 3px 0 0; font-size: 30px; letter-spacing: 0; }
 .header p { margin: 5px 0 0; color: #9daabc; }
@@ -14,11 +14,14 @@
 .page .primary { border-color: #ff7417; background: #ff7417; color: #111; }
 .page .danger { border-color: #9b3640; background: #451b20; color: #ffd4d7; }
 .notice { margin-top: 12px; padding: 11px 13px; border: 1px solid #805127; background: #21170f; color: #ffd2b4; }
+.configurationAlert { display: flex; gap: 10px; margin-top: 12px; padding: 11px 13px; border: 1px solid #805127; background: #21170f; color: #ffd2b4; }
+.configurationAlert svg { flex: 0 0 auto; }
+.configurationAlert p { margin: 3px 0 0; color: #d7c1b0; font-size: 12px; }
 .metrics { display: grid; grid-template-columns: repeat(6, 1fr); margin-top: 14px; border: 1px solid #344052; border-right: 0; }
 .metrics div { padding: 13px; border-right: 1px solid #344052; background: #111820; }
 .metrics span { display: block; color: #8fa0b6; font-size: 9px; font-weight: 800; text-transform: uppercase; }
 .metrics strong { display: block; margin-top: 4px; font-size: 22px; }
-.uploadPanel, .codesPanel, .editPanel, .codingPanel, .actionPanel, .activity { margin-top: 14px; border: 1px solid #344052; background: #11161d; }
+.uploadPanel, .codesPanel, .editPanel, .codingPanel, .actionPanel, .deliveryPanel, .activity { margin-top: 14px; border: 1px solid #344052; background: #11161d; }
 .sectionHeading { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border-bottom: 1px solid #344052; }
 .sectionHeading h2 { margin: 3px 0 0; font-size: 17px; letter-spacing: 0; }
 .formGrid { display: grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap: 11px; padding: 13px; }
@@ -114,6 +117,12 @@
 .closeoutControls label { display: grid; gap: 5px; }
 .closeoutControls textarea { min-height: 62px; }
 .closeoutActions { display: flex; justify-content: flex-end; gap: 8px; }
+.correctionControls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding: 12px; border-top: 1px solid #344052; background: #0d1319; }
+.correctionControls > div:first-child, .correctionControls label { display: grid; gap: 5px; }
+.correctionControls > div:first-child, .correctionControls > button { grid-column: 1 / -1; justify-self: start; }
+.correctionControls > div:first-child span, .correctionControls label > span { color: #ff8a3c; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.correctionControls textarea { min-height: 62px; }
+.correctionControls .correctionReason, .correctionControls .closeoutActions { grid-column: 1 / -1; }
 .totals { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; color: #9daabc; font-size: 11px; }
 .balanced { color: #79d8af; }
 .unbalanced { color: #ff9fa7; }
@@ -146,6 +155,16 @@
 .activity > div > span { color: #ff9b58; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .activity p { margin: 0; color: #9daabc; }
 .activity time { color: #7f8da0; font-size: 10px; }
+.deliveryPanel { overflow-x: auto; }
+.deliveryHeader, .deliveryRow { display: grid; min-width: 960px; grid-template-columns: 1.5fr 1.1fr 1fr 1fr 130px; gap: 12px; align-items: center; padding: 9px 12px; }
+.deliveryHeader { color: #8fa0b6; background: #171e27; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.deliveryRow { min-height: 58px; border-bottom: 1px solid #28313d; }
+.deliveryRow > span { display: grid; gap: 3px; min-width: 0; }
+.deliveryRow strong, .deliveryRow small { overflow-wrap: anywhere; }
+.deliveryRow small, .deliveryRow time { color: #8998aa; font-size: 10px; }
+.deliveryRow i { width: fit-content; padding: 3px 6px; border: 1px solid #657181; border-radius: 10px; color: #d4dae2; font-size: 9px; font-style: normal; font-weight: 800; text-transform: uppercase; }
+.deliveryRow i[data-status="sent"] { border-color: #2c8c68; color: #aaf0d3; }
+.deliveryRow i[data-status="failed"] { border-color: #a03d47; color: #ffc8ce; }
 .codeForm { display: grid; grid-template-columns: 180px 1fr 100px auto; gap: 9px; padding: 12px; }
 .toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #344052; }
 .toggle input { width: 17px; min-height: 17px; accent-color: #ff7417; }
@@ -171,6 +190,10 @@
   .supportingUpload .fileField { min-width: 0; }
   .resolveDispute { grid-template-columns: 1fr; }
   .closeoutControls { grid-template-columns: 1fr; }
+  .deliveryPanel { overflow-x: visible; }
+  .deliveryHeader { display: none; }
+  .deliveryRow { min-width: 0; grid-template-columns: 1fr 1fr; margin: 10px; border: 1px solid #344052; }
+  .deliveryRow > span:first-child, .deliveryRow > span:nth-child(2), .deliveryRow time { grid-column: 1 / -1; }
   .invoicePreview { min-height: 420px; }
   .invoicePreview iframe { height: 520px; }
   .actionPanel { grid-template-columns: 1fr; }
@@ -218,6 +241,9 @@
   .reassign { grid-template-columns: 1fr; }
   .supportingUpload { grid-template-columns: 1fr; }
   .supportingUpload > div { grid-column: 1; }
+  .correctionControls, .deliveryRow { grid-template-columns: 1fr; }
+  .correctionControls > *, .deliveryRow > * { grid-column: 1 !important; }
+  .closeoutActions { flex-direction: column; }
   .signature { align-items: flex-start; flex-wrap: wrap; }
   .signature img { order: 3; width: 100%; max-height: 100px; }
   .page .invoiceRow { grid-template-columns: 1fr; }

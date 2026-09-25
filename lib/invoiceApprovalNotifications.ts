@@ -28,6 +28,7 @@ type Notice = {
   category: string;
 };
 type DeliveryResult = { delivered: number; warnings: string[] };
+type ChannelDelivery = { userId: string; status: string; error?: string };
 
 const defaultVapidSubject = "mailto:notifications@pifstitan.com";
 
@@ -146,9 +147,17 @@ async function eligibleRecipients(admin: AdminClient, userIds: string[], require
 async function sendEmails(recipients: Recipient[], notice: Notice, actionUrl: string) {
   const from = text(process.env.MICROSOFT_MAIL_FROM);
   const recipientsWithEmail = recipients.filter((recipient) => recipient.email.includes("@"));
-  if (!from || !recipientsWithEmail.length) return { sentIds: [] as string[], warning: !from ? "Microsoft 365 invoice email is not configured." : "One or more recipients do not have an email address." };
-  const token = await microsoftAccessToken();
-  if (!token) return { sentIds: [] as string[], warning: "Microsoft 365 invoice email is not configured." };
+  const missing = recipients.filter((recipient) => !recipient.email.includes("@")).map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "missing_address", error: "No email address is saved for this user." }));
+  if (!from) return { sentIds: [] as string[], deliveries: [...missing, ...recipientsWithEmail.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "not_configured", error: "Microsoft 365 invoice email is not configured." }))], warning: "Microsoft 365 invoice email is not configured." };
+  if (!recipientsWithEmail.length) return { sentIds: [] as string[], deliveries: missing, warning: "One or more recipients do not have an email address." };
+  let token = "";
+  try {
+    token = await microsoftAccessToken();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Microsoft authentication failed.";
+    return { sentIds: [] as string[], deliveries: [...missing, ...recipientsWithEmail.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "failed", error: message }))], warning: message };
+  }
+  if (!token) return { sentIds: [] as string[], deliveries: [...missing, ...recipientsWithEmail.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "not_configured", error: "Microsoft 365 invoice email is not configured." }))], warning: "Microsoft 365 invoice email is not configured." };
 
   const results = await Promise.allSettled(recipientsWithEmail.map(async (recipient) => {
     const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
@@ -168,22 +177,29 @@ async function sendEmails(recipients: Recipient[], notice: Notice, actionUrl: st
   }));
   const sentIds = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const failed = results.length - sentIds.length;
-  const missing = recipients.length - recipientsWithEmail.length;
   const warnings = [
-    missing ? `${missing} recipient${missing === 1 ? " does" : "s do"} not have an email address.` : "",
+    missing.length ? `${missing.length} recipient${missing.length === 1 ? " does" : "s do"} not have an email address.` : "",
     failed ? `${failed} invoice email notification${failed === 1 ? "" : "s"} could not be sent.` : "",
   ].filter(Boolean);
-  return { sentIds, warning: warnings.join(" ") };
+  const deliveries = [
+    ...missing,
+    ...recipientsWithEmail.map((recipient, index): ChannelDelivery => results[index].status === "fulfilled"
+      ? { userId: recipient.id, status: "sent" }
+      : { userId: recipient.id, status: "failed", error: (results[index] as PromiseRejectedResult).reason instanceof Error ? (results[index] as PromiseRejectedResult).reason.message : "Email delivery failed." }),
+  ];
+  return { sentIds, deliveries, warning: warnings.join(" ") };
 }
 
 async function sendPush(admin: AdminClient, recipients: Recipient[], notice: Notice, path: string, tag: string) {
-  if (!configureWebPush()) return { sent: 0, warning: "Invoice push delivery is not configured." };
+  if (!configureWebPush()) return { sent: 0, deliveries: recipients.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "not_configured", error: "Invoice push delivery is not configured." })), warning: "Invoice push delivery is not configured." };
   const result = await admin.from("push_subscriptions").select("id,user_id,endpoint,p256dh,auth_secret").in("user_id", recipients.map((recipient) => recipient.id)).eq("is_active", true);
   if (result.error) throw result.error;
   const subscriptions = result.data || [];
-  if (!subscriptions.length) return { sent: 0, warning: "No recipient devices have push notifications enabled." };
+  if (!subscriptions.length) return { sent: 0, deliveries: recipients.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "not_enabled", error: "No device has push notifications enabled." })), warning: "No recipient devices have push notifications enabled." };
   const expired: string[] = [];
   let sent = 0;
+  const sentUserIds = new Set<string>();
+  const errorsByUser = new Map<string, string>();
   await Promise.all(subscriptions.map(async (subscription) => {
     if (!subscription.endpoint || !subscription.p256dh || !subscription.auth_secret) return;
     try {
@@ -193,16 +209,23 @@ async function sendPush(admin: AdminClient, recipients: Recipient[], notice: Not
         { TTL: 60 * 60 * 24, urgency: notice.priority === "urgent" ? "high" : "normal" },
       );
       sent += 1;
+      sentUserIds.add(subscription.user_id);
     } catch (error) {
       const statusCode = (error as { statusCode?: number }).statusCode;
       if (statusCode === 404 || statusCode === 410) expired.push(subscription.id);
       else console.error("Invoice approval push failed", error);
+      errorsByUser.set(subscription.user_id, error instanceof Error ? error.message : "Push delivery failed.");
     }
   }));
   if (expired.length) await admin.from("push_subscriptions").update({ is_active: false, updated_at: new Date().toISOString() }).in("id", expired);
   const subscribedUserIds = new Set(subscriptions.map((subscription) => subscription.user_id));
   const missingRecipients = recipients.filter((recipient) => !subscribedUserIds.has(recipient.id)).length;
-  return { sent, warning: missingRecipients ? `${missingRecipients} recipient${missingRecipients === 1 ? " does" : "s do"} not have push notifications enabled.` : "" };
+  const deliveries = recipients.map((recipient): ChannelDelivery => sentUserIds.has(recipient.id)
+    ? { userId: recipient.id, status: "sent" }
+    : !subscribedUserIds.has(recipient.id)
+      ? { userId: recipient.id, status: "not_enabled", error: "No device has push notifications enabled." }
+      : { userId: recipient.id, status: "failed", error: errorsByUser.get(recipient.id) || "Push delivery failed." });
+  return { sent, deliveries, warning: missingRecipients ? `${missingRecipients} recipient${missingRecipients === 1 ? " does" : "s do"} not have push notifications enabled.` : "" };
 }
 
 async function deliver(admin: AdminClient, recipients: Recipient[], invoice: InvoiceRow, notice: Notice, actorId: string | null, existingKeys?: Set<string>) {
@@ -228,13 +251,35 @@ async function deliver(admin: AdminClient, recipients: Recipient[], invoice: Inv
 
   const warnings: string[] = [];
   const [emailResult, pushResult] = await Promise.all([
-    sendEmails(filteredRecipients, notice, actionUrl).catch((error) => ({ sentIds: [] as string[], warning: error instanceof Error ? error.message : "Invoice email delivery failed." })),
-    sendPush(admin, filteredRecipients, notice, path, `invoice-${notice.category}-${invoice.id}`).catch((error) => ({ sent: 0, warning: error instanceof Error ? error.message : "Invoice push delivery failed." })),
+    sendEmails(filteredRecipients, notice, actionUrl).catch((error) => ({ sentIds: [] as string[], deliveries: filteredRecipients.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "failed", error: error instanceof Error ? error.message : "Invoice email delivery failed." })), warning: error instanceof Error ? error.message : "Invoice email delivery failed." })),
+    sendPush(admin, filteredRecipients, notice, path, `invoice-${notice.category}-${invoice.id}`).catch((error) => ({ sent: 0, deliveries: filteredRecipients.map((recipient): ChannelDelivery => ({ userId: recipient.id, status: "failed", error: error instanceof Error ? error.message : "Invoice push delivery failed." })), warning: error instanceof Error ? error.message : "Invoice push delivery failed." })),
   ]);
   if (emailResult.warning) warnings.push(emailResult.warning);
   if (pushResult.warning) warnings.push(pushResult.warning);
   const emailedNotificationIds = (inserted.data || []).filter((row) => emailResult.sentIds.includes(row.recipient_user_id)).map((row) => row.id);
   if (emailedNotificationIds.length) await admin.from("notifications").update({ email_sent_at: new Date().toISOString() }).in("id", emailedNotificationIds);
+  const notificationByRecipient = new Map((inserted.data || []).map((row) => [row.recipient_user_id, row.id]));
+  const emailByRecipient = new Map(emailResult.deliveries.map((delivery) => [delivery.userId, delivery]));
+  const pushByRecipient = new Map(pushResult.deliveries.map((delivery) => [delivery.userId, delivery]));
+  const auditRows = filteredRecipients.map((recipient) => {
+    const email = emailByRecipient.get(recipient.id);
+    const push = pushByRecipient.get(recipient.id);
+    return {
+      invoice_id: invoice.id,
+      notification_id: notificationByRecipient.get(recipient.id) || null,
+      event_category: notice.category,
+      event_title: notice.title,
+      recipient_user_id: recipient.id,
+      recipient_name: recipient.name,
+      recipient_email: recipient.email || null,
+      email_status: email?.status || "failed",
+      email_error: email?.error || null,
+      push_status: push?.status || "failed",
+      push_error: push?.error || null,
+    };
+  });
+  const deliveryAudit = await admin.from("titan_ap_invoice_notification_deliveries").insert(auditRows);
+  if (deliveryAudit.error) warnings.push("Notification recipients were contacted, but their delivery audit could not be saved.");
   filteredRecipients.forEach((recipient) => existingKeys?.add(`${recipient.id}|${notice.title}|${actionUrl}`));
   return { delivered: filteredRecipients.length, warnings: Array.from(new Set(warnings)) };
 }

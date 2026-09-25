@@ -25,11 +25,13 @@ type Yard = { id: string; name: string; code: string };
 type StoredFile = { id: string; invoice_id: string; file_kind: string; document_type?: string | null; version_number: number; is_current: boolean; original_file_name: string; mime_type: string; file_size: number; uploaded_by_name: string; uploaded_at: string };
 type Approval = { id: string; invoice_id: string; approver_name: string; approver_id: string; approved_at: string; approved_total: number; approval_statement: string; signature_version: string; signature_storage_path?: string | null };
 type Activity = { id: string; invoice_id: string; action: string; actor_name: string; note: string | null; created_at: string };
+type NotificationDelivery = { id: string; invoice_id: string; event_title: string; recipient_name: string; recipient_email: string | null; email_status: string; email_error: string | null; push_status: string; push_error: string | null; created_at: string };
 type Permissions = { view: boolean; create: boolean; edit: boolean; approve: boolean; export: boolean; manageSettings: boolean; isAp: boolean; isAdmin: boolean };
-type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; approvalStatement: string };
+type NotificationConfiguration = { emailConfigured: boolean; pushConfigured: boolean; reminderConfigured: boolean };
+type Data = { setupRequired: boolean; error?: string; actor?: { id: string; fullName: string }; permissions?: Permissions; invoices: Invoice[]; codingLines: CodingLine[]; accountingCodes: AccountingCode[]; approvers: Person[]; vendors: Vendor[]; yards: Yard[]; files: StoredFile[]; approvals: Approval[]; activity: Activity[]; notificationDeliveries: NotificationDelivery[]; approvalStatement: string; notificationConfiguration?: NotificationConfiguration };
 type Tab = "mine" | "awaiting" | "returned" | "disputed" | "approved" | "archived" | "voided" | "all" | "codes";
 
-const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], files: [], approvals: [], activity: [], approvalStatement: "" };
+const emptyData: Data = { setupRequired: false, invoices: [], codingLines: [], accountingCodes: [], approvers: [], vendors: [], yards: [], files: [], approvals: [], activity: [], notificationDeliveries: [], approvalStatement: "" };
 const emptyLine = (): CodingLine => ({ accounting_code_id: "", accounting_code_search: "", amount: "", cost_center: "", department: "", job_number: "", description: "" });
 const today = new Date().toISOString().slice(0, 10);
 
@@ -118,6 +120,8 @@ export default function InvoiceApprovalsPage() {
   const [paymentDate, setPaymentDate] = useState(today);
   const [archiveNote, setArchiveNote] = useState("");
   const [showArchive, setShowArchive] = useState(false);
+  const [showCloseoutCorrection, setShowCloseoutCorrection] = useState(false);
+  const [closeoutCorrectionReason, setCloseoutCorrectionReason] = useState("");
   const previewRequestId = useRef(0);
 
   const load = async (keepNotice = false) => {
@@ -145,6 +149,7 @@ export default function InvoiceApprovalsPage() {
   const previewFile = selectedFiles.find((file) => file.id === previewFileId) || null;
   const selectedApproval = data.approvals.find((approval) => approval.invoice_id === selectedId);
   const selectedActivity = data.activity.filter((item) => item.invoice_id === selectedId);
+  const selectedDeliveries = data.notificationDeliveries.filter((item) => item.invoice_id === selectedId);
   const currentUserId = data.actor?.id || "";
   const selectedIsApproved = Boolean(selected && ["approved", "posted", "paid", "archived"].includes(selected.status));
   const canAct = Boolean(selected && selected.status === "awaiting_approval" && selected.assigned_approver_id === currentUserId && data.permissions?.approve);
@@ -177,6 +182,8 @@ export default function InvoiceApprovalsPage() {
     setPaymentDate(selected.payment_date || today);
     setArchiveNote(selected.archive_note || "");
     setShowArchive(false);
+    setShowCloseoutCorrection(false);
+    setCloseoutCorrectionReason("");
     setEditDuplicateMatches([]);
     setEditForm({ vendorId: selected.vendor_id || "", vendorName: selected.vendor_name, invoiceNumber: selected.invoice_number, invoiceDate: selected.invoice_date, dueDate: selected.due_date || "", totalAmount: String(selected.total_amount), yardId: selected.yard_id || "", notes: selected.notes || "", duplicateAcknowledged: false, duplicateNote: "" });
   }, [selectedId, data.codingLines.length, selected?.status]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -426,7 +433,7 @@ export default function InvoiceApprovalsPage() {
     } finally { setBusy(false); }
   };
 
-  if (data.setupRequired) return <main className={styles.page}><section className={styles.setup}><AlertTriangle /><div><span>DATABASE SETUP REQUIRED</span><h1>Invoice Approvals</h1><p>{data.error}</p><code>supabase/titan_invoice_approval.sql</code></div></section></main>;
+  if (data.setupRequired) return <main className={styles.page}><section className={styles.setup}><AlertTriangle /><div><span>DATABASE SETUP REQUIRED</span><h1>Invoice Approvals</h1><p>{data.error}</p><code>{data.error?.includes("rollout_hardening") ? "supabase/titan_invoice_rollout_hardening.sql" : "supabase/titan_invoice_approval.sql"}</code></div></section></main>;
 
   if (selected) return (
     <main className={styles.page}>
@@ -466,6 +473,7 @@ export default function InvoiceApprovalsPage() {
           {data.permissions?.isAp && selected.status === "approved" && <div className={styles.closeoutControls}><div><span>AP CLOSEOUT</span><strong>Post to accounting</strong></div><label><span>Posting reference</span><input placeholder="Batch or voucher number" value={postingReference} onChange={(event) => setPostingReference(event.target.value)} /></label><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "posted", postingReference }), "Invoice marked as posted.")} disabled={busy || !postingReference.trim()}><ClipboardCheck size={16} /> Mark Posted</button></div>}
           {data.permissions?.isAp && selected.status === "posted" && <div className={styles.closeoutControls}><div><span>AP CLOSEOUT</span><strong>Record payment</strong></div><label><span>Payment date</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label><span>Payment reference</span><input placeholder="Check, ACH, or wire reference" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></label><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "paid", paymentDate, paymentReference }), "Invoice marked as paid.")} disabled={busy || !paymentDate || !paymentReference.trim()}><CircleDollarSign size={16} /> Mark Paid</button></div>}
           {data.permissions?.isAp && selected.status === "paid" && <div className={styles.closeoutControls}>{!showArchive ? <button type="button" onClick={() => setShowArchive(true)}><Archive size={16} /> Archive Paid Invoice</button> : <><div><span>FINAL CLOSEOUT</span><strong>Archive this paid invoice</strong></div><label><span>Archive note (optional)</span><textarea value={archiveNote} onChange={(event) => setArchiveNote(event.target.value)} /></label><div className={styles.closeoutActions}><button type="button" onClick={() => setShowArchive(false)}>Cancel</button><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "closeout", invoiceId: selected.id, nextStatus: "archived", archiveNote }), "Invoice archived. The full record remains searchable.")} disabled={busy}><Archive size={16} /> Confirm Archive</button></div></>}</div>}
+          {data.permissions?.isAp && ["posted", "paid", "archived"].includes(selected.status) && <div className={styles.correctionControls}>{!showCloseoutCorrection ? <button type="button" onClick={() => setShowCloseoutCorrection(true)}><RotateCcw size={16} /> Correct or Reopen Closeout</button> : <><div><span>CONTROLLED CORRECTION</span><strong>Reason and prior values remain in history</strong></div><label><span>Posting reference</span><input value={postingReference} onChange={(event) => setPostingReference(event.target.value)} /></label>{["paid", "archived"].includes(selected.status) && <><label><span>Payment date</span><input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label><label><span>Payment reference</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></label></>}{selected.status === "archived" && <label><span>Archive note</span><textarea value={archiveNote} onChange={(event) => setArchiveNote(event.target.value)} /></label>}<label className={styles.correctionReason}><span>Required reason</span><textarea value={closeoutCorrectionReason} onChange={(event) => setCloseoutCorrectionReason(event.target.value)} /></label><div className={styles.closeoutActions}><button type="button" onClick={() => { setShowCloseoutCorrection(false); setCloseoutCorrectionReason(""); }}>Cancel</button><button type="button" onClick={() => run(() => api({ action: "reverse_closeout", invoiceId: selected.id, reason: closeoutCorrectionReason }), "Invoice reopened to the previous closeout step.")} disabled={busy || !closeoutCorrectionReason.trim()}><RotateCcw size={16} /> Reopen Previous Step</button><button type="button" className={styles.primary} onClick={() => run(() => api({ action: "correct_closeout", invoiceId: selected.id, reason: closeoutCorrectionReason, postingReference, paymentReference, paymentDate, archiveNote }), "Closeout details corrected with a complete audit record.")} disabled={busy || !closeoutCorrectionReason.trim() || !postingReference.trim() || (["paid", "archived"].includes(selected.status) && (!paymentReference.trim() || !paymentDate))}><Save size={16} /> Save Corrections</button></div></>}</div>}
         </div>
       </section>
 
@@ -512,6 +520,7 @@ export default function InvoiceApprovalsPage() {
       </section>}
 
       {selectedApproval && <section className={styles.signature}><Check size={22} />{approvalSignatureUrl && <img src={approvalSignatureUrl} alt={`${selectedApproval.approver_name} signature`} />}<div><span>AUTHENTICATED ELECTRONIC APPROVAL</span><strong>{selectedApproval.approver_name}</strong><p>{dateText(selectedApproval.approved_at, true)} · User ID {selectedApproval.approver_id}</p></div></section>}
+      {selectedDeliveries.length > 0 && <section className={styles.deliveryPanel}><div className={styles.sectionHeading}><div><span>NOTIFICATIONS</span><h2>Recipients and delivery</h2></div></div><div className={styles.deliveryHeader}><span>Event</span><span>Recipient</span><span>Email</span><span>Push</span><span>Sent</span></div>{selectedDeliveries.map((delivery) => <div className={styles.deliveryRow} key={delivery.id}><span><strong>{delivery.event_title}</strong></span><span><strong>{delivery.recipient_name}</strong><small>{delivery.recipient_email || "No email address"}</small></span><span><i data-status={delivery.email_status}>{delivery.email_status.replaceAll("_", " ")}</i>{delivery.email_error && <small>{delivery.email_error}</small>}</span><span><i data-status={delivery.push_status}>{delivery.push_status.replaceAll("_", " ")}</i>{delivery.push_error && <small>{delivery.push_error}</small>}</span><time>{dateText(delivery.created_at, true)}</time></div>)}</section>}
       <section className={styles.activity}><div className={styles.sectionHeading}><div><span>HISTORY</span><h2>Activity</h2></div></div>{selectedActivity.map((item) => <div key={item.id}><span>{item.action.replaceAll("_", " ")}</span><strong>{item.actor_name}</strong><p>{item.note || ""}</p><time>{dateText(item.created_at, true)}</time></div>)}</section>
     </main>
   );
@@ -523,10 +532,14 @@ export default function InvoiceApprovalsPage() {
     ...(data.permissions?.isAp ? [{ key: "archived" as Tab, label: "Archive", count: counts.archived }, { key: "voided" as Tab, label: "Voided", count: counts.voided }, { key: "all" as Tab, label: "All", count: counts.all }] : []),
     ...(data.permissions?.manageSettings ? [{ key: "codes" as Tab, label: "Accounting Codes" }] : []),
   ];
+  const missingNotificationSetup = data.notificationConfiguration
+    ? [!data.notificationConfiguration.emailConfigured && "Microsoft email", !data.notificationConfiguration.pushConfigured && "push notifications", !data.notificationConfiguration.reminderConfigured && "daily reminders"].filter(Boolean)
+    : [];
 
   return <main className={styles.page}>
     <header className={styles.header}><div><span className={styles.eyebrow}>Accounts Payable</span><h1>Invoice Approval and Coding</h1><p>Upload once, code, approve, and preserve the complete record.</p></div><div className={styles.headerActions}><button title="Refresh" aria-label="Refresh" onClick={() => load()} disabled={loading}><RefreshCw size={17} /></button>{data.permissions?.isAp && <button className={styles.primary} onClick={() => setShowUpload((value) => !value)}><FilePlus2 size={17} /> New Invoice</button>}</div></header>
     {notice && <div className={styles.notice}>{notice}</div>}
+    {data.permissions?.isAp && missingNotificationSetup.length > 0 && <div className={styles.configurationAlert}><AlertTriangle size={18} /><div><strong>Notification setup needs attention</strong><p>Missing: {missingNotificationSetup.join(", ")}. In-app notifications will still be created.</p></div></div>}
     <section className={styles.metrics}><div><span>Awaiting Signature</span><strong>{counts.awaiting}</strong></div><div><span>My Approvals</span><strong>{counts.mine}</strong></div><div><span>Returned to AP</span><strong>{counts.returned}</strong></div><div><span>Disputed</span><strong>{counts.disputed}</strong></div><div><span>AP Closeout</span><strong>{counts.closeout}</strong></div><div><span>Archived</span><strong>{counts.archived}</strong></div></section>
 
     {showUpload && <section className={styles.uploadPanel}><div className={styles.sectionHeading}><div><span>NEW INVOICE</span><h2>Upload and assign</h2></div></div><div className={styles.formGrid}>

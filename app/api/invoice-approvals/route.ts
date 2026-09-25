@@ -39,6 +39,13 @@ function normalizedVendor(value: unknown) {
   return text(value).toLowerCase().replace(/\s+/g, " ");
 }
 
+function schemaSetupMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message || error || "");
+  return /notification_deliveries|register_invoice_file|apply_invoice_action/i.test(message)
+    ? "Run supabase/titan_invoice_rollout_hardening.sql to finish Invoice Approvals setup."
+    : "Run supabase/titan_invoice_approval.sql to enable Invoice Approvals.";
+}
+
 function safeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 120) || "invoice";
 }
@@ -118,6 +125,17 @@ async function activity(context: InvoiceRequestContext, invoiceId: string, actio
   if (result.error) throw result.error;
 }
 
+async function applyInvoiceAction(context: InvoiceRequestContext, invoiceId: string, action: string, payload: Record<string, unknown> = {}) {
+  const result = await context.admin.rpc("titan_ap_apply_invoice_action", {
+    p_invoice_id: invoiceId,
+    p_actor_id: context.actor.id,
+    p_actor_name: context.actor.fullName,
+    p_action: action,
+    p_payload: payload,
+  });
+  if (result.error) throw result.error;
+}
+
 async function workflowNotificationWarning(
   context: InvoiceRequestContext,
   invoice: Record<string, unknown> & { id: string },
@@ -150,7 +168,7 @@ async function duplicateMatches(context: InvoiceRequestContext, vendorName: stri
   return (result.data || []).filter((row) => row.id !== excludeId && row.status !== "voided" && normalizedVendor(row.vendor_name) === normalizedVendor(vendorName) && normalizedInvoice(row.invoice_number) === normalizedInvoice(invoiceNumber));
 }
 
-async function uploadFile(context: InvoiceRequestContext, invoiceId: string, file: File, kind: "original" | "corrected" | "supporting", documentType = "") {
+async function uploadFile(context: InvoiceRequestContext, invoiceId: string, file: File, kind: "original" | "corrected" | "supporting", documentType = "", note = "") {
   if (!allowedTypes.has(file.type)) throw new Error("Upload a PDF, JPG, or PNG invoice.");
   if (file.size <= 0 || file.size > 25 * 1024 * 1024) throw new Error("Invoice files must be between 1 byte and 25 MB.");
   await ensureBucket(context);
@@ -163,27 +181,43 @@ async function uploadFile(context: InvoiceRequestContext, invoiceId: string, fil
   const stored = await context.admin.storage.from(bucket).upload(path, bytes, { contentType: file.type, upsert: false });
   if (stored.error) throw stored.error;
 
-  if (kind !== "supporting") {
-    const unset = await context.admin.from("titan_ap_invoice_files").update({ is_current: false }).eq("invoice_id", invoiceId).eq("is_current", true);
-    if (unset.error) throw unset.error;
+  const registered = await context.admin.rpc("titan_ap_register_invoice_file", {
+    p_invoice_id: invoiceId,
+    p_file_kind: kind,
+    p_document_type: kind === "supporting" ? documentType : "",
+    p_version_number: version,
+    p_storage_bucket: bucket,
+    p_storage_path: path,
+    p_original_file_name: file.name,
+    p_mime_type: file.type,
+    p_file_size: file.size,
+    p_sha256: sha256,
+    p_note: note,
+    p_actor_id: context.actor.id,
+    p_actor_name: context.actor.fullName,
+  });
+  if (registered.error || !registered.data) {
+    await context.admin.storage.from(bucket).remove([path]);
+    throw registered.error || new Error("The invoice file could not be registered.");
   }
-  const inserted = await context.admin.from("titan_ap_invoice_files").insert({
-    invoice_id: invoiceId,
-    file_kind: kind,
-    document_type: kind === "supporting" ? documentType : null,
-    version_number: version,
-    is_current: kind !== "supporting",
-    storage_bucket: bucket,
-    storage_path: path,
-    original_file_name: file.name,
-    mime_type: file.type,
-    file_size: file.size,
-    sha256,
-    uploaded_by: context.actor.id,
-    uploaded_by_name: context.actor.fullName,
-  }).select("*").single();
-  if (inserted.error) throw inserted.error;
+  const inserted = await context.admin.from("titan_ap_invoice_files").select("*").eq("id", registered.data).single();
+  if (inserted.error || !inserted.data) throw inserted.error || new Error("The invoice file could not be loaded after registration.");
   return inserted.data;
+}
+
+async function cleanupFailedInvoice(context: InvoiceRequestContext, invoiceId: string) {
+  const files = await context.admin.from("titan_ap_invoice_files").select("storage_bucket,storage_path").eq("invoice_id", invoiceId);
+  const pathsByBucket = new Map<string, string[]>();
+  (files.data || []).forEach((file) => {
+    const paths = pathsByBucket.get(file.storage_bucket) || [];
+    paths.push(file.storage_path);
+    pathsByBucket.set(file.storage_bucket, paths);
+  });
+  await Promise.all(Array.from(pathsByBucket.entries()).map(([storageBucket, paths]) => context.admin.storage.from(storageBucket).remove(paths)));
+  await context.admin.from("titan_ap_invoice_notification_deliveries").delete().eq("invoice_id", invoiceId);
+  await context.admin.from("titan_ap_invoice_activity").delete().eq("invoice_id", invoiceId);
+  await context.admin.from("titan_ap_invoice_files").delete().eq("invoice_id", invoiceId);
+  await context.admin.from("titan_ap_invoices").delete().eq("id", invoiceId);
 }
 
 export async function GET(request: Request) {
@@ -229,14 +263,15 @@ export async function GET(request: Request) {
     const invoices = invoiceResult.data || [];
     const ids = invoices.map((row) => row.id);
     const profileIds = Array.from(new Set(invoices.flatMap((row) => [row.assigned_approver_id, row.uploaded_by]).filter(Boolean)));
-    const [coding, files, approvals, activityRows, profiles] = ids.length ? await Promise.all([
+    const [coding, files, approvals, activityRows, deliveries, profiles] = ids.length ? await Promise.all([
       context.admin.from("titan_ap_invoice_coding_lines").select("*").in("invoice_id", ids).order("line_number"),
       context.admin.from("titan_ap_invoice_files").select("id,invoice_id,file_kind,document_type,version_number,is_current,original_file_name,mime_type,file_size,sha256,uploaded_by_name,uploaded_at").in("invoice_id", ids).order("version_number", { ascending: false }),
       context.admin.from("titan_ap_invoice_approvals").select("*").in("invoice_id", ids),
       context.admin.from("titan_ap_invoice_activity").select("*").in("invoice_id", ids).order("created_at", { ascending: false }),
+      context.admin.from("titan_ap_invoice_notification_deliveries").select("*").in("invoice_id", ids).order("created_at", { ascending: false }),
       profileIds.length ? context.admin.from("profiles").select("id,full_name,email").in("id", profileIds) : Promise.resolve({ data: [], error: null }),
-    ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
-    for (const result of [coding, files, approvals, activityRows, profiles]) if (result.error) throw result.error;
+    ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+    for (const result of [coding, files, approvals, activityRows, deliveries, profiles]) if (result.error) throw result.error;
     const names = Object.fromEntries((profiles.data || []).map((row) => [row.id, row.full_name || row.email || "TITAN User"]));
 
     return Response.json({
@@ -248,14 +283,20 @@ export async function GET(request: Request) {
       files: files.data || [],
       approvals: approvals.data || [],
       activity: activityRows.data || [],
+      notificationDeliveries: deliveries.data || [],
       vendors: vendorResult.data || [],
       yards: yardResult.data || [],
       accountingCodes: codeResult.data || [],
       approvers,
       approvalStatement,
+      notificationConfiguration: {
+        emailConfigured: Boolean(process.env.MICROSOFT_TENANT_ID && process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET && process.env.MICROSOFT_MAIL_FROM),
+        pushConfigured: Boolean((process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || process.env.VAPID_PUBLIC_KEY) && process.env.VAPID_PRIVATE_KEY),
+        reminderConfigured: Boolean(process.env.INVOICE_REMINDER_SECRET || process.env.CRON_SECRET),
+      },
     });
   } catch (error) {
-    if (invoiceSchemaMissing(error)) return Response.json({ setupRequired: true, error: "Run supabase/titan_invoice_approval.sql to enable Invoice Approvals." });
+    if (invoiceSchemaMissing(error)) return Response.json({ setupRequired: true, error: schemaSetupMessage(error) });
     return invoiceErrorResponse(error);
   }
 }
@@ -305,7 +346,7 @@ async function createInvoice(request: Request, context: InvoiceRequestContext, f
     await activity(context, inserted.data.id, "assigned", "awaiting_approval", "awaiting_approval", undefined, { approver_id: approverId });
     if (matches.length) await activity(context, inserted.data.id, "duplicate_acknowledged", "awaiting_approval", "awaiting_approval", text(form.get("duplicateNote")), { matching_invoice_ids: matches.map((row) => row.id) });
   } catch (error) {
-    await context.admin.from("titan_ap_invoices").delete().eq("id", inserted.data.id);
+    await cleanupFailedInvoice(context, inserted.data.id);
     throw error;
   }
   const notificationWarning = await workflowNotificationWarning(context, inserted.data, "assigned");
@@ -319,8 +360,7 @@ async function replaceFile(context: InvoiceRequestContext, form: FormData) {
   if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, and voided invoice files are locked.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select the corrected invoice file.");
-  const stored = await uploadFile(context, invoiceId, file, "corrected");
-  await activity(context, invoiceId, "file_replaced", invoice.status, invoice.status, text(form.get("note")) || "Corrected invoice uploaded.", { file_id: stored.id, version_number: stored.version_number });
+  await uploadFile(context, invoiceId, file, "corrected", "", text(form.get("note")) || "Corrected invoice uploaded.");
   return Response.json({ ok: true });
 }
 
@@ -335,8 +375,7 @@ async function uploadSupportingFile(context: InvoiceRequestContext, form: FormDa
   if (!["receipt", "purchase_order", "correspondence", "payment_confirmation", "other"].includes(documentType)) throw new Error("Select a supporting document type.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select a supporting PDF or image.");
-  const stored = await uploadFile(context, invoiceId, file, "supporting", documentType);
-  await activity(context, invoiceId, "supporting_document_added", invoice.status, invoice.status, text(form.get("note")), { file_id: stored.id, document_type: documentType, file_name: stored.original_file_name });
+  await uploadFile(context, invoiceId, file, "supporting", documentType, text(form.get("note")));
   return Response.json({ ok: true });
 }
 
@@ -413,16 +452,7 @@ export async function POST(request: Request) {
       const reason = text(body.reason);
       if (!reason) throw new Error(`A reason is required to ${action === "dispute" ? "dispute" : "return"} an invoice.`);
       if (!context.invoicePermissions.approve || invoice.assigned_approver_id !== context.actor.id || invoice.status !== "awaiting_approval") throw new Error("Only the assigned approver can take this action.");
-      const nextStatus = action === "dispute" ? "disputed" : "returned_to_ap";
-      const update = await context.admin.from("titan_ap_invoices").update({
-        status: nextStatus,
-        dispute_reason: action === "dispute" ? reason : null,
-        return_reason: action === "return" ? reason : null,
-        row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).eq("status", "awaiting_approval").select("id").maybeSingle();
-      if (update.error) throw update.error;
-      if (!update.data) throw new Error("This invoice changed before the action completed. Refresh and try again.");
-      await activity(context, invoiceId, action === "dispute" ? "disputed" : "returned_to_ap", "awaiting_approval", nextStatus, reason);
+      await applyInvoiceAction(context, invoiceId, action, { reason });
       const notificationWarning = await workflowNotificationWarning(context, invoice, action === "dispute" ? "disputed" : "returned", reason);
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
@@ -434,20 +464,7 @@ export async function POST(request: Request) {
       if (!note) throw new Error("Enter an AP resolution note.");
       const approverId = text(body.approverId) || invoice.assigned_approver_id;
       await assertApprover(context, approverId);
-      const updated = await context.admin.from("titan_ap_invoices").update({
-        assigned_approver_id: approverId,
-        assigned_by: context.actor.id,
-        assigned_at: new Date().toISOString(),
-        status: "awaiting_approval",
-        resolution_note: note,
-        resolved_by: context.actor.id,
-        resolved_by_name: context.actor.fullName,
-        resolved_at: new Date().toISOString(),
-        row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).eq("status", "disputed").select("id").maybeSingle();
-      if (updated.error) throw updated.error;
-      if (!updated.data) throw new Error("This dispute changed before resolution completed. Refresh and try again.");
-      await activity(context, invoiceId, "dispute_resolved", "disputed", "awaiting_approval", note, { approver_id: approverId, original_dispute_reason: invoice.dispute_reason });
+      await applyInvoiceAction(context, invoiceId, "resolve_dispute", { note, approver_id: approverId });
       const notificationWarning = await workflowNotificationWarning(context, { ...invoice, assigned_approver_id: approverId }, "resolved", note);
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
@@ -457,17 +474,7 @@ export async function POST(request: Request) {
       if (approvedStatuses.has(invoice.status) || invoice.status === "voided") throw new Error("Approved, archived, or already voided invoices cannot be voided.");
       const reason = text(body.reason);
       if (!reason) throw new Error("Enter a reason for voiding this invoice.");
-      const updated = await context.admin.from("titan_ap_invoices").update({
-        status: "voided",
-        void_reason: reason,
-        voided_by: context.actor.id,
-        voided_by_name: context.actor.fullName,
-        voided_at: new Date().toISOString(),
-        row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").select("id").maybeSingle();
-      if (updated.error) throw updated.error;
-      if (!updated.data) throw new Error("This invoice changed before it could be voided. Refresh and try again.");
-      await activity(context, invoiceId, "voided", invoice.status, "voided", reason);
+      await applyInvoiceAction(context, invoiceId, "void", { reason });
       const notificationWarning = await workflowNotificationWarning(context, invoice, "voided", reason);
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
@@ -477,48 +484,33 @@ export async function POST(request: Request) {
       const nextStatus = text(body.nextStatus);
       const transitions: Record<string, string> = { approved: "posted", posted: "paid", paid: "archived" };
       if (transitions[invoice.status] !== nextStatus) throw new Error("This closeout step is not available for the invoice's current status.");
-
-      const now = new Date().toISOString();
-      const payload: Record<string, unknown> = {
-        status: nextStatus,
-        row_version: Number(invoice.row_version || 0) + 1,
-      };
-      let note = "";
-      let details: Record<string, unknown> = {};
-
       if (nextStatus === "posted") {
         const postingReference = text(body.postingReference);
         if (!postingReference) throw new Error("Enter the accounting posting reference.");
-        payload.posting_reference = postingReference;
-        payload.posted_by = context.actor.id;
-        payload.posted_by_name = context.actor.fullName;
-        payload.posted_at = now;
-        note = `Posted to accounting as ${postingReference}.`;
-        details = { posting_reference: postingReference };
+        await applyInvoiceAction(context, invoiceId, "closeout_posted", { posting_reference: postingReference });
       } else if (nextStatus === "paid") {
         const paymentReference = text(body.paymentReference);
         const paymentDate = text(body.paymentDate);
         if (!paymentReference || !/^\d{4}-\d{2}-\d{2}$/.test(paymentDate)) throw new Error("Enter the payment date and payment reference.");
-        payload.payment_reference = paymentReference;
-        payload.payment_date = paymentDate;
-        payload.paid_by = context.actor.id;
-        payload.paid_by_name = context.actor.fullName;
-        payload.paid_at = now;
-        note = `Payment recorded as ${paymentReference}.`;
-        details = { payment_reference: paymentReference, payment_date: paymentDate };
+        await applyInvoiceAction(context, invoiceId, "closeout_paid", { payment_reference: paymentReference, payment_date: paymentDate });
       } else {
         const archiveNote = text(body.archiveNote);
-        payload.archive_note = archiveNote || null;
-        payload.archived_by = context.actor.id;
-        payload.archived_by_name = context.actor.fullName;
-        payload.archived_at = now;
-        note = archiveNote || "Paid invoice archived by AP.";
+        await applyInvoiceAction(context, invoiceId, "closeout_archived", { archive_note: archiveNote });
       }
+      return Response.json({ ok: true });
+    }
 
-      const updated = await context.admin.from("titan_ap_invoices").update(payload).eq("id", invoiceId).eq("status", invoice.status).select("id").maybeSingle();
-      if (updated.error) throw updated.error;
-      if (!updated.data) throw new Error("This invoice changed before closeout completed. Refresh and try again.");
-      await activity(context, invoiceId, nextStatus, invoice.status, nextStatus, note, details);
+    if (action === "correct_closeout" || action === "reverse_closeout") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can correct invoice closeout.");
+      const reason = text(body.reason);
+      if (!reason) throw new Error("Enter a reason for this closeout correction.");
+      await applyInvoiceAction(context, invoiceId, action, {
+        reason,
+        posting_reference: text(body.postingReference),
+        payment_reference: text(body.paymentReference),
+        payment_date: text(body.paymentDate),
+        archive_note: text(body.archiveNote),
+      });
       return Response.json({ ok: true });
     }
 
@@ -528,18 +520,7 @@ export async function POST(request: Request) {
       if (invoice.status === "disputed") throw new Error("Resolve the dispute with an AP resolution note before reassignment.");
       const approverId = text(body.approverId);
       await assertApprover(context, approverId);
-      const updated = await context.admin.from("titan_ap_invoices").update({
-        assigned_approver_id: approverId,
-        assigned_by: context.actor.id,
-        assigned_at: new Date().toISOString(),
-        status: "awaiting_approval",
-        dispute_reason: null,
-        return_reason: null,
-        row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").neq("status", "disputed").select("id").maybeSingle();
-      if (updated.error) throw updated.error;
-      if (!updated.data) throw new Error("This invoice was approved before reassignment completed.");
-      await activity(context, invoiceId, "reassigned", invoice.status, "awaiting_approval", text(body.note), { previous_approver_id: invoice.assigned_approver_id, approver_id: approverId });
+      await applyInvoiceAction(context, invoiceId, "reassign", { approver_id: approverId, note: text(body.note) });
       const notificationWarning = await workflowNotificationWarning(context, { ...invoice, assigned_approver_id: approverId }, "reassigned");
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
@@ -553,29 +534,18 @@ export async function POST(request: Request) {
       if (!vendorName || !invoiceNumber || !text(body.invoiceDate) || !Number.isFinite(totalAmount) || totalAmount < 0) throw new Error("Vendor, invoice number, invoice date, and amount are required.");
       const matches = await duplicateMatches(context, vendorName, invoiceNumber, invoiceId);
       if (matches.length && body.duplicateAcknowledged !== true) return Response.json({ duplicateWarning: true, matches }, { status: 409 });
-      const update = await context.admin.from("titan_ap_invoices").update({
-        yard_id: text(body.yardId) || null,
-        vendor_id: text(body.vendorId) || null,
-        vendor_name: vendorName,
-        invoice_number: invoiceNumber,
-        invoice_date: text(body.invoiceDate),
-        due_date: text(body.dueDate) || null,
-        total_amount: totalAmount,
-        notes: text(body.notes) || null,
-        duplicate_acknowledged_by: matches.length ? context.actor.id : invoice.duplicate_acknowledged_by,
-        duplicate_acknowledged_at: matches.length ? new Date().toISOString() : invoice.duplicate_acknowledged_at,
-        duplicate_acknowledgment_note: matches.length ? text(body.duplicateNote) || "AP reviewed the possible duplicate warning." : invoice.duplicate_acknowledgment_note,
-        row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").neq("status", "posted").neq("status", "paid").neq("status", "archived").neq("status", "voided").select("id").maybeSingle();
-      if (update.error) throw update.error;
-      if (!update.data) throw new Error("This invoice was approved before the edit completed.");
-      await activity(context, invoiceId, "invoice_updated", invoice.status, invoice.status, text(body.notes), { invoice_number: invoiceNumber, total_amount: totalAmount });
+      await applyInvoiceAction(context, invoiceId, "update_invoice", {
+        yard_id: text(body.yardId), vendor_id: text(body.vendorId), vendor_name: vendorName,
+        invoice_number: invoiceNumber, invoice_date: text(body.invoiceDate), due_date: text(body.dueDate),
+        total_amount: totalAmount, notes: text(body.notes), duplicate_acknowledged: matches.length > 0,
+        duplicate_note: matches.length ? text(body.duplicateNote) || "AP reviewed the possible duplicate warning." : "",
+      });
       return Response.json({ ok: true });
     }
 
     throw new Error("Unsupported invoice action.");
   } catch (error) {
-    if (invoiceSchemaMissing(error)) return Response.json({ setupRequired: true, error: "Run supabase/titan_invoice_approval.sql to enable Invoice Approvals." }, { status: 503 });
+    if (invoiceSchemaMissing(error)) return Response.json({ setupRequired: true, error: schemaSetupMessage(error) }, { status: 503 });
     return invoiceErrorResponse(error);
   }
 }
