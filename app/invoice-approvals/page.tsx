@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, FileSpreadsheet, Paperclip, Plus, Printer, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
-import { buildInvoiceApprovalWorkbook, invoiceApprovalPrintHtml, type InvoiceReport } from "../../lib/invoiceApprovalReport";
+import { buildInvoiceApprovalWorkbook, buildQuickBooksBillIif, invoiceApprovalPrintHtml, type InvoiceReport, type QuickBooksIifOptions } from "../../lib/invoiceApprovalReport";
 import { supabase } from "../../lib/supabase";
 import SignaturePad from "./SignaturePad";
 import styles from "./invoice-approvals.module.css";
@@ -94,6 +94,8 @@ export default function InvoiceApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
+  const [showQuickBooksExport, setShowQuickBooksExport] = useState(false);
+  const [quickBooksOptions, setQuickBooksOptions] = useState<QuickBooksIifOptions>({ accountsPayableAccount: "Accounts Payable", expenseAccountSource: "code", includeLocationAsClass: false });
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("mine");
   const [selectedId, setSelectedId] = useState("");
@@ -315,7 +317,9 @@ export default function InvoiceApprovalsPage() {
           vendor: invoice.vendor_name,
           invoiceNumber: invoice.invoice_number,
           invoiceDate: dateText(invoice.invoice_date),
+          invoiceDateRaw: invoice.invoice_date,
           dueDate: invoice.due_date ? dateText(invoice.due_date) : "",
+          dueDateRaw: invoice.due_date || "",
           aging: agingText(invoice.due_date),
           approver: invoice.assigned_approver_name,
           location: yard?.name || "Company-wide",
@@ -373,6 +377,26 @@ export default function InvoiceApprovalsPage() {
     reportWindow.document.open();
     reportWindow.document.write(invoiceApprovalPrintHtml(invoiceReport()));
     reportWindow.document.close();
+  };
+
+  const exportQuickBooksIif = () => {
+    setNotice("");
+    try {
+      const result = buildQuickBooksBillIif(invoiceReport(), quickBooksOptions);
+      const blob = new Blob([result.content], { type: "text/plain;charset=us-ascii" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `titan-quickbooks-bills-${today}.iif`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setShowQuickBooksExport(false);
+      setNotice(`${result.count} approved bill${result.count === 1 ? "" : "s"} exported for QuickBooks Desktop.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The QuickBooks IIF file could not be created.");
+    }
   };
 
   const codingTotal = coding.reduce((sum, line) => sum + Number(line.amount || 0), 0);
@@ -668,7 +692,8 @@ export default function InvoiceApprovalsPage() {
 
     {tab === "codes" ? <section className={styles.codesPanel}><div className={styles.sectionHeading}><div><span>CONTROLLED LIST</span><h2>Accounting codes</h2></div></div><div className={styles.codeForm}><input placeholder="Code" value={codeForm.code} onChange={(event) => setCodeForm((form) => ({ ...form, code: event.target.value }))} /><input placeholder="Description" value={codeForm.description} onChange={(event) => setCodeForm((form) => ({ ...form, description: event.target.value }))} /><label className={styles.toggle}><input type="checkbox" checked={codeForm.active} onChange={(event) => setCodeForm((form) => ({ ...form, active: event.target.checked }))} /><span>Active</span></label><button className={styles.primary} onClick={() => run(() => api({ action: "save_code", ...codeForm }), "Accounting code saved.").then(() => setCodeForm({ id: "", code: "", description: "", active: true }))} disabled={busy || !codeForm.code.trim()}><Save size={16} /> Save</button></div><div className={styles.codeList}>{data.accountingCodes.map((code) => <button key={code.id} onClick={() => setCodeForm(code)}><strong>{code.code}</strong><span>{code.description || "No description"}</span><small>{code.active ? "Active" : "Inactive"}</small></button>)}</div></section> : <>
       <section className={styles.filters}><label><Search size={16} /><input placeholder="Vendor, invoice, or approver" value={search} onChange={(event) => setSearch(event.target.value)} /></label><select value={approverFilter} onChange={(event) => setApproverFilter(event.target.value)}><option value="">All approvers</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select><label className={styles.dateFilter}><span>From</span><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label className={styles.dateFilter}><span>To</span><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label></section>
-      {data.permissions?.export && <section className={styles.reportBar}><div><span>{reportTitle} Report</span><strong>{filtered.length} invoice{filtered.length === 1 ? "" : "s"} · {dollars(filtered.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0))}</strong></div><div><button type="button" onClick={printReport} disabled={loading || filtered.length === 0}><Printer size={16} /> Print / PDF</button><button type="button" className={styles.primary} onClick={() => void exportReportExcel()} disabled={loading || exportingReport || filtered.length === 0}><FileSpreadsheet size={16} /> {exportingReport ? "Exporting" : "Export Excel"}</button></div></section>}
+      {data.permissions?.export && <section className={styles.reportBar}><div><span>{reportTitle} Report</span><strong>{filtered.length} invoice{filtered.length === 1 ? "" : "s"} · {dollars(filtered.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0))}</strong></div><div><button type="button" onClick={printReport} disabled={loading || filtered.length === 0}><Printer size={16} /> Print / PDF</button><button type="button" onClick={() => setShowQuickBooksExport((value) => !value)} disabled={loading || !filtered.some((invoice) => ["approved", "posted", "paid", "archived"].includes(invoice.status))}><Download size={16} /> QuickBooks IIF</button><button type="button" className={styles.primary} onClick={() => void exportReportExcel()} disabled={loading || exportingReport || filtered.length === 0}><FileSpreadsheet size={16} /> {exportingReport ? "Exporting" : "Export Excel"}</button></div></section>}
+      {showQuickBooksExport && <section className={styles.quickBooksPanel}><div><span>QUICKBOOKS DESKTOP</span><strong>Bill transaction export</strong></div><label><span>A/P account</span><input value={quickBooksOptions.accountsPayableAccount} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, accountsPayableAccount: event.target.value }))} /></label><label><span>Expense account field</span><select value={quickBooksOptions.expenseAccountSource} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, expenseAccountSource: event.target.value as QuickBooksIifOptions["expenseAccountSource"] }))}><option value="code">Accounting code</option><option value="description">Accounting description</option></select></label><label className={styles.quickBooksToggle}><input type="checkbox" checked={quickBooksOptions.includeLocationAsClass} onChange={(event) => setQuickBooksOptions((options) => ({ ...options, includeLocationAsClass: event.target.checked }))} /><span>Use TITAN location as QuickBooks class</span></label><div><button type="button" onClick={() => setShowQuickBooksExport(false)}>Cancel</button><button type="button" className={styles.primary} onClick={exportQuickBooksIif}><Download size={16} /> Export IIF</button></div></section>}
       <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span className={styles.invoicePrimary}><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}</small></span><span className={styles.invoiceDates}><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span className={styles.invoiceApprover} data-label="Approver">{invoice.assigned_approver_name}</span><span className={styles.invoiceStatus} data-label="Status"><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span className={styles.invoiceAmount} data-label="Amount"><strong>{dollars(invoice.total_amount)}</strong></span><Eye className={styles.invoiceOpen} size={17} /></button>)}</section>
     </>}
   </main>;

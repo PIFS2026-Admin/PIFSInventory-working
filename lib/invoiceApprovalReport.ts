@@ -15,7 +15,9 @@ export type InvoiceReportRow = {
   vendor: string;
   invoiceNumber: string;
   invoiceDate: string;
+  invoiceDateRaw: string;
   dueDate: string;
+  dueDateRaw: string;
   aging: string;
   approver: string;
   location: string;
@@ -42,6 +44,12 @@ export type InvoiceReport = {
   generatedBy: string;
   generatedAt: string;
   rows: InvoiceReportRow[];
+};
+
+export type QuickBooksIifOptions = {
+  accountsPayableAccount: string;
+  expenseAccountSource: "code" | "description";
+  includeLocationAsClass: boolean;
 };
 
 function text(value: unknown) {
@@ -155,4 +163,72 @@ export function invoiceApprovalPrintHtml(report: InvoiceReport) {
   const total = report.rows.reduce((sum, row) => sum + row.amount, 0);
   const rows = report.rows.map((row) => `<tr><td>${escapeHtml(row.status)}</td><td><strong>${escapeHtml(row.vendor)}</strong><br><small>${escapeHtml(row.invoiceNumber)}</small></td><td>${escapeHtml(row.invoiceDate)}<br><small>Due ${escapeHtml(row.dueDate || "-")}</small></td><td>${escapeHtml(row.aging)}</td><td>${escapeHtml(row.approver)}</td><td>${escapeHtml(row.location)}</td><td class="money">${escapeHtml(row.amount.toLocaleString("en-US", { style: "currency", currency: "USD" }))}</td><td>${escapeHtml(codingSummary(row.coding) || "-")}</td><td>${escapeHtml(row.exceptionReason || "-")}</td><td>${escapeHtml(row.postingReference || row.paymentReference || "-")}</td></tr>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(report.title)}</title><style>@page{size:landscape;margin:.35in}*{box-sizing:border-box}body{font:10px Arial,sans-serif;color:#111;margin:0}header{border-bottom:3px solid #f97316;padding:0 0 10px;margin-bottom:12px}h1{font-size:22px;margin:0}p{margin:4px 0;color:#45505f}.summary{display:flex;gap:28px;margin:10px 0;font-size:12px}.summary strong{font-size:16px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #8b95a3;padding:6px;vertical-align:top;overflow-wrap:anywhere}th{background:#111820;color:#fff;text-align:left;font-size:8px;text-transform:uppercase}td:nth-child(2),td:nth-child(8){width:17%}.money{text-align:right;white-space:nowrap}small{color:#596575}.toolbar{display:flex;justify-content:flex-end;margin-bottom:10px}.toolbar button{background:#f97316;border:0;padding:8px 12px;font-weight:700;cursor:pointer}@media print{.toolbar{display:none}}</style></head><body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div><header><h1>${escapeHtml(report.title)}</h1><p>${escapeHtml(report.filterSummary || "No additional filters")}</p><p>Generated ${escapeHtml(report.generatedAt)} by ${escapeHtml(report.generatedBy)}</p></header><div class="summary"><span><strong>${report.rows.length}</strong><br>Invoices</span><span><strong>${escapeHtml(total.toLocaleString("en-US", { style: "currency", currency: "USD" }))}</strong><br>Total amount</span></div><table><thead><tr><th>Status</th><th>Vendor / Invoice</th><th>Invoice / Due</th><th>Aging</th><th>Approver</th><th>Location</th><th>Amount</th><th>Coding</th><th>Exception</th><th>Closeout Reference</th></tr></thead><tbody>${rows || `<tr><td colspan="10">No invoices match this report.</td></tr>`}</tbody></table></body></html>`;
+}
+
+function iifText(value: unknown) {
+  return text(value)
+    .replace(/[\t\r\n]+/g, " ")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim();
+}
+
+function iifDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
+}
+
+function iifLine(values: unknown[]) {
+  return values.map(iifText).join("\t");
+}
+
+export function buildQuickBooksBillIif(report: InvoiceReport, options: QuickBooksIifOptions) {
+  const payableAccount = iifText(options.accountsPayableAccount);
+  if (!payableAccount) throw new Error("Enter the Accounts Payable account name used in QuickBooks.");
+  const eligibleStatuses = new Set(["Approved", "Posted", "Paid", "Archived"]);
+  const rows = report.rows.filter((row) => eligibleStatuses.has(row.status));
+  if (!rows.length) throw new Error("This report has no approved invoices available for QuickBooks export.");
+
+  const errors: string[] = [];
+  const seen = new Set<string>();
+  rows.forEach((row) => {
+    const identifier = `${row.vendor} / ${row.invoiceNumber}`;
+    const duplicateKey = `${row.vendor.toLowerCase()}|${row.invoiceNumber.toLowerCase()}`;
+    if (!row.vendor || !row.invoiceNumber || !iifDate(row.invoiceDateRaw)) errors.push(`${identifier}: vendor, invoice number, or invoice date is missing.`);
+    if (seen.has(duplicateKey)) errors.push(`${identifier}: duplicate vendor and invoice number in this export.`);
+    seen.add(duplicateKey);
+    if (row.amount <= 0) errors.push(`${identifier}: invoice amount must be greater than zero.`);
+    if (!row.coding.length) errors.push(`${identifier}: no accounting coding lines were found.`);
+    if (Math.abs(row.codingTotal - row.amount) > 0.005) errors.push(`${identifier}: coding total does not equal the invoice total.`);
+    row.coding.forEach((line, index) => {
+      const account = options.expenseAccountSource === "description" ? line.description : line.code;
+      if (!iifText(account)) errors.push(`${identifier}: coding line ${index + 1} has no QuickBooks account value.`);
+      if (!Number.isFinite(line.amount) || line.amount < 0) errors.push(`${identifier}: coding line ${index + 1} has an invalid amount.`);
+    });
+  });
+  if (errors.length) throw new Error(`QuickBooks export stopped. ${errors.slice(0, 4).join(" ")}${errors.length > 4 ? ` ${errors.length - 4} more issue(s) must be corrected.` : ""}`);
+
+  const headers = [
+    iifLine(["!TRNS", "TRNSID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR", "TOPRINT", "ADDR5", "DUEDATE", "TERMS"]),
+    iifLine(["!SPL", "SPLID", "TRNSTYPE", "DATE", "ACCNT", "NAME", "CLASS", "AMOUNT", "DOCNUM", "MEMO", "CLEAR", "QNTY", "REIMBEXP", "SERVICEDATE", "OTHER2"]),
+    iifLine(["!ENDTRNS"]),
+  ];
+  const transactions = rows.flatMap((row) => {
+    const date = iifDate(row.invoiceDateRaw);
+    const dueDate = iifDate(row.dueDateRaw);
+    const className = options.includeLocationAsClass && row.location !== "Company-wide" ? row.location : "";
+    const memo = `TITAN approved bill${row.approvedBy ? ` - approved by ${row.approvedBy}` : ""}`;
+    return [
+      iifLine(["TRNS", "", "BILL", date, payableAccount, row.vendor, className, (-row.amount).toFixed(2), row.invoiceNumber, memo, "N", "N", "", dueDate, ""]),
+      ...row.coding.map((line) => {
+        const account = options.expenseAccountSource === "description" ? line.description : line.code;
+        const detail = [line.lineDescription, line.costCenter && `CC ${line.costCenter}`, line.department && `Dept ${line.department}`, line.jobNumber && `Job ${line.jobNumber}`].filter(Boolean).join("; ");
+        return iifLine(["SPL", "", "BILL", date, account, "", className, line.amount.toFixed(2), "", detail, "N", "", "NOTHING", "", ""]);
+      }),
+      "ENDTRNS",
+    ];
+  });
+  return { content: [...headers, ...transactions, ""].join("\r\n"), count: rows.length };
 }
