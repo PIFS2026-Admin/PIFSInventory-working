@@ -3,8 +3,9 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, Paperclip, Plus, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Archive, ArrowLeft, Ban, Check, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, Download, ExternalLink, Eye, FilePlus2, FileSpreadsheet, Paperclip, Plus, Printer, RefreshCw, RotateCcw, Save, Search, Trash2, Upload } from "lucide-react";
 import { InvoiceExtraction, readInvoiceDocument } from "../../lib/invoiceDocumentReader";
+import { buildInvoiceApprovalWorkbook, invoiceApprovalPrintHtml, type InvoiceReport } from "../../lib/invoiceApprovalReport";
 import { supabase } from "../../lib/supabase";
 import SignaturePad from "./SignaturePad";
 import styles from "./invoice-approvals.module.css";
@@ -59,6 +60,17 @@ function accountingCodeLabel(code: Pick<AccountingCode, "code" | "description">)
   return [code.code, code.description].filter(Boolean).join(" · ");
 }
 
+function agingText(dueDate: string | null) {
+  if (!dueDate) return "No due date";
+  const due = Date.parse(`${dueDate.slice(0, 10)}T12:00:00`);
+  const current = Date.parse(`${today}T12:00:00`);
+  if (!Number.isFinite(due)) return "-";
+  const days = Math.round((due - current) / 86_400_000);
+  if (days === 0) return "Due today";
+  if (days > 0) return `Due in ${days} day${days === 1 ? "" : "s"}`;
+  return `${Math.abs(days)} day${days === -1 ? "" : "s"} overdue`;
+}
+
 async function authHeaders(json = true) {
   const session = await supabase.auth.getSession();
   const token = session.data.session?.access_token;
@@ -81,6 +93,7 @@ export default function InvoiceApprovalsPage() {
   const [data, setData] = useState<Data>(emptyData);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<Tab>("mine");
   const [selectedId, setSelectedId] = useState("");
@@ -270,6 +283,97 @@ export default function InvoiceApprovalsPage() {
     if (toDate && invoice.invoice_date > toDate) return false;
     return true;
   }), [data.invoices, data.permissions?.isAp, tab, currentUserId, search, approverFilter, fromDate, toDate]);
+
+  const reportTitle = tab === "mine" ? "Awaiting My Approval"
+    : tab === "awaiting" ? "Awaiting Signature"
+      : tab === "returned" ? "Returned to AP"
+        : tab === "disputed" ? "Disputed"
+          : tab === "approved" ? (data.permissions?.isAp ? "AP Closeout" : "Approved")
+            : tab === "archived" ? "Archive"
+              : tab === "voided" ? "Voided"
+                : "All Invoices";
+
+  const invoiceReport = (): InvoiceReport => {
+    const approverName = data.approvers.find((person) => person.id === approverFilter)?.full_name;
+    const filters = [
+      search && `Search: ${search}`,
+      approverFilter && `Approver: ${approverName || "Selected approver"}`,
+      fromDate && `From: ${dateText(fromDate)}`,
+      toDate && `To: ${dateText(toDate)}`,
+    ].filter(Boolean).join(" | ");
+    return {
+      title: `TITAN Invoice Report - ${reportTitle}`,
+      filterSummary: filters || "No additional filters",
+      generatedBy: data.actor?.fullName || "TITAN User",
+      generatedAt: new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }),
+      rows: filtered.map((invoice) => {
+        const approval = data.approvals.find((item) => item.invoice_id === invoice.id);
+        const yard = data.yards.find((item) => item.id === invoice.yard_id);
+        const codingLines = data.codingLines.filter((line) => line.invoice_id === invoice.id);
+        return {
+          status: statusLabel(invoice.status),
+          vendor: invoice.vendor_name,
+          invoiceNumber: invoice.invoice_number,
+          invoiceDate: dateText(invoice.invoice_date),
+          dueDate: invoice.due_date ? dateText(invoice.due_date) : "",
+          aging: agingText(invoice.due_date),
+          approver: invoice.assigned_approver_name,
+          location: yard?.name || "Company-wide",
+          amount: Number(invoice.total_amount || 0),
+          codingTotal: codingLines.reduce((sum, line) => sum + Number(line.amount || 0), 0),
+          coding: codingLines.map((line) => ({
+            code: line.accounting_code || "",
+            description: line.accounting_code_description || "",
+            amount: Number(line.amount || 0),
+            costCenter: line.cost_center || "",
+            department: line.department || "",
+            jobNumber: line.job_number || "",
+            lineDescription: line.description || "",
+          })),
+          uploadedBy: invoice.uploaded_by_name,
+          uploadedAt: dateText(invoice.uploaded_at, true),
+          approvedBy: approval?.approver_name || "",
+          approvedAt: approval ? dateText(approval.approved_at, true) : "",
+          apNotes: invoice.notes || "",
+          approverNotes: invoice.approver_notes || "",
+          exceptionReason: invoice.dispute_reason || invoice.return_reason || invoice.void_reason || "",
+          postingReference: invoice.posting_reference || "",
+          postedAt: invoice.posted_at ? dateText(invoice.posted_at, true) : "",
+          paymentDate: invoice.payment_date ? dateText(invoice.payment_date) : "",
+          paymentReference: invoice.payment_reference || "",
+          archivedAt: invoice.archived_at ? dateText(invoice.archived_at, true) : "",
+        };
+      }),
+    };
+  };
+
+  const exportReportExcel = async () => {
+    setExportingReport(true);
+    setNotice("");
+    try {
+      const blob = await buildInvoiceApprovalWorkbook(invoiceReport());
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `titan-invoices-${tab}-${today}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The Excel report could not be created.");
+    } finally {
+      setExportingReport(false);
+    }
+  };
+
+  const printReport = () => {
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) return setNotice("Allow pop-ups for TITAN to open the printable report.");
+    reportWindow.document.open();
+    reportWindow.document.write(invoiceApprovalPrintHtml(invoiceReport()));
+    reportWindow.document.close();
+  };
 
   const codingTotal = coding.reduce((sum, line) => sum + Number(line.amount || 0), 0);
   const codingDifference = selected ? Number(selected.total_amount) - codingTotal : 0;
@@ -564,6 +668,7 @@ export default function InvoiceApprovalsPage() {
 
     {tab === "codes" ? <section className={styles.codesPanel}><div className={styles.sectionHeading}><div><span>CONTROLLED LIST</span><h2>Accounting codes</h2></div></div><div className={styles.codeForm}><input placeholder="Code" value={codeForm.code} onChange={(event) => setCodeForm((form) => ({ ...form, code: event.target.value }))} /><input placeholder="Description" value={codeForm.description} onChange={(event) => setCodeForm((form) => ({ ...form, description: event.target.value }))} /><label className={styles.toggle}><input type="checkbox" checked={codeForm.active} onChange={(event) => setCodeForm((form) => ({ ...form, active: event.target.checked }))} /><span>Active</span></label><button className={styles.primary} onClick={() => run(() => api({ action: "save_code", ...codeForm }), "Accounting code saved.").then(() => setCodeForm({ id: "", code: "", description: "", active: true }))} disabled={busy || !codeForm.code.trim()}><Save size={16} /> Save</button></div><div className={styles.codeList}>{data.accountingCodes.map((code) => <button key={code.id} onClick={() => setCodeForm(code)}><strong>{code.code}</strong><span>{code.description || "No description"}</span><small>{code.active ? "Active" : "Inactive"}</small></button>)}</div></section> : <>
       <section className={styles.filters}><label><Search size={16} /><input placeholder="Vendor, invoice, or approver" value={search} onChange={(event) => setSearch(event.target.value)} /></label><select value={approverFilter} onChange={(event) => setApproverFilter(event.target.value)}><option value="">All approvers</option>{data.approvers.map((person) => <option key={person.id} value={person.id}>{person.full_name || person.email}</option>)}</select><label className={styles.dateFilter}><span>From</span><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} /></label><label className={styles.dateFilter}><span>To</span><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} /></label></section>
+      {data.permissions?.export && <section className={styles.reportBar}><div><span>{reportTitle} Report</span><strong>{filtered.length} invoice{filtered.length === 1 ? "" : "s"} · {dollars(filtered.reduce((sum, invoice) => sum + Number(invoice.total_amount || 0), 0))}</strong></div><div><button type="button" onClick={printReport} disabled={loading || filtered.length === 0}><Printer size={16} /> Print / PDF</button><button type="button" className={styles.primary} onClick={() => void exportReportExcel()} disabled={loading || exportingReport || filtered.length === 0}><FileSpreadsheet size={16} /> {exportingReport ? "Exporting" : "Export Excel"}</button></div></section>}
       <section className={styles.invoiceList}><div className={styles.listHeader}><span>Vendor / Invoice</span><span>Date / Due</span><span>Approver</span><span>Status</span><span>Amount</span><span></span></div>{loading ? <p className={styles.empty}>Loading invoices...</p> : filtered.length === 0 ? <p className={styles.empty}>No invoices match this view.</p> : filtered.map((invoice) => <button className={styles.invoiceRow} key={invoice.id} onClick={() => setSelectedId(invoice.id)}><span className={styles.invoicePrimary}><strong>{invoice.vendor_name}</strong><small>{invoice.invoice_number}</small></span><span className={styles.invoiceDates}><strong>{dateText(invoice.invoice_date)}</strong><small>Due {dateText(invoice.due_date)}</small></span><span className={styles.invoiceApprover} data-label="Approver">{invoice.assigned_approver_name}</span><span className={styles.invoiceStatus} data-label="Status"><i className={`${styles.status} ${styles[invoice.status]}`}>{statusLabel(invoice.status)}</i></span><span className={styles.invoiceAmount} data-label="Amount"><strong>{dollars(invoice.total_amount)}</strong></span><Eye className={styles.invoiceOpen} size={17} /></button>)}</section>
     </>}
   </main>;
