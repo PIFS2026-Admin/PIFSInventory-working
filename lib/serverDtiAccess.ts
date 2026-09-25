@@ -16,6 +16,9 @@ type Profile = {
   access_configured?: unknown;
 };
 
+type AccessFailure = { error: Response };
+type ModuleAccess = { userId: string; fullName: string; moduleKeys: string[] };
+
 function missingTable(error: unknown, tableName: string) {
   const message = String((error as { message?: unknown })?.message ?? error ?? "").toLowerCase();
   return message.includes(tableName.toLowerCase())
@@ -41,7 +44,11 @@ async function readProfile(admin: SupabaseClient, userId: string) {
   return basicProfile.data as Profile | null;
 }
 
-export async function authorizeDtiAccess(request: Request, admin: SupabaseClient) {
+async function authorizeModuleAccess(
+  request: Request,
+  admin: SupabaseClient,
+  allowedModules: string[],
+): Promise<AccessFailure | ModuleAccess> {
   const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
 
@@ -87,12 +94,36 @@ export async function authorizeDtiAccess(request: Request, admin: SupabaseClient
         ? defaultModuleKeys
         : defaultModulesForRole(role);
 
-  if (!moduleKeys.includes("dti")) {
-    return { error: Response.json({ error: "You do not have access to the DTI module." }, { status: 403 }) };
+  if (!allowedModules.some((moduleKey) => moduleKeys.includes(moduleKey))) {
+    return { error: Response.json({ error: "You do not have access to this TITAN module." }, { status: 403 }) };
   }
 
   return {
     userId: userData.user.id,
     fullName: String(profile.full_name ?? "").trim() || userData.user.email || "TITAN User",
+    moduleKeys,
+  };
+}
+
+export async function authorizeDtiAccess(
+  request: Request,
+  admin: SupabaseClient,
+): Promise<AccessFailure | { userId: string; fullName: string }> {
+  const authorization = await authorizeModuleAccess(request, admin, ["dti"]);
+  if ("error" in authorization) return authorization;
+  return { userId: authorization.userId, fullName: authorization.fullName };
+}
+
+export async function authorizeConnectedJobAccess(
+  request: Request,
+  admin: SupabaseClient,
+): Promise<AccessFailure | { userId: string; fullName: string; canAccessDti: boolean; canAccessCrm: boolean }> {
+  const authorization = await authorizeModuleAccess(request, admin, ["dti", "crm"]);
+  if ("error" in authorization) return authorization;
+  return {
+    userId: authorization.userId,
+    fullName: authorization.fullName,
+    canAccessDti: authorization.moduleKeys.includes("dti"),
+    canAccessCrm: authorization.moduleKeys.includes("crm"),
   };
 }

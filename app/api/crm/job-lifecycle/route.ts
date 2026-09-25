@@ -1,10 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-
-type TitanProfile = {
-  full_name?: string | null;
-  email?: string | null;
-  is_disabled?: boolean | null;
-};
+import { authorizeConnectedJobAccess } from "../../../../lib/serverDtiAccess";
 
 type LifecycleRow = {
   id: string;
@@ -124,37 +119,6 @@ function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === "object" && "message" in error) return String(error.message);
   return String(error ?? "Unknown error.");
-}
-
-async function authorizeWade(request: Request, adminSupabase: ReturnType<typeof configuredSupabase>) {
-  const token = (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
-  if (!token) return { error: Response.json({ error: "You must be signed in." }, { status: 401 }) };
-
-  const { data: userData, error: userError } = await adminSupabase.auth.getUser(token);
-  if (userError || !userData.user) {
-    return { error: Response.json({ error: "Your session could not be verified." }, { status: 401 }) };
-  }
-
-  const { data: profile, error: profileError } = await adminSupabase
-    .from("profiles")
-    .select("full_name, email, is_disabled")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-
-  if (profileError || !profile) {
-    return { error: Response.json({ error: "Your TITAN profile could not be loaded." }, { status: 403 }) };
-  }
-
-  const row = profile as TitanProfile;
-  const isWade = normalized(row.full_name) === "wade wisenor"
-    || normalized(row.email) === "wade@pathfinderinspections.com"
-    || normalized(userData.user.email) === "wade@pathfinderinspections.com";
-
-  if (row.is_disabled || !isWade) {
-    return { error: Response.json({ error: "Connected Jobs is currently restricted to Wade." }, { status: 403 }) };
-  }
-
-  return { userId: userData.user.id };
 }
 
 function isTerminalStatus(status: string) {
@@ -305,10 +269,27 @@ async function loadJobDetail(
   });
 }
 
+async function requireDtiJob(
+  adminSupabase: ReturnType<typeof configuredSupabase>,
+  jobId: string,
+) {
+  const { data, error } = await adminSupabase
+    .from("titan_jobs")
+    .select("id, service_line")
+    .eq("id", jobId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || normalized(data.service_line) !== "dti") {
+    return Response.json({ error: "You do not have access to this connected job." }, { status: 403 });
+  }
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
-    const authorization = await authorizeWade(request, adminSupabase);
+    const authorization = await authorizeConnectedJobAccess(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
 
     const url = new URL(request.url);
@@ -334,12 +315,20 @@ export async function GET(request: Request) {
         throw error;
       }
       if (!data) return Response.json({ error: "Job document was not found." }, { status: 404 });
+      if (!authorization.canAccessCrm) {
+        const accessError = await requireDtiJob(adminSupabase, data.job_id);
+        if (accessError) return accessError;
+      }
 
       return Response.json({ ok: true, url: await secureDocumentUrl(adminSupabase, data as JobDocumentRow) });
     }
 
     if (jobId) {
       if (!validUuid(jobId)) return Response.json({ error: "A valid TITAN job is required." }, { status: 400 });
+      if (!authorization.canAccessCrm) {
+        const accessError = await requireDtiJob(adminSupabase, jobId);
+        if (accessError) return accessError;
+      }
       return loadJobDetail(adminSupabase, jobId);
     }
 
@@ -347,7 +336,7 @@ export async function GET(request: Request) {
     const pageSize = 1000;
 
     for (let start = 0; ; start += pageSize) {
-      const { data, error } = await adminSupabase
+      let jobsQuery = adminSupabase
         .from("titan_job_lifecycle_overview")
         .select([
           "id",
@@ -374,7 +363,9 @@ export async function GET(request: Request) {
           "latest_event_summary",
           "latest_event_at",
           "updated_at",
-        ].join(","))
+        ].join(","));
+      if (!authorization.canAccessCrm) jobsQuery = jobsQuery.eq("service_line", "DTI");
+      const { data, error } = await jobsQuery
         .order("scheduled_start", { ascending: false, nullsFirst: false })
         .range(start, start + pageSize - 1);
 
@@ -416,8 +407,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
-    const authorization = await authorizeWade(request, adminSupabase);
+    const authorization = await authorizeConnectedJobAccess(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
+    if (!authorization.canAccessCrm) {
+      return Response.json({ error: "CRM access is required to connect jobs to an operations board." }, { status: 403 });
+    }
 
     const body = (await request.json().catch(() => ({}))) as ConnectionBody;
     const jobId = String(body.jobId ?? "").trim();
@@ -455,7 +449,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const adminSupabase = configuredSupabase();
-    const authorization = await authorizeWade(request, adminSupabase);
+    const authorization = await authorizeConnectedJobAccess(request, adminSupabase);
     if ("error" in authorization) return authorization.error;
 
     const body = (await request.json().catch(() => ({}))) as IntelligenceBody;
@@ -471,6 +465,10 @@ export async function PATCH(request: Request) {
       .maybeSingle();
     if (jobError) throw jobError;
     if (!job) return Response.json({ error: "Connected job was not found." }, { status: 404 });
+    if (!authorization.canAccessCrm) {
+      const accessError = await requireDtiJob(adminSupabase, jobId);
+      if (accessError) return accessError;
+    }
 
     if (action === "save_deviation") {
       const deviationId = cleanText(body.deviationId);
