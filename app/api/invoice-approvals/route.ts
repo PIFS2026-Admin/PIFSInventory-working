@@ -120,7 +120,7 @@ async function activity(context: InvoiceRequestContext, invoiceId: string, actio
 async function workflowNotificationWarning(
   context: InvoiceRequestContext,
   invoice: Record<string, unknown> & { id: string },
-  kind: "assigned" | "reassigned" | "returned" | "disputed" | "approved",
+  kind: "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved",
   reason = "",
 ) {
   try {
@@ -146,10 +146,10 @@ async function duplicateMatches(context: InvoiceRequestContext, vendorName: stri
     .ilike("vendor_name", vendorName)
     .order("created_at", { ascending: false });
   if (result.error) throw result.error;
-  return (result.data || []).filter((row) => row.id !== excludeId && normalizedVendor(row.vendor_name) === normalizedVendor(vendorName) && normalizedInvoice(row.invoice_number) === normalizedInvoice(invoiceNumber));
+  return (result.data || []).filter((row) => row.id !== excludeId && row.status !== "voided" && normalizedVendor(row.vendor_name) === normalizedVendor(vendorName) && normalizedInvoice(row.invoice_number) === normalizedInvoice(invoiceNumber));
 }
 
-async function uploadFile(context: InvoiceRequestContext, invoiceId: string, file: File, kind: "original" | "corrected") {
+async function uploadFile(context: InvoiceRequestContext, invoiceId: string, file: File, kind: "original" | "corrected" | "supporting", documentType = "") {
   if (!allowedTypes.has(file.type)) throw new Error("Upload a PDF, JPG, or PNG invoice.");
   if (file.size <= 0 || file.size > 25 * 1024 * 1024) throw new Error("Invoice files must be between 1 byte and 25 MB.");
   await ensureBucket(context);
@@ -162,13 +162,16 @@ async function uploadFile(context: InvoiceRequestContext, invoiceId: string, fil
   const stored = await context.admin.storage.from(bucket).upload(path, bytes, { contentType: file.type, upsert: false });
   if (stored.error) throw stored.error;
 
-  const unset = await context.admin.from("titan_ap_invoice_files").update({ is_current: false }).eq("invoice_id", invoiceId).eq("is_current", true);
-  if (unset.error) throw unset.error;
+  if (kind !== "supporting") {
+    const unset = await context.admin.from("titan_ap_invoice_files").update({ is_current: false }).eq("invoice_id", invoiceId).eq("is_current", true);
+    if (unset.error) throw unset.error;
+  }
   const inserted = await context.admin.from("titan_ap_invoice_files").insert({
     invoice_id: invoiceId,
     file_kind: kind,
+    document_type: kind === "supporting" ? documentType : null,
     version_number: version,
-    is_current: true,
+    is_current: kind !== "supporting",
     storage_bucket: bucket,
     storage_path: path,
     original_file_name: file.name,
@@ -227,7 +230,7 @@ export async function GET(request: Request) {
     const profileIds = Array.from(new Set(invoices.flatMap((row) => [row.assigned_approver_id, row.uploaded_by]).filter(Boolean)));
     const [coding, files, approvals, activityRows, profiles] = ids.length ? await Promise.all([
       context.admin.from("titan_ap_invoice_coding_lines").select("*").in("invoice_id", ids).order("line_number"),
-      context.admin.from("titan_ap_invoice_files").select("id,invoice_id,file_kind,version_number,is_current,original_file_name,mime_type,file_size,sha256,uploaded_by_name,uploaded_at").in("invoice_id", ids).order("version_number", { ascending: false }),
+      context.admin.from("titan_ap_invoice_files").select("id,invoice_id,file_kind,document_type,version_number,is_current,original_file_name,mime_type,file_size,sha256,uploaded_by_name,uploaded_at").in("invoice_id", ids).order("version_number", { ascending: false }),
       context.admin.from("titan_ap_invoice_approvals").select("*").in("invoice_id", ids),
       context.admin.from("titan_ap_invoice_activity").select("*").in("invoice_id", ids).order("created_at", { ascending: false }),
       profileIds.length ? context.admin.from("profiles").select("id,full_name,email").in("id", profileIds) : Promise.resolve({ data: [], error: null }),
@@ -312,11 +315,26 @@ async function replaceFile(context: InvoiceRequestContext, form: FormData) {
   if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can replace invoice files.");
   const invoiceId = text(form.get("invoiceId"));
   const invoice = await getInvoice(context, invoiceId);
-  if (invoice.status === "approved") throw new Error("Approved invoice files are locked.");
+  if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoice files are locked.");
   const file = form.get("file");
   if (!(file instanceof File)) throw new Error("Select the corrected invoice file.");
   const stored = await uploadFile(context, invoiceId, file, "corrected");
   await activity(context, invoiceId, "file_replaced", invoice.status, invoice.status, text(form.get("note")) || "Corrected invoice uploaded.", { file_id: stored.id, version_number: stored.version_number });
+  return Response.json({ ok: true });
+}
+
+async function uploadSupportingFile(context: InvoiceRequestContext, form: FormData) {
+  const invoiceId = text(form.get("invoiceId"));
+  const invoice = await getInvoice(context, invoiceId);
+  const isAssignedApprover = invoice.assigned_approver_id === context.actor.id && context.invoicePermissions.approve;
+  if (!(context.isAp && context.invoicePermissions.edit) && !isAssignedApprover) throw new Error("Only AP or the assigned approver can attach supporting documents.");
+  if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices are locked.");
+  const documentType = text(form.get("documentType"));
+  if (!["receipt", "purchase_order", "correspondence", "other"].includes(documentType)) throw new Error("Select a supporting document type.");
+  const file = form.get("file");
+  if (!(file instanceof File)) throw new Error("Select a supporting PDF or image.");
+  const stored = await uploadFile(context, invoiceId, file, "supporting", documentType);
+  await activity(context, invoiceId, "supporting_document_added", invoice.status, invoice.status, text(form.get("note")), { file_id: stored.id, document_type: documentType, file_name: stored.original_file_name });
   return Response.json({ ok: true });
 }
 
@@ -326,7 +344,10 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type") || "";
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
-      return text(form.get("action")) === "replace_file" ? replaceFile(context, form) : createInvoice(request, context, form);
+      const action = text(form.get("action"));
+      if (action === "replace_file") return replaceFile(context, form);
+      if (action === "upload_supporting") return uploadSupportingFile(context, form);
+      return createInvoice(request, context, form);
     }
 
     const body = await request.json() as Record<string, unknown>;
@@ -404,9 +425,55 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
     }
 
+    if (action === "resolve_dispute") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can resolve disputed invoices.");
+      if (invoice.status !== "disputed") throw new Error("Only disputed invoices can be resolved.");
+      const note = text(body.note);
+      if (!note) throw new Error("Enter an AP resolution note.");
+      const approverId = text(body.approverId) || invoice.assigned_approver_id;
+      await assertApprover(context, approverId);
+      const updated = await context.admin.from("titan_ap_invoices").update({
+        assigned_approver_id: approverId,
+        assigned_by: context.actor.id,
+        assigned_at: new Date().toISOString(),
+        status: "awaiting_approval",
+        resolution_note: note,
+        resolved_by: context.actor.id,
+        resolved_by_name: context.actor.fullName,
+        resolved_at: new Date().toISOString(),
+        row_version: Number(invoice.row_version || 0) + 1,
+      }).eq("id", invoiceId).eq("status", "disputed").select("id").maybeSingle();
+      if (updated.error) throw updated.error;
+      if (!updated.data) throw new Error("This dispute changed before resolution completed. Refresh and try again.");
+      await activity(context, invoiceId, "dispute_resolved", "disputed", "awaiting_approval", note, { approver_id: approverId, original_dispute_reason: invoice.dispute_reason });
+      const notificationWarning = await workflowNotificationWarning(context, { ...invoice, assigned_approver_id: approverId }, "resolved", note);
+      return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
+    }
+
+    if (action === "void") {
+      if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can void invoices.");
+      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved or already voided invoices cannot be voided.");
+      const reason = text(body.reason);
+      if (!reason) throw new Error("Enter a reason for voiding this invoice.");
+      const updated = await context.admin.from("titan_ap_invoices").update({
+        status: "voided",
+        void_reason: reason,
+        voided_by: context.actor.id,
+        voided_by_name: context.actor.fullName,
+        voided_at: new Date().toISOString(),
+        row_version: Number(invoice.row_version || 0) + 1,
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").select("id").maybeSingle();
+      if (updated.error) throw updated.error;
+      if (!updated.data) throw new Error("This invoice changed before it could be voided. Refresh and try again.");
+      await activity(context, invoiceId, "voided", invoice.status, "voided", reason);
+      const notificationWarning = await workflowNotificationWarning(context, invoice, "voided", reason);
+      return Response.json({ ok: true, notificationWarning: notificationWarning || undefined });
+    }
+
     if (action === "reassign") {
       if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can assign invoices.");
-      if (invoice.status === "approved") throw new Error("Approved invoices cannot be reassigned.");
+      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices cannot be reassigned.");
+      if (invoice.status === "disputed") throw new Error("Resolve the dispute with an AP resolution note before reassignment.");
       const approverId = text(body.approverId);
       await assertApprover(context, approverId);
       const updated = await context.admin.from("titan_ap_invoices").update({
@@ -417,7 +484,7 @@ export async function POST(request: Request) {
         dispute_reason: null,
         return_reason: null,
         row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").select("id").maybeSingle();
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").neq("status", "disputed").select("id").maybeSingle();
       if (updated.error) throw updated.error;
       if (!updated.data) throw new Error("This invoice was approved before reassignment completed.");
       await activity(context, invoiceId, "reassigned", invoice.status, "awaiting_approval", text(body.note), { previous_approver_id: invoice.assigned_approver_id, approver_id: approverId });
@@ -427,7 +494,7 @@ export async function POST(request: Request) {
 
     if (action === "update_invoice") {
       if (!context.isAp || !context.invoicePermissions.edit) throw new Error("Only AP can edit invoice details.");
-      if (invoice.status === "approved") throw new Error("Approved invoices are locked.");
+      if (["approved", "voided"].includes(invoice.status)) throw new Error("Approved and voided invoices are locked.");
       const vendorName = text(body.vendorName) || invoice.vendor_name;
       const invoiceNumber = text(body.invoiceNumber) || invoice.invoice_number;
       const totalAmount = money(body.totalAmount);
@@ -447,7 +514,7 @@ export async function POST(request: Request) {
         duplicate_acknowledged_at: matches.length ? new Date().toISOString() : invoice.duplicate_acknowledged_at,
         duplicate_acknowledgment_note: matches.length ? text(body.duplicateNote) || "AP reviewed the possible duplicate warning." : invoice.duplicate_acknowledgment_note,
         row_version: Number(invoice.row_version || 0) + 1,
-      }).eq("id", invoiceId).neq("status", "approved").select("id").maybeSingle();
+      }).eq("id", invoiceId).neq("status", "approved").neq("status", "voided").select("id").maybeSingle();
       if (update.error) throw update.error;
       if (!update.data) throw new Error("This invoice was approved before the edit completed.");
       await activity(context, invoiceId, "invoice_updated", invoice.status, invoice.status, text(body.notes), { invoice_number: invoiceNumber, total_amount: totalAmount });

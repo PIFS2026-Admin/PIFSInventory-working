@@ -42,12 +42,14 @@ export async function GET(request: Request) {
     if (!invoiceCanView(context, invoice)) throw new Error("You do not have access to this invoice.");
     if (invoice.status !== "approved") throw new Error("The approved packet is available after approval.");
 
-    const [approvalResult, fileResult] = await Promise.all([
+    const [approvalResult, fileResult, supportingResult] = await Promise.all([
       context.admin.from("titan_ap_invoice_approvals").select("*").eq("invoice_id", invoiceId).single(),
       context.admin.from("titan_ap_invoice_files").select("*").eq("invoice_id", invoiceId).eq("is_current", true).single(),
+      context.admin.from("titan_ap_invoice_files").select("*").eq("invoice_id", invoiceId).eq("file_kind", "supporting").order("version_number", { ascending: true }),
     ]);
     if (approvalResult.error || !approvalResult.data) throw new Error("The authenticated approval record is missing.");
     if (fileResult.error || !fileResult.data) throw new Error("The original invoice file is missing.");
+    if (supportingResult.error) throw supportingResult.error;
     const approval = approvalResult.data;
     const storedFile = fileResult.data;
     const [downloaded, signatureDownload] = await Promise.all([
@@ -60,6 +62,11 @@ export async function GET(request: Request) {
     if (signatureDownload.error) throw signatureDownload.error;
     const sourceBytes = new Uint8Array(await downloaded.data.arrayBuffer());
     const signatureBytes = signatureDownload.data ? new Uint8Array(await signatureDownload.data.arrayBuffer()) : null;
+    const supportingDocuments = await Promise.all((supportingResult.data || []).map(async (file) => {
+      const result = await context.admin.storage.from(file.storage_bucket).download(file.storage_path);
+      if (result.error || !result.data) throw result.error || new Error(`Supporting document ${file.original_file_name} could not be downloaded.`);
+      return { file, bytes: new Uint8Array(await result.data.arrayBuffer()) };
+    }));
 
     const packet = await PDFDocument.create();
     const regular = await packet.embedFont(StandardFonts.Helvetica);
@@ -159,6 +166,24 @@ export async function GET(request: Request) {
       const dimensions = image.scaleToFit(540, 720);
       const originalPage = packet.addPage([612, 792]);
       originalPage.drawImage(image, { x: (612 - dimensions.width) / 2, y: (792 - dimensions.height) / 2, width: dimensions.width, height: dimensions.height });
+    }
+
+    for (const document of supportingDocuments) {
+      const label = `${clean(document.file.document_type || "Supporting document").replaceAll("_", " ").toUpperCase()}: ${clean(document.file.original_file_name)}`;
+      if (document.file.mime_type === "application/pdf") {
+        const supportingPdf = await PDFDocument.load(document.bytes);
+        const pages = await packet.copyPages(supportingPdf, supportingPdf.getPageIndices());
+        pages.forEach((supportingPage, index) => {
+          if (index === 0) supportingPage.drawText(label, { x: 18, y: supportingPage.getHeight() - 18, size: 7, font: bold, color: orange });
+          packet.addPage(supportingPage);
+        });
+      } else {
+        const image = document.file.mime_type === "image/png" ? await packet.embedPng(document.bytes) : await packet.embedJpg(document.bytes);
+        const dimensions = image.scaleToFit(540, 690);
+        const supportingPage = packet.addPage([612, 792]);
+        supportingPage.drawText(label, { x: 36, y: 760, size: 8, font: bold, color: orange });
+        supportingPage.drawImage(image, { x: (612 - dimensions.width) / 2, y: 36, width: dimensions.width, height: dimensions.height });
+      }
     }
 
     const bytes = await packet.save();

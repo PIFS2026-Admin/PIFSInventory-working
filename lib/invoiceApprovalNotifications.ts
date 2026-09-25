@@ -11,7 +11,7 @@ import {
 } from "./modulePermissions";
 
 type AdminClient = SupabaseClient;
-type WorkflowKind = "assigned" | "reassigned" | "returned" | "disputed" | "approved";
+type WorkflowKind = "assigned" | "reassigned" | "resolved" | "voided" | "returned" | "disputed" | "approved";
 type InvoiceRow = Record<string, unknown> & {
   id: string;
   vendor_name?: string;
@@ -250,6 +250,18 @@ function workflowNotice(kind: WorkflowKind, invoice: InvoiceRow, actorName: stri
     priority: "high",
     category: "invoice_assignment",
   };
+  if (kind === "resolved") return {
+    title: `Invoice dispute resolved: ${vendor} ${number}`,
+    body: `${actorName} resolved the dispute for ${vendor} invoice ${number} for ${amount}. Resolution: ${reason}`,
+    priority: "high",
+    category: "invoice_resolved",
+  };
+  if (kind === "voided") return {
+    title: `Invoice voided: ${vendor} ${number}`,
+    body: `${actorName} voided ${vendor} invoice ${number} for ${amount}. Reason: ${reason}`,
+    priority: "normal",
+    category: "invoice_voided",
+  };
   if (kind === "approved") return {
     title: `Invoice approved: ${vendor} ${number}`,
     body: `${actorName} approved and electronically signed ${vendor} invoice ${number} for ${amount}.`,
@@ -273,7 +285,7 @@ export async function notifyInvoiceWorkflow(options: {
   reason?: string;
 }): Promise<DeliveryResult> {
   const { admin, invoice, kind, actorId, actorName, reason } = options;
-  const recipients = kind === "assigned" || kind === "reassigned"
+  const recipients = kind === "assigned" || kind === "reassigned" || kind === "resolved" || kind === "voided"
     ? await eligibleRecipients(admin, [text(invoice.assigned_approver_id)])
     : (await eligibleRecipients(admin, [], true)).filter((recipient) => recipient.id !== actorId);
   return deliver(admin, recipients, invoice, workflowNotice(kind, invoice, actorName, reason), actorId);
